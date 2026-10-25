@@ -9,7 +9,7 @@ const source = readFileSync(join(__dirname, '../js/road-network.js'), 'utf8');
 // A city with no Manhattan grid (no avenues or streets): the network comes from GEO.roadGraph alone
 function buildPureGraph(roadGraph) {
   const config = {
-    ALL_AVENUES: [], ALL_STREETS: [], AVENUES: [], STREETS: [], BLOCKS: [],
+    ALL_AVENUES: [], ALL_STREETS: [], AVENUES: [], STREETS: [], BLOCKS: [], SIGNAL_SITES: [],
     CITY_BOUNDS: { minX: -200, maxX: 600, minZ: -200, maxZ: 400 },
     isLand: () => true
   };

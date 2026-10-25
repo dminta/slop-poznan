@@ -132,6 +132,18 @@ The goal is that no runtime code asks "west/east shore at z".
 
 ### Phase 2: Graph-generic traffic semantics
 
+**Status: done.** Signals come from `SIGNAL_SITES` (option a). Crosswalks follow `n.arms` and the walk phase follows the arm's
+group. Buses spawn on `e.major`. `buildRoadGraph({ wholeArea: true })` lifts the 14th St and `NORTHERN_ROADS` limits. The
+geodata rebuild stays byte-identical. Behaviour changes on Manhattan:
+- 3,454 new crosswalks at 841 unsignalised centreline junctions south of 14th St. Pedestrians have priority there.
+- Buses now run on the crosstown streets (14th, 23rd, 34th, 42nd, …) and on Houston, Canal and Delancey. They no longer
+  run on narrow avenues (Manhattan Ave, Vanderbilt, Irving Pl, Ave C) or on Park Row.
+- Links with no width take their road's median width instead of 18 m (Park Row, Bowery, Broadway, Cooper Sq).
+- 166 centreline edges switched `axis`, so `major` now decides which road is group 0.
+
+Left open: pedestrians that start a crossing still spawn only at signalised crosswalks (`nearSignals` in `refreshNear`).
+The signal-mast layout in `street-details.js` still assumes axis-aligned junctions; that is Phase 11 work.
+
 1. **Signals from one source.** `road-network.js` step 8 (:1073-1079) and `street-details.js` §1 (:227-230) both loop
    `AVENUES × STREETS`. Change it so that:
    - `buildRoadNetwork` marks `node.signal` from a list of signalised positions (NYC: the 63 core corners; Poznań:
