@@ -106,15 +106,19 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   const { nodes, edges, connector, curvePoint } = network;
 
   // Sides of an intersection (road-network.js step 9): a grid intersection's are 0 east, 1 west, 2 south, 3 north;
-  // centreline junctions number their arms from 4. Where lane i of edge e meets a crosswalk, measured along the
-  // crosswalk: along its road's lateral axis (x across north-south roads, z across east-west ones)
-  const laneCoord = (e, i) => (e.sx + e.rx * e.lanes[i]) * e.clx + (e.sz + e.rz * e.lanes[i]) * e.clz;
+  // centreline junctions number their arms from 4. Where lane i of edge e meets the crosswalk of `arm` (e.inArm at
+  // e.to or e.outArm at e.from), measured along the crosswalk: along the lateral axis of the arm's road, taken from
+  // its edge in, else out, as pedestrian-routes.js lays the crosswalk (x across north-south roads, z across east-west
+  // ones). One axis per arm keeps the two roadways of a divided road, up to 20 degrees apart, on the walkers' scale.
+  const laneCoord = (e, i, arm) => {
+    const c = arm.in || arm.out, s = arm === e.inArm ? e.len : 0;
+    return (e.sx + e.dx * s + e.rx * e.lanes[i]) * c.clx + (e.sz + e.dz * s + e.rz * e.lanes[i]) * c.clz;
+  };
 
   for (const n of nodes) {
     n.box = new Array(n.groupCount).fill(0); // vehicles crossing it from each road (group: on the grid avenue 0, street 1)
     n.crossing = new Array(n.sideCount).fill(0); // vehicles crossing (or about to cross) the crosswalk on each side
     n.approach = new Array(n.sideCount).fill(null); // the edge arriving over each side's crosswalk
-    n.road = new Array(n.sideCount).fill(null); // an edge arriving or leaving over each side's crosswalk: the road it spans
     n.walkers = []; // pedestrians on its crosswalks
     n.curb = []; // pedestrians at the curbs of its crosswalks, standing or about to (who to queue behind)
   }
@@ -123,7 +127,6 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     // e.inSide / e.outSide: the crosswalks crossed on the way into e.to / out of e.from; e.axisIndex: its group at e.to;
     // e.opposite: the oncoming edge of its road there (road-network.js)
     e.to.approach[e.inSide] = e;
-    e.to.road[e.inSide] = e.from.road[e.outSide] = e;
     e.through = 0; // vehicles from e crossing e.to straight on or to the right
     e.lefts = 0; // and to the left
   }
@@ -341,6 +344,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       dir: 1,
       node: null, // the intersection of its crosswalk, which side of it, where along it
       side: 0,
+      group: 0, // the right-of-way group of the road it crosses there, whose phase holds the WALK
       coord: 0,
       line: 0, // its line over the crosswalk, off the centre line
       waiting: false,
@@ -764,7 +768,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
 
   // ...on the crosswalk v leaves the intersection over, while v, its front bumper d metres before it, passes? Once v
   // holds that crosswalk (it isn't waiting inside to turn), people at the curb wait for it.
-  const pedsOut = (v, d) => d > 0 && pedestrianOn(v.edge.to, v.move.to.outSide, laneCoord(v.move.to, v.out), timeTo(v, d), timeTo(v, d + 3 + 2 * v.half), !v.yielding);
+  const pedsOut = (v, d) => d > 0 && pedestrianOn(v.edge.to, v.move.to.outSide, laneCoord(v.move.to, v.out, v.move.to.outArm), timeTo(v, d), timeTo(v, d + 3 + 2 * v.half), !v.yielding);
 
   // Must v, pulled into the intersection to turn, wait there: for people crossing its way out (`peds`) or, turning
   // left, for oncoming traffic?
@@ -886,8 +890,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     if ((n.signal ? v.isPolice && phase !== 'green' : e.axisIndex !== 0) && yieldToCrossTraffic(v, n)) return false;
     // nobody on the crosswalks while it passes over them, on the way in and on the way out, and a free place to
     // clear the intersection to, taking turns with lanes merging into it
-    if (pedestrianOn(n, e.inSide, laneCoord(e, v.lane), 0, timeTo(v, d + 2.5 + 2 * v.half))) return false;
-    if (wait < 0 && pedestrianOn(n, f.outSide, laneCoord(f, j), timeTo(v, d + c.len - 3), timeTo(v, d + c.len + 2 * v.half))) return false;
+    if (pedestrianOn(n, e.inSide, laneCoord(e, v.lane, e.inArm), 0, timeTo(v, d + 2.5 + 2 * v.half))) return false;
+    if (wait < 0 && pedestrianOn(n, f.outSide, laneCoord(f, j, f.outArm), timeTo(v, d + c.len - 3), timeTo(v, d + c.len + 2 * v.half))) return false;
     const vs = v.s - e.len - c.len; // where on f it would be now
     if (!room(f, j, v) || alongside(f, j, v, vs, m.turn !== 'S') || mergingAhead(v, f, j)) return false;
     v.out = j;
@@ -1392,7 +1396,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // =========================================================================
   const KERB = 1.6; // how far along a crosswalk track pedestrians wait to cross (the curb is 2 m along)
   const pedRoutes = createPedestrianRoutes(network, blockAt);
-  const track = { ax: 0, az: 0, ux: 0, uz: 1, len: 1, node: null, side: 0, line: 0, route: null };
+  const track = { ax: 0, az: 0, ux: 0, uz: 1, len: 1, node: null, side: 0, group: 0, line: 0, route: null };
 
   function sidewalkTrack(e) {
     const choices = pedRoutes.along(e);
@@ -1466,15 +1470,16 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     return false;
   }
 
-  // Do people on crosswalk `side` have the WALK? Across the avenue with the cross street's traffic, across the street
-  // with the avenue's.
-  const walkOn = (side) => (side >= 2 ? stWalk : aveWalk);
+  // Does p, on a crosswalk, have the WALK? Over group 0's road (the avenue on the grid, the widest road elsewhere)
+  // with the other roads' traffic, over the others with group 0's. Without a signal always: people waiting at the curb
+  // have priority, and vehicles yield to them through pedestrianOn as on the WALK.
+  const walkOn = (p) => !p.node.signal || (p.group === 0 ? stWalk : aveWalk);
 
   // May p step off the curb onto its crosswalk? On the WALK (early in the parallel traffic's green, so red for the
   // traffic arriving over it), once no vehicle is crossing it or committed to, and none is too close to stop
   function mayCross(p) {
     const n = p.node;
-    if (!walkOn(p.side) || n.crossing[p.side] > 0) return false;
+    if (!walkOn(p) || n.crossing[p.side] > 0) return false;
     const e = n.approach[p.side];
     if (!e) return true;
     for (const list of e.occ) {
@@ -1590,8 +1595,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     p.t = t;
     p.x = p.ax + p.ux * t;
     p.z = p.az + p.uz * t;
-    if (p.node && ((t > KERB && t < p.len - KERB) || (p.waiting && walkOn(p.side)))) {
-      p.coord = p.side >= 2 ? p.x : p.z;
+    if (p.node && ((t > KERB && t < p.len - KERB) || (p.waiting && walkOn(p)))) {
+      p.coord = p.x * p.ux + p.z * p.uz; // along the crosswalk, on laneCoord's scale
       if (!p.node.walkers.length) walkedNodes.push(p.node);
       p.node.walkers.push(p);
     }

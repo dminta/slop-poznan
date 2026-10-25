@@ -1,3 +1,5 @@
+import { CROSSWALK } from './road-network.js';
+
 // Small, lazily connected sidewalk tracks. Junctions only connect points on the same curb island;
 // crossing the roadway is a separate, signal-controlled track owned by traffic.js.
 function createPedestrianRoutes({ walkable, onSidewalk }, blockAt) {
@@ -6,7 +8,7 @@ function createPedestrianRoutes({ walkable, onSidewalk }, blockAt) {
   const segment = (a, b, extra = {}) => {
     const len = Math.hypot(b.x - a.x, b.z - a.z);
     return { ax: a.x, az: a.z, ux: (b.x - a.x) / len, uz: (b.z - a.z) / len,
-      len, node: null, side: 0, line: 0, ...extra };
+      len, node: null, side: 0, group: 0, line: 0, ...extra };
   };
 
   function clear(a, b, block = null) {
@@ -40,22 +42,41 @@ function createPedestrianRoutes({ walkable, onSidewalk }, blockAt) {
     return result;
   }
 
+  // One crosswalk per junction arm (road-network.js step 9), over the painted one (road-paint.js: CROSSWALK deep, just
+  // short of the stop lines) and along the lateral axis of the arm's road (clx/clz of its edge in, else out, the axis
+  // traffic.js measures lanes and walkers on). The arms of a grid intersection (sides 0-3) keep their crosswalks at
+  // the box's edge, where they were before junctions had arms, even where a centreline road joins and pushes the stop
+  // lines back. Signals aside, only centreline junctions get crosswalks: there people cross with priority over
+  // turning and arriving traffic, while the grid's unsignalised corners keep to the sidewalks as they always have.
   function across(n) {
     if (crossings.has(n)) return crossings.get(n);
     const result = [];
     crossings.set(n, result);
-    if (!n.signal) return result;
-    for (let side = 0; side < 4; side++) {
-      const road = n.road[side];
-      if (!road) continue;
-      const avenue = side >= 2, sign = side % 2 === 0 ? 1 : -1;
-      for (const line of avenue ? [sign * 0.75] : [-0.75, 0.75]) {
-        const a = { x: avenue ? road.x0 - road.half - 2 : n.x + sign * (n.hx + 1.25) + line,
-          z: avenue ? n.z + sign * (n.hz + 1.25) + line : road.z0 - road.half - 2 };
-        const len = road.half * 2 + 4;
-        const b = { x: a.x + (avenue ? len : 0), z: a.z + (avenue ? 0 : len) };
-        if (!onSidewalk(a.x, a.z) || !onSidewalk(b.x, b.z) || !clear(a, b)) continue;
-        result.push(segment(a, b, { node: n, side, line, from: n, to: n }));
+    if (n.shape || !(n.signal || n.general)) return result;
+    for (const arm of n.arms) {
+      const road = arm.in || arm.out, grid = !n.general && arm.side < 4;
+      const cx = road.clx, cz = road.clz, k = road.dx * arm.ux + road.dz * arm.uz > 0 ? 1 : -1;
+      const ux = road.dx * k, uz = road.dz * k; // out of the junction, square to the crosswalk
+      // depth of its centre line from n, and its span curb to curb (both roadways of a divided road)
+      let depth = 0, count = 0, lo = Infinity, hi = -Infinity;
+      for (const e of [arm.in, arm.out]) {
+        if (!e) continue;
+        const s = e === arm.in ? e.len + CROSSWALK / 2 : -CROSSWALK / 2;
+        const x = e.sx + e.dx * s, z = e.sz + e.dz * s, c = x * cx + z * cz;
+        depth += (x - n.x) * ux + (z - n.z) * uz;
+        count++;
+        lo = Math.min(lo, c - e.half);
+        hi = Math.max(hi, c + e.half);
+      }
+      depth = grid ? (arm.side >= 2 ? n.hz : n.hx) + CROSSWALK / 2 : depth / count;
+      const along = n.x * ux + n.z * uz, len = hi - lo + 4;
+      // one line over the widest road (group 0: the avenue on the grid), set back from the box; two over the others
+      for (const line of arm.group === 0 ? [0.75] : [-0.75, 0.75]) {
+        const a = { x: cx * (lo - 2) + ux * (along + depth + line), z: cz * (lo - 2) + uz * (along + depth + line) };
+        const b = { x: a.x + cx * len, z: a.z + cz * len };
+        if (grid ? !onSidewalk(a.x, a.z) || !onSidewalk(b.x, b.z) : !blockAt(a.x, a.z) || !blockAt(b.x, b.z)) continue;
+        if (!clear(a, b)) continue;
+        result.push(segment(a, b, { node: n, side: arm.side, group: arm.group, line, from: n, to: n }));
       }
     }
     return result;
