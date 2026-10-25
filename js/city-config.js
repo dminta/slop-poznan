@@ -138,6 +138,14 @@ const STREETS = [
   coreSt(23, '23rd St', { isMajor: true })
 ];
 
+// Signalised intersections: the one list that both road-network.js (node.signal) and street-details.js (signal heads)
+// read, since street details are built before the road network exists. Each site is a junction centre (x, z) plus the
+// widths of its north-south road (nsWidth, signal group 0) and east-west road (ewWidth, group 1), which place the
+// corner masts. Manhattan: the 63 core avenue x street corners, avenue-major (the mast spacing check depends on order).
+const SIGNAL_SITES = AVENUES.flatMap((a) =>
+  STREETS.map((s) => ({ x: a.x, z: s.z, nsWidth: a.width, ewWidth: s.width }))
+);
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Central Park (the NYC Parks property: 59th to 110th St, 5th Ave to Central Park West, at the park walls)
 // ---------------------------------------------------------------------------------------------------------------------
@@ -762,14 +770,16 @@ function isTypingInField(e) {
   return e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT');
 }
 
-// Traffic signal cycle shared by the signal heads (street-details.js) and the traffic (traffic.js), in seconds:
-// avenues green until avenueAmber, amber until avenueRed; cross streets green from avenueRed until streetAmber,
-// amber until the end of the cycle. Pedestrians cross with the traffic that runs parallel to them, stepping off
+// Traffic signal cycle shared by the signal heads (street-details.js) and the traffic (traffic.js), in seconds. A signal
+// runs two groups (road-network.js sidesAndGroups): group 0, the avenue on the grid or the widest road elsewhere, and
+// group 1, the cross street or the other roads. The `avenue*` timings and `isAvenue` flags mean group 0: it is green
+// until avenueAmber, amber until avenueRed; group 1 is green from avenueRed until streetAmber, amber until the end of
+// the cycle. Pedestrians cross with the traffic that runs parallel to them, stepping off
 // only on the WALK, the first `walk` seconds of its green: long enough before the cross traffic's green for the
 // slowest walker to get across the widest avenue.
 const SIGNAL_TIMING = { cycle: 60, avenueAmber: 26, avenueRed: 30, streetAmber: 56, walk: 7 };
 
-// 'green', 'amber' or 'red' for avenue or cross street traffic at a given time
+// 'green', 'amber' or 'red' for group 0 (isAvenue) or group 1 traffic at a given time
 function signalPhase(time, isAvenue) {
   const { cycle, avenueAmber, avenueRed, streetAmber } = SIGNAL_TIMING;
   const t = ((time % cycle) + cycle) % cycle;
@@ -777,7 +787,7 @@ function signalPhase(time, isAvenue) {
   return t < avenueRed ? 'red' : t < streetAmber ? 'green' : 'amber';
 }
 
-// Do pedestrians walking alongside avenue (or cross street) traffic have the WALK at a given time?
+// Do pedestrians walking alongside group 0 (isAvenue) or group 1 traffic have the WALK at a given time?
 function walkSignal(time, isAvenue) {
   const { cycle, avenueRed, walk } = SIGNAL_TIMING;
   const t = (((time - (isAvenue ? 0 : avenueRed)) % cycle) + cycle) % cycle;
@@ -828,6 +838,7 @@ export {
   LANDMARK_BLOCKS,
   BLOCKS,
   CUT_Z,
+  SIGNAL_SITES,
   SIGNAL_TIMING,
   streetZ,
   avenueX,

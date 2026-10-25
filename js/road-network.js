@@ -1,8 +1,7 @@
 import {
   ALL_AVENUES,
   ALL_STREETS,
-  AVENUES,
-  STREETS,
+  SIGNAL_SITES,
   CITY_BOUNDS,
   isLand,
   BLOCKS
@@ -918,6 +917,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
       }
       groups = 2;
     }
+    // elsewhere groups go by rank, so group 0 is the widest road; a signal runs two phases, group 0's and the rest's
     roads.sort((p, q) => q.rank - p.rank);
     for (const r of roads) if (r.group < 0) r.group = groups++;
     for (const r of roads) for (const m of r.members) m.group = r.group;
@@ -1068,18 +1068,16 @@ function buildRoadNetwork(sidewalks, obstacles) {
   nodes = nodes.filter((n) => n.in && n.out);
   nodes.forEach((n, i) => (n.id = i));
 
-  // 8. Signalized intersections are exactly the ones with signal heads (street-details.js)
-  for (const a of AVENUES) {
-    for (const s of STREETS) {
-      const n = nodes.find((m) => Math.abs(m.x - a.x) < 4 && Math.abs(m.z - s.z) < 4);
-      if (n) n.signal = true;
-    }
+  // 8. Signalized intersections are exactly the ones with signal heads: both come from SIGNAL_SITES (city-config.js)
+  for (const site of SIGNAL_SITES) {
+    const n = nodes.find((m) => Math.abs(m.x - site.x) < 4 && Math.abs(m.z - site.z) < 4);
+    if (n) n.signal = true;
   }
 
   // 9. Sides & right of way at each node, for traffic.js. Its arms are its sides (one crosswalk and approach each): a
   //    grid intersection keeps east 0, west 1, south 2, north 3, any other arm counts from 4. The arms of one road (on
   //    opposite sides) form a group: vehicles of different groups never share the intersection box, and group 0 has
-  //    the right of way at unsignalised corners (and the avenue phase at signals): the avenue on the grid (north-south
+  //    the right of way at unsignalised corners (and the first phase at signals): the avenue on the grid (north-south
   //    arms 0, east-west 1), the widest road at a centreline junction.
   computeArms(edges);
   for (const n of nodes) sidesAndGroups(n);

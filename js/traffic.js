@@ -414,6 +414,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // 4. WHO IS WHERE: LANE OCCUPANCY, INTERSECTIONS, VIEW, PLAYER
   // =========================================================================
   let clock = 0;
+  // Signal phases of group 0 (ave*: the avenue on the grid, the widest road at other junctions) and of every other
+  // group (st*), from sidesAndGroups in road-network.js
   let avePhase = 'green';
   let stPhase = 'red';
   let aveWalk = true;

@@ -4,6 +4,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
   AVENUES,
   STREETS,
+  SIGNAL_SITES,
   streetZ,
   SIGNAL_TIMING,
   blockAt,
@@ -224,92 +225,88 @@ function buildStreetDetails(scene) {
     return true;
   };
 
-  for (let a = 0; a < AVENUES.length; a++) {
-    const ave = AVENUES[a];
-    for (let s = 0; s < STREETS.length; s++) {
-      const st = STREETS[s];
-      const cornerOffsetX = ave.width * 0.5 + 1.25;
-      const cornerOffsetZ = st.width * 0.5 + 1.25;
+  for (const site of SIGNAL_SITES) {
+    const cornerOffsetX = site.nsWidth * 0.5 + 1.25;
+    const cornerOffsetZ = site.ewWidth * 0.5 + 1.25;
 
-      // Place diagonal pair of traffic signal masts at NE and SW corners of every intersection
-      const corners = [
-        { sx: 1, sz: -1, armDir: -1 },
-        { sx: -1, sz: 1, armDir: 1 }
-      ];
+    // Place diagonal pair of traffic signal masts at NE and SW corners of every intersection
+    const corners = [
+      { sx: 1, sz: -1, armDir: -1 },
+      { sx: -1, sz: 1, armDir: 1 }
+    ];
 
-      for (const c of corners) {
-        let px = ave.x + c.sx * cornerOffsetX;
-        let pz = st.z + c.sz * cornerOffsetZ;
-        if (!isOnCurbIsland(px, pz, 0.55) || inPlaza(px, pz, 1.0)) {
-          // Try nudging slightly deeper into the block corner if clipped near the curb
-          const altX = ave.x + c.sx * (cornerOffsetX + 0.85);
-          const altZ = st.z + c.sz * (cornerOffsetZ + 0.85);
-          if (isOnCurbIsland(altX, altZ, 0.55) && !inPlaza(altX, altZ, 1.0)) {
-            px = altX;
-            pz = altZ;
-          } else {
-            continue;
-          }
+    for (const c of corners) {
+      let px = site.x + c.sx * cornerOffsetX;
+      let pz = site.z + c.sz * cornerOffsetZ;
+      if (!isOnCurbIsland(px, pz, 0.55) || inPlaza(px, pz, 1.0)) {
+        // Try nudging slightly deeper into the block corner if clipped near the curb
+        const altX = site.x + c.sx * (cornerOffsetX + 0.85);
+        const altZ = site.z + c.sz * (cornerOffsetZ + 0.85);
+        if (isOnCurbIsland(altX, altZ, 0.55) && !inPlaza(altX, altZ, 1.0)) {
+          px = altX;
+          pz = altZ;
+        } else {
+          continue;
         }
-        // Ensure the cantilevered mast arm actually overhangs the avenue roadway
-        if (blockAt(px + c.armDir * 3.1, pz) || !isClearOfPoles(px, pz, 6.0)) continue;
-        placedPoles.push({ x: px, z: pz });
-        addFootprint(px, pz, 0.5, 0.5);
-
-        // Vertical pole (6.4m tall)
-        dummy.position.set(px, 3.3, pz);
-        dummy.rotation.set(0, 0, 0);
-        dummy.scale.set(0.14, 6.4, 0.14);
-        dummy.updateMatrix();
-        poleMatrices.push(dummy.matrix.clone());
-
-        // NYC DOT Green Street Name Sign Blade mounted on pole (y = 4.65m)
-        dummy.position.set(px + c.armDir * 0.68, 4.65, pz);
-        dummy.scale.set(1.38, 0.34, 0.08);
-        dummy.updateMatrix();
-        streetBladeMatrices.push(dummy.matrix.clone());
-
-        // Pedestrian "WALK / DON'T WALK" signal on the pole at crosswalk level (y = 3.15m), facing across the street
-        dummy.position.set(px + c.armDir * 0.24, 3.15, pz);
-        dummy.scale.set(1, 1, 1);
-        dummy.updateMatrix();
-        walkBoxMatrices.push(dummy.matrix.clone());
-        // These panels share the avenue WALK phase; rejected/unplaced poles never become sound sources.
-        audioSignals.push({ x: dummy.position.x, y: dummy.position.y, z: dummy.position.z, isAvenue: true });
-
-        // Cantilever horizontal mast arm reaching 6.5m over the avenue
-        const armX = px + c.armDir * 3.25;
-        dummy.position.set(armX, 6.1, pz);
-        dummy.scale.set(6.5, 0.11, 0.11);
-        dummy.updateMatrix();
-        armMatrices.push(dummy.matrix.clone());
-
-        // Intersection corner cobra-head luminaire overhanging the crosswalk & corner sidewalk
-        const cornerLampX = px + c.armDir * 1.85;
-        dummy.position.set(cornerLampX, 6.22, pz);
-        dummy.scale.set(1, 1, 1);
-        dummy.updateMatrix();
-        lampHeadMatrices.push(dummy.matrix.clone());
-        cobraLampSites.push({
-          x: cornerLampX,
-          y: 6.18,
-          z: pz,
-          tx: px + c.armDir * 2.8,
-          tz: pz - c.sz * 1.4
-        });
-
-        // Two NYC yellow signal heads hanging from the mast arm: the avenue's (3.1 m out, facing up & down the avenue)
-        // and the cross street's (5.5 m out, turned to face along the street)
-        for (const armDist of [3.1, 5.5]) {
-          dummy.position.set(px + c.armDir * armDist, 5.42, pz);
-          dummy.rotation.set(0, armDist < 4.0 ? 0 : Math.PI / 2, 0);
-          dummy.scale.set(1, 1, 1);
-          dummy.updateMatrix();
-          yellowBoxMatrices.push(dummy.matrix.clone());
-          (armDist < 4.0 ? aveLensMatrices : streetLensMatrices).push(dummy.matrix.clone());
-        }
-        dummy.rotation.set(0, 0, 0);
       }
+      // Ensure the cantilevered mast arm actually overhangs the avenue roadway
+      if (blockAt(px + c.armDir * 3.1, pz) || !isClearOfPoles(px, pz, 6.0)) continue;
+      placedPoles.push({ x: px, z: pz });
+      addFootprint(px, pz, 0.5, 0.5);
+
+      // Vertical pole (6.4m tall)
+      dummy.position.set(px, 3.3, pz);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(0.14, 6.4, 0.14);
+      dummy.updateMatrix();
+      poleMatrices.push(dummy.matrix.clone());
+
+      // NYC DOT Green Street Name Sign Blade mounted on pole (y = 4.65m)
+      dummy.position.set(px + c.armDir * 0.68, 4.65, pz);
+      dummy.scale.set(1.38, 0.34, 0.08);
+      dummy.updateMatrix();
+      streetBladeMatrices.push(dummy.matrix.clone());
+
+      // Pedestrian "WALK / DON'T WALK" signal on the pole at crosswalk level (y = 3.15m), facing across the street
+      dummy.position.set(px + c.armDir * 0.24, 3.15, pz);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      walkBoxMatrices.push(dummy.matrix.clone());
+      // These panels share the avenue WALK phase; rejected/unplaced poles never become sound sources.
+      audioSignals.push({ x: dummy.position.x, y: dummy.position.y, z: dummy.position.z, isAvenue: true });
+
+      // Cantilever horizontal mast arm reaching 6.5m over the avenue
+      const armX = px + c.armDir * 3.25;
+      dummy.position.set(armX, 6.1, pz);
+      dummy.scale.set(6.5, 0.11, 0.11);
+      dummy.updateMatrix();
+      armMatrices.push(dummy.matrix.clone());
+
+      // Intersection corner cobra-head luminaire overhanging the crosswalk & corner sidewalk
+      const cornerLampX = px + c.armDir * 1.85;
+      dummy.position.set(cornerLampX, 6.22, pz);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      lampHeadMatrices.push(dummy.matrix.clone());
+      cobraLampSites.push({
+        x: cornerLampX,
+        y: 6.18,
+        z: pz,
+        tx: px + c.armDir * 2.8,
+        tz: pz - c.sz * 1.4
+      });
+
+      // Two NYC yellow signal heads hanging from the mast arm: the avenue's (3.1 m out, facing up & down the avenue)
+      // and the cross street's (5.5 m out, turned to face along the street)
+      for (const armDist of [3.1, 5.5]) {
+        dummy.position.set(px + c.armDir * armDist, 5.42, pz);
+        dummy.rotation.set(0, armDist < 4.0 ? 0 : Math.PI / 2, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        yellowBoxMatrices.push(dummy.matrix.clone());
+        (armDist < 4.0 ? aveLensMatrices : streetLensMatrices).push(dummy.matrix.clone());
+      }
+      dummy.rotation.set(0, 0, 0);
     }
   }
 
