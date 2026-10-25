@@ -1,5 +1,5 @@
 // tools/build-geodata.mjs
-// Builds js/nyc-geodata.js: real New York geography in the simulation's 1:1 world frame, from NYC Open Data and
+// Builds js/geodata.js: real New York geography in the simulation's 1:1 world frame, from NYC Open Data and
 // OpenStreetMap. Frame: 1 unit = 1 m, x = Manhattan-grid east, z = grid south (north = -z), origin at the centreline
 // intersection of 5th Ave & 42nd St, axes turned 29.0° from true north (the grid's measured bearing).
 //

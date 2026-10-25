@@ -4,16 +4,16 @@ const { join } = require('node:path');
 const test = require('node:test');
 const { loadModule } = require('./helpers/module.cjs');
 
-const source = readFileSync(join(__dirname, '../js/nyc-map.js'), 'utf8');
+const source = readFileSync(join(__dirname, '../js/city-map.js'), 'utf8');
 
 for (const [width, height, dpr] of [[500, 300, 1], [320, 180, 1.5], [1920, 1080, 2]]) {
   test(`map clicks match rendered world positions at ${width}x${height}, DPR ${dpr}`, () => {
     const window = { innerWidth: width, innerHeight: height, devicePixelRatio: dpr };
-    const { NYCMapSystem } = loadModule(source, {
+    const { CityMapSystem } = loadModule(source, {
       globals: { window, performance: { now: () => 0 } },
-      imports: { './nyc-geodata.js': { GEO: {} }, './city-config.js': { ROADS: [], AREA_LABELS: [], LABEL_ALIAS: {} } }
+      imports: { './geodata.js': { GEO: {} }, './city-config.js': { ROADS: [], AREA_LABELS: [], LABEL_ALIAS: {} } }
     });
-    const map = Object.create(NYCMapSystem.prototype);
+    const map = Object.create(CityMapSystem.prototype);
     // Capture the production render viewport; drawing primitives are irrelevant to coordinate conversion.
     const context = new Proxy({}, { get: () => () => {} });
     let view;
@@ -107,12 +107,12 @@ function mapHarness() {
     getLocationLabel: (x, z) => `${x}, ${z}`,
     isTypingInField: () => false
   };
-  const { NYCMapSystem } = loadModule(source, {
+  const { CityMapSystem } = loadModule(source, {
     globals: { window, document },
-    imports: { './nyc-geodata.js': { GEO: { frame: {} } }, './city-config.js': config }
+    imports: { './geodata.js': { GEO: { frame: {} } }, './city-config.js': config }
   });
   const teleports = [], toggles = [];
-  const map = new NYCMapSystem({
+  const map = new CityMapSystem({
     controllerManager: { getActiveEntity: () => ({ position: { x: 1000, z: 2000 } }) },
     onTeleport: (x, z) => teleports.push([x, z]),
     onToggle: (open) => toggles.push(open)
@@ -213,7 +213,7 @@ test('mouse hover and zoom buttons remain available without a pan', () => {
 
 function routeModule() {
   return loadModule(source, {
-    imports: { './nyc-geodata.js': { GEO: {} }, './city-config.js': { ROADS: [], AREA_LABELS: [], LABEL_ALIAS: {} } }
+    imports: { './geodata.js': { GEO: {} }, './city-config.js': { ROADS: [], AREA_LABELS: [], LABEL_ALIAS: {} } }
   });
 }
 
@@ -256,8 +256,8 @@ test('the GPS route follows the shortest way along the road graph', () => {
 });
 
 test('the GPS route is cached per destination and re-snapped only when the player moves', () => {
-  const { NYCMapSystem } = routeModule();
-  const map = Object.assign(Object.create(NYCMapSystem.prototype), routeState(routeNetwork(), { x: 210, z: 190 }));
+  const { CityMapSystem } = routeModule();
+  const map = Object.assign(Object.create(CityMapSystem.prototype), routeState(routeNetwork(), { x: 210, z: 190 }));
   map.updateRoute(195, 3);
   assert.deepEqual(map.routeNodes.slice(), [2, 1, 4, 7, 8]);
   const tree = map.routeTree;
@@ -278,7 +278,7 @@ test('the GPS route is cached per destination and re-snapped only when the playe
   map.updateRoute(110, 0);
   assert.equal(map.routeNodes.length, 0, 'a waypoint far from any road gets a straight line');
 
-  const bare = Object.assign(Object.create(NYCMapSystem.prototype), routeState(null, { x: 0, z: 0 }));
+  const bare = Object.assign(Object.create(CityMapSystem.prototype), routeState(null, { x: 0, z: 0 }));
   bare.updateRoute(100, 100);
   assert.equal(bare.routeGraph, null);
   assert.equal(bare.routeNodes.length, 0, 'without a network the route runs straight to the waypoint');

@@ -17,7 +17,7 @@ A no-build three.js Manhattan simulation (WebGPURenderer + TSL). `index.html` lo
   and exports, side-effect imports, `import.meta`, top-level `await`); details in `docs/testing.md`.
 - **Source-sliced tests**: some tests cut functions out of `traffic.js`, `main.js` and `tsl-materials.js` by exact text and
   indentation. When you rename, re-indent or add free variables there, update the test markers and stubs in the same change.
-- **`js/nyc-geodata.js` is generated**: change `tools/` or `tools/data/` and rebuild (`docs/geodata.md`).
+- **`js/geodata.js` is generated**: change `tools/` or `tools/data/` and rebuild (`docs/geodata.md`).
 - **CSS**: when `css/style.css` changes, bump its `?v=YYYYMMDD-<slug>` query in `index.html`.
 - **Shared state** flows through constructor injection from `main.js`, static imports and exported singletons
   (`cityUniforms`); keep `window` free of app globals.
@@ -40,7 +40,7 @@ A no-build three.js Manhattan simulation (WebGPURenderer + TSL). `index.html` lo
   instanced meshes or the WebGPU/WebGL2 renderer setup.
 - `docs/world.md` — read before changing city-grid, boroughs, buildings, fire escapes, landmarks, street details, trees, the
   road network or road paint, or adding props, landmarks or colliders.
-- `docs/geodata.md` — read before touching `tools/`, `tools/data/`, `js/nyc-geodata.js` or the world coordinate frame.
+- `docs/geodata.md` — read before touching `tools/`, `tools/data/`, `js/geodata.js` or the world coordinate frame.
 - `docs/actors.md` — read before changing traffic, pedestrians, vehicle/person models, vehicle lights, spawning, player–traffic
   collisions or car/bicycle coasting.
 - `docs/audio.md` — read before changing `js/audio-*.js`, adding a sound, or renaming fields on cars, peds, controller entities

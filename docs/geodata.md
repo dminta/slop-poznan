@@ -1,4 +1,4 @@
-# Geodata pipeline (tools/ → js/nyc-geodata.js)
+# Geodata pipeline (tools/ → js/geodata.js)
 
 ## Map
 - `tools/build-geodata.mjs`: entry point. It assembles and writes the `GEO` object, and builds Broadway, the merged `roads` polylines, the Central Park features and the landmark footprints itself.
@@ -8,15 +8,15 @@
 
 ## Regenerate
 ```
-node --max-old-space-size=8192 tools/build-geodata.mjs            # writes js/nyc-geodata.js
+node --max-old-space-size=8192 tools/build-geodata.mjs            # writes js/geodata.js
 node --max-old-space-size=8192 tools/build-geodata.mjs /tmp/x.js  # writes elsewhere (diff before replacing)
 GEO_DATA=/some/dir node ... tools/build-geodata.mjs                # read inputs from another directory (default tools/data/)
 ```
 - The run takes about 11 s. The 8 GB heap flag is what the header usage line and `tests/geodata.test.mjs` pass. A default 4 GB heap also worked on Node 26, but keep the flag, because the 1 m rasters and the EDTs are large.
-- The output is deterministic. A rebuild from the committed `tools/data` reproduces the committed `js/nyc-geodata.js` byte for byte (verified). After any change to tools/, build to a temporary path and `cmp` it against the committed file: an unexpected diff means a behaviour change.
-- `js/nyc-geodata.js` is GENERATED: its header says "do not edit by hand", and its single JSON line is about 1.1 MB. To change any geodata value, change the tools or the inputs and rebuild. Commit the regenerated file together with the tool change.
+- The output is deterministic. A rebuild from the committed `tools/data` reproduces the committed `js/geodata.js` byte for byte (verified). After any change to tools/, build to a temporary path and `cmp` it against the committed file: an unexpected diff means a behaviour change.
+- `js/geodata.js` is GENERATED: its header says "do not edit by hand", and its single JSON line is about 1.1 MB. To change any geodata value, change the tools or the inputs and rebuild. Commit the regenerated file together with the tool change.
 - Read the build's `[geodata]` log lines (counts, the derived bearing and origin, the per-key KB at the end). They are the quickest sanity check after a change.
-- Inspect the output with `head -c 1500 js/nyc-geodata.js`, or `import('./js/nyc-geodata.js')` in node. Never read the whole file.
+- Inspect the output with `head -c 1500 js/geodata.js`, or `import('./js/geodata.js')` in node. Never read the whole file.
 
 ## World frame (the whole sim uses it)
 - 1 unit = 1 m. y is up. **x = Manhattan-grid east, z = grid south (north = −z)**. Heading 0 faces +z (south).
@@ -38,8 +38,8 @@ GEO_DATA=/some/dir node ... tools/build-geodata.mjs                # read inputs
   - `road-network.js`: `roadGraph`
   - `city-grid.js`: `plazas`, `centralPark`, `points`, `parks`
   - `buildings.js`: `plazas`
-  - `nyc-map.js`: `frame`, `parks`, `centralPark`
-- When you add, rename or re-layout a `GEO` key, update every consumer of it, plus the `GEO` stubs in `tests/nyc-map.test.cjs` if `nyc-map.js` reads it.
+  - `city-map.js`: `frame`, `parks`, `centralPark`
+- When you add, rename or re-layout a `GEO` key, update every consumer of it, plus the `GEO` stubs in `tests/city-map.test.cjs` if `city-map.js` reads it.
 - `GEO.landmarks` is keyed by the exact OSM `name` tag. If a name has several outlines, the largest one wins. Each entry holds a grid-aligned bbox centre and size (`x, z, w, d`), the OSM `height` or null, and the outline ring. An entry may also carry `ang` (radians, the turn of a frontage frame's θ and three.js `rotation.y`): `w` and `d` are then the extents along the turned axes, and `fitToSite` turns the model and its colliders by it (see [`world.md`](world.md)). The NYC pipeline never emits `ang`, because the Manhattan models are built for grid-aligned sites. Runtime code looks entries up by name (`LANDMARK_SITES['Empire State Building']`), so an OSM rename silently drops the landmark: `fitToSite` returns early on a missing site.
 
 ## Data sources and licensing (tools/data/)
@@ -58,7 +58,7 @@ GEO_DATA=/some/dir node ... tools/build-geodata.mjs                # read inputs
 tools/overpass.sh tools/data/osm_landmarks.json tools/data/q_landmarks.overpassql [tries=12]
 ```
 - The script tries three Overpass endpoints per round and sleeps `i*4` s between attempts. It writes to an adjacent temp file and renames it over the output **only** when the response is HTTP 200, curl succeeded, the JSON parses, `elements` is an array and there is no `remark`. Overpass reports timeouts as a 200 response with a `remark`. Any failure leaves the old data untouched and exits 1.
-- After a refresh, rebuild and review the diff of `js/nyc-geodata.js` and the build log counts (landmark footprints, piers, CP water/lawns).
+- After a refresh, rebuild and review the diff of `js/geodata.js` and the build log counts (landmark footprints, piers, CP water/lawns).
 - To add a landmark footprint, add its exact OSM name to the `name~"^(...)$"` regex in `q_landmarks.overpassql`. Add it to the `relation` clause too if OSM maps it as a multipolygon. Then refetch and rebuild. For the runtime side, see [`world.md`](world.md).
 - To add a Central Park water body, lawn or site, add its name to `WATER_NAMES`, `LAWN_NAMES` or `SITE_NAMES` in `build-geodata.mjs`. `q_cp.overpassql` may also need a matching clause.
 

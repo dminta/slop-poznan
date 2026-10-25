@@ -14,7 +14,7 @@ function buildPureGraph(roadGraph) {
     isLand: () => true
   };
   const { buildRoadNetwork } = loadModule(source, {
-    imports: { './city-config.js': config, './nyc-geodata.js': { GEO: { roadGraph } } },
+    imports: { './city-config.js': config, './geodata.js': { GEO: { roadGraph } } },
     globals: { console: { info() {} } },
     filename: 'road-network.js'
   });

@@ -50,7 +50,7 @@ import {
   OUTER_BRIDGES,
   streetZ
 } from './city-config.js';
-import { GEO } from './nyc-geodata.js';
+import { GEO } from './geodata.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // js/boroughs.js

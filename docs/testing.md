@@ -9,7 +9,7 @@ No package.json, no npm, no dependencies. The tests use only Node built-ins (`no
 - One file: `node --test tests/cameras.test.cjs`. Running `node tests/cameras.test.cjs` directly also works.
 - By test name: `node --test --test-name-pattern="police" tests/`
 - Serve the app: `python3 -m http.server 8000` from the repo root, then open `http://localhost:8000/`. Any static server works. There is no build step, and `.js` is served as `text/javascript`. Three.js loads from jsDelivr (`three@dev`) through the import map in `index.html`, so the page needs network access. `localhost` counts as a secure context, which WebGPU requires.
-- `.gitignore` contains only `.DS_Store`. Nothing is generated except `js/nyc-geodata.js`, which is committed.
+- `.gitignore` contains only `.DS_Store`. Nothing is generated except `js/geodata.js`, which is committed.
 
 ## No rendering tests
 
@@ -19,7 +19,7 @@ No test runs a browser, WebGPU, TSL shader compilation or a screenshot compariso
 
 Know which one covers the code you are editing. Two of them are coupled to the exact source text.
 
-1. **`loadModule(source, { imports, globals, filename })`** from `tests/helpers/module.cjs`. It reads a whole `js/*.js` file, rewrites its static `import`/`export` declarations, and runs it in a `vm` context. Used by cameras, controllers, nyc-map, touch-controls and vehicle-lights tests, and by the benchmark.
+1. **`loadModule(source, { imports, globals, filename })`** from `tests/helpers/module.cjs`. It reads a whole `js/*.js` file, rewrites its static `import`/`export` declarations, and runs it in a `vm` context. Used by cameras, controllers, city-map, touch-controls and vehicle-lights tests, and by the benchmark.
 2. **Slicing source text.** The test cuts out a function or block with a regex or `indexOf` and runs it in `vm.runInNewContext` with hand-built context variables:
    - `traffic*.test.cjs` match `^  function NAME(` through `\n  }` (two-space indent) in `js/traffic.js`, plus a block that starts at `    const pl = entity` and ends at `    } : null;`.
    - `teleports.test.cjs` runs the part of `js/main.js` from `  function teleportTo(` to `  const openMapBtn`.
@@ -28,11 +28,11 @@ Know which one covers the code you are editing. Two of them are coupled to the e
    - `facade-projection` and `smoke-texture` slice `js/tsl-materials.js` between markers: `const facadeNormalVertex =`, `function facadeCell(`, `let bayWidth`, `const evaluateApartmentInterior`, `const rayWorld =`, `// Slab intersection`, `let _smokeCloudTexture =`, the next `/**`, and the literal text of the `hash` arrow function.
 
    If you rename, re-indent, reorder or reformat around these markers, the tests break. So do new free variables in a sliced block that the test context does not provide. When that happens, update the test's markers and context in the same change. Keep the tested behaviour as it is.
-3. **Real ESM import.** `teleports.test.cjs` runs `await import('../js/city-config.js')`, and `geodata.test.mjs` imports a freshly built `nyc-geodata.js`. **`js/city-config.js` and `js/nyc-geodata.js` must import nothing beyond each other or other Node-loadable relative files.** A bare specifier such as `'three/webgpu'` cannot be resolved in Node, so adding one breaks these tests.
+3. **Real ESM import.** `teleports.test.cjs` runs `await import('../js/city-config.js')`, and `geodata.test.mjs` imports a freshly built `geodata.js`. **`js/city-config.js` and `js/geodata.js` must import nothing beyond each other or other Node-loadable relative files.** A bare specifier such as `'three/webgpu'` cannot be resolved in Node, so adding one breaks these tests.
 
 ## loadModule: supported module syntax (hard constraint for js/ authors)
 
-Each module that a `loadModule` test or the benchmark loads (cameras, controllers, nyc-map, touch-controls, vehicle-lights, pedestrians) must use only these forms. Use them across `js/` anyway, so a module can get tests later:
+Each module that a `loadModule` test or the benchmark loads (cameras, controllers, city-map, touch-controls, vehicle-lights, pedestrians) must use only these forms. Use them across `js/` anyway, so a module can get tests later:
 
 - `import * as NS from 'spec';` and `import { a, b as c } from 'spec';`. Multi-line braces are fine. The statement must start at column 0 and end with `;`.
 - `export { a, b as c };` at column 0 with a `;`. Multi-line is fine. This is the house style: one export list at the end of the file.

@@ -23,7 +23,7 @@ test('geodata builds with default paths in a checkout containing spaces and non-
     });
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stderr + result.stdout);
-    const { GEO } = await import(pathToFileURL(path.join(dir, 'js/nyc-geodata.js')).href);
+    const { GEO } = await import(pathToFileURL(path.join(dir, 'js/geodata.js')).href);
     assert.ok(GEO.roadGraph.links.length > 0);
     assert.ok(GEO.blocks.length > 0);
     // frame.ll is the affine lon/lat -> world map boroughs.js LL() uses: the tangent point (geo-base.mjs LAT0/LON0)

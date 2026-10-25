@@ -2,7 +2,7 @@
 
 ## Map
 - `js/main.js` is the only entry and the only place where systems are wired together. `initApp()` builds everything, owns all HUD DOM
-  wiring and runs the loop. Other modules export a class (`ThirdPersonControllerManager`, `CameraSystem`, `NYCMapSystem`, ...) or a
+  wiring and runs the loop. Other modules export a class (`ThirdPersonControllerManager`, `CameraSystem`, `CityMapSystem`, ...) or a
   `build*`/`create*` factory that returns an object with `update()` and data such as `colliders` and `footprints`.
 - `js/controllers.js` owns the four player entities (`entities.person|car|cyclist|helicopter`), `activeMode`, the merged input
   `keys`, ground height, building collisions and teleport placement. `js/cameras.js` owns the render camera, `CAMERA_PRESETS` and
@@ -22,7 +22,7 @@
    `createTrafficSystem`, `createHighwayTraffic`, `buildRoadPaint`. The order matters because of the live `let` exports below.
 3. `ThirdPersonControllerManager(scene, allColliders)`. Saved player state is restored right after it is constructed.
 4. Then `CameraSystem`, `TouchControls`, `CityAudioSystem`, `setupSceneCulling`, the WebGPU-only instanced-matrix swap, the
-   SSR/post-processing pipeline, `GamepadControls`, UI wiring and `NYCMapSystem`.
+   SSR/post-processing pipeline, `GamepadControls`, UI wiring and `CityMapSystem`.
 5. `precompileShaders()`, then one warm-up frame. The loading overlay hides and `audioSystem.ready` is set only after
    `onSubmittedWorkDone`.
 - `markInit(label)` logs phase timings once as `[init] ...`. Add a `markInit` call for any new heavy boot phase.
@@ -84,7 +84,7 @@ per-frame code free of allocations. Collision listeners must copy any event fiel
   `TouchControls.setMode` visibility) and to the `GamepadControls.update` mapping.
 - Some keys are not movement and are handled elsewhere:
   - In `main.js`: `1`-`4` select the mode, `5`-`0` and `V` select the camera, `H`, `N` and `B` (horn).
-  - In `nyc-map.js`: `M` and `Esc`.
+  - In `city-map.js`: `M` and `Esc`.
   - Every keyboard handler must skip events where `isTypingInField(e)` is true, so typing in the map search box doesn't drive
     the player.
 - Every source resets on `blur` and `visibilitychange`. Opening the map calls `resetInput()` and disables touch and gamepad
@@ -138,7 +138,7 @@ Physics notes:
   - Only the helicopter may leave the island; it gets a 6000 m margin. Ground modes are clamped to `getIslandBoundsAtZ` ± 8 m.
 
 ## Teleports
-- Every teleport goes through `teleportTo(x, z, heading)` in `main.js`: the HUD presets, map clicks (`NYCMapSystem.onTeleport`)
+- Every teleport goes through `teleportTo(x, z, heading)` in `main.js`: the HUD presets, map clicks (`CityMapSystem.onTeleport`)
   and the restore path (which calls `teleportActiveTo` directly).
 - `teleportTo` calls, in this order (`tests/teleports.test.cjs` asserts the exact sequence):
   1. `controllerManager.teleportActiveTo`
@@ -175,7 +175,7 @@ Physics notes:
 - UI code uses only safe DOM APIs: `textContent`, `classList`, `replaceChildren` and `createElement`. Never `innerHTML`.
 - Popovers are native `[popover]` elements that `main.js` positions from `data-anchor`, `data-align` and `data-side`.
 - After a mouse click, `main.js` blurs the button so Space and Enter don't re-press it.
-- The map (`nyc-map.js`) draws grid-north-up (`GEO.frame.bearingDeg`, 29° for Manhattan) in world metres. The compass
+- The map (`city-map.js`) draws grid-north-up (`GEO.frame.bearingDeg`, 29° for Manhattan) in world metres. The compass
   needle and its tooltip (`#map-compass`) are set from that bearing at runtime. It caches static layers (`miniCache`,
   `fullStaticKey`) and must invalidate them when fonts load.
 - Map names come from `city-config.js`: `AREA_LABELS` (borough, waterway and neighbourhood titles, upper-cased with

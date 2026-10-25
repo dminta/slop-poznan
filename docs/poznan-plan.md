@@ -1,7 +1,7 @@
 # Implementation plan: replacing New York with Poznań
 
-Status: **plan only, nothing implemented**. Line references are as of commit `46ec12b` and will drift; grep for the named
-symbol if a line no longer matches. Read `AGENTS.md` and the topic docs (`geodata.md`, `world.md`, `rendering.md`,
+Status: **Phases 1–3 done** (each phase heading carries its own status note); Phases 4–12 are not started.
+Line references are as of commit `46ec12b` and will drift; grep for the named symbol if a line no longer matches. Read `AGENTS.md` and the topic docs (`geodata.md`, `world.md`, `rendering.md`,
 `actors.md`, `audio.md`, `architecture.md`, `testing.md`) before starting any phase. They hold the repo-wide rules
 (modulepreload + boot count, module syntax, source-sliced tests, generated geodata, CSS `?v=` bump).
 
@@ -9,7 +9,7 @@ symbol if a line no longer matches. Read `AGENTS.md` and the topic docs (`geodat
 
 Two things carry the NYC content:
 
-1. **The geodata pipeline** (`tools/` → `js/nyc-geodata.js`). It reads NYC Open Data formats (CSCL, DCP, NYC Parks) and
+1. **The geodata pipeline** (`tools/` → `js/geodata.js`). It reads NYC Open Data formats (CSCL, DCP, NYC Parks) and
    calibrates the world frame on the Manhattan grid.
 2. **One runtime model of the city.** "A detailed island surrounded by water, cut by a grid of avenues × numbered
    streets." It appears as:
@@ -76,14 +76,14 @@ in `tools/build-geodata.mjs`. Proposed contract:
 | `water` | `[{name, kind:'river'\|'lake'\|'canal', ring}]` | **new** | Warta, Cybina, Stare koryto Warty, Jezioro Maltańskie, ponds. |
 | `outskirts` | `[flatRing]` | **new** | Low-detail land outside the detail box, up to the city boundary. Replaces `boroughs`/`upperManhattan`. |
 | `districts` | `[{name, ring}]` | **new** | OSM admin_level 9/10 (osiedla) or `place=*` areas. Replaces `districtAt`. |
-| `labels` | `[{name, kind, x, z}]` | **new** | Area labels for the map (`place=suburb/quarter/neighbourhood`, water names). Replaces `AREA_LABELS` in `nyc-map.js`. |
+| `labels` | `[{name, kind, x, z}]` | **new** | Area labels for the map (`place=suburb/quarter/neighbourhood`, water names). Replaces `AREA_LABELS` in `city-map.js`. |
 | `streets`, `avenues` | `[]` | kept empty | They stay so the runtime can tolerate empty lists during the transition; delete them in Phase 12. |
 | `roads` | `[name, w, dir, lanes, hw, flatPts]` | kept | `name` is the display name (`ul. Święty Marcin`), not upper-case CSCL. `dir` becomes `1/-1/0` instead of `FT/TF/TW` (update `city-config` `ROADS`). |
 | `roadGraph` | `{ nodes, links:[[a,b,nameIdx,w,lanes,dir,innerFlat,flags]], names, signals:[nodeIdx] }` | extended | `flags` bit 0 = bridge, bit 1 = tram on street, bit 2 = roundabout. `signals` comes from OSM `highway=traffic_signals` nodes snapped to junctions. |
 | `rail` | `[{kind:'tram'\|'rail', street:0\|1, tracks, pts}]` | **new** | From `railway=tram` (476 ways, 1435 mm, 600 V) and `railway=rail`. |
 | `plazas` | `[{name, ring}]` | changed | Pedestrian areas (`highway=pedestrian` areas, `area:highway`, `place=square`): Stary Rynek, Plac Wolności, Plac Kolegiacki, Półwiejska. |
 | `blocks` | unchanged tuple | kept | `[outline, rects, parkShare, parkName, rect, frames]`. Generic. |
-| `parks` | `[{name, cat, area_m2, rings}]` | changed | `acres` → `area_m2`. Update the thresholds at `geo-extra.mjs:32,99` and the consumers (`city-grid.js`, `nyc-map.js`). |
+| `parks` | `[{name, cat, area_m2, rings}]` | changed | `acres` → `area_m2`. Update the thresholds at `geo-extra.mjs:32,99` and the consumers (`city-grid.js`, `city-map.js`). |
 | `centralPark`, `piers`, `bridges`(NYC), `islands`, `boroughs`, `upperManhattan`, `innerShore`, `broadway`, `points` | — | **removed** | `innerShore` already has no consumer. `points` becomes optional named points (e.g. the Ratusz tower) if needed. |
 | `landmarks` | `{osmName: {x, z, w, d, h, area, ring, ang}}` | extended | New `ang` (principal axis of the outline). `h` falls back to `building:levels × 3.4`. Never trust OSM `height` blindly: the Katedra has `height=0.1` and Teatr Wielki `height=1`. |
 | `buildings` (optional) | quantised footprints + levels + roof shape | **new, optional** | Only if Phase 8 uses real footprints instead of synthetic lots. Keep it out of the main GEO file if it is over about 1 MB. |
@@ -97,7 +97,7 @@ is ≈ 400–700 KB.
 
 Rule for this stage: every commit keeps the NYC build working.
 - `node --test tests/` must stay green.
-- A tools refactor must rebuild `js/nyc-geodata.js` **byte for byte**: build to a temp path and `cmp` (`docs/geodata.md`).
+- A tools refactor must rebuild `js/geodata.js` **byte for byte**: build to a temp path and `cmp` (`docs/geodata.md`).
 - The browser must show the same city, with no console errors.
 
 ### Phase 1: Land/water API instead of the island model
@@ -185,6 +185,21 @@ The signal-mast layout in `street-details.js` still assumes axis-aligned junctio
    Every new free variable (`e.major`, a group helper) needs a stub there.
 
 ### Phase 3: Data-driven content hooks
+
+**Status: done.** The geodata rebuild stays byte-identical apart from the added `frame.ll` key and the renamed header
+line. Deviations and open points:
+- Persistence: the key is now `player-state`, migrated from `nyc-player-state` on read. `version` stays 1 until the
+  Phase 5 cutover bumps it and drops the migration. `nyc-sound` → `sound`, with the old key read as a fallback.
+- Units: the gauge's `topSpeedKmh` is the boosted controller cap × 3.6 (person 30, car 130, cyclist 68, helicopter 187).
+- Landmarks: `fitToSite` supports `ang`, but the NYC pipeline doesn't emit it. `LANDMARK_RESERVE` in `buildings.js` still
+  reserves the unrotated box; Phase 4/7 must reserve the turned AABB or the ring.
+- `frame.ll` deviates from the old hand constants by at most 0.55 mm.
+- GPS route: undirected Dijkstra on the traffic network (one-ways are treated as two-way), with a straight-line fallback
+  when a point snaps farther than 300 m. `compareNames` is exported but unused, because the map has no alphabetical
+  sort. The compass tooltip now reads "True north · the street grid runs 29° east of it".
+- `prettyName` is the identity for `GEO.version` ≥ 2; the v1 path was verified identical on all 740 NYC names.
+- Scene roots: the `main.js` "root" is the `cullingRoots` name list, which now reads `CityGrid`, `CityBlocks`,
+  `StreetDetails`, `Landmarks`, `Outskirts`. Nothing else looks roots up by name.
 
 These changes are all behaviour-preserving for NYC.
 

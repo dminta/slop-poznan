@@ -1,4 +1,4 @@
-import { GEO } from './nyc-geodata.js';
+import { GEO } from './geodata.js';
 import {
   ROADS,
   BLOCKS,
@@ -33,7 +33,7 @@ import {
   formatCount
 } from './city-config.js';
 
-// js/nyc-map.js
+// js/city-map.js
 // GTA 6-Style Live Radar Minimap + Full-Screen Interactive New York City Cartographic Atlas.
 // Synchronized 1:1 with the 3D world (1 unit = 1 m; x = Manhattan-grid east, z = grid south, so both maps are drawn
 // "grid north up", the way Manhattan's street map is read, 29° east of true north). They draw the very geography the
@@ -572,7 +572,7 @@ function drawWaypoint(ctx, x, y, r) {
 
 const overlaps = (boxes, b) => boxes.some((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]);
 
-class NYCMapSystem {
+class CityMapSystem {
   constructor({ controllerManager, cameraSystem, trafficSystem, network = null, allBlocks = [], onTeleport, onToggle }) {
     this.controllerManager = controllerManager;
     this.cameraSystem = cameraSystem;
@@ -1472,4 +1472,4 @@ class NYCMapSystem {
   }
 }
 
-export { NYCMapSystem, buildRouteGraph, nearestNode, routeTree, routePath, compassTitle };
+export { CityMapSystem, buildRouteGraph, nearestNode, routeTree, routePath, compassTitle };
