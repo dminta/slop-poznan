@@ -462,6 +462,7 @@ async function initApp() {
     controllerManager,
     cameraSystem,
     trafficSystem,
+    network: trafficSystem.network,
     allBlocks: cityBlocks.allBlocks,
     onToggle: (open) => {
       controllerManager.resetInput();

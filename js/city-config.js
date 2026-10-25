@@ -56,10 +56,15 @@ const PRETTY = {
   'RIVERSIDE DR': 'Riverside Dr', 'ST NICHOLAS AVE': 'St Nicholas Ave'
 };
 function prettyName(n) {
+  // Geodata v2 carries display names as they are signed, so only v1's upper-case CSCL names need dressing up
+  if (GEO.version >= 2) return n;
   if (PRETTY[n]) return PRETTY[n];
   const m = /^(E|W)\s+(\d+)\s+ST$/.exec(n);
   if (m) return `${m[1]} ${ordinal(+m[2])} St`;
-  return n.replace(/\s+/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()).replace(/\b(\d+) (St|Ave)\b/g, (_, d, t) => `${ordinal(+d)} ${t}`);
+  // Capitalise each word's first letter. `\b\w` is ASCII-only: it would leave "święty" lower-case and capitalise the
+  // "w" after it; a letter counts as a word start only after a non-letter, non-mark, non-digit (as \b\w did in ASCII)
+  return n.replace(/\s+/g, ' ').toLowerCase().replace(/(?<![\p{L}\p{M}\p{N}_])\p{L}/gu, (c) => c.toUpperCase())
+    .replace(/\b(\d+) (St|Ave)\b/g, (_, d, t) => `${ordinal(+d)} ${t}`);
 }
 const SHORT = {
   riverside: 'Riverside Dr', 11: '11th Ave', 10: '10th Ave', 9: '9th Ave', manhattan: 'Manhattan Ave', 8: '8th Ave',
@@ -440,6 +445,31 @@ ALL_STREETS.sort((a, b) => a.z - b.z);
 
 // Named roads (the real centreline, merged per street) — maps, labels & lookups
 const ROADS = GEO.roads.map(([name, w, dir, lanes, hw, flat]) => ({ name: prettyName(name), raw: name, w, dir, lanes, highway: !!hw, pts: toPts(flat) }));
+
+// Map names: the geodata's own (GEO.labels: { areas: [[name, x, z, kind]], alias: { name: short } }) when it carries
+// them, else New York's. Area kinds: 0 borough, 1 waterway, 2 neighbourhood; the map upper-cases them for display.
+const NYC_AREA_LABELS = [
+  ['MANHATTAN', 120, -1500, 0], ['NEW JERSEY', -7000, 2000, 0], ['BROOKLYN', 7850, 8780, 0], ['QUEENS', 8810, -1680, 0],
+  ['THE BRONX', 1010, -9640, 0], ['STATEN ISLAND', -1800, 19220, 0],
+  ['HUDSON RIVER', -2680, -300, 1], ['HUDSON RIVER', -2650, -5600, 1], ['EAST RIVER', 1700, 800, 1],
+  ['HARLEM RIVER', 220, -7930, 1], ['UPPER NEW YORK BAY', 130, 10530, 1],
+  ['HARLEM', -320, -6750, 2], ['MORNINGSIDE HEIGHTS', -1600, -6160, 2], ['EAST HARLEM', 830, -5820, 2],
+  ['UPPER WEST SIDE', -1410, -3070, 2], ['CENTRAL PARK', -430, -3280, 2], ['UPPER EAST SIDE', 590, -2680, 2],
+  ['ROOSEVELT ISLAND', 1810, -2030, 2], ["HELL'S KITCHEN", -1350, -590, 2], ['MIDTOWN', 100, -500, 2],
+  ['MURRAY HILL', 680, 330, 2], ['HUDSON YARDS', -1510, 770, 2], ['CHELSEA', -1030, 1650, 2],
+  ['FLATIRON · GRAMERCY', 330, 1660, 2], ['GREENWICH VILLAGE', -540, 2830, 2], ['EAST VILLAGE', 1250, 2800, 2],
+  ['SOHO', 200, 3560, 2], ['LOWER EAST SIDE', 1690, 3760, 2], ['TRIBECA', -140, 4460, 2], ['CHINATOWN', 850, 4420, 2],
+  ['BATTERY PARK CITY', -370, 5540, 2], ['FINANCIAL DISTRICT', 455, 5715, 2], ['GOVERNORS ISLAND', 795, 7685, 2],
+  ['LIBERTY ISLAND', -1234, 8849, 2], ['ELLIS ISLAND', -1427, 7648, 2], ["RANDALL'S ISLAND", 2268, -6301, 2],
+  ['WASHINGTON HEIGHTS', -1690, -10270, 2], ['DOWNTOWN BROOKLYN', 2570, 6280, 2], ['WILLIAMSBURG', 3670, 2980, 2],
+  ['GREENPOINT', 3305, 1277, 2], ['LONG ISLAND CITY', 2865, -473, 2], ['ASTORIA', 3345, -3699, 2],
+  ['HOBOKEN', -3293, 3032, 2], ['JERSEY CITY', -2671, 6014, 2], ['WEEHAWKEN', -3670, 193, 2], ['FORT LEE', -4456, -9911, 2],
+  ['RED HOOK', 2005, 8855, 2], ['BAYONNE', -5284, 13699, 2]
+];
+// Shorter map names for a few real street names
+const NYC_LABEL_ALIAS = { 'Franklin D Roosevelt Dr': 'FDR Drive', 'Battery Park Underpass': 'Battery Underpass' };
+const AREA_LABELS = (GEO.labels && GEO.labels.areas) || NYC_AREA_LABELS;
+const LABEL_ALIAS = (GEO.labels && GEO.labels.alias) || NYC_LABEL_ALIAS;
 const LOWER_MANHATTAN_NAMES = [
   ['E  HOUSTON ST', 'Houston St (SoHo / East Village)', 'Houston St', true], ['BLEECKER ST', 'Bleecker St (Greenwich Village)', 'Bleecker St'],
   ['PRINCE ST', 'Prince St (SoHo)', 'Prince St'], ['SPRING ST', 'Spring St (SoHo)', 'Spring St'], ['DELANCEY ST', 'Delancey St (Williamsburg Br)', 'Delancey St', true],
@@ -770,6 +800,23 @@ function isTypingInField(e) {
   return e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT');
 }
 
+// Search key for a name: lower case without diacritics, so "swiety" finds "Święty Marcin". NFD splits most accented
+// letters into a base letter and combining marks, but ł/Ł are letters of their own with no decomposition.
+function foldText(s) {
+  return String(s).replace(/[łŁ]/g, (c) => (c === 'ł' ? 'l' : 'L')).normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+}
+
+// Polish alphabetical order (ą after a, ł after l, ś after s, ż after ź), which also sorts plain English names right
+const NAME_COLLATOR = new Intl.Collator('pl');
+const compareNames = (a, b) => NAME_COLLATOR.compare(a, b);
+
+// Upper case for map titles, in the same locale as the collator
+const mapCaps = (s) => String(s).toLocaleUpperCase('pl');
+
+// Counts in the UI: v1 (New York) data keeps US digit grouping ("12,345"), v2 data the Polish one ("12 345")
+const NUMBER_LOCALE = GEO.version >= 2 ? 'pl' : 'en-US';
+const formatCount = (n) => n.toLocaleString(NUMBER_LOCALE);
+
 // Traffic signal cycle shared by the signal heads (street-details.js) and the traffic (traffic.js), in seconds. A signal
 // runs two groups (road-network.js sidesAndGroups): group 0, the avenue on the grid or the widest road elsewhere, and
 // group 1, the cross street or the other roads. The `avenue*` timings and `isAvenue` flags mean group 0: it is green
@@ -826,6 +873,8 @@ export {
   STREETS,
   ALL_STREETS,
   ROADS,
+  AREA_LABELS,
+  LABEL_ALIAS,
   NYC_LANDMARKS,
   LANDMARK_SITES,
   TELEPORT_LOCATIONS,
@@ -851,6 +900,10 @@ export {
   getLocationLabel,
   fromOldFrame,
   isTypingInField,
+  foldText,
+  compareNames,
+  mapCaps,
+  formatCount,
   signalPhase,
   walkSignal
 };

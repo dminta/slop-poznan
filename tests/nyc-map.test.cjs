@@ -11,7 +11,7 @@ for (const [width, height, dpr] of [[500, 300, 1], [320, 180, 1.5], [1920, 1080,
     const window = { innerWidth: width, innerHeight: height, devicePixelRatio: dpr };
     const { NYCMapSystem } = loadModule(source, {
       globals: { window, performance: { now: () => 0 } },
-      imports: { './nyc-geodata.js': { GEO: {} }, './city-config.js': { ROADS: [] } }
+      imports: { './nyc-geodata.js': { GEO: {} }, './city-config.js': { ROADS: [], AREA_LABELS: [], LABEL_ALIAS: {} } }
     });
     const map = Object.create(NYCMapSystem.prototype);
     // Capture the production render viewport; drawing primitives are irrelevant to coordinate conversion.
@@ -99,6 +99,11 @@ function mapHarness() {
     CITY_BOUNDS: { minX: -10000, maxX: 10000, minZ: -10000, maxZ: 10000 },
     clampToLand: (x, z) => ({ x, z }),
     LAND_RINGS: [],
+    AREA_LABELS: [['Stare Miasto', 0, 0, 2]],
+    LABEL_ALIAS: {},
+    foldText: (text) => String(text).toLowerCase(),
+    mapCaps: (text) => String(text).toUpperCase(),
+    formatCount: String,
     getLocationLabel: (x, z) => `${x}, ${z}`,
     isTypingInField: () => false
   };
@@ -204,4 +209,84 @@ test('mouse hover and zoom buttons remain available without a pan', () => {
   assert.equal(h.map.viewZoom, 1.45);
   h.zoomOut.dispatch('click');
   assert.equal(h.map.viewZoom, 1);
+});
+
+function routeModule() {
+  return loadModule(source, {
+    imports: { './nyc-geodata.js': { GEO: {} }, './city-config.js': { ROADS: [], AREA_LABELS: [], LABEL_ALIAS: {} } }
+  });
+}
+
+// A 3 x 3 block of junctions 100 m apart (ids row by row from the north-west), with directed edges as road-network.js
+// returns them; the middle of the east column is missing, so the way down the east side detours through the centre.
+// Node 9 stands apart, with no edges.
+function routeNetwork() {
+  const nodes = [];
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) nodes.push({ x: c * 100, z: r * 100 });
+  nodes.push({ x: 5000, z: 5000 });
+  // one way each: the GPS treats them as two-way
+  const links = [[0, 1], [1, 2], [3, 4], [6, 7], [7, 8], [0, 3], [3, 6], [1, 4], [4, 7], [4, 5]];
+  return { nodes, edges: links.map(([a, b]) => ({ from: nodes[a], to: nodes[b] })) };
+}
+
+function routeState(network, waypoint) {
+  return {
+    network, waypoint, routeGraph: undefined, routeTree: null, routeNodes: [], routeStart: -1,
+    routeFrom: { x: NaN, z: NaN }, routeTo: { x: NaN, z: NaN }
+  };
+}
+
+test('the GPS route follows the shortest way along the road graph', () => {
+  const { buildRouteGraph, nearestNode, routeTree, routePath } = routeModule();
+  const graph = buildRouteGraph(routeNetwork());
+  assert.equal(graph.n, 10);
+  assert.equal(nearestNode(graph, 190, 12), 2);
+  assert.equal(nearestNode(graph, 4000, 4000), 9);
+  assert.equal(nearestNode(graph, 4000, 4000, 300), -1, 'nothing within reach');
+  const tree = routeTree(graph, 8);
+  assert.equal(tree.dist[2], 400, 'from the north-east corner: west to 1, then south via 4 and 7 to 8');
+  assert.deepEqual(routePath(tree, 2, []).slice(), [2, 1, 4, 7, 8]);
+  assert.deepEqual(routePath(tree, 5, []).slice(), [5, 4, 7, 8]);
+  assert.deepEqual(routePath(tree, 8, []).slice(), [8]);
+  const out = [1, 2, 3];
+  assert.equal(routePath(tree, 9, out), out, 'fills the caller\'s array');
+  assert.equal(out.length, 0, 'no way from an unconnected node');
+  assert.equal(buildRouteGraph(null), null);
+  assert.equal(buildRouteGraph({ nodes: [], edges: [] }), null);
+});
+
+test('the GPS route is cached per destination and re-snapped only when the player moves', () => {
+  const { NYCMapSystem } = routeModule();
+  const map = Object.assign(Object.create(NYCMapSystem.prototype), routeState(routeNetwork(), { x: 210, z: 190 }));
+  map.updateRoute(195, 3);
+  assert.deepEqual(map.routeNodes.slice(), [2, 1, 4, 7, 8]);
+  const tree = map.routeTree;
+  const nodes = map.routeNodes;
+  map.updateRoute(197, 5);
+  assert.equal(map.routeFrom.x, 195, 'small moves do not re-snap the player');
+  map.updateRoute(110, 0);
+  assert.deepEqual(map.routeNodes.slice(), [1, 4, 7, 8]);
+  assert.equal(map.routeNodes, nodes, 'the path array is reused');
+  map.waypoint = { x: 205, z: 205 };
+  map.updateRoute(110, 0);
+  assert.equal(map.routeTree, tree, 'a waypoint at the same node keeps its shortest-path tree');
+  map.waypoint = { x: 0, z: 0 };
+  map.updateRoute(110, 0);
+  assert.notEqual(map.routeTree, tree);
+  assert.deepEqual(map.routeNodes.slice(), [1, 0]);
+  map.waypoint = { x: 1500, z: 1500 };
+  map.updateRoute(110, 0);
+  assert.equal(map.routeNodes.length, 0, 'a waypoint far from any road gets a straight line');
+
+  const bare = Object.assign(Object.create(NYCMapSystem.prototype), routeState(null, { x: 0, z: 0 }));
+  bare.updateRoute(100, 100);
+  assert.equal(bare.routeGraph, null);
+  assert.equal(bare.routeNodes.length, 0, 'without a network the route runs straight to the waypoint');
+});
+
+test('the map compass tooltip states the grid bearing', () => {
+  const { compassTitle } = routeModule();
+  assert.equal(compassTitle(29.02), 'True north · the street grid runs 29° east of it');
+  assert.equal(compassTitle(-12.6), 'True north · the street grid runs 13° west of it');
+  assert.equal(compassTitle(0.2), 'True north');
 });

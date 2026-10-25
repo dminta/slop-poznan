@@ -30,7 +30,7 @@
 ## How modules share state
 - `1f66530` replaced the old `window.NYC` globals. Do not reintroduce globals. Share state in one of three ways:
   1. **Constructor injection from `main.js`.** `controllerManager` goes to the camera, touch, gamepad, map and audio systems.
-     `cameraSystem` goes to gamepad and map. Reach the player through `controllerManager.getActiveEntity()`, `.activeMode`,
+     `cameraSystem` goes to gamepad and map; the traffic road `network` goes to the map. Reach the player through `controllerManager.getActiveEntity()`, `.activeMode`,
      `.entities` and `.keys`.
   2. **Static imports** from `city-config.js` and the other data modules.
   3. **Mutable exported singletons:**
@@ -175,5 +175,15 @@ Physics notes:
 - UI code uses only safe DOM APIs: `textContent`, `classList`, `replaceChildren` and `createElement`. Never `innerHTML`.
 - Popovers are native `[popover]` elements that `main.js` positions from `data-anchor`, `data-align` and `data-side`.
 - After a mouse click, `main.js` blurs the button so Space and Enter don't re-press it.
-- The map (`nyc-map.js`) draws grid-north-up (29° from true north) in world metres. It caches static layers
-  (`miniCache`, `fullStaticKey`) and must invalidate them when fonts load.
+- The map (`nyc-map.js`) draws grid-north-up (`GEO.frame.bearingDeg`, 29° for Manhattan) in world metres. The compass
+  needle and its tooltip (`#map-compass`) are set from that bearing at runtime. It caches static layers (`miniCache`,
+  `fullStaticKey`) and must invalidate them when fonts load.
+- Map names come from `city-config.js`: `AREA_LABELS` (borough, waterway and neighbourhood titles, upper-cased with
+  `mapCaps`) and `LABEL_ALIAS` (short street names) read `GEO.labels.areas` / `GEO.labels.alias` and fall back to the
+  New York tables. Street search compares `foldText` keys (lower case, no diacritics, ł → l); `compareNames` (Polish
+  collation) is for any alphabetical list, and `formatCount` formats counts for the data's locale. `prettyName` dresses
+  up v1's upper-case CSCL names and passes v2 names through as they are.
+- The GPS route (`updateRoute`, `drawRoute`) is the shortest path on `trafficSystem.network`, which `main.js` passes in as
+  `network`. One-way streets count both ways. The map builds the graph on first use, then runs Dijkstra from the
+  waypoint's nearest node once per destination. It re-snaps the player only after 8 m of movement. If either end is more
+  than `ROUTE_SNAP` (300 m) from a node, or there is no network, it draws a straight line instead.

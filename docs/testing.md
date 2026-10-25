@@ -4,7 +4,7 @@ No package.json, no npm, no dependencies. The tests use only Node built-ins (`no
 
 ## Commands (verified)
 
-- Full suite: `node --test tests/`. 122 tests, about 11 s. Nearly all of that is `tests/geodata.test.mjs`, which runs the full `tools/build-geodata.mjs` in a temp copy of the repo with `--max-old-space-size=8192`.
+- Full suite: `node --test tests/`. 128 tests, about 11 s. Nearly all of that is `tests/geodata.test.mjs`, which runs the full `tools/build-geodata.mjs` in a temp copy of the repo with `--max-old-space-size=8192`.
 - Quick loop that skips the geodata rebuild: `node --test tests/*.cjs` (about 0.2 s).
 - One file: `node --test tests/cameras.test.cjs`. Running `node tests/cameras.test.cjs` directly also works.
 - By test name: `node --test --test-name-pattern="police" tests/`
@@ -23,6 +23,8 @@ Know which one covers the code you are editing. Two of them are coupled to the e
 2. **Slicing source text.** The test cuts out a function or block with a regex or `indexOf` and runs it in `vm.runInNewContext` with hand-built context variables:
    - `traffic*.test.cjs` match `^  function NAME(` through `\n  }` (two-space indent) in `js/traffic.js`, plus a block that starts at `    const pl = entity` and ends at `    } : null;`.
    - `teleports.test.cjs` runs the part of `js/main.js` from `  function teleportTo(` to `  const openMapBtn`.
+   - `city-text.test.cjs` cuts `function ordinal(`, `const PRETTY = {` and `function prettyName(` out of `js/city-config.js`
+     (each up to its column-0 closing brace) and runs `prettyName` against a stub `GEO` with `version` 1 or 2.
    - `facade-projection` and `smoke-texture` slice `js/tsl-materials.js` between markers: `const facadeNormalVertex =`, `function facadeCell(`, `let bayWidth`, `const evaluateApartmentInterior`, `const rayWorld =`, `// Slab intersection`, `let _smokeCloudTexture =`, the next `/**`, and the literal text of the `hash` arrow function.
 
    If you rename, re-indent, reorder or reformat around these markers, the tests break. So do new free variables in a sliced block that the test context does not provide. When that happens, update the test's markers and context in the same change. Keep the tested behaviour as it is.

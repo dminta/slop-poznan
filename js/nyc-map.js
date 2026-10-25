@@ -24,8 +24,13 @@ import {
   MILL_ROCK_POLYGON,
   EAST_RIVER_BRIDGES,
   OUTER_BRIDGES,
+  AREA_LABELS,
+  LABEL_ALIAS,
   getLocationLabel,
-  isTypingInField
+  isTypingInField,
+  foldText,
+  mapCaps,
+  formatCount
 } from './city-config.js';
 
 // js/nyc-map.js
@@ -42,6 +47,13 @@ const MIN_ZOOM = 0.015; // full map, pixels per metre: the whole harbour, Staten
 const MAX_ZOOM = 3.0; // single lots
 const RADAR_SCALE = 0.32; // radar pixels per metre on the ground (zooms out with altitude)
 const GRID_BEARING = (GEO.frame && GEO.frame.bearingDeg) || 29.02; // Manhattan's grid north, degrees east of true north
+
+// The map compass's tooltip, from the bearing of the map's up direction (degrees east of true north)
+function compassTitle(bearingDeg) {
+  const deg = Math.round(Math.abs(bearingDeg));
+  if (!deg) return 'True north';
+  return `True north · the street grid runs ${deg}° ${bearingDeg > 0 ? 'east' : 'west'} of it`;
+}
 
 // Map palette, shared by the radar & the atlas (in step with css/style.css): graphite ground with the streets a shade
 // lighter than the blocks they run between, muted parks & water; a taxi-yellow GPS route, white landmarks & player,
@@ -83,28 +95,8 @@ const MODELLED_LANDMARKS = [
   'Flatiron Building', 'One World Trade Center', 'New York Stock Exchange'
 ];
 
-// Borough (0), waterway (1) & neighbourhood (2) names at their real places (world metres)
-const AREA_LABELS = [
-  ['MANHATTAN', 120, -1500, 0], ['NEW JERSEY', -7000, 2000, 0], ['BROOKLYN', 7850, 8780, 0], ['QUEENS', 8810, -1680, 0],
-  ['THE BRONX', 1010, -9640, 0], ['STATEN ISLAND', -1800, 19220, 0],
-  ['HUDSON RIVER', -2680, -300, 1], ['HUDSON RIVER', -2650, -5600, 1], ['EAST RIVER', 1700, 800, 1],
-  ['HARLEM RIVER', 220, -7930, 1], ['UPPER NEW YORK BAY', 130, 10530, 1],
-  ['HARLEM', -320, -6750, 2], ['MORNINGSIDE HEIGHTS', -1600, -6160, 2], ['EAST HARLEM', 830, -5820, 2],
-  ['UPPER WEST SIDE', -1410, -3070, 2], ['CENTRAL PARK', -430, -3280, 2], ['UPPER EAST SIDE', 590, -2680, 2],
-  ['ROOSEVELT ISLAND', 1810, -2030, 2], ["HELL'S KITCHEN", -1350, -590, 2], ['MIDTOWN', 100, -500, 2],
-  ['MURRAY HILL', 680, 330, 2], ['HUDSON YARDS', -1510, 770, 2], ['CHELSEA', -1030, 1650, 2],
-  ['FLATIRON · GRAMERCY', 330, 1660, 2], ['GREENWICH VILLAGE', -540, 2830, 2], ['EAST VILLAGE', 1250, 2800, 2],
-  ['SOHO', 200, 3560, 2], ['LOWER EAST SIDE', 1690, 3760, 2], ['TRIBECA', -140, 4460, 2], ['CHINATOWN', 850, 4420, 2],
-  ['BATTERY PARK CITY', -370, 5540, 2], ['FINANCIAL DISTRICT', 455, 5715, 2], ['GOVERNORS ISLAND', 795, 7685, 2],
-  ['LIBERTY ISLAND', -1234, 8849, 2], ['ELLIS ISLAND', -1427, 7648, 2], ["RANDALL'S ISLAND", 2268, -6301, 2],
-  ['WASHINGTON HEIGHTS', -1690, -10270, 2], ['DOWNTOWN BROOKLYN', 2570, 6280, 2], ['WILLIAMSBURG', 3670, 2980, 2],
-  ['GREENPOINT', 3305, 1277, 2], ['LONG ISLAND CITY', 2865, -473, 2], ['ASTORIA', 3345, -3699, 2],
-  ['HOBOKEN', -3293, 3032, 2], ['JERSEY CITY', -2671, 6014, 2], ['WEEHAWKEN', -3670, 193, 2], ['FORT LEE', -4456, -9911, 2],
-  ['RED HOOK', 2005, 8855, 2], ['BAYONNE', -5284, 13699, 2]
-];
-
-// Shorter map names for a few real street names
-const LABEL_ALIAS = { 'Franklin D Roosevelt Dr': 'FDR Drive', 'Battery Park Underpass': 'Battery Underpass' };
+// Borough (0), waterway (1) & neighbourhood (2) names at their real places (world metres; city-config.js), in capitals
+const AREA_TITLES = AREA_LABELS.map(([label, x, z, kind]) => [mapCaps(label), x, z, kind]);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // World-space vector layers: built once into Path2D objects (world metres) and drawn through a canvas transform
@@ -333,8 +325,8 @@ for (const r of ROADS) {
   if (!anchors.length) continue;
   ROAD_LABELS.push({
     text,
-    lower: text.toLowerCase(),
-    raw: r.name.toLowerCase(),
+    lower: foldText(text),
+    raw: foldText(r.name),
     road: r,
     major: r.highway || r.w >= 15,
     highway: r.highway,
@@ -399,14 +391,161 @@ function drawPlayerArrow(ctx, tipY, halfWidth, tailY) {
   ctx.fill();
 }
 
-// GPS route from the player to the waypoint, along the grid (x first, then z): taxi yellow on a dark casing
-function drawRoute(ctx, x0, y0, x1, y1, width) {
+// ---------------------------------------------------------------------------------------------------------------------
+// GPS route: the shortest way along the road graph road-network.js builds for traffic
+// ---------------------------------------------------------------------------------------------------------------------
+
+const ROUTE_SNAP = 300; // farthest a route end snaps to the road graph, metres (a few blocks)
+
+/**
+ * The road network's { nodes, edges } as a compact undirected adjacency list weighted by length (node positions,
+ * since an edge's own `len` runs only between stop lines). One-way streets count both ways: the GPS serves walkers,
+ * cyclists and the helicopter as well as the car. Returns null without a usable network.
+ */
+function buildRouteGraph(network) {
+  const nodes = network && network.nodes;
+  const edges = network && network.edges;
+  if (!nodes || !nodes.length || !edges) return null;
+  const n = nodes.length;
+  const index = new Map();
+  const xs = new Float64Array(n);
+  const zs = new Float64Array(n);
+  nodes.forEach((node, i) => {
+    index.set(node, i);
+    xs[i] = node.x;
+    zs[i] = node.z;
+  });
+  const start = new Int32Array(n + 1);
+  const pairs = [];
+  for (const e of edges) {
+    const a = index.get(e.from);
+    const b = index.get(e.to);
+    if (a === undefined || b === undefined || a === b) continue;
+    pairs.push(a, b);
+    start[a + 1]++;
+    start[b + 1]++;
+  }
+  for (let i = 0; i < n; i++) start[i + 1] += start[i];
+  const to = new Int32Array(start[n]);
+  const w = new Float64Array(start[n]);
+  const fill = start.slice(0, n);
+  for (let k = 0; k < pairs.length; k += 2) {
+    const a = pairs[k];
+    const b = pairs[k + 1];
+    const len = Math.hypot(xs[b] - xs[a], zs[b] - zs[a]);
+    to[fill[a]] = b;
+    w[fill[a]++] = len;
+    to[fill[b]] = a;
+    w[fill[b]++] = len;
+  }
+  return { n, xs, zs, start, to, w };
+}
+
+/**
+ * Index of the graph node nearest (x, z), or -1 when none is within maxDist (a linear scan over ~1400 Manhattan nodes,
+ * 2 µs in Node: callers run it only when the point has moved)
+ */
+function nearestNode(graph, x, z, maxDist = Infinity) {
+  if (!graph) return -1;
+  let best = -1;
+  let bestD = maxDist * maxDist;
+  for (let i = 0; i < graph.n; i++) {
+    const dx = graph.xs[i] - x;
+    const dz = graph.zs[i] - z;
+    const d = dx * dx + dz * dz;
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/**
+ * Dijkstra from `goal` over the whole graph: for every node, the next node on its shortest way to the goal. Computed
+ * once per destination, so the route from wherever the player gets to is a walk along `next`.
+ */
+function routeTree(graph, goal) {
+  const n = graph.n;
+  const dist = new Float64Array(n).fill(Infinity);
+  const next = new Int32Array(n).fill(-1);
+  const done = new Uint8Array(n);
+  // binary min-heap of (distance, node) with lazy deletion: stale entries are skipped when popped
+  const heapD = [];
+  const heapN = [];
+  const push = (d, v) => {
+    let i = heapD.length;
+    heapD.push(d);
+    heapN.push(v);
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (heapD[p] <= d) break;
+      heapD[i] = heapD[p];
+      heapN[i] = heapN[p];
+      i = p;
+    }
+    heapD[i] = d;
+    heapN[i] = v;
+  };
+  const pop = () => {
+    const v = heapN[0];
+    const lastD = heapD.pop();
+    const lastN = heapN.pop();
+    const m = heapD.length;
+    if (m) {
+      let i = 0;
+      for (;;) {
+        let c = 2 * i + 1;
+        if (c >= m) break;
+        if (c + 1 < m && heapD[c + 1] < heapD[c]) c++;
+        if (heapD[c] >= lastD) break;
+        heapD[i] = heapD[c];
+        heapN[i] = heapN[c];
+        i = c;
+      }
+      heapD[i] = lastD;
+      heapN[i] = lastN;
+    }
+    return v;
+  };
+  if (goal >= 0 && goal < n) {
+    dist[goal] = 0;
+    push(0, goal);
+  }
+  while (heapD.length) {
+    const u = pop();
+    if (done[u]) continue;
+    done[u] = 1;
+    for (let k = graph.start[u]; k < graph.start[u + 1]; k++) {
+      const v = graph.to[k];
+      const d = dist[u] + graph.w[k];
+      if (d < dist[v]) {
+        dist[v] = d;
+        next[v] = u;
+        push(d, v);
+      }
+    }
+  }
+  return { goal, dist, next };
+}
+
+/** Node indices from `start` to the tree's goal into `out` (emptied first; left empty when there is no way there) */
+function routePath(tree, start, out) {
+  out.length = 0;
+  if (!tree || start < 0 || start >= tree.dist.length || tree.dist[start] === Infinity) return out;
+  for (let i = start; i >= 0 && out.length <= tree.dist.length; i = tree.next[i]) out.push(i);
+  return out;
+}
+
+// GPS route from the player to the waypoint through the route's graph nodes (straight across without any): taxi yellow
+// on a dark casing
+function drawRoute(ctx, v, px, pz, wx, wz, graph, nodes, width) {
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.moveTo(x0, y0);
-  ctx.lineTo(x1, y0);
-  ctx.lineTo(x1, y1);
+  ctx.moveTo(v.toX(px), v.toY(pz));
+  if (graph) for (const i of nodes) ctx.lineTo(v.toX(graph.xs[i]), v.toY(graph.zs[i]));
+  ctx.lineTo(v.toX(wx), v.toY(wz));
   ctx.strokeStyle = MAP.halo;
   ctx.lineWidth = width + 3;
   ctx.stroke();
@@ -434,10 +573,11 @@ function drawWaypoint(ctx, x, y, r) {
 const overlaps = (boxes, b) => boxes.some((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]);
 
 class NYCMapSystem {
-  constructor({ controllerManager, cameraSystem, trafficSystem, allBlocks = [], onTeleport, onToggle }) {
+  constructor({ controllerManager, cameraSystem, trafficSystem, network = null, allBlocks = [], onTeleport, onToggle }) {
     this.controllerManager = controllerManager;
     this.cameraSystem = cameraSystem;
     this.trafficSystem = trafficSystem;
+    this.network = network; // road-network.js graph, for the GPS route
     this.allBlocks = allBlocks;
     this.onTeleport = onTeleport;
     this.onToggle = onToggle;
@@ -449,11 +589,13 @@ class NYCMapSystem {
     this.miniScale = RADAR_SCALE;
     this.miniCache = null; // { canvas, cx, cz, s, version }: the radar's ground layers, twice the radar's size
     const elCounts = document.getElementById('fullmap-counts');
-    if (elCounts) elCounts.textContent = `${ROAD_NAME_COUNT} streets · ${BLOCKS.length.toLocaleString()} blocks`;
+    if (elCounts) elCounts.textContent = `${ROAD_NAME_COUNT} streets · ${formatCount(BLOCKS.length)} blocks`;
 
-    // The map is drawn grid north up; the compass needle points to true north, 29° to its left
+    // The map is drawn grid north up; the compass needle points to true north, the grid's bearing to its left
     const needle = document.getElementById('map-compass-needle');
     if (needle) needle.setAttribute('transform', `rotate(${-GRID_BEARING} 22 22)`);
+    const compass = document.getElementById('map-compass');
+    if (compass) compass.title = compassTitle(GRID_BEARING);
 
     this.modal = document.getElementById('fullmap-modal');
     this.fullCanvas = document.getElementById('fullmap-canvas');
@@ -484,6 +626,14 @@ class NYCMapSystem {
     // Default GTA 6-style active GPS waypoint (Times Square / Broadway)
     const ts = NYC_LANDMARKS.find((l) => l.id === 'timessquare') || { x: 0, z: 0 };
     this.waypoint = { x: ts.x, z: ts.z, name: 'Times Square & 42nd St' };
+    // GPS route state (updateRoute): the graph (built on first use), the shortest-path tree towards the waypoint's
+    // node, and the node path from the player's node, recomputed only when one of those nodes changes
+    this.routeGraph = undefined;
+    this.routeTree = null;
+    this.routeNodes = [];
+    this.routeStart = -1;
+    this.routeFrom = { x: NaN, z: NaN };
+    this.routeTo = { x: NaN, z: NaN };
 
     // Street names measured before the web font arrived would be spaced for the fallback font: measure & draw again
     if (document.fonts) {
@@ -653,11 +803,11 @@ class NYCMapSystem {
    * matching landmark)
    */
   search(text) {
-    const q = String(text || '').trim().toLowerCase();
+    const q = foldText(String(text || '').trim());
     this.searchHighlight = q;
     this.searchPath = null;
     if (q.length > 0) {
-      const lmMatch = NYC_LANDMARKS.find((l) => l.name.toLowerCase().includes(q) || l.short.toLowerCase().includes(q));
+      const lmMatch = NYC_LANDMARKS.find((l) => foldText(l.name).includes(q) || foldText(l.short).includes(q));
       const roads = ROAD_LABELS.filter((l) => l.lower.includes(q) || l.raw.includes(q));
       if (roads.length) {
         this.searchPath = new Path2D();
@@ -945,6 +1095,40 @@ class NYCMapSystem {
     ctx.textBaseline = 'alphabetic';
   }
 
+  /**
+   * Brings the GPS route up to date for a player at (px, pz): a new shortest-path tree when the waypoint moves to
+   * another node, a new path when the player reaches another node. Snapping waits for 8 m of movement, so a frame
+   * normally costs two comparisons. Either end farther than ROUTE_SNAP from the road graph (out over the water, in
+   * another borough) leaves the path empty, and the route is drawn straight to the waypoint.
+   */
+  updateRoute(px, pz) {
+    const wp = this.waypoint;
+    if (!wp) return;
+    if (this.routeGraph === undefined) this.routeGraph = buildRouteGraph(this.network);
+    const graph = this.routeGraph;
+    if (!graph) return;
+    let changed = false;
+    if (wp.x !== this.routeTo.x || wp.z !== this.routeTo.z) {
+      this.routeTo.x = wp.x;
+      this.routeTo.z = wp.z;
+      const goal = nearestNode(graph, wp.x, wp.z, ROUTE_SNAP);
+      if (!this.routeTree || this.routeTree.goal !== goal) {
+        this.routeTree = routeTree(graph, goal);
+        changed = true;
+      }
+    }
+    const from = this.routeFrom;
+    if (changed || Number.isNaN(from.x) || Math.abs(px - from.x) > 8 || Math.abs(pz - from.z) > 8) {
+      from.x = px;
+      from.z = pz;
+      const start = nearestNode(graph, px, pz, ROUTE_SNAP);
+      if (changed || start !== this.routeStart) {
+        this.routeStart = start;
+        routePath(this.routeTree, start, this.routeNodes);
+      }
+    }
+  }
+
   update() {
     // The full map covers the whole screen, radar included
     if (this.isFullMapOpen) {
@@ -1047,7 +1231,8 @@ class NYCMapSystem {
     if (this.waypoint) {
       const wx = toX(this.waypoint.x);
       const wy = toY(this.waypoint.z);
-      drawRoute(ctx, 0, 0, wx, wy, 3);
+      this.updateRoute(px, pz);
+      drawRoute(ctx, v, px, pz, this.waypoint.x, this.waypoint.z, this.routeGraph, this.routeNodes, 3);
       drawWaypoint(ctx, wx, wy, 4.5);
     }
 
@@ -1137,7 +1322,8 @@ class NYCMapSystem {
     if (this.waypoint) {
       const wx = toX(this.waypoint.x);
       const wy = toY(this.waypoint.z);
-      drawRoute(ctx, toX(ent.position.x), toY(ent.position.z), wx, wy, 4);
+      this.updateRoute(ent.position.x, ent.position.z);
+      drawRoute(ctx, v, ent.position.x, ent.position.z, this.waypoint.x, this.waypoint.z, this.routeGraph, this.routeNodes, 4);
       drawWaypoint(ctx, wx, wy, 7);
     }
 
@@ -1198,7 +1384,7 @@ class NYCMapSystem {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const tracking = 'letterSpacing' in ctx;
-    for (const [label, x, z, kind] of AREA_LABELS) {
+    for (const [label, x, z, kind] of AREA_TITLES) {
       if (kind === 0 && s > 0.07) continue;
       if (kind === 2 && (s < 0.035 || s > 1.2)) continue;
       const dx = toX(x);
@@ -1286,4 +1472,4 @@ class NYCMapSystem {
   }
 }
 
-export { NYCMapSystem };
+export { NYCMapSystem, buildRouteGraph, nearestNode, routeTree, routePath, compassTitle };
