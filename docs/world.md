@@ -20,7 +20,7 @@ Frame: x = grid east, z = grid south, y up, 1 unit = 1 m (see [`geodata.md`](geo
 6. `createTrafficSystem(scene, cityGrid.sidewalks, obstacles)` → `buildRoadNetwork`. The obstacles are `cityGrid.footprints`, `streetDetails.footprints` and the colliders with no `obb` and `minY < 3.5`.
 7. `buildRoadPaint(scene, trafficSystem.network)`.
 8. Controllers get `allColliders`: landmarks + blocks + boroughs + city-grid.
-9. `setupSceneCulling` runs over the root groups found **by name**: `ManhattanCityGrid`, `ManhattanCityBlocks`, `ManhattanStreetDetails`, `ManhattanLandmarks`, `Boroughs`.
+9. `setupSceneCulling` runs over the root groups found **by name**: `CityGrid`, `CityBlocks`, `StreetDetails`, `Landmarks`, `Outskirts` (the `boroughs.js` root).
 10. On WebGPU only, instance matrices are swapped for storage attributes; see [`rendering.md`](rendering.md#renderer-and-the-webgl2-fallback).
 
 Per frame: `cityBlocks.update(camX, camZ)` (detail streaming), `cityBlocks.updateLights`, `streetDetails.update(camera)` (pooled lamp lights), `boroughs.update(elapsed)` (tram), and `updateSceneCulling`. Trees update themselves from a chained `scene.onBeforeRender` that skips orthographic and array cameras, so shadow passes don't change the levels of detail.

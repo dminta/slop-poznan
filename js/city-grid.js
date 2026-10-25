@@ -1478,7 +1478,7 @@ function buildWaterfrontPiers(group) {
 
 function buildCityGrid(scene) {
   const group = new THREE.Group();
-  group.name = 'ManhattanCityGrid';
+  group.name = 'CityGrid';
 
   const dummy = new THREE.Object3D();
   const unitBox = new THREE.BoxGeometry(1, 1, 1);

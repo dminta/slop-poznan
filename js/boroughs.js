@@ -3342,7 +3342,7 @@ function createLandmarkMaterials() {
 function buildBoroughs(scene, { sidewalks = [] } = {}) {
   const t0 = performance.now();
   const group = new THREE.Group();
-  group.name = 'Boroughs';
+  group.name = 'Outskirts';
 
   // Land, bulkheads & the Palisades ridge (all on the procedural ground shader)
   const landMat = createLandMaterial();

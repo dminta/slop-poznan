@@ -255,7 +255,7 @@ function carve(r, holes, axis = 'x') {
 
 function buildCityBlocks(scene) {
   const group = new THREE.Group();
-  group.name = 'ManhattanCityBlocks';
+  group.name = 'CityBlocks';
   const colliders = [];
 
   // Frame of the lots being populated. Irregular blocks come with frontage frames (city-config.js BLOCKS: lots laid

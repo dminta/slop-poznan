@@ -105,7 +105,7 @@ function createWalkSignalMaterial(clock) {
 
 function buildStreetDetails(scene) {
   const group = new THREE.Group();
-  group.name = 'ManhattanStreetDetails';
+  group.name = 'StreetDetails';
 
   const dummy = new THREE.Object3D();
   const unitBox = new THREE.BoxGeometry(1, 1, 1);

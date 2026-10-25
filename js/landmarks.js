@@ -16,7 +16,7 @@ let bryantParkLawn;
 
 function buildLandmarks(scene) {
   const group = new THREE.Group();
-  group.name = 'ManhattanLandmarks';
+  group.name = 'Landmarks';
   const colliders = [];
 
   const limestoneTrimMat = new THREE.MeshStandardNodeMaterial({

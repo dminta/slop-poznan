@@ -55,13 +55,13 @@
 - Trees run their own cell culling and LOD in `trees.js`: one hidden group per cell, levels set from `scene.onBeforeRender`, and matrices frozen. They are not handled by `scene-culling.js`.
 
 ## Culling (`scene-culling.js`): registering new static geometry
-- `setupSceneCulling` walks only the roots that `main.js` lists by group name: `ManhattanCityGrid`, `ManhattanCityBlocks`, `ManhattanStreetDetails`, `ManhattanLandmarks`, `Boroughs`. Put new static city geometry under one of these groups, or add the new group's name to that list.
+- `setupSceneCulling` walks only the roots that `main.js` lists by group name: `CityGrid`, `CityBlocks`, `StreetDetails`, `Landmarks`, `Outskirts` (the `boroughs.js` root). Put new static city geometry under one of these groups, or add the new group's name to that list.
 - What it does, by threshold:
   - Instanced meshes with ≥ 64 instances, ≥ 40k triangles in total and a bounding radius of at least 1.5 km are split into spatial chunks with a distance cull. The distance comes from the 90th-percentile instance size, and `MeshBasicNodeMaterial` glows get 3×.
   - Meshes that would get a cull distance over 2 km are chunked into 1 km cells, frustum culling only.
   - Opaque shadow casters with ≥ 20k triangles and a radius over 600 m get position-only stand-ins on `SHADOW_PROXY_LAYER`, a layer only the cascade cameras render. The originals get `castShadow = false`.
 - **The originals are removed from the scene and replaced.** Any reference a builder holds to such a mesh goes stale. Shadow stand-ins are baked world-space copies and never follow later edits to the original.
-- Anything that changes after the build must stay out of this pass: moving parts, re-filled pools, `count < capacity`. Ways to opt out: set `frustumCulled = false`, keep it outside the roots (traffic and pedestrians live under `ManhattanTrafficAndPedestrians`), or set `visible = false` on the mesh itself at setup time. Meshes with `count !== instanceMatrix.count` are skipped as well.
+- Anything that changes after the build must stay out of this pass: moving parts, re-filled pools, `count < capacity`. Ways to opt out: set `frustumCulled = false`, keep it outside the roots (traffic and pedestrians live under `TrafficAndPedestrians`), or set `visible = false` on the mesh itself at setup time. Meshes with `count !== instanceMatrix.count` are skipped as well.
 - Chunks and stand-ins set `userData.sharesPipelineWith` to a representative, so `precompileShaders` and the warm-up frame compile one object per pipeline. If you build a family of meshes that share a material, mark them the same way (`trees.js` does). `precompileShaders` skips stand-ins, which compile in the warm-up frame instead.
 
 ## Start-up compile and warm-up
