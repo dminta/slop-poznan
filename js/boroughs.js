@@ -50,6 +50,7 @@ import {
   OUTER_BRIDGES,
   streetZ
 } from './city-config.js';
+import { GEO } from './nyc-geodata.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // js/boroughs.js
@@ -73,12 +74,12 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 // 0. REAL PLACES
 // Hand-placed geography (land use, neighbourhood grids, high-rise clusters, signature towers, landmarks) is written in
 // real longitude / latitude: LL() maps it into the world frame exactly (the frame is an affine image of the local
-// tangent plane at 5th Ave & 42nd St, turned 29.02° with the street grid; constants from tools/geo-base.mjs toWorld).
+// tangent plane, turned with the street grid). The coefficients come from the build (GEO.frame.ll, tools/geo-base.mjs
+// llAffine), so they follow the frame when a data refresh moves it; they match the old hand constants to 0.6 mm.
 // =====================================================================================================================
+const [LL_A, LL_B, LL_C, LL_D, LL_E, LL_F] = GEO.frame.ll;
 function LL(lon, lat) {
-  const dl = lon + 73.98185;
-  const dp = lat - 40.75318;
-  return { x: -54.351 + 73845.537 * dl - 53872.251 * dp, z: 69.424 - 40967.61 * dl - 97106.601 * dp };
+  return { x: LL_A * lon + LL_B * lat + LL_C, z: LL_D * lon + LL_E * lat + LL_F };
 }
 const LLs = (pairs) => pairs.map(([lon, lat]) => LL(lon, lat));
 

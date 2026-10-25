@@ -26,6 +26,13 @@ test('geodata builds with default paths in a checkout containing spaces and non-
     const { GEO } = await import(pathToFileURL(path.join(dir, 'js/nyc-geodata.js')).href);
     assert.ok(GEO.roadGraph.links.length > 0);
     assert.ok(GEO.blocks.length > 0);
+    // frame.ll is the affine lon/lat -> world map boroughs.js LL() uses: the tangent point (geo-base.mjs LAT0/LON0)
+    // must land where the old hand constants put it, (-54.351, 69.424) from the 5th Ave & 42nd St origin
+    const ll = GEO.frame.ll;
+    assert.equal(ll.length, 6);
+    const [lon, lat] = [-73.98185, 40.75318];
+    assert.ok(Math.abs(ll[0] * lon + ll[1] * lat + ll[2] + 54.351) < 0.01);
+    assert.ok(Math.abs(ll[3] * lon + ll[4] * lat + ll[5] - 69.424) < 0.01);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

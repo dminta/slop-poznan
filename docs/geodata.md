@@ -22,25 +22,25 @@ GEO_DATA=/some/dir node ... tools/build-geodata.mjs                # read inputs
 - 1 unit = 1 m. y is up. **x = Manhattan-grid east, z = grid south (north = −z)**. Heading 0 faces +z (south).
 - The origin is the CSCL centreline node shared by `5 AVE` and `E/W  42 ST`. The axes are turned by the grid bearing, about 29.02° east of true north. Both values are **re-derived from CSCL on every build**: the bearing is the length-weighted median of the long avenue segments, and the origin is that node. `GEO.frame.bearingDeg` records the bearing.
 - The projection is an ellipsoidal local tangent plane at LAT0/LON0 = 40.75318, −73.98185 (`geo-base.mjs`). The 5th & 42nd node sits at (−54.35, 69.42) in that plane.
-- **The frame is duplicated by hand** in `js/boroughs.js` `LL(lon, lat)`, an affine copy whose constants match `toWorld` to within 1 mm (verified). Many world coordinates are also hard-coded and depend on this frame:
+- `GEO.frame.ll` is `toWorld` as affine coefficients `[a, b, c, d, e, f]`: **x = a·lon + b·lat + c, z = d·lon + e·lat + f** (`geo-base.mjs` `llAffine`, emitted unrounded because c and f are about 5·10⁶). `js/boroughs.js` `LL(lon, lat)` reads it, so hand-placed lon/lat follows the frame on every rebuild. It reproduces the former hand constants to within 0.6 mm over lon −74.30…−73.65, lat 40.48…41.00 (verified). Many world coordinates are hard-coded and depend on this frame:
   - `geo-extra.mjs`: the island seed points, the Ellis Island point (−1460, 7780), the Hudson River Park z range and the NJ cut.
   - `geo-blocks.mjs`: the Times and Herald Square z values.
   - `js/city-config.js`: `HOUSTON_Z` and the other district constants, and the teleports.
   - The street details, landmarks and other placements.
 
-  If a CSCL refresh moves the logged bearing or origin, update `LL()` and recheck those constants. Otherwise boroughs, labels and placements drift away from the Manhattan geometry.
+  If a CSCL refresh moves the logged bearing or origin, `LL()` follows by itself, but recheck those constants. Otherwise boroughs, labels and placements drift away from the Manhattan geometry.
 - Rings and polylines are flat `[x0, z0, x1, z1, ...]` arrays, rounded to 0.1 m. Rings are reversed to a negative shoelace area in (x, z), to match the winding the runtime has always used for `MANHATTAN_COASTLINE`.
 - `CUT_Z = −7090` (about 129th St) splits the detailed island (`GEO.manhattan`, south of the cut) from low-detail Upper Manhattan (`GEO.upperManhattan`, built by boroughs.js). Streets, blocks, roads and the road graph exist only south of about `CUT_Z − 250`.
 
 ## Output shape and consumers
-- `GEO` has these keys: `version, frame{bearingDeg, origin, units, cutZ, strip, sidewalk}, manhattan, upperManhattan, innerShore, islands, boroughs, streets, avenues, broadway, plazas, roads, roadGraph, blocks, parks, centralPark, piers, bridges, landmarks, points`. The positional tuple layouts of `roads`, `roadGraph.links` and `blocks` are documented in comments next to the `GEO` literal in `build-geodata.mjs`. Keep those comments in sync when you change a layout.
+- `GEO` has these keys: `version, frame{bearingDeg, origin, units, cutZ, strip, sidewalk, ll}, manhattan, upperManhattan, innerShore, islands, boroughs, streets, avenues, broadway, plazas, roads, roadGraph, blocks, parks, centralPark, piers, bridges, landmarks, points`. The positional tuple layouts of `roads`, `roadGraph.links` and `blocks` are documented in comments next to the `GEO` literal in `build-geodata.mjs`. Keep those comments in sync when you change a layout.
 - `js/city-config.js` is the main consumer. It turns `GEO` into `{x, z}` objects and named exports (`BLOCKS`, `ALL_STREETS`, `ALL_AVENUES`, `ROADS`, `LANDMARK_SITES`, the polygons and so on). Prefer those exports in runtime code. A few modules read `GEO` directly:
   - `road-network.js`: `roadGraph`
   - `city-grid.js`: `plazas`, `centralPark`, `points`, `parks`
   - `buildings.js`: `plazas`
   - `nyc-map.js`: `frame`, `parks`, `centralPark`
 - When you add, rename or re-layout a `GEO` key, update every consumer of it, plus the `GEO` stubs in `tests/nyc-map.test.cjs` if `nyc-map.js` reads it.
-- `GEO.landmarks` is keyed by the exact OSM `name` tag. If a name has several outlines, the largest one wins. Each entry holds a grid-aligned bbox centre and size, the OSM `height` or null, and the outline ring. Runtime code looks entries up by name (`LANDMARK_SITES['Empire State Building']`), so an OSM rename silently drops the landmark: `fitToSite` returns early on a missing site.
+- `GEO.landmarks` is keyed by the exact OSM `name` tag. If a name has several outlines, the largest one wins. Each entry holds a grid-aligned bbox centre and size (`x, z, w, d`), the OSM `height` or null, and the outline ring. An entry may also carry `ang` (radians, the turn of a frontage frame's θ and three.js `rotation.y`): `w` and `d` are then the extents along the turned axes, and `fitToSite` turns the model and its colliders by it (see [`world.md`](world.md)). The NYC pipeline never emits `ang`, because the Manhattan models are built for grid-aligned sites. Runtime code looks entries up by name (`LANDMARK_SITES['Empire State Building']`), so an OSM rename silently drops the landmark: `fitToSite` returns early on a missing site.
 
 ## Data sources and licensing (tools/data/)
 | file | source | notes |

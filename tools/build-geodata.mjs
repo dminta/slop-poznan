@@ -2,7 +2,7 @@
 // usage: GEO_DATA=tools/data node --max-old-space-size=8192 tools/build-geodata.mjs [out.js]
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { geo, toWorld, rdp, rdpRing, ringArea, bbox, load, log, centroid } from './geo-base.mjs';
+import { geo, toWorld, llAffine, rdp, rdpRing, ringArea, bbox, load, log, centroid } from './geo-base.mjs';
 import { pieces, STREETS, AVENUES } from './geo-streets.mjs';
 import { blocks, innerRing, roads, PLAZAS, CUT_Z, STRIP, SIDEWALK } from './geo-blocks.mjs';
 import { parkShapes, piers, bridges, nj, islands, manhattanSouth, manhattanNorth } from './geo-extra.mjs';
@@ -190,7 +190,7 @@ const points = Object.fromEntries(Object.entries(POINTS).map(([k, [lat, lon]]) =
 
 const GEO = {
   version: 1,
-  frame: { bearingDeg: q((geo.THETA * 180) / Math.PI * 10) / 10, origin: '5th Ave & 42nd St (centreline)', units: 'm', cutZ: CUT_Z, strip: STRIP, sidewalk: SIDEWALK },
+  frame: { bearingDeg: q((geo.THETA * 180) / Math.PI * 10) / 10, origin: '5th Ave & 42nd St (centreline)', units: 'm', cutZ: CUT_Z, strip: STRIP, sidewalk: SIDEWALK, ll: llAffine() },
   manhattan: flat(manhattanSouth),
   upperManhattan: flat(manhattanNorth),
   innerShore: flat(innerRing),

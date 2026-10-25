@@ -48,6 +48,16 @@ const toWorld = (lon, lat) => {
   const [u, v] = gridUV(lon, lat);
   return [u - ORIGIN[0], v - ORIGIN[1]];
 };
+// toWorld as affine coefficients [a, b, c, d, e, f]: x = a*lon + b*lat + c, z = d*lon + e*lat + f (GEO.frame.ll, read
+// by boroughs.js LL()). Exact, since the tangent plane and the grid turn are both linear in lon/lat. Call it only after
+// the frame calibration below has set THETA and ORIGIN. Unrounded: c and f are ~5e6, so rounding a or b to 1e-4 would
+// already shift points by ~4 mm at |lon| = 74.
+function llAffine() {
+  const c = Math.cos(THETA);
+  const s = Math.sin(THETA);
+  const a = KX * c, b = -KY * s, d = -KX * s, e = -KY * c;
+  return [a, b, -a * LON0 - b * LAT0 - ORIGIN[0], d, e, -d * LON0 - e * LAT0 - ORIGIN[1]];
+}
 
 // =====================================================================================================================
 // 2. GEOMETRY HELPERS
@@ -482,4 +492,4 @@ coastChains.sort((a, b) => b.length - a.length);
 log(`OSM coastline: ${coastChains.length} chains; longest ${coastChains.slice(0, 6).map((c) => c.length).join(', ')}`);
 
 const geo = { THETA, ORIGIN, manhattan, islands, boroughs, coastChains, pierPolys, mnRing, shoreProfile };
-export { geo, toWorld, gridUV, rdp, rdpRing, ringArea, bbox, pointInRing, Raster, r1, load, log, segLines, cscl, centroid };
+export { geo, toWorld, llAffine, gridUV, rdp, rdpRing, ringArea, bbox, pointInRing, Raster, r1, load, log, segLines, cscl, centroid };
