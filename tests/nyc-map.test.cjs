@@ -96,8 +96,9 @@ function mapHarness() {
   };
   const config = {
     ROADS: [], BLOCKS: [], NYC_LANDMARKS: [],
-    ISLAND_BOUNDS: { minX: -10000, maxX: 10000, minZ: -10000, maxZ: 10000 },
-    getIslandBoundsAtZ: () => ({ westX: -10000, eastX: 10000 }),
+    CITY_BOUNDS: { minX: -10000, maxX: 10000, minZ: -10000, maxZ: 10000 },
+    clampToLand: (x, z) => ({ x, z }),
+    LAND_RINGS: [],
     getLocationLabel: (x, z) => `${x}, ${z}`,
     isTypingInField: () => false
   };

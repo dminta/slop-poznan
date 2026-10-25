@@ -2,6 +2,8 @@
 
 Frame: x = grid east, z = grid south, y up, 1 unit = 1 m (see [`geodata.md`](geodata.md)). Geodata reaches the world builders mostly through `js/city-config.js` exports (`BLOCKS`, `ALL_AVENUES`, `ALL_STREETS`, `LANDMARK_SITES`, the coastline and borough polygons). Only `road-network.js` (`GEO.roadGraph`), `city-grid.js` (`plazas`, `centralPark`, `points`, `parks`) and `buildings.js` (`plazas`) import `GEO` directly.
 
+**Land and water** go through city-agnostic `city-config.js` helpers: `isLand(x, z, margin)`, `clampToLand(x, z, margin)` (always returns a point; where the land is narrower than both margins, its middle), `CITY_BOUNDS`, `LAND_RINGS` and `RAISED_GROUND` (raised lawn rects the controllers stand on; landmarks.js pushes Bryant Park's lawn). New runtime code must use these, not `getIslandBoundsAtZ`/`ISLAND_BOUNDS`, which only the NYC-specific waterfront, piers, Central Park, the location labels and the water shader's skyline still read.
+
 ## Map (non-obvious ownership)
 - `city-grid.js` `buildCityGrid`: water, bulkhead, road deck, raised sidewalks and curbs from `BLOCKS`, parks and Central Park, plazas, piers, and the waterfront edge (esplanade, FDR, Route 9A, South Street Viaduct). It also exports `batchStaticGroupMeshes`, which landmarks.js reuses.
 - `boroughs.js`: everything off the detailed island, including Upper Manhattan north of `CUT_Z`, the outer boroughs, the islands, all bridges and the tram. Hand-placed places are written in lon/lat through `LL()`.

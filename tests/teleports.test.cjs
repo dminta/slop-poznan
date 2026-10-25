@@ -5,19 +5,19 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 const read = (path) => readFileSync(join(__dirname, '..', path), 'utf8');
-let TELEPORT_LOCATIONS, LANDMARK_SITES, blockAt, nearestRoads, getIslandBoundsAtZ;
+let TELEPORT_LOCATIONS, LANDMARK_SITES, blockAt, nearestRoads, isLand;
 test.before(async () => {
-  ({ TELEPORT_LOCATIONS, LANDMARK_SITES, blockAt, nearestRoads, getIslandBoundsAtZ } = await import('../js/city-config.js'));
+  ({ TELEPORT_LOCATIONS, LANDMARK_SITES, blockAt, nearestRoads, isLand } = await import('../js/city-config.js'));
 });
 
-test('every teleport button has a destination on a real roadway inside Manhattan', () => {
+test('every teleport button has a destination on a real roadway on land', () => {
   const buttons = [...read('index.html').matchAll(/data-teleport="([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(Object.keys(TELEPORT_LOCATIONS).sort(), buttons.sort());
   for (const [name, point] of Object.entries(TELEPORT_LOCATIONS)) {
     assert.ok(Number.isFinite(point.heading), `${name} has a heading`);
     assert.equal(blockAt(point.x, point.z), null, `${name} lands outside building blocks`);
-    const shore = getIslandBoundsAtZ(point.z);
-    assert.ok(point.x > shore.westX + 8 && point.x < shore.eastX - 8, `${name} stays on the island`);
+    // isLand is inclusive at the margin (the old shore test was strict); no teleport sits exactly 8 m from the shore
+    assert.ok(isLand(point.x, point.z, 8), `${name} stays on land`);
     const nearby = nearestRoads(point.x, point.z, 20);
     assert.ok(nearby.some(({ road, dist }) => dist < road.w / 2), `${name} lands within a street's width`);
   }

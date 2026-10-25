@@ -3,8 +3,8 @@ import {
   ALL_STREETS,
   AVENUES,
   STREETS,
-  ISLAND_BOUNDS,
-  getIslandBoundsAtZ,
+  CITY_BOUNDS,
+  isLand,
   BLOCKS
 } from './city-config.js';
 import { GEO } from './nyc-geodata.js';
@@ -19,8 +19,8 @@ import { GEO } from './nyc-geodata.js';
 // (rx, rz) = (-dz, dx). Lanes are lateral offsets to the right of the centreline, sorted left to right.
 
 const CELL = 32;
-const Z_MIN = Math.floor(ISLAND_BOUNDS.minZ) - 20; // the detailed island, ~129th St to the Battery
-const Z_MAX = Math.ceil(ISLAND_BOUNDS.maxZ) + 20;
+const Z_MIN = Math.floor(CITY_BOUNDS.minZ) - 20; // the detailed area (Manhattan: ~129th St to the Battery)
+const Z_MAX = Math.ceil(CITY_BOUNDS.maxZ) + 20;
 const LANE_CLEAR = 1.2; // half width each lane keeps free of obstacles
 const CROSSWALK = 2.5; // depth between an intersection box and its stop lines
 const SHORE_MARGIN = 6;
@@ -56,12 +56,10 @@ function buildRoadNetwork(sidewalks, obstacles) {
     return false;
   }
 
+  // All four corners at least SHORE_MARGIN in from the shore (for minX <= maxX this is exactly the old island test)
   function onLand(minX, maxX, minZ, maxZ) {
-    for (const z of [minZ, maxZ]) {
-      const shore = getIslandBoundsAtZ(z);
-      if (minX < shore.westX + SHORE_MARGIN || maxX > shore.eastX - SHORE_MARGIN) return false;
-    }
-    return true;
+    return isLand(minX, minZ, SHORE_MARGIN) && isLand(maxX, minZ, SHORE_MARGIN) &&
+      isLand(minX, maxZ, SHORE_MARGIN) && isLand(maxX, maxZ, SHORE_MARGIN);
   }
 
   const blocked = (minX, maxX, minZ, maxZ) => !onLand(minX, maxX, minZ, maxZ) || query(minX, maxX, minZ, maxZ, () => true);

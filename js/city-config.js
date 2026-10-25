@@ -192,6 +192,32 @@ function getIslandBoundsAtZ(z) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Land / water: the city-agnostic questions runtime code asks about the detailed area. For Manhattan they are answered
+// from the shore profile above, so behaviour is unchanged; a river city answers them from land and water rings
+// (docs/poznan-plan.md, Phase 1). Only the NYC-specific builders still read getIslandBoundsAtZ directly.
+// ---------------------------------------------------------------------------------------------------------------------
+/** Is (x, z) on the detailed land, at least `margin` metres in from the shore? */
+function isLand(x, z, margin = 0) {
+  const shore = getIslandBoundsAtZ(z);
+  return x >= shore.westX + margin && x <= shore.eastX - margin;
+}
+
+/**
+ * The nearest point at least `margin` in from the shore along the same z. Where the land is narrower than both margins
+ * (Manhattan has ~12 m pinch points) it is the land's middle; callers that need the margin check isLand on the result.
+ */
+function clampToLand(x, z, margin = 0) {
+  const shore = getIslandBoundsAtZ(z);
+  const west = shore.westX + margin;
+  const east = shore.eastX - margin;
+  if (west > east) return { x: (shore.westX + shore.eastX) * 0.5, z };
+  return { x: Math.max(west, Math.min(east, x)), z };
+}
+
+/** The outlines of the detailed land, as [{x, z}] rings (Manhattan: one, the bulkhead line) */
+const LAND_RINGS = [MANHATTAN_COASTLINE];
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Broadway: the real centreline (north to south), its x at any z
 // ---------------------------------------------------------------------------------------------------------------------
 const BROADWAY_LINE = toPts(GEO.broadway);
@@ -636,6 +662,12 @@ const ISLAND_BOUNDS = (() => {
   }
   return { minX, maxX, minZ, maxZ, sidewalkHeight: 0.22, waterLevel: -2.2 };
 })();
+// The extent of the detailed land (city-agnostic name; ISLAND_BOUNDS stays for the NYC-specific builders)
+const CITY_BOUNDS = ISLAND_BOUNDS;
+
+// Raised ground the player stands on, as {minX, maxX, minZ, maxZ, top} rects. Central Park's lawn level is static;
+// landmarks.js pushes Bryant Park's Great Lawn once it has fitted the model.
+const RAISED_GROUND = [{ ...CENTRAL_PARK_BOUNDS, top: 1.24 }];
 
 // Legacy midtown landmark block registry (`${col}_${row}` on AVENUES x STREETS): landmarks now stand on their real
 // lots (LANDMARK_SITES), so nothing is reserved on the old superblock grid
@@ -788,6 +820,11 @@ export {
   LANDMARK_SITES,
   TELEPORT_LOCATIONS,
   ISLAND_BOUNDS,
+  CITY_BOUNDS,
+  RAISED_GROUND,
+  LAND_RINGS,
+  isLand,
+  clampToLand,
   LANDMARK_BLOCKS,
   BLOCKS,
   CUT_Z,

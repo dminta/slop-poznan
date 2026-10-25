@@ -26,7 +26,8 @@ import {
 } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
-  ISLAND_BOUNDS,
+  CITY_BOUNDS,
+  LAND_RINGS,
   CENTRAL_PARK_BOUNDS,
   getIslandBoundsAtZ,
   MANHATTAN_COASTLINE,
@@ -1493,7 +1494,7 @@ function buildCityGrid(scene) {
   const harborWaterGeo = new THREE.PlaneGeometry(60000, 60000, 1, 1);
   harborWaterGeo.rotateX(-Math.PI / 2);
   const harborWaterMesh = new THREE.Mesh(harborWaterGeo, waterMat);
-  harborWaterMesh.position.set(0, ISLAND_BOUNDS.waterLevel, -50);
+  harborWaterMesh.position.set(0, CITY_BOUNDS.waterLevel, -50);
   group.add(harborWaterMesh);
 
   // =========================================================================
@@ -1510,18 +1511,18 @@ function buildCityGrid(scene) {
     metalness: 0.08
   });
 
-  // Slightly expanded perimeter polygon for the granite seawall & waterfront esplanade coping
-  const seawallPolygon = MANHATTAN_COASTLINE.map((p) => ({
-    x: p.x + (p.x < -100 ? -6 : (p.x > 100 ? 6 : 0)),
-    z: p.z + (p.z > 1350 ? 6 : (p.z < -1550 ? -6 : 0))
-  }));
-  const seawallMesh = createExtrudedPolygonMesh(seawallPolygon, -2.35, 2.31, seawallMat, true, false);
-  group.add(seawallMesh);
+  // Slightly expanded perimeter polygon for the granite seawall & waterfront esplanade coping, one per land ring
+  for (const ring of LAND_RINGS) {
+    const seawallPolygon = ring.map((p) => ({
+      x: p.x + (p.x < -100 ? -6 : (p.x > 100 ? 6 : 0)),
+      z: p.z + (p.z > 1350 ? 6 : (p.z < -1550 ? -6 : 0))
+    }));
+    group.add(createExtrudedPolygonMesh(seawallPolygon, -2.35, 2.31, seawallMat, true, false));
+  }
 
-  // Unified Manhattan Roadway Asphalt Deck (Y = 0.0) following true Manhattan coastline
+  // Unified roadway asphalt deck (Y = 0.0) following each land ring's coastline
   const roadMat = createRoadSurfaceMaterial();
-  const roadMesh = createFlatPolygonMesh(MANHATTAN_COASTLINE, 0.0, roadMat, true);
-  group.add(roadMesh);
+  for (const ring of LAND_RINGS) group.add(createFlatPolygonMesh(ring, 0.0, roadMat, true));
 
   // =========================================================================
   // 3. PARK LAWN MATERIALS (the harbor islands themselves are built in boroughs.js)

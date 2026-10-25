@@ -58,6 +58,7 @@ import {
 } from 'three/tsl';
 import {
   CENTRAL_PARK_BOUNDS,
+  CITY_BOUNDS,
   ISLAND_BOUNDS,
   getIslandBoundsAtZ,
   NJ_SHORELINE_POLYGON,
@@ -2458,7 +2459,7 @@ function createWaterMaterial() {
   });
 
   const waveTex = getWaterWaveTexture();
-  const harbourY = ISLAND_BOUNDS ? ISLAND_BOUNDS.waterLevel : -2.2;
+  const harbourY = CITY_BOUNDS ? CITY_BOUNDS.waterLevel : -2.2;
   const pond = smoothstep(harbourY + 1.0, harbourY + 2.0, positionWorld.y);
 
   // [tile size (m), rotation (rad), RMS slope]: incommensurate scales & angles so no pattern repeats

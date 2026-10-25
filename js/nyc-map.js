@@ -4,9 +4,9 @@ import {
   BLOCKS,
   NYC_LANDMARKS,
   LANDMARK_SITES,
-  ISLAND_BOUNDS,
-  getIslandBoundsAtZ,
-  MANHATTAN_COASTLINE,
+  CITY_BOUNDS,
+  clampToLand,
+  LAND_RINGS,
   WATERFRONT_PIERS,
   NJ_SHORELINE_POLYGON,
   BROOKLYN_POLYGONS,
@@ -226,7 +226,7 @@ function mapLayers() {
 
   // Manhattan inside its bulkhead line, and its piers
   L.manhattan = new Path2D();
-  addRing(L.manhattan, MANHATTAN_COASTLINE);
+  for (const ring of LAND_RINGS) addRing(L.manhattan, ring);
   L.piers = new Path2D();
   for (const p of WATERFRONT_PIERS) if (p.ring) addRing(L.piers, p.ring);
 
@@ -536,7 +536,7 @@ class NYCMapSystem {
     if (fullIslandBtn) {
       fullIslandBtn.addEventListener('click', () => {
         // Fits all of Manhattan, from the Harlem River to the Battery
-        const b = ISLAND_BOUNDS;
+        const b = CITY_BOUNDS;
         const { w, h } = this.fullSize();
         this.viewCenterX = (b.minX + b.maxX) * 0.5;
         this.viewCenterZ = (b.minZ + b.maxZ) * 0.5;
@@ -741,9 +741,8 @@ class NYCMapSystem {
 
   // Teleports land on Manhattan: inside the island's extent at that latitude
   clampToManhattan(p) {
-    const z = Math.max(ISLAND_BOUNDS.minZ + 25, Math.min(ISLAND_BOUNDS.maxZ - 25, p.z));
-    const shore = getIslandBoundsAtZ(z);
-    return { x: Math.max(shore.westX + 12, Math.min(shore.eastX - 12, p.x)), z };
+    const z = Math.max(CITY_BOUNDS.minZ + 25, Math.min(CITY_BOUNDS.maxZ - 25, p.z));
+    return clampToLand(p.x, z, 12);
   }
 
   textWidth(ctx, text) {

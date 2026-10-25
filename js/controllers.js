@@ -1,8 +1,9 @@
 import * as THREE from 'three/webgpu';
 import {
-  ISLAND_BOUNDS,
-  CENTRAL_PARK_BOUNDS,
-  getIslandBoundsAtZ,
+  CITY_BOUNDS,
+  RAISED_GROUND,
+  clampToLand,
+  isLand,
   isTypingInField,
   blockAt,
   streetZ
@@ -21,7 +22,6 @@ import {
 } from './actor-models.js';
 import { PersonCrowd, PersonRig } from './pedestrians.js';
 import { HEADLIGHTS, createVehicleHeadlight, placeVehicleHeadlight } from './vehicle-lights.js';
-import { bryantParkLawn } from './landmarks.js';
 
 // js/controllers.js
 // Sculpted, non-blocky GTA 6-style 3D models, animations, and physics controllers
@@ -384,13 +384,12 @@ class ThirdPersonControllerManager {
     const cameraBack = Math.cos(0.09) * entity.chaseDistance;
     const cameraUp = entity.chaseHeight + Math.sin(0.09) * entity.chaseDistance * 0.85;
     const clampPoint = (px, pz) => {
-      pz = Math.max(ISLAND_BOUNDS.minZ + (heli ? -6000 : 30), Math.min(ISLAND_BOUNDS.maxZ + margin, pz));
-      px = Math.max(ISLAND_BOUNDS.minX - margin, Math.min(ISLAND_BOUNDS.maxX + margin, px));
-      if (!heli && getIslandBoundsAtZ) {
-        const shore = getIslandBoundsAtZ(pz);
-        const west = shore.westX + 8, east = shore.eastX - 8;
-        if (west > east) return null;
-        px = Math.max(west, Math.min(east, px));
+      pz = Math.max(CITY_BOUNDS.minZ + (heli ? -6000 : 30), Math.min(CITY_BOUNDS.maxZ + margin, pz));
+      px = Math.max(CITY_BOUNDS.minX - margin, Math.min(CITY_BOUNDS.maxX + margin, px));
+      if (!heli && clampToLand) {
+        // Ground arrivals stay 8 m in from the shore; where the land is narrower than that there is no valid spot.
+        px = clampToLand(px, pz, 8).x;
+        if (!isLand(px, pz, 8)) return null;
       }
       return { x: px, z: pz };
     };
@@ -414,8 +413,8 @@ class ThirdPersonControllerManager {
     const origin = clampPoint(x, z);
     if (clear(origin)) return origin;
     // Four-metre rings cover nearby streets and courtyards, with bounded work even for a click inside a large block.
-    const cx = origin ? origin.x : Math.max(ISLAND_BOUNDS.minX, Math.min(ISLAND_BOUNDS.maxX, x));
-    const cz = origin ? origin.z : Math.max(ISLAND_BOUNDS.minZ + 30, Math.min(ISLAND_BOUNDS.maxZ, z));
+    const cx = origin ? origin.x : Math.max(CITY_BOUNDS.minX, Math.min(CITY_BOUNDS.maxX, x));
+    const cz = origin ? origin.z : Math.max(CITY_BOUNDS.minZ + 30, Math.min(CITY_BOUNDS.maxZ, z));
     for (let distance = 4; distance <= 256; distance += 4) {
       for (let i = 0; i < 32; i++) {
         const angle = i * Math.PI / 16;
@@ -454,7 +453,7 @@ class ThirdPersonControllerManager {
       mesh: root,
       crowd,
       rig,
-      position: new THREE.Vector3(-11.6, ISLAND_BOUNDS.sidewalkHeight, SPAWN_Z + 12),
+      position: new THREE.Vector3(-11.6, CITY_BOUNDS.sidewalkHeight, SPAWN_Z + 12),
       heading: 0,
       speed: 0,
       verticalVel: 0,
@@ -832,18 +831,14 @@ class ThirdPersonControllerManager {
   }
 
   getGroundHeight(x, z, mode = 'person') {
-    // Inside Central Park (5th Ave to Central Park West, 59th St to 110th St)
-    const cp = CENTRAL_PARK_BOUNDS;
-    if (x > cp.minX && x < cp.maxX && z > cp.minZ && z < cp.maxZ) {
-      return 1.24;
-    }
-    // Inside Bryant Park's Great Lawn (west of the New York Public Library, 40th-42nd St)
-    const lawn = bryantParkLawn;
-    if (lawn && x > lawn.minX && x < lawn.maxX && z > lawn.minZ && z < lawn.maxZ) {
-      return lawn.top;
+    // Raised lawns and plazas (Manhattan: Central Park, then Bryant Park's Great Lawn once landmarks.js builds it);
+    // the first rectangle that contains the point wins, so list order is precedence.
+    for (let i = 0; i < RAISED_GROUND.length; i++) {
+      const r = RAISED_GROUND[i];
+      if (x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ) return r.top;
     }
     if (mode === 'person') {
-      return this.isPointOnSidewalk(x, z) ? ISLAND_BOUNDS.sidewalkHeight : 0.0;
+      return this.isPointOnSidewalk(x, z) ? CITY_BOUNDS.sidewalkHeight : 0.0;
     }
     return 0.0;
   }
@@ -888,20 +883,15 @@ class ThirdPersonControllerManager {
   }
 
   resolveHorizontalCollision(pos, radius, carEntity = null, entity = carEntity) {
-    // The detailed island (the helicopter may roam out over the harbour & the boroughs)
+    // The detailed land (the helicopter may roam out over the water & the surrounding districts)
     const heli = this.activeMode === 'helicopter';
     const m = heli ? 6000 : 0;
-    pos.x = Math.max(ISLAND_BOUNDS.minX - m, Math.min(ISLAND_BOUNDS.maxX + m, pos.x));
-    pos.z = Math.max(ISLAND_BOUNDS.minZ + (heli ? -6000 : 30), Math.min(ISLAND_BOUNDS.maxZ + m, pos.z));
-    if (this.activeMode !== 'helicopter' && getIslandBoundsAtZ) {
-      const shore = getIslandBoundsAtZ(pos.z);
-      const minShoreX = shore.westX + 8.0;
-      const maxShoreX = shore.eastX - 8.0;
-      if (pos.x < minShoreX) {
-        pos.x = minShoreX;
-        if (carEntity && carEntity.speed) carEntity.speed *= 0.4;
-      } else if (pos.x > maxShoreX) {
-        pos.x = maxShoreX;
+    pos.x = Math.max(CITY_BOUNDS.minX - m, Math.min(CITY_BOUNDS.maxX + m, pos.x));
+    pos.z = Math.max(CITY_BOUNDS.minZ + (heli ? -6000 : 30), Math.min(CITY_BOUNDS.maxZ + m, pos.z));
+    if (this.activeMode !== 'helicopter' && clampToLand) {
+      const x = clampToLand(pos.x, pos.z, 8.0).x;
+      if (x !== pos.x) {
+        pos.x = x;
         if (carEntity && carEntity.speed) carEntity.speed *= 0.4;
       }
     }

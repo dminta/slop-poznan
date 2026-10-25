@@ -24,7 +24,7 @@ import {
 import {
   ALL_AVENUES,
   CENTRAL_PARK_BOUNDS,
-  ISLAND_BOUNDS,
+  CITY_BOUNDS,
   BLOCKS,
   LANDMARK_SITES,
   streetZ,
@@ -300,10 +300,10 @@ function buildCityBlocks(scene) {
 
   // Full-island Spatial Quadtree covering Harlem (~129th St) down to the Battery
   const quadtree = new Quadtree({
-    minX: ISLAND_BOUNDS.minX - 50,
-    maxX: ISLAND_BOUNDS.maxX + 50,
-    minZ: ISLAND_BOUNDS.minZ - 50,
-    maxZ: ISLAND_BOUNDS.maxZ + 50
+    minX: CITY_BOUNDS.minX - 50,
+    maxX: CITY_BOUNDS.maxX + 50,
+    minZ: CITY_BOUNDS.minZ - 50,
+    maxZ: CITY_BOUNDS.maxZ + 50
   }, 6, 9);
   const allBlocks = [];
 

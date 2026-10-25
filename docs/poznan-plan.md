@@ -102,6 +102,10 @@ Rule for this stage: every commit keeps the NYC build working.
 
 ### Phase 1: Land/water API instead of the island model
 
+**Status: done.** `distToWater` and `waterRings` were deferred until a consumer needs them. The only behaviour change is at the
+Battery tip: over its last 2.5 m (z 6509.5–6512) the land is narrower than 16 m, and the collision clamp now picks the
+land's middle instead of the west margin, a shift of up to 2.2 m.
+
 The goal is that no runtime code asks "west/east shore at z".
 
 1. In `js/city-config.js`, add `isLand(x, z)`, `isWater(x, z)`, `distToWater(x, z)`, `landRings`, `waterRings` and

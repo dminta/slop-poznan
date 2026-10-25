@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { getBlockBounds, LANDMARK_SITES, BLOCKS } from './city-config.js';
+import { getBlockBounds, LANDMARK_SITES, BLOCKS, RAISED_GROUND } from './city-config.js';
 import {
   createPreWarBuildingMaterial,
   createCurtainWallMaterial,
@@ -696,6 +696,8 @@ function buildLandmarks(scene) {
     bpGroup.updateMatrixWorld(true);
     const lb = new THREE.Box3().setFromObject(lawn);
     bryantParkLawn = { minX: lb.min.x, maxX: lb.max.x, minZ: lb.min.z, maxZ: lb.max.z, top: lb.max.y };
+    // Walkable for the controllers, after Central Park (city-config.js seeds RAISED_GROUND with it)
+    RAISED_GROUND.push(bryantParkLawn);
   }
 
   // =========================================================================

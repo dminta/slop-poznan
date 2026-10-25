@@ -25,6 +25,7 @@ function keyboardHarness(nyc = {}) {
   const config = {
     streetZ: () => 0,
     isTypingInField: (event) => ['INPUT', 'SELECT'].includes(event.target?.tagName),
+    RAISED_GROUND: [],
     ...nyc
   };
   const { ThirdPersonControllerManager } = loadModule(source, {
@@ -35,8 +36,7 @@ function keyboardHarness(nyc = {}) {
       './tsl-materials.js': {},
       './actor-models.js': {},
       './pedestrians.js': {},
-      './vehicle-lights.js': {},
-      './landmarks.js': {}
+      './vehicle-lights.js': {}
     }
   });
   // Exercise the production event handlers without constructing the scene's 3D models.
@@ -195,9 +195,18 @@ for (const mode of ['Person', 'Car', 'Cyclist', 'Helicopter']) {
 
 function teleportHarness(mode, colliders = [], shore = () => ({ westX: -500, eastX: 500 })) {
   const harness = keyboardHarness({
-    ISLAND_BOUNDS: { minX: -500, maxX: 500, minZ: -500, maxZ: 500, sidewalkHeight: 0.22 },
-    CENTRAL_PARK_BOUNDS: { minX: 1000, maxX: 1100, minZ: 1000, maxZ: 1100 },
-    getIslandBoundsAtZ: shore,
+    CITY_BOUNDS: { minX: -500, maxX: 500, minZ: -500, maxZ: 500, sidewalkHeight: 0.22 },
+    RAISED_GROUND: [{ minX: 1000, maxX: 1100, minZ: 1000, maxZ: 1100, top: 1.24 }],
+    // Same semantics as city-config.js clampToLand, answered from the test's shore profile
+    clampToLand: (x, z, margin = 0) => {
+      const { westX, eastX } = shore(z);
+      if (westX + margin > eastX - margin) return { x: (westX + eastX) * 0.5, z };
+      return { x: Math.max(westX + margin, Math.min(eastX - margin, x)), z };
+    },
+    isLand: (x, z, margin = 0) => {
+      const { westX, eastX } = shore(z);
+      return x >= westX + margin && x <= eastX - margin;
+    },
     blockAt: () => null
   });
   const { controller } = harness;
