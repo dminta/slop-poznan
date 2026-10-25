@@ -1,6 +1,6 @@
 # Implementation plan: replacing New York with Poznań
 
-Status: **Phases 1–3 done** (each phase heading carries its own status note); Phases 4–12 are not started.
+Status: **Phases 1–4 done** (each phase heading carries its own status note); Phases 5–12 are not started.
 Line references are as of commit `46ec12b` and will drift; grep for the named symbol if a line no longer matches. Read `AGENTS.md` and the topic docs (`geodata.md`, `world.md`, `rendering.md`,
 `actors.md`, `audio.md`, `architecture.md`, `testing.md`) before starting any phase. They hold the repo-wide rules
 (modulepreload + boot count, module syntax, source-sliced tests, generated geodata, CSS `?v=` bump).
@@ -253,6 +253,27 @@ These changes are all behaviour-preserving for NYC.
 ---
 
 ## 4. Stage B: Poznań geodata pipeline (Phase 4)
+
+**Status: done.** `node --max-old-space-size=8192 tools/build-poznan.mjs [out.js]` builds the §2 contract in ≈ 11 s
+(≈ 0.76 GB peak RSS), deterministically, to 1.26 MB: 822 blocks, 3,903 graph links, 235 signals, 27 bridge links. How
+to build and what each module decides is in `docs/geodata.md`. Deviations and open points:
+- Output: until the Phase 5 cutover the default path is `os.tmpdir()/geodata-poznan.js`, not `js/geodata.js`.
+- Extra keys `landHoles` and `outskirtsHoles` (`[{ outer, ring }]`, positive winding), so `land` and `outskirts` stay
+  plain `[flatRing]`. `water` entries may carry `holes` (islands), and `kind` also takes `'pond'`. `plazas` entries may
+  carry `holes`: the buildings standing on a pedestrian multipolygon, such as Stary Rynek's central block.
+- The road graph leaves out `highway=service` (`buildRoadGraph(..., { service: true })` keeps it), so it has 3,903 links,
+  below the 6–10 k estimate. The block raster stamps named service roads only (167 pieces).
+- `STRIP` = 10 m riverside strip. Bridges are stamped like any road, because their decks are at street level (D7).
+- Plazas: place=square outlines and pedestrian areas are cleared, then the multipolygon inner rings of 100 m² and up are
+  given back, grown by `SIDEWALK`. This replaces the Times/Herald Square hack. Linear `highway=pedestrian` ways are
+  stamped at 8 m (or their `width`) outside plazas.
+- The tram-on-street flag misses Most Bolesława Chrobrego and Most Mieszka I (599 tram links in all).
+- `Pomnik Czerwca 1956` is a node only (a fixed 10 × 10 m site). Delta 4 is not in OSM; the `Delta` key is the older
+  building.
+- Water labels (`kind: 'water'`) sit at the deepest point of each body inside the detail box. Jezioro Maltańskie runs
+  past the box's east edge, so its label (2690, 726) is on the box's part of the lake.
+- Blocks: none is axis-rectangular (bearing 0); 476 carry frontage frames, and 332 have no lots (195 of them are under
+  300 m²).
 
 Build it alongside the NYC pipeline. `tests/geodata.test.mjs` copies only top-level `tools/*.mjs`, so new modules must be
 flat files: `tools/poz-*.mjs` plus a `tools/build-poznan.mjs` entry point. Inputs go in `tools/data/poznan/`, or in

@@ -4,7 +4,7 @@ A no-build three.js Manhattan simulation (WebGPURenderer + TSL). `index.html` lo
 `three@dev` from jsDelivr via the import map, so APIs can drift between visits. Served as static files (GitHub Pages).
 
 ## Commands
-- Tests: `node --test tests/` (~11 s, mostly the geodata rebuild); quick loop: `node --test tests/*.cjs` (<1 s). Node 22+.
+- Tests: `node --test tests/` (~22 s, mostly the NYC and Poznań geodata rebuilds); quick loop: `node --test tests/*.cjs` (<1 s). Node 22+.
 - Serve: `python3 -m http.server 8000` from the repo root, then open `http://localhost:8000/` in a WebGPU browser (needs network
   for three.js).
 - Rendering, shaders, lighting, culling and audio have no automated coverage: verify them in the browser and watch the console.

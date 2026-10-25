@@ -4,7 +4,7 @@ No package.json, no npm, no dependencies. The tests use only Node built-ins (`no
 
 ## Commands (verified)
 
-- Full suite: `node --test tests/`. 128 tests, about 11 s. Nearly all of that is `tests/geodata.test.mjs`, which runs the full `tools/build-geodata.mjs` in a temp copy of the repo with `--max-old-space-size=8192`.
+- Full suite: `node --test tests/`. 129 tests, about 22 s. Nearly all of that is `tests/geodata.test.mjs`, which runs the full `tools/build-geodata.mjs` and `tools/build-poznan.mjs` in temp copies of the repo with `--max-old-space-size=8192`.
 - Quick loop that skips the geodata rebuild: `node --test tests/*.cjs` (about 0.2 s).
 - One file: `node --test tests/cameras.test.cjs`. Running `node tests/cameras.test.cjs` directly also works.
 - By test name: `node --test --test-name-pattern="police" tests/`
