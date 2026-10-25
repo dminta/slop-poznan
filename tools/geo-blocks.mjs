@@ -1,7 +1,8 @@
 // Part 3: real Manhattan blocks ("curb islands") from the street centerline, by rasterising every at-grade roadway at
 // its curb-to-curb width over the land (minus a waterfront strip), then labelling what's left.
 // Each block: curb outline polygon, axis-aligned lot rects inside its property line (curb minus sidewalk), metadata.
-import { geo, Raster, rdpRing, ringArea, bbox, log } from './geo-base.mjs';
+import { geo, log } from './geo-base.mjs';
+import { Raster, rdpRing, ringArea, bbox } from './geo-util.mjs';
 import { pieces } from './geo-streets.mjs';
 
 export const CUT_Z = -7090; // detailed island south of here (≈ 129th St); Upper Manhattan beyond is low-detail

@@ -2,7 +2,8 @@
 // Manhattan and the diagonal/curving roads farther north, js/road-network.js). Every at-grade street piece of the CSCL
 // runs between two nodes (intersections, dead ends, attribute changes): its ends become graph nodes (merged within
 // 1 m) and the piece a link with its curb-to-curb width, travel lanes and direction of travel.
-import { cscl, segLines, toWorld, rdp, log } from './geo-base.mjs';
+import { cscl, segLines, toWorld, log } from './geo-base.mjs';
+import { rdp } from './geo-util.mjs';
 import { STREETS } from './geo-streets.mjs';
 import { CUT_Z } from './geo-blocks.mjs';
 

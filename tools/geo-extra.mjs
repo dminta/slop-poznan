@@ -1,6 +1,7 @@
 // Part 4: parks (NYC Parks properties) onto the blocks, piers (OSM), East River bridges (CSCL), New Jersey (OSM
 // coastline), harbour islands, Upper Manhattan split
-import { geo, toWorld, rdp, rdpRing, ringArea, bbox, load, log, centroid } from './geo-base.mjs';
+import { geo, toWorld, load, log } from './geo-base.mjs';
+import { rdp, rdpRing, ringArea, bbox, centroid } from './geo-util.mjs';
 import { pieces } from './geo-streets.mjs';
 import { blocks, blockRaster as R, blockLabels as lab, CUT_Z } from './geo-blocks.mjs';
 

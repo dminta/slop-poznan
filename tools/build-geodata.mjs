@@ -1,8 +1,10 @@
-// tools/build-geodata.mjs — writes js/geodata.js (see geo-base.mjs for the frame and the data sources)
+// tools/build-geodata.mjs — writes js/geodata.js (see geo-base.mjs for the frame and the data sources, geo-util.mjs for
+// the geometry and raster helpers)
 // usage: GEO_DATA=tools/data node --max-old-space-size=8192 tools/build-geodata.mjs [out.js]
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { geo, toWorld, llAffine, rdp, rdpRing, ringArea, bbox, load, log, centroid } from './geo-base.mjs';
+import { geo, toWorld, llAffine, load, log } from './geo-base.mjs';
+import { rdp, rdpRing, ringArea, bbox, centroid, elemRing, elemRings } from './geo-util.mjs';
 import { pieces, STREETS, AVENUES } from './geo-streets.mjs';
 import { blocks, innerRing, roads, PLAZAS, CUT_Z, STRIP, SIDEWALK } from './geo-blocks.mjs';
 import { parkShapes, piers, bridges, nj, islands, manhattanSouth, manhattanNorth } from './geo-extra.mjs';
@@ -50,10 +52,17 @@ function mergeRoads() {
   const out = [];
   for (const [key, segs] of byKey) {
     const [name, w, dir, lanes, rw] = key.split('|');
-    // chain pieces end to start
+    // chain pieces end to start. byEnd lists the pieces ending at each point in segs order, so the walk back picks the
+    // same piece the former linear `segs.find` scan did, in O(1) per step instead of O(n)
     const ends = new Map();
+    const byEnd = new Map();
     const k = (p) => `${q(p[0])},${q(p[1])}`;
-    for (const s of segs) ends.set(k(s[0]), s);
+    for (const s of segs) {
+      ends.set(k(s[0]), s);
+      const e = k(s[1]);
+      if (!byEnd.has(e)) byEnd.set(e, []);
+      byEnd.get(e).push(s);
+    }
     const used = new Set();
     for (const s of segs) {
       if (used.has(s)) continue;
@@ -61,7 +70,7 @@ function mergeRoads() {
       let first = s;
       const seen = new Set([s]);
       for (;;) {
-        const prev = segs.find((t) => !seen.has(t) && !used.has(t) && k(t[1]) === k(first[0]));
+        const prev = (byEnd.get(k(first[0])) || []).find((t) => !seen.has(t) && !used.has(t));
         if (!prev) break;
         seen.add(prev);
         first = prev;
@@ -91,57 +100,33 @@ cp.outline = flat(rdpRing(cpPark.rings.reduce((a, r) => (Math.abs(ringArea(r)) >
 const WATER_NAMES = new Set(['Jacqueline Kennedy Onassis Reservoir', 'The Lake', 'The Pond', 'Harlem Meer', 'Turtle Pond', 'Conservatory Water', 'The Pool']);
 const LAWN_NAMES = new Set(['Sheep Meadow', 'The Great Lawn', 'North Meadow', 'Great Hill', 'Heckscher Ballfields', 'East Meadow', 'Cedar Hill', 'Pilgrim Hill', 'The Dene', 'Conservatory Garden', 'Strawberry Fields']);
 const SITE_NAMES = ['Bethesda Fountain', 'Bow Bridge', 'Belvedere Castle', 'Gapstow Bridge', "Cleopatra's Needle", 'Central Park Carousel', 'The Dairy (Visitor Center and Gift Shop)', 'Delacorte Theater', 'Kerbs Boathouse', 'The Arsenal', 'Central Park Zoo', 'Columbus Circle', 'Pulitzer Fountain', 'Charles A. Dana Discovery Center', 'Loeb Boathouse', 'Wollman Rink', 'Bethesda Terrace'];
-function elemRing(e) {
-  if (e.type === 'way') return (e.geometry || []).map((g) => toWorld(g.lon, g.lat));
-  let best = [];
-  for (const m of e.members || []) if (m.role === 'outer' && m.geometry && m.geometry.length > best.length) best = m.geometry.map((g) => toWorld(g.lon, g.lat));
-  return best;
-}
-function elemRings(e) {
-  // relations (The Lake, Turtle Pond, Harlem Meer) come as several outer ways: chain them into closed rings
-  if (e.type === 'way') return [(e.geometry || []).map((g) => toWorld(g.lon, g.lat))];
-  const parts = (e.members || []).filter((m) => m.role === 'outer' && m.geometry).map((m) => m.geometry.map((g) => toWorld(g.lon, g.lat)));
-  const rings = [];
-  const close = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 0.5;
-  while (parts.length) {
-    let ring = parts.shift();
-    for (let guard = 0; guard < 500 && !close(ring[0], ring[ring.length - 1]); guard++) {
-      const i = parts.findIndex((p) => close(p[0], ring[ring.length - 1]) || close(p[p.length - 1], ring[ring.length - 1]));
-      if (i < 0) break;
-      const p = parts.splice(i, 1)[0];
-      ring = ring.concat(close(p[0], ring[ring.length - 1]) ? p.slice(1) : p.reverse().slice(1));
-    }
-    rings.push(ring);
-  }
-  return rings;
-}
 const seenSites = new Set();
 for (const e of osmCP.elements) {
   const t = e.tags || {};
   const n = t.name || '';
   const isWater = t.natural === 'water' && (WATER_NAMES.has(n) || (!n && t.water === 'pond'));
   if (isWater) {
-    for (const r of elemRings(e)) {
+    for (const r of elemRings(e, toWorld)) {
       if (r.length < 4 || !insideCP(centroid(r)) || Math.abs(ringArea(r)) < 200) continue;
       const s = rdpRing(r.slice(0, -1), 0.6);
       if (ringArea(s) > 0) s.reverse();
       cp.water.push({ name: n, ring: flat(s) });
     }
   } else if (LAWN_NAMES.has(n) && (t.landuse === 'grass' || t.leisure)) {
-    const r = elemRing(e);
+    const r = elemRing(e, toWorld);
     if (r.length > 3 && insideCP(centroid(r))) {
       const s = rdpRing(r.slice(0, -1), 0.8);
       if (ringArea(s) > 0) s.reverse();
       cp.lawns.push({ name: n, ring: flat(s) });
     }
   } else if (e.type === 'way' && t.highway && /^(East Drive|West Drive|Center Drive|Terrace Drive)$/.test(n)) {
-    const r = elemRing(e);
+    const r = elemRing(e, toWorld);
     if (r.length > 1 && insideCP(r[0])) cp.drives.push({ name: n, w: t.highway === 'service' ? 6 : 9, pts: flat(rdp(r, 0.8)) });
   } else if (e.type === 'way' && t.highway && /Transverse/.test(n) && t.highway !== 'footway') {
-    const r = elemRing(e);
+    const r = elemRing(e, toWorld);
     if (r.length > 1) cp.drives.push({ name: n, w: 10, transverse: true, pts: flat(rdp(r, 0.8)) });
   } else if (SITE_NAMES.includes(n) && !seenSites.has(n)) {
-    const r = elemRing(e);
+    const r = elemRing(e, toWorld);
     if (!r.length) continue;
     const b = bbox(r);
     seenSites.add(n);
@@ -162,7 +147,7 @@ const osmLM = load('osm_landmarks.json');
 const landmarks = {};
 for (const e of osmLM.elements) {
   const t = e.tags || {};
-  const r = elemRing(e);
+  const r = elemRing(e, toWorld);
   if (!r.length || !t.name) continue;
   const b = bbox(r);
   const area = Math.abs(ringArea(r));
