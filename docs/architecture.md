@@ -65,8 +65,8 @@ Why the order matters:
 
 Timing:
 - `dt` is clamped to `[0.001, 0.05]` for the simulation. FPS telemetry uses the raw frame time.
-- DOM telemetry (speed, altitude, location signs) updates every 250 ms, not every frame. `topSpeedMph` must track the speed caps
-  in `controllers.js`.
+- DOM telemetry (speed, altitude, location signs) updates every 250 ms, not every frame. `topSpeedKmh` must track the speed caps
+  in `controllers.js` (km/h = m/s x 3.6); the HUD shows km/h and altitude in metres.
 
 Allocation: hot paths reuse scratch objects (`_desiredPos`, `_buildingContact`, `_nearList`, the single `_collisionEvent`). Keep
 per-frame code free of allocations. Collision listeners must copy any event fields they want to keep.
@@ -115,7 +115,7 @@ Adding a mode, or renaming one, means touching all of these places, because the 
   - the per-mode reset branch in `teleportActiveTo`
   - the radius in the `update<Mode>` call to `resolveHorizontalCollision`
   - `getGroundHeight`, if the mode needs special ground
-- `main.js`: `controlHints`, `topSpeedMph`, the `modes` array in `onCycleMode`, and the `Digit` shortcuts.
+- `main.js`: `controlHints`, `topSpeedKmh`, the `modes` array in `onCycleMode`, and the `Digit` shortcuts.
 - `index.html`: a `.mode-btn[data-mode]` button with an icon `<symbol>`. Also `css/style.css` if the mode needs a
   `body[data-mode=...]` rule.
 - `touch-controls.js`: the mode whitelist, button visibility and labels in `setMode`.
@@ -157,12 +157,15 @@ Physics notes:
      `blockAt`.
 
 ## Persistence (localStorage)
-- `nyc-player-state` (`main.js`) stores `{ version: 1, activeMode, entities: { [mode]: { x, y, z, heading } } }`.
+- `player-state` (`main.js`) stores `{ version: 1, activeMode, entities: { [mode]: { x, y, z, heading } } }`.
+  - It was `nyc-player-state`: on load the old key is copied to the new one and removed. At the Phase 5 (Poznań) cutover
+    `version` bumps to 2 and the migration goes, so a Manhattan position is never restored into Poznań.
   - It is saved every 5 s while the page is visible, on `pagehide` and when the page becomes hidden.
   - On restore, each entity goes through `setMode` + `teleportActiveTo`, so saved players come back at rest and clear of
     obstacles.
   - If you change the shape, bump `version`. Old data is then ignored.
-- `nyc-sound` (`audio-system.js`) stores `'on'` or `'off'`.
+- `sound` (`audio-system.js`) stores `'on'` or `'off'`. The old `nyc-sound` key is read as a fallback and removed on the
+  next toggle.
 - Wrap every storage access in `try { } catch { /* reason */ }`. Storage may be unavailable, and that must never block play.
 
 ## HUD, CSS and cache busting

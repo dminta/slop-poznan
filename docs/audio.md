@@ -45,7 +45,8 @@ mix -> DynamicsCompressor -> master(gain, ramps to 0.65) -> destination
   because iOS can interrupt a running context, and resuming needs another gesture. Keep them attached.
 - `ready` is set by `main.js` only after the first GPU frame is submitted (loading overlay hidden). `update`,
   `crash` and `honk` do nothing until `ready && enabled && context.state === 'running' && !document.hidden`.
-- Mute state persists in `localStorage['nyc-sound']` (`'off'` disables). Every storage access is in try/catch.
+- Mute state persists in `localStorage['sound']` (`'off'` disables); the old `nyc-sound` key is the fallback, removed
+  on the next toggle. Every storage access is in try/catch.
 - `suspend()` re-checks state after the promise settles, so a quick unmute cannot leave the context suspended.
   Keep that reconciliation when you touch enable or visibility logic.
 - `reset()` disposes every voice, clears per-source state, collision history and conversations, and snaps master
