@@ -127,8 +127,11 @@ function buildLandmarks(scene) {
 
   // -------------------------------------------------------------------------------------------------------------------
   // Every landmark is modelled around a local origin, then fitted onto its real lot (city-config.js LANDMARK_SITES: the
-  // OpenStreetMap outline's grid-aligned box): scaled up to its real height (as wide as the real outline allows, about
-  // the model's centre) and moved so its centre stands on the outline's centre. Its colliders follow.
+  // OpenStreetMap outline's box): scaled up to its real height (as wide as the real outline allows, about the model's
+  // centre) and moved so its centre stands on the outline's centre. Its colliders follow.
+  // A site may carry `ang` (radians, the same turn as a frontage frame's θ and three.js rotation.y): its w and d are then
+  // the outline's extents along the turned axes, and the model is turned by ang about the site centre (offset turns
+  // with it). NYC sites are grid-aligned and carry no ang, so they take the unrotated path below, unchanged.
   // -------------------------------------------------------------------------------------------------------------------
   function fitToSite(objs, site, c0, { height, horizontal, stretch = false, offset = [0, 0] } = {}) {
     if (!site) return;
@@ -151,6 +154,10 @@ function buildLandmarks(scene) {
       const fit = Math.min(site.w / size.x, site.d / size.z) * 1.06;
       sx = sz = horizontal ?? Math.min(sy, fit);
     }
+    if (site.ang) {
+      fitTurned(objs, site, c0, c, sx, sy, sz, offset);
+      return;
+    }
     const tx = site.x + offset[0];
     const tz = site.z + offset[1];
     for (const o of objs) {
@@ -168,6 +175,39 @@ function buildLandmarks(scene) {
       k.minZ = Math.min(z0, z1);
       k.maxZ = Math.max(z0, z1);
       k.maxY *= sy;
+    }
+  }
+  // fitToSite on a turned site: scale in the site's own frame, then turn by ang about the site centre. Local (u, w) maps
+  // to world (x + u cos + w sin, z - u sin + w cos), as buildings.js does for frontage frames. The colliders, authored as
+  // model-space boxes, become oriented boxes inside their world AABB: the obb shape buildings.js pushCollider emits, which
+  // controllers.js and audio-acoustics.js test against and main.js keeps out of the traffic obstacles.
+  function fitTurned(objs, site, c0, c, sx, sy, sz, offset) {
+    const cs = Math.cos(site.ang);
+    const sn = Math.sin(site.ang);
+    const turn = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), site.ang);
+    for (const o of objs) {
+      const u = offset[0] + (o.position.x - c.x) * sx;
+      const w = offset[1] + (o.position.z - c.z) * sz;
+      o.position.set(site.x + u * cs + w * sn, o.position.y * sy, site.z - u * sn + w * cs);
+      o.scale.multiply(new THREE.Vector3(sx, sy, sz));
+      o.quaternion.premultiply(turn);
+    }
+    for (let i = c0; i < colliders.length; i++) {
+      const k = colliders[i];
+      const u = offset[0] + ((k.minX + k.maxX) * 0.5 - c.x) * sx;
+      const w = offset[1] + ((k.minZ + k.maxZ) * 0.5 - c.z) * sz;
+      const cx = site.x + u * cs + w * sn;
+      const cz = site.z - u * sn + w * cs;
+      const hx = (k.maxX - k.minX) * 0.5 * Math.abs(sx);
+      const hz = (k.maxZ - k.minZ) * 0.5 * Math.abs(sz);
+      const ex = Math.abs(cs) * hx + Math.abs(sn) * hz;
+      const ez = Math.abs(sn) * hx + Math.abs(cs) * hz;
+      k.minX = cx - ex;
+      k.maxX = cx + ex;
+      k.minZ = cz - ez;
+      k.maxZ = cz + ez;
+      k.maxY *= sy;
+      k.obb = { cx, cz, hx, hz, cs, sn };
     }
   }
   const site = (name) => LANDMARK_SITES[name];
