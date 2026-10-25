@@ -9,9 +9,12 @@ import { CUT_Z } from './geo-blocks.mjs';
 const MERGE = 1.0; // m: piece ends this close are the same node
 const NORTHERN_ROADS = new Set(['BROADWAY', 'RIVERSIDE DR', 'ST NICHOLAS AVE', 'COLUMBUS CIR']);
 
-export function buildRoadGraph() {
+// The NYC build keeps the graph to where the runtime grid ends (`wholeArea: false`): the grid corridors carry the streets
+// north of 14th St, so only NORTHERN_ROADS reach farther, up to CUT_Z. A city without a grid (`wholeArea: true`) needs
+// every at-grade street piece.
+export function buildRoadGraph({ wholeArea = false } = {}) {
   const st14 = STREETS.find((s) => s.n === 14);
-  const zFrom = (st14 ? st14.z : 2219) - 60; // from just north of 14th St down to the Battery
+  const zFrom = wholeArea ? -Infinity : (st14 ? st14.z : 2219) - 60; // from just north of 14th St down to the Battery
   const nodes = [];
   const cells = new Map();
   const cellKey = (ix, iz) => ix * 100003 + iz;
@@ -49,7 +52,7 @@ export function buildRoadGraph() {
     const lanes = parseInt(s.number_travel_lanes || '0', 10);
     // These roads do not follow the grid corridors. Keep their real intersection nodes throughout the detailed
     // island, including pieces straddling its northern boundary; ordinary grid streets still start near 14th St.
-    const minZ = NORTHERN_ROADS.has(name) ? CUT_Z : zFrom;
+    const minZ = NORTHERN_ROADS.has(name) && !wholeArea ? CUT_Z : zFrom;
     for (const ln of segLines(s)) {
       const pts = ln.map(([lon, lat]) => toWorld(lon, lat));
       if (pts.length < 2 || Math.max(...pts.map((p) => p[1])) < minZ) continue;
@@ -73,6 +76,6 @@ export function buildRoadGraph() {
     const inner = line.slice(1, -1).flatMap(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]);
     return [ia, ib, n, w, lanes, dir, inner];
   });
-  log(`road graph: ${outNodes.length / 2} nodes, ${outLinks.length} links in Lower Manhattan and the northern non-grid roads (${skipped} non-vehicular pieces skipped)`);
+  log(`road graph: ${outNodes.length / 2} nodes, ${outLinks.length} links ${wholeArea ? 'over the whole area' : 'in Lower Manhattan and the northern non-grid roads'} (${skipped} non-vehicular pieces skipped)`);
   return { nodes: outNodes, links: outLinks, names };
 }

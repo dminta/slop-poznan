@@ -213,6 +213,18 @@ test('cars replenish the road ahead while nearby visible spawning stays blocked'
   assert.equal(spawnVehicle(car, 100, 350, true), true);
 });
 
+test('buses spawn only on major roads', () => {
+  const context = populationContext();
+  const edge = straightEdge(250, 100);
+  context.nearEdges.push(edge);
+  const spawnVehicle = trafficFunction('spawnVehicle', context);
+  const bus = { bus: true, half: 6 };
+  assert.equal(spawnVehicle(bus, 100, 350, false), false);
+  edge.major = true;
+  assert.equal(spawnVehicle(bus, 100, 350, false), true);
+  assert.equal(bus.edge, edge);
+});
+
 test('pedestrians replenish visible sidewalks ahead without appearing nearby', () => {
   const context = populationContext();
   context.nearEdges.push(straightEdge(0));
