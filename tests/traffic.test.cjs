@@ -133,6 +133,17 @@ test('police pass red and amber signals while ordinary cars stop', () => {
   }
 });
 
+test('red and amber together still holds ordinary cars, but not police', () => {
+  const { car, state, mayEnter, signalAhead } = intersectionHarness();
+  state.phase = 'redAmber';
+  assert.equal(mayEnter(car, 18), false);
+  assert.equal(mayEnter(car, 0), false, 'not even waiting at the line');
+  assert.equal(signalAhead(car, car.edge, 18), -3);
+  car.isPolice = true;
+  assert.equal(mayEnter(car, 18), true);
+  assert.equal(signalAhead(car, car.edge, 18), 0);
+});
+
 test('police still wait for crossing traffic, pedestrians, a tram and a blocked exit', () => {
   const { car, state, mayEnter } = intersectionHarness();
   car.isPolice = true;
@@ -177,6 +188,13 @@ test('left turns account for oncoming police even when their signal is red', () 
   assert.equal(yieldOncoming(edge, false), true);
   car.speed = 0;
   assert.equal(yieldOncoming(edge, false), false);
+  // red and amber together holds oncoming traffic like red
+  context.phaseOf = () => 'redAmber';
+  car.speed = 10;
+  car.isPolice = false;
+  assert.equal(yieldOncoming(edge, false), false);
+  context.phaseOf = () => 'green';
+  assert.equal(yieldOncoming(edge, false), true);
 });
 
 function populationContext() {
@@ -436,4 +454,14 @@ test('pedestrians stop short of a tram track while a tram is over it or coming',
   t.path.edges[0].len = 100;
   t.path.u = 30; // on the reverse edge, its front at 30 = x 70: heading for x 50
   assert.ok(tramRoom(p) < 7, 'a tram the other way on the same track');
+});
+
+test('drivers aim at their pace times the posted limit, within the vehicle top speed', () => {
+  const line = source.match(/  const desiredOn = [^\n]*;/)?.[0];
+  assert.ok(line, 'desiredOn is present');
+  const desiredOn = vm.runInNewContext(`${line.trim()} desiredOn`, { URBAN_LIMIT: 50 / 3.6, Math });
+  const car = { pace: 1.1, vmax: 80 / 3.6 };
+  close(desiredOn(car, { limit: 30 / 3.6 }), 33 / 3.6);
+  close(desiredOn(car, {}), 55 / 3.6); // no limit on the edge: the built-up 50 km/h
+  close(desiredOn({ pace: 0.8, vmax: 50 / 3.6 }, { limit: 70 / 3.6 }), 50 / 3.6); // a bus on a 70 km/h artery
 });

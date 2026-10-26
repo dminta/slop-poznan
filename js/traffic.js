@@ -42,6 +42,8 @@ const NUM_PEDS = 340;
 const CAR_DRIVER = { a: 2.0, b: 3.0, T: 1.2, s0: 2.0, aLat: 3.5 };
 const BUS_DRIVER = { a: 1.1, b: 2.5, T: 1.5, s0: 2.5, aLat: 2.0 };
 const LOOKAHEAD = 70; // metres a driver looks ahead for vehicles, stop lines and signals
+// m/s: the Polish built-up limit (50 km/h), for an edge without its own `limit` (road-network.js, from OSM maxspeed)
+const URBAN_LIMIT = 50 / 3.6;
 
 // Retire distant actors even when looking their way: keeping them indefinitely starves upcoming streets.
 // Replacements may enter the far view, but nearby visible roads and sidewalks are protected from pop-in.
@@ -141,9 +143,10 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // =========================================================================
   // 1. 3D LOFTED NYC YELLOW TAXIS, SEDANS, SUVS & NYPD CRUISERS (200 VEHICLES)
   // =========================================================================
-  function createVehicle(bus, half, halfWidth, axle, driver, v0) {
+  // pace: the driver's desired speed as a share of the posted limit; vmax: the most it drives at anywhere
+  function createVehicle(bus, half, halfWidth, axle, driver, pace, vmax) {
     return {
-      bus, half, halfWidth, axle, driver, v0,
+      bus, half, halfWidth, axle, driver, pace, vmax, v0: Math.min(vmax, pace * URBAN_LIMIT),
       edge: null, lane: 0, s: 0, speed: 0, acc: 0, gap: Infinity, leaderSpeed: 0,
       move: null, out: 0, conn: null, cs: 0, trail: null, commit: null, claimed: false, yielding: false, yieldAt: 0,
       wait: 0, laneTimer: Math.random() * 0.5,
@@ -211,7 +214,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       if (isPolice) policeCount++;
     }
 
-    const car = createVehicle(false, isSUV ? 2.3 : 2.25, isSUV ? 0.92 : 0.86, isSUV ? 1.4 : 1.38, CAR_DRIVER, 10 + (i % 5) * 0.9);
+    const car = createVehicle(false, isSUV ? 2.3 : 2.25, isSUV ? 0.92 : 0.86, isSUV ? 1.4 : 1.38, CAR_DRIVER, 0.9 + (i % 5) * 0.05, 80 / 3.6);
     // paint as float32 values, so renderCar() can tell whether an instance slot's paint changes by comparing
     const paint = [Math.fround(col.r), Math.fround(col.g), Math.fround(col.b)];
     Object.assign(car, { isTaxi, isPolice, isSUV, bodyType, paint });
@@ -314,7 +317,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   busWheelRightInst.castShadow = busWheelRightInst.receiveShadow = true;
 
   const buses = [];
-  for (let i = 0; i < NUM_BUSES; i++) buses.push(createVehicle(true, 6.0, 1.3, 3.6, BUS_DRIVER, 8 + (i % 3)));
+  for (let i = 0; i < NUM_BUSES; i++) buses.push(createVehicle(true, 6.0, 1.3, 3.6, BUS_DRIVER, 0.7 + (i % 3) * 0.05, 50 / 3.6));
   const vehicles = [...cars, ...buses];
   group.add(busBodyInst, busHeaderInst, busWheelLeftInst, busWheelRightInst);
 
@@ -637,6 +640,9 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // Intelligent Driver Model: acceleration on a free road, and the braking term for an obstacle `gap` metres
   // (bumper to bumper) ahead moving at `speed`
   const freeAcc = (v) => v.driver.a * (1 - (v.speed / v.v0) ** 4);
+  // Desired speed v0 on edge e: the driver's pace times the posted limit (cars 0.9-1.1, so 45-55 km/h in a 50 zone and
+  // 27-33 in a 30 zone; buses 0.7-0.8), never above the vehicle's own top speed
+  const desiredOn = (v, e) => Math.min(v.vmax, v.pace * (e.limit || URBAN_LIMIT));
   function brake(v, gap, speed, s0 = v.driver.s0, T = v.driver.T) {
     const { a, b } = v.driver;
     const desired = s0 + Math.max(0, v.speed * T + (v.speed * (v.speed - speed)) / (2 * Math.sqrt(a * b)));
@@ -661,7 +667,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // Can v, d metres before a line, still stop at it braking no harder than its driver comfortably does?
   const canStopBefore = (v, d) => freeAcc(v) + stopAt(v, d) > -v.driver.b;
 
-  // Braking for a red (or an amber with room to stop) at the end of edge f, `d` metres ahead
+  // Braking for a red or red+amber (or an amber with room to stop) at the end of edge f, `d` metres ahead
   function signalAhead(v, f, d) {
     if (v.isPolice || !f.to.signal || d > LOOKAHEAD) return 0;
     const phase = phaseOf(f);
@@ -715,7 +721,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   function yieldOncoming(o, impatient, v = null) {
     if (!o) return false;
     if (o.through > 0) return true;
-    const red = o.to.signal && phaseOf(o) === 'red';
+    const phase = o.to.signal ? phaseOf(o) : 'green';
+    const red = phase === 'red' || phase === 'redAmber';
     for (const list of o.occ) {
       const lead = leadOf(list);
       if (!lead || (lead.v.edge === o && lead.v.move.turn === 'L')) continue;
@@ -878,7 +885,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       }
       return false;
     }
-    if (!v.isPolice && (phase === 'red' || (phase === 'amber' && stoppable))) return false;
+    if (!v.isPolice && (phase === 'red' || phase === 'redAmber' || (phase === 'amber' && stoppable))) return false;
     if (boxBusy(n, e.axisIndex)) return false; // crossing traffic inside
     if (tramBlocks(v, n, f, j)) return false; // a tram over its way across, or coming up to it
     const lead = ahead(e.occ[v.lane], v.s, v);
@@ -1003,7 +1010,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
         // then the others wait for v)
         const o = c && !v.claimed && mergingAhead(v, f, j);
         if (o) worst = Math.min(worst, Math.max(-v.driver.b, brake(v, o.s - o.v.half - vs - v.half, o.v.speed)));
-        let vt = c ? bendSpeed(v, c) : Infinity;
+        // the next edge's limit, eased down to like a bend (a 30 zone sign at the junction: 50 -> 30 km/h over ~25 m)
+        let vt = Math.min(c ? bendSpeed(v, c) : Infinity, desiredOn(v, f));
         const cautious = e.to.signal ? v.isPolice && phaseOf(e) !== 'green' : e.axisIndex !== 0;
         if (cautious) vt = Math.min(vt, 5);
         cap = Math.sqrt(vt * vt + 5 * Math.max(0, d));
@@ -1056,6 +1064,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   function leave(v) {
     v.s = v.cs - v.conn.len;
     v.edge = v.move.to;
+    v.v0 = desiredOn(v, v.edge);
     v.lane = v.out;
     v.trail = v.conn; // the rear axle is still on it
     v.conn = null;
@@ -1553,6 +1562,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     v.commit = null;
     v.yielding = false;
     v.wait = 0;
+    v.v0 = desiredOn(v, e);
     v.speed = v.v0 * 0.5;
     v.acc = 0;
     v.dl = v.dlv = 0;

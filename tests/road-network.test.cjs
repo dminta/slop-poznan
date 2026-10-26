@@ -62,6 +62,14 @@ test('major roads come from width and lanes, over most of a named road', () => {
   assert.ok(unmeasured.every((e) => e.half === 8), 'a link with no width takes its road\'s median width');
 });
 
+test('edges carry their link\'s speed limit, 50 km/h where it has none', () => {
+  const graph = syntheticGraph();
+  for (const l of graph.links) if (l[2] === 1) l.push(0, 30); // SIDE ST: a 30 zone (flags 0, 30 km/h)
+  const net = buildPureGraph(graph);
+  assert.ok(along(net, 120).every((e) => near(e.limit, 30 / 3.6)));
+  assert.ok(along(net, 0).every((e) => near(e.limit, 50 / 3.6)));
+});
+
 test('three travel lanes make a narrow road major', () => {
   const graph = syntheticGraph();
   for (const l of graph.links) if (l[2] === 1) l[4] = 3;
@@ -135,6 +143,11 @@ test('most of the Poznań road graph survives the largest strongly connected set
   assert.ok(Number(counts[1]) > 6200, `${counts[1]} edges long enough`);
   assert.ok(bare.edges.length > 3850 && km(bare) > 175, `${bare.edges.length} edges, ${km(bare).toFixed(1)} km in the set`);
   assert.ok(bare.nodes.filter((n) => n.signal).length > 150, 'signal sites mark their junctions');
+  // OSM speed limits (GEO.roadGraph links): most of the network at the built-up 50 km/h, a good part in 30/20 zones
+  const kmAt = (f) => bare.edges.filter((e) => f(Math.round(e.limit * 3.6))).reduce((sum, e) => sum + e.span, 0) / 1000;
+  assert.ok(kmAt((v) => v === 50) > 0.4 * km(bare), `${kmAt((v) => v === 50).toFixed(1)} km at 50 km/h`);
+  assert.ok(kmAt((v) => v <= 30) > 0.2 * km(bare), `${kmAt((v) => v <= 30).toFixed(1)} km at 30 km/h or less`);
+  assert.ok(kmAt((v) => v >= 70) > 3, `${kmAt((v) => v >= 70).toFixed(1)} km at 70 km/h`);
 
   const { footprints } = buildStreetDetails(inert());
   assert.ok(footprints.length > 5000, `${footprints.length} street furniture footprints`);

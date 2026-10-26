@@ -27,3 +27,31 @@ test('the road network and the signal heads both read the signal sites', () => {
     assert.match(read(path), /for \(const site of SIGNAL_SITES\)/, path);
   }
 });
+
+test('each group runs green, amber, red, then red and amber together before green again (Polish S-1)', async () => {
+  const { signalPhase, walkSignal, SIGNAL_TIMING } = await import('../js/city-config.js');
+  const sequence = (isAvenue) => {
+    const phases = [];
+    for (let t = 0; t < 2 * SIGNAL_TIMING.cycle; t += 0.25) {
+      const p = signalPhase(t, isAvenue);
+      if (phases.at(-1) !== p) phases.push(p);
+    }
+    return phases;
+  };
+  for (const isAvenue of [true, false]) {
+    const phases = sequence(isAvenue);
+    for (let i = 1; i < phases.length; i++) {
+      const next = { green: 'amber', amber: 'red', red: 'redAmber', redAmber: 'green' }[phases[i - 1]];
+      assert.equal(phases[i], next, `${isAvenue ? 'group 0' : 'group 1'}: ${phases.join(' ')}`);
+    }
+    assert.ok(phases.includes('redAmber'));
+  }
+  // never both groups moving at once, and no WALK during red+amber
+  for (let t = 0; t < SIGNAL_TIMING.cycle; t += 0.25) {
+    const [a, b] = [signalPhase(t, true), signalPhase(t, false)];
+    assert.ok(a === 'red' || a === 'redAmber' || b === 'red' || b === 'redAmber', `t ${t}: ${a} / ${b}`);
+    for (const isAvenue of [true, false]) {
+      if (signalPhase(t, isAvenue) === 'redAmber') assert.equal(walkSignal(t, isAvenue), false, `t ${t}`);
+    }
+  }
+});

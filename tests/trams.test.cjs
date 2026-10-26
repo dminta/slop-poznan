@@ -297,6 +297,12 @@ test('track over car lanes maps onto them once: the lane, its stretch and its wa
     assert.ok(Math.abs(r.l0 - (r.edge === east ? 120 : 80)) < 0.01 && Math.abs(r.l1 - r.l0) < 0.01, 'at the crossing point');
     assert.ok(r.pad > 1.5, 'reaching the tram width along the lane');
   }
+  assert.equal(along.roadLimit, Infinity, 'no posted limit on the road: the tram keeps its own');
+  assert.equal(across.roadLimit, Infinity, 'crossing a road does not take its limit');
+  east.limit = west.limit = 30 / 3.6;
+  mapTramsToRoads(graph, { edges: [east, west] });
+  assert.equal(along.roadLimit, 30 / 3.6, 'street running in a 30 zone');
+  assert.equal(graph.edges.find((e) => e.chain === 1).roadLimit, Infinity);
 });
 
 test('junction curves over the track are listed on the tram edge and the road node', () => {

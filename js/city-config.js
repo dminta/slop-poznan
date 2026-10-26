@@ -500,17 +500,20 @@ const formatCount = (n) => n.toLocaleString('pl');
 // runs two groups (road-network.js sidesAndGroups): group 0, the widest road at the junction, and group 1, the other
 // roads. The `avenue*` timings and `isAvenue` flags mean group 0 (names kept from the Manhattan grid, and audio reads
 // `isAvenue`): it is green until avenueAmber, amber until avenueRed; group 1 is green from avenueRed until streetAmber,
-// amber until the end of the cycle. Pedestrians cross with the traffic that runs parallel to them, stepping off only on
+// amber until the end of the cycle. As in Poland, red turns green through `redAmber` seconds of red and amber together
+// (S-1: "prepare to go"), the last of the red: group 0 at the end of the cycle, group 1 just before avenueRed. Traffic
+// treats it as red. Pedestrians cross with the traffic that runs parallel to them, stepping off only on
 // the WALK, the first `walk` seconds of its green: long enough before the cross traffic's green for the slowest walker
 // to get across the widest road.
-const SIGNAL_TIMING = { cycle: 60, avenueAmber: 26, avenueRed: 30, streetAmber: 56, walk: 7 };
+const SIGNAL_TIMING = { cycle: 60, avenueAmber: 26, avenueRed: 30, streetAmber: 56, redAmber: 2, walk: 7 };
 
-// 'green', 'amber' or 'red' for group 0 (isAvenue) or group 1 traffic at a given time
+// 'green', 'amber', 'red' or 'redAmber' (red and amber lit: green comes next) for group 0 (isAvenue) or group 1 traffic
+// at a given time
 function signalPhase(time, isAvenue) {
-  const { cycle, avenueAmber, avenueRed, streetAmber } = SIGNAL_TIMING;
+  const { cycle, avenueAmber, avenueRed, streetAmber, redAmber } = SIGNAL_TIMING;
   const t = ((time % cycle) + cycle) % cycle;
-  if (isAvenue) return t < avenueAmber ? 'green' : t < avenueRed ? 'amber' : 'red';
-  return t < avenueRed ? 'red' : t < streetAmber ? 'green' : 'amber';
+  if (isAvenue) return t < avenueAmber ? 'green' : t < avenueRed ? 'amber' : t < cycle - redAmber ? 'red' : 'redAmber';
+  return t < avenueRed - redAmber ? 'red' : t < avenueRed ? 'redAmber' : t < streetAmber ? 'green' : 'amber';
 }
 
 // Do pedestrians walking alongside group 0 (isAvenue) or group 1 traffic have the WALK at a given time?
