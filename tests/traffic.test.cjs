@@ -99,7 +99,7 @@ function intersectionHarness() {
   const edge = { to: n, axisIndex: 0, occ: [[]], opposite: null, inSide: 0, len: 100 };
   const car = { edge, move: { to: exit, out: [0], turn: 'S' }, lane: 0, s: 80, speed: 4,
     driver: { b: 3 }, half: 2.25, wait: 0, commit: null, isPolice: false };
-  const state = { phase: 'red', occupied: false, pedestrians: false, space: true, conflict: false };
+  const state = { phase: 'red', occupied: false, pedestrians: false, space: true, conflict: false, tram: false };
   const context = {
     LOOKAHEAD: 70,
     phaseOf: () => state.phase,
@@ -114,7 +114,8 @@ function intersectionHarness() {
     timeTo: () => 1,
     room: () => state.space,
     alongside: () => false,
-    mergingAhead: () => null
+    mergingAhead: () => null,
+    tramBlocks: () => state.tram
   };
   return { car, state, mayEnter: trafficFunction('mayEnter', context), signalAhead: trafficFunction('signalAhead', context) };
 }
@@ -132,10 +133,10 @@ test('police pass red and amber signals while ordinary cars stop', () => {
   }
 });
 
-test('police still wait for crossing traffic, pedestrians and a blocked exit', () => {
+test('police still wait for crossing traffic, pedestrians, a tram and a blocked exit', () => {
   const { car, state, mayEnter } = intersectionHarness();
   car.isPolice = true;
-  for (const [key, blocked] of [['occupied', true], ['pedestrians', true], ['space', false], ['conflict', true]]) {
+  for (const [key, blocked] of [['occupied', true], ['pedestrians', true], ['space', false], ['conflict', true], ['tram', true]]) {
     const initial = state[key];
     state[key] = blocked;
     assert.equal(mayEnter(car, 18), false, key);
@@ -187,7 +188,7 @@ function populationContext() {
     clock: 0,
     VEHICLE_SPAWN_DISTANCE: 250, PED_SPAWN_DISTANCE: 150, NEAR_RADIUS: 350,
     nearEdges: [], nearSignals: [], track: {}, KERB: 1.6, QUEUE_GAP: 0.62,
-    atCurb: () => {}, laneClear: () => true,
+    atCurb: () => {}, laneClear: () => true, nearTram: () => false,
     place: (v, e, lane, s) => Object.assign(v, { edge: e, lane, s })
   };
   context.nearView = trafficFunction('nearView', context);
@@ -269,4 +270,170 @@ test('crossing pedestrians fall back to a sidewalk when nearby crosswalks are un
   assert.equal(crossings, 5);
   assert.equal(ped.node, null);
   assert.equal(ped.z, 210);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Trams (docs/actors.md "Trams"): cars yield, pedestrians wait, the player bumps into them
+// ---------------------------------------------------------------------------------------------------------------------
+// A tram whose front is at u on a one-edge path (te: 300 m of track)
+function tramOn(te, u, speed = 5) {
+  return {
+    length: 31.8, speed, v0: 13, waitReason: '', obstacle: null,
+    path: { n: 1, edges: [te], start: [0], u, indexAt: () => 0 }
+  };
+}
+
+function tramLaneContext(trams) {
+  const context = {
+    trams, tramFrame: 7, tramProxies: [], tramProxiesUsed: 0, TRAM_REACH: 70, TRAM_PROXY_DRIVER: { a: 1.15, b: 1.4, T: 1.6, s0: 3 },
+    Math, Infinity,
+    occupy(list, v, s) {
+      list.push({ v, s });
+      list.sort((a, b) => a.s - b.s);
+    }
+  };
+  context.occupyTrams = trafficFunction('occupyTrams', context);
+  return context;
+}
+
+test('a tram goes into the car lanes under it as a leader, reaching a little ahead but never over a car', () => {
+  const road = { occ: [[], []] };
+  const te = {
+    len: 300,
+    // lane 0 runs along the track for 200 m, its way; lane 1 crosses it at lane position 50 (track s 120)
+    lanes: [
+      { edge: road, lane: 0, s0: 0, s1: 200, l0: 0, l1: 200, dir: 1, pad: 0.5 },
+      { edge: road, lane: 1, s0: 118, s1: 122, l0: 50, l1: 50, dir: 0, pad: 1.7 }
+    ],
+    junctions: [{ s0: 120, s1: 125, held: -1, by: null }, { s0: 150, s1: 160, held: -1, by: null }]
+  };
+  const t = tramOn(te, 100);
+  const context = tramLaneContext([t]);
+  context.occupyTrams();
+  const [entry] = road.occ[0];
+  assert.equal(road.occ[0].length, 1);
+  assert.equal(entry.v.tram, t);
+  // body [68.2, 100] and 4 m + 1 s at its speed ahead, widened by the pad
+  assert.ok(Math.abs(entry.s - entry.v.half - 67.7) < 1e-9 && Math.abs(entry.s + entry.v.half - 109.5) < 1e-9);
+  assert.equal(entry.v.speed, 5, 'running the lane\'s way: a moving leader');
+  assert.ok(entry.v.driver.s0 > 0 && entry.v.claimed === true && entry.v.move === null, 'skipped where cars look for the claims and moves of others');
+  // the crossing lane: the tram reaches it within its hold (8 m + 6 s at 5 m/s ahead): held, as a stopped obstacle
+  assert.equal(road.occ[1].length, 1);
+  assert.equal(road.occ[1][0].v.speed, 0);
+  assert.ok(road.occ[1][0].s - road.occ[1][0].v.half < 50 && road.occ[1][0].s + road.occ[1][0].v.half > 50);
+  assert.equal(te.junctions[0].held, 7);
+  assert.equal(te.junctions[0].by, t);
+  assert.equal(te.junctions[1].held, -1, 'beyond the hold');
+
+  // A car already ahead of the front in the stretch: the stretch ends short of it; one on the crossing keeps it
+  for (const list of road.occ) list.length = 0;
+  const car = { half: 2.25 };
+  road.occ[0].push({ v: car, s: 106 });
+  road.occ[1].push({ v: car, s: 50 });
+  context.tramFrame++;
+  context.occupyTrams();
+  const proxy = road.occ[0].find((o) => o.v.tram);
+  assert.ok(Math.abs(proxy.s + proxy.v.half - (106 - 2.25 - 0.3)) < 1e-9);
+  assert.equal(road.occ[1].filter((o) => o.v.tram).length, 0, 'a car on the crossing keeps its place: the tram brakes for it');
+  assert.equal(context.tramProxiesUsed, 1, 'pooled');
+  // While the tram waits for a car it holds only what its body is over
+  t.waitReason = 'car';
+  context.tramFrame++;
+  context.occupyTrams();
+  assert.equal(te.junctions[0].held, context.tramFrame - 1);
+});
+
+test('cars leave a junction curve held by a tram alone, unless they are ahead of it or it waits for them', () => {
+  const lane = { lanes: [] };
+  const te = { lanes: [{ edge: lane, lane: 0, dir: 1 }] };
+  const t = tramOn(te, 100);
+  t.frontX = 0;
+  t.frontZ = 0;
+  t.sections = [{ heading: 0, halfWidth: 1.2 }]; // heading +z
+  const e = {};
+  const other = {};
+  const f = {};
+  const conflict = { e, i: 0, f, j: 0, held: 3, by: t };
+  const n = { tramConflicts: [conflict] };
+  const context = { tramFrame: 3, TRAM_REACH: 70, Math };
+  context.inTramLane = trafficFunction('inTramLane', context);
+  const tramBlocks = trafficFunction('tramBlocks', context);
+  const car = { edge: e, lane: 0, x: 10, z: 20, halfWidth: 0.9 };
+  assert.equal(tramBlocks(car, n, f, 0), true, 'a car across the tram\'s way waits');
+  assert.equal(tramBlocks(car, n, f, 1), false, 'another curve');
+  assert.equal(tramBlocks(car, { }, f, 0), false, 'a junction without track');
+  context.tramFrame = 4;
+  assert.equal(tramBlocks(car, n, f, 0), false, 'held last frame only');
+  context.tramFrame = 3;
+  t.obstacle = car;
+  assert.equal(tramBlocks(car, n, f, 0), false, 'the tram waits for it: it goes');
+  t.obstacle = null;
+  Object.assign(car, { x: 0.5, z: 15 });
+  assert.equal(tramBlocks(car, n, f, 0), false, 'right in front of the tram: it leads');
+  Object.assign(car, { x: 6, z: 15, edge: lane });
+  conflict.e = lane;
+  assert.equal(tramBlocks(car, n, f, 0), false, 'ahead in a lane the tram runs along');
+  te.lanes[0].dir = -1;
+  assert.equal(tramBlocks(car, n, f, 0), true);
+  Object.assign(car, { x: 0.5, z: -40 });
+  assert.equal(tramBlocks(car, n, f, 0), true, 'behind the tram');
+  assert.equal(tramBlocks({ ...car, edge: other }, n, f, 0), false);
+});
+
+test('a tram section pushes the player out of its body (SAT) and knocks a car back like a bus', () => {
+  const reports = [];
+  const sparks = [];
+  const context = {
+    Math, clamp: (x, lo, hi) => Math.max(lo, Math.min(hi, x)),
+    satHit: { nx: 0, nz: 0, pen: 0, localX: 0, localZ: 0, pSin: 0, pCos: 1 },
+    reportCollision: (...args) => reports.push(args),
+    spawnCollisionSparks: (...args) => sparks.push(args)
+  };
+  context.overlapWithPlayer = trafficFunction('overlapWithPlayer', context);
+  const pe = { type: 'car', position: { x: 1.9, y: 0, z: 2, copy() {} }, heading: 0.2, speed: 0, vx: -6, vz: 0 };
+  context.player = { entity: pe, halfW: 0.86, halfL: 2.18 };
+  const collideWithTram = trafficFunction('collideWithTram', context);
+  const tram = { speed: 0, sections: [{ x: 0, z: 0, heading: 0, halfLength: 6, halfWidth: 1.2 }, { x: 0, z: 30, heading: 0, halfLength: 6, halfWidth: 1.2 }] };
+  assert.ok(context.overlapWithPlayer(pe.position.x, pe.position.z, 0, 1.2, 6, pe.heading, 0.86, 2.18), 'overlapping to begin with');
+  collideWithTram(tram);
+  assert.equal(context.overlapWithPlayer(pe.position.x, pe.position.z, 0, 1.2, 6, pe.heading, 0.86, 2.18), null, 'pushed clear');
+  assert.ok(pe.position.x > 1.9, 'out the side it came from, the tram unmoved');
+  assert.ok(pe.vx > -6, 'knocked back');
+  assert.equal(reports.length, 1);
+  assert.equal(reports[0][1], tram);
+  assert.equal(sparks.length, 1);
+  // A pedestrian is pushed aside without a crash sound
+  const walker = { type: 'person', position: { x: -1.3, y: 0, z: 31, copy() {} }, heading: 0, speed: 1.4 };
+  context.player = { entity: walker, halfW: 0.32, halfL: 0.32 };
+  trafficFunction('collideWithTram', context)(tram);
+  assert.ok(walker.position.x <= -1.52 + 1e-9);
+  assert.equal(reports.length, 1);
+});
+
+test('pedestrians stop short of a tram track while a tram is over it or coming', () => {
+  // a tram edge along x, and a crosswalk across it at x = 50 (z -10..10)
+  const te = { pts: new Float64Array([0, 0, 100, 0]), cum: new Float64Array([0, 100]), len: 100, box: [0, 100, 0, 0], flip: false, reverse: null };
+  const route = { ax: 50, az: -10, ux: 0, uz: 1, len: 20 };
+  const t = tramOn(te, 30, 10);
+  const context = { trams: [t], tramGraph: { edges: [te] }, PED_TRAM_TIME: 6, Math, Infinity };
+  context.tramCrossings = trafficFunction('tramCrossings', context);
+  context.tramNear = trafficFunction('tramNear', context);
+  const tramRoom = trafficFunction('tramRoom', context);
+  const p = { route, t: 2, dir: 1 };
+  assert.ok(Math.abs(tramRoom(p) - 6.2) < 1e-9, 'stops 1.8 m before the rails (10 m along)');
+  assert.equal(route.tramCrossings.length, 1, 'worked out once and kept on the track');
+  t.path.u = -100;
+  assert.equal(tramRoom(p), Infinity, 'tram far off');
+  t.path.u = 60;
+  assert.ok(tramRoom(p) < 7, 'its body over the crossing');
+  t.path.u = 90;
+  assert.equal(tramRoom(p), Infinity, 'gone by');
+  t.path.u = 30;
+  assert.equal(tramRoom({ route, t: 9.5, dir: 1 }), Infinity, 'already on the rails: walks on');
+  assert.ok(Math.abs(tramRoom({ route, t: 18, dir: -1 }) - 6.2) < 1e-9, 'from the other side');
+  t.path.edges[0] = { reverse: te };
+  te.reverse = t.path.edges[0];
+  t.path.edges[0].len = 100;
+  t.path.u = 30; // on the reverse edge, its front at 30 = x 70: heading for x 50
+  assert.ok(tramRoom(p) < 7, 'a tram the other way on the same track');
 });

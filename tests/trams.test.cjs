@@ -263,3 +263,124 @@ test('trams run the line, dwell 20-30 s at stops, hold at red and never run into
     assert.equal(typeof t.stopName, 'string');
   }
 });
+
+// A straight road edge as road-network.js lays them: s from (sx, sz) along (dx, dz); lane offsets along (rx, rz), the
+// right of the travel direction
+function roadEdge(id, sx, sz, dx, dz, len, lanes) {
+  return { id, sx, sz, dx, dz, rx: -dz, rz: dx, len, lanes, moves: [] };
+}
+
+test('track over car lanes maps onto them once: the lane, its stretch and its way', () => {
+  const { buildTrackGraph, mapTramsToRoads } = load();
+  // Eastbound road along z = 0 (its right is +z): lanes at z = 1.8 and 5.4; the westbound twin at z = -1.8 and -5.4
+  const east = roadEdge(0, 0, 0, 1, 0, 200, [1.8, 5.4]);
+  const west = roadEdge(1, 200, 0, -1, 0, 200, [1.8, 5.4]);
+  const rail = [
+    tram([0, 2.0, 250, 2.0]), // eastbound street track in the inner eastbound lane
+    tram([120, -50, 120, 50]) // a track across the road at x = 120
+  ];
+  const graph = buildTrackGraph(rail);
+  mapTramsToRoads(graph, { edges: [east, west] });
+  const along = graph.edges.find((e) => e.chain === 0);
+  assert.equal(along.lanes.length, 1, 'only the lane the track runs in (the next one is 3.4 m off)');
+  const run = along.lanes[0];
+  assert.equal(run.edge, east);
+  assert.equal(run.lane, 0);
+  assert.equal(run.dir, 1);
+  assert.ok(run.s0 === 0 && Math.abs(run.s1 - 200) < 1.01, `[${run.s0}, ${run.s1}]`);
+  assert.ok(Math.abs(run.l0) < 1.01 && Math.abs(run.l1 - 200) < 1.01);
+  const across = graph.edges.find((e) => e.chain === 1);
+  const hits = across.lanes.map((r) => `${r.edge.id}:${r.lane}:${r.dir}`).sort().join(' ');
+  assert.equal(hits, '0:0:0 0:1:0 1:0:0 1:1:0', 'every lane it crosses, as a crossing');
+  for (const r of across.lanes) {
+    assert.ok(r.s1 - r.s0 < 6, 'a crossing is a short stretch of track');
+    assert.ok(Math.abs(r.l0 - (r.edge === east ? 120 : 80)) < 0.01 && Math.abs(r.l1 - r.l0) < 0.01, 'at the crossing point');
+    assert.ok(r.pad > 1.5, 'reaching the tram width along the lane');
+  }
+});
+
+test('junction curves over the track are listed on the tram edge and the road node', () => {
+  const { buildTrackGraph, mapTramsToRoads } = load();
+  const node = { x: 100, z: 0, in: [], out: [] };
+  const north = roadEdge(0, 98.2, -60, 0, 1, 56, [0]); // southbound (+z) towards the junction, lane on its line
+  const westOut = roadEdge(1, 96, 6, -1, 0, 50, [0]); // and out to the west, south of the track
+  north.to = node;
+  north.moves = [{ to: westOut, turn: 'R', out: [0] }];
+  node.in.push(north);
+  // the curve from lane to lane drawn straight
+  const network = {
+    nodes: [node],
+    edges: [],
+    connector: (e, i, f, j) => {
+      const x0 = e.sx + e.dx * e.len + e.rx * e.lanes[i], z0 = e.sz + e.dz * e.len + e.rz * e.lanes[i];
+      const x3 = f.sx + f.rx * f.lanes[j], z3 = f.sz + f.rz * f.lanes[j];
+      return { x0, z0, x3, z3, len: Math.hypot(x3 - x0, z3 - z0) };
+    },
+    curvePoint: (c, s, out) => {
+      const k = s / c.len;
+      out.x = c.x0 + (c.x3 - c.x0) * k;
+      out.z = c.z0 + (c.z3 - c.z0) * k;
+      return out;
+    }
+  };
+  const graph = buildTrackGraph([tram([0, 0, 200, 0]), tram([0, 40, 200, 40])]);
+  mapTramsToRoads(graph, network);
+  const under = graph.edges.find((e) => e.chain === 0);
+  assert.equal(under.junctions.length, 1, 'the curve through the junction crosses the track at z = 0');
+  const c = under.junctions[0];
+  assert.equal(c.node, node);
+  assert.ok(c.e === north && c.i === 0 && c.f === westOut && c.j === 0);
+  assert.ok(c.s0 < 97.5 && c.s1 > 97.5 && c.s1 - c.s0 < 12, `[${c.s0}, ${c.s1}]`);
+  assert.equal(node.tramConflicts.length, 1);
+  assert.equal(node.tramConflicts[0], c);
+  assert.equal(graph.edges.find((e) => e.chain === 1).junctions.length, 0, 'the other track is 34 m beyond the curve');
+});
+
+// Trams on a double-track line with a car (or the player) standing on the eastbound track at x = 1500 until t = 100 s
+function obstacleRun(setup) {
+  const { createTramSystem } = load();
+  const rail = [tram([0, 0, 3000, 0]), tram([3000, 3.4, 0, 3.4])];
+  const car = { edge: {}, x: 1500, z: 0, yaw: Math.PI / 2, yawOffset: 0, half: 2.25, halfWidth: 0.9, tx: 1, tz: 0, speed: 0, vx: 0, vz: 0 };
+  const sys = createTramSystem(inert(), { network: { nodes: [], edges: [] }, rail, stops: [], traffic: { cars: [car], buses: [] } });
+  const player = { type: 'person', position: { x: -1e4, y: 0, z: 0 }, heading: 0, speed: 0 };
+  setup(car, player);
+  const seen = new Set();
+  let passed = 0;
+  for (let f = 0, time = 0; f < 15 * 160; f++) {
+    const dt = 1 / 15;
+    time += dt;
+    if (time > 100) car.z = player.position.z = 30; // out of the way
+    sys.update(dt, time, { x: 1500, z: 0 }, inert(), player, 'person');
+    for (const t of sys.trams) {
+      if (Math.abs(t.z) > 1) continue; // the westbound track
+      const rearX = t.sections[t.sections.length - 1].rx;
+      if (time < 100 && rearX < 1490) assert.ok(t.frontX < 1497.7, `tram ${t.id} runs into the obstacle (front at ${t.frontX.toFixed(2)})`);
+      if (time < 100 && t.speed < 0.05 && t.frontX > 1480 && t.frontX < 1497.7) seen.add(t.waitReason);
+      if (time > 100 && rearX < 1490 && t.frontX > 1505) passed++;
+    }
+  }
+  return { seen, passed };
+}
+
+test('trams brake for a car on the track ahead and run on once it has cleared', () => {
+  const { seen, passed } = obstacleRun(() => {});
+  assert.deepEqual([...seen], ['car']);
+  assert.ok(passed > 0, 'trams pass once the car is gone');
+});
+
+test('trams brake for the player on the track, but not for a car facing them (it cannot back out)', () => {
+  const { seen } = obstacleRun((car, player) => {
+    car.z = 30;
+    player.position.x = 1500;
+    player.position.z = 0;
+  });
+  assert.deepEqual([...seen], ['player']);
+  const { createTramSystem } = load();
+  const facing = { edge: {}, x: 1500, z: 0, yaw: -Math.PI / 2, yawOffset: 0, half: 2.25, halfWidth: 0.9, tx: -1, tz: 0, speed: 0, vx: 0, vz: 0 };
+  const sys = createTramSystem(inert(), { network: { nodes: [], edges: [] }, rail: [tram([0, 0, 3000, 0])], stops: [], traffic: { cars: [facing], buses: [] } });
+  for (let f = 0, time = 0; f < 15 * 60; f++) {
+    time += 1 / 15;
+    sys.update(1 / 15, time, { x: 1500, z: 0 }, inert());
+    for (const t of sys.trams) assert.notEqual(t.waitReason, 'car');
+  }
+});

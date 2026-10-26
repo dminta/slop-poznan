@@ -30,6 +30,8 @@ import { PersonCrowd, PersonRig } from './pedestrians.js';
 // - 340 pedestrians follow connected sidewalks, meet to talk, and cross signalized crosswalks on WALK.
 // - Fixed-size local populations replenish distant roads and sidewalks in every direction, protecting the near view.
 // - The player's vehicle or character pushes and is pushed by the traffic (SAT contact, impulses, sparks).
+// - Trams (trams.js, set through setTrams): cars yield to them in the lanes and junctions they share, pedestrians wait
+//   for them at the rails, and they push the player out of their way.
 
 const NUM_CARS = 200;
 const NUM_BUSES = 12;
@@ -523,6 +525,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
         occupy(e.occ[v.lane], v, e.len + v.cs); // until it is out of the intersection, still ahead of those behind it
       }
     }
+    tramFrame++;
+    occupyTrams();
   }
 
   // The camera's view, for drawing and protecting nearby spawn locations
@@ -876,6 +880,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     }
     if (!v.isPolice && (phase === 'red' || (phase === 'amber' && stoppable))) return false;
     if (boxBusy(n, e.axisIndex)) return false; // crossing traffic inside
+    if (tramBlocks(v, n, f, j)) return false; // a tram over its way across, or coming up to it
     const lead = ahead(e.occ[v.lane], v.s, v);
     if (lead && lead.v.yielding) return false; // the vehicle ahead waits inside to turn: wait behind the line
     if (v.bus && besideTail(v)) return false; // its tail would swing out over that bus as it starts to turn
@@ -1338,6 +1343,199 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   }
 
   // =========================================================================
+  // 5B. TRAMS (js/trams.js, docs/actors.md "Trams"): cars yield to them, the player bumps into them
+  // =========================================================================
+  // trams.js maps the track onto the roads once (mapTramsToRoads): tram edge stretches over car lanes (te.lanes) and
+  // junction curves over the track (te.junctions, node.tramConflicts). Every frame, after the cars, each tram goes into
+  // the lanes under its body as a stand-in vehicle (a pooled proxy: cars follow it, queue behind it, keep room for it
+  // and don't change lanes into it), reaching on a few metres ahead of its front in the lanes running its way and
+  // further in lanes against it or across it (cars stop short of the track, not on it), but never over a car already
+  // there. The junction curves its body is over, or will be within a few seconds, are held for it: mayEnter keeps cars
+  // off them (tramBlocks). The trams brake for whatever is still in their way themselves (trams.js drive()).
+  let trams = [];
+  let tramGraph = null;
+  let tramFrame = 0;
+  const TRAM_PROXY_DRIVER = { a: 1.15, b: 1.4, T: 1.6, s0: 3.0, aLat: 0.9 };
+  const TRAM_REACH = 70; // furthest ahead of its front a tram holds lanes across or against it and junction curves
+  const tramProxies = [];
+  let tramProxiesUsed = 0;
+  function setTrams(system) {
+    trams = system ? system.trams : [];
+    tramGraph = system ? system.graph : null;
+  }
+
+  function occupyTrams() {
+    tramProxiesUsed = 0;
+    for (const t of trams) {
+      const path = t.path;
+      const rear = path.u - t.length;
+      // lanes running its way: the body and just ahead of it; lanes against or across it, and junction curves: up to
+      // a few seconds ahead, but no further than the body while it waits for a car (let the cars ahead clear its way)
+      const near = path.u + 4 + t.speed;
+      const far = path.u + (t.waitReason === 'car' ? 2 : Math.min(TRAM_REACH, 8 + t.speed * 6));
+      for (let i = 0; i < path.n; i++) {
+        const te = path.edges[i];
+        const base = path.start[i];
+        if (base > far) break;
+        if (base + te.len < rear) continue;
+        const a = rear - base; // the body on te: [a, b]
+        const b = path.u - base;
+        for (const c of te.junctions) {
+          if (c.s1 < a || c.s0 > far - base) continue;
+          c.held = tramFrame;
+          c.by = t;
+        }
+        for (const r of te.lanes) {
+          const s0 = Math.max(a, r.s0);
+          const s1 = Math.min((r.dir > 0 ? near : far) - base, r.s1);
+          if (s1 <= s0) continue;
+          // lane positions of [s0, s1] and of the body's part of it, widened by the tram's width along the lane
+          const k = (r.l1 - r.l0) / Math.max(r.s1 - r.s0, 1e-6);
+          const la = r.l0 + (s0 - r.s0) * k;
+          const lb = r.l0 + (s1 - r.s0) * k;
+          let lo = Math.min(la, lb) - r.pad;
+          let hi = Math.max(la, lb) + r.pad;
+          let blo = Infinity;
+          let bhi = -Infinity;
+          const b1 = Math.min(b, r.s1);
+          if (b1 > s0) {
+            const lc = r.l0 + (b1 - r.s0) * k;
+            blo = Math.min(la, lc) - r.pad;
+            bhi = Math.max(la, lc) + r.pad;
+          }
+          // a car already in the stretch ahead (or on the track the tram comes up to) keeps its place: the stretch
+          // ends short of it
+          const list = r.edge.occ[r.lane];
+          let skip = false;
+          for (const o of list) {
+            if (o.v.tram) continue;
+            const cLo = o.s - o.v.half;
+            const cHi = o.s + o.v.half;
+            if (cHi < lo || cLo > hi || (cHi >= blo && cLo <= bhi)) continue;
+            if (blo > bhi) {
+              if (r.dir === 0) {
+                skip = true;
+                break;
+              }
+              if (r.l1 >= r.l0) hi = Math.min(hi, cLo - 0.3);
+              else lo = Math.max(lo, cHi + 0.3);
+            } else if (cLo > bhi) hi = Math.min(hi, cLo - 0.3);
+            else lo = Math.max(lo, cHi + 0.3);
+          }
+          if (skip || hi - lo < 0.5) continue;
+          let p = tramProxies[tramProxiesUsed++];
+          if (!p) {
+            p = {
+              tram: null, half: 0, halfWidth: 1.2, speed: 0, v0: 14, driver: TRAM_PROXY_DRIVER,
+              edge: null, lane: -1, s: 0, conn: null, cs: 0, move: null, claimed: true, yielding: false,
+              isPolice: false, bus: false, wait: 0
+            };
+            tramProxies.push(p);
+          }
+          p.tram = t;
+          p.half = (hi - lo) * 0.5;
+          p.speed = r.dir > 0 ? t.speed : 0;
+          p.v0 = t.v0 || 14;
+          p.s = (lo + hi) * 0.5;
+          occupy(list, p, p.s);
+        }
+      }
+    }
+  }
+
+  // Is the curve v would take through n (into lane j of f) held by a tram? Not for a car the tram is waiting for (it is
+  // in its way already), nor for one ahead of it in a lane the tram runs along or right in front of it: the car is the
+  // tram's leader and goes first.
+  function tramBlocks(v, n, f, j) {
+    const list = n.tramConflicts;
+    if (!list) return false;
+    for (const c of list) {
+      if (c.held !== tramFrame || c.e !== v.edge || c.i !== v.lane || c.f !== f || c.j !== j) continue;
+      const t = c.by;
+      const front = t.sections[0];
+      const hx = Math.sin(front.heading);
+      const hz = Math.cos(front.heading);
+      const dx = v.x - t.frontX;
+      const dz = v.z - t.frontZ;
+      if (t.obstacle === v) continue; // the tram is waiting for it
+      if (dx * hx + dz * hz > -1 && (Math.abs(dx * hz - dz * hx) < front.halfWidth + v.halfWidth + 0.3 || inTramLane(t, v))) continue;
+      return true;
+    }
+    return false;
+  }
+  // Is (x, z) within r of a tram's body? (Lane lists only hold the trams of the frame before: after a teleport the
+  // trams are all somewhere new.)
+  function nearTram(x, z, r) {
+    for (const t of trams) {
+      if (Math.abs(x - t.x) > t.length * 0.5 + r + 2 || Math.abs(z - t.z) > t.length * 0.5 + r + 2) continue;
+      for (const sec of t.sections) {
+        const dx = x - sec.x;
+        const dz = z - sec.z;
+        const hx = Math.sin(sec.heading);
+        const hz = Math.cos(sec.heading);
+        if (Math.abs(dx * hx + dz * hz) < sec.halfLength + r && Math.abs(dx * hz - dz * hx) < sec.halfWidth + r) return true;
+      }
+    }
+    return false;
+  }
+
+  // Is v in a lane tram t runs along (the lane's way) between its front and TRAM_REACH ahead?
+  function inTramLane(t, v) {
+    const path = t.path;
+    for (let i = path.indexAt(path.u); i < path.n && path.start[i] - path.u < TRAM_REACH; i++) {
+      for (const r of path.edges[i].lanes) if (r.dir > 0 && r.edge === v.edge && r.lane === v.lane) return true;
+    }
+    return false;
+  }
+
+  // Player contact with a tram's sections (world OBBs): the tram is immovable, so the player takes the whole push
+  // and a bus-like knock
+  function collideWithTram(t) {
+    const pe = player.entity;
+    for (const sec of t.sections) {
+      const relX = pe.position.x - sec.x;
+      const relZ = pe.position.z - sec.z;
+      if (Math.abs(relX) > sec.halfLength + 4 || Math.abs(relZ) > sec.halfLength + 4) continue;
+      const hit = overlapWithPlayer(relX, relZ, sec.heading, sec.halfWidth, sec.halfLength, pe.heading || 0, player.halfW, player.halfL);
+      if (!hit) continue;
+      const { nx, nz, pen, localX, localZ, pSin, pCos } = hit;
+      pe.position.x += nx * pen;
+      pe.position.z += nz * pen;
+      if (pe.mesh) pe.mesh.position.copy(pe.position);
+      const pSpeed = pe.speed || 0;
+      const pvx = pSin * pSpeed + (pe.vx || 0);
+      const pvz = pCos * pSpeed + (pe.vz || 0);
+      const tvx = Math.sin(sec.heading) * t.speed;
+      const tvz = Math.cos(sec.heading) * t.speed;
+      const approachSpeed = (pvx - tvx) * -nx + (pvz - tvz) * -nz;
+      if (approachSpeed <= 0) continue;
+      const sinY = Math.sin(sec.heading);
+      const cosY = Math.cos(sec.heading);
+      const contactLocalX = clamp(localX, -sec.halfWidth, sec.halfWidth);
+      const contactLocalZ = clamp(localZ, -sec.halfLength, sec.halfLength);
+      const contactX = sec.x + contactLocalX * cosY + contactLocalZ * sinY;
+      const contactZ = sec.z - contactLocalX * sinY + contactLocalZ * cosY;
+      if (pe.type !== 'person') reportCollision(pe, t, contactX, 0.8, contactZ, nx, nz, approachSpeed);
+      if (typeof pe.speed === 'number') {
+        const headOnDot = Math.abs(pSin * nx + pCos * nz);
+        pe.speed *= 1.0 - 0.75 * headOnDot;
+        if (pe.type === 'car') {
+          const pImpulse = approachSpeed * 0.75;
+          pe.vx = (pe.vx || 0) + nx * pImpulse;
+          pe.vz = (pe.vz || 0) + nz * pImpulse;
+          const pLocalNx = nx * pCos - nz * pSin;
+          const pLocalNz = nx * pSin + nz * pCos;
+          const kick = Math.min(16.0, approachSpeed);
+          pe.pitchVel = (pe.pitchVel || 0) + pLocalNz * kick * 0.22;
+          pe.rollVel = (pe.rollVel || 0) - pLocalNx * kick * 0.28;
+          pe.heaveVel = (pe.heaveVel || 0) + Math.min(1.6, approachSpeed * 0.14);
+        }
+      }
+      if (approachSpeed > 1.8) spawnCollisionSparks(contactX, 0.8, contactZ, nx, nz, approachSpeed);
+    }
+  }
+
+  // =========================================================================
   // 6. PLACING VEHICLES
   // =========================================================================
   // Room at s in a lane list: margin metres to the vehicles either side, and two seconds more for the one behind
@@ -1384,7 +1582,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       const d = Math.hypot(x - focusX, z - focusZ);
       if (d < rMin || d > rMax || (protectView && nearView(x, z, v.half + 4, VEHICLE_SPAWN_DISTANCE))) continue;
       if (player.active && Math.hypot(x - player.x, z - player.z) < 25) continue;
-      if (!laneClear(e.occ[lane], s, v.half + 8)) continue;
+      if (!laneClear(e.occ[lane], s, v.half + 8) || nearTram(x, z, v.half + 3)) continue;
       place(v, e, lane, s);
       return true;
     }
@@ -1489,6 +1687,67 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     return true;
   }
 
+  // Trams have priority over people crossing their track (on a crosswalk, or where a track cuts across a sidewalk):
+  // each walking track lists where it crosses the tram tracks (worked out on first use), and p stops short of the
+  // next one while a tram is over it or due there within PED_TRAM_TIME seconds. Anyone already on the rails walks on.
+  const PED_TRAM_TIME = 6;
+  function tramRoom(p) {
+    const route = p.route;
+    if (!route || !tramGraph || !trams.length) return Infinity;
+    let crossings = route.tramCrossings;
+    if (crossings === undefined) crossings = route.tramCrossings = tramCrossings(route);
+    let room = Infinity;
+    for (const c of crossings) {
+      const before = (c.t - p.t) * p.dir - c.clear;
+      if (before < -0.3 || before > 25) continue;
+      if (tramNear(c.edge, c.s, PED_TRAM_TIME)) room = Math.min(room, Math.max(0, before));
+    }
+    return room;
+  }
+
+  // Where a walking track (a, along u for len) crosses the tram tracks: [{ t (m along it), edge, s (along that tram
+  // edge), clear (m along the track the tram's body reaches out to either side of the rails) }]. One direction per
+  // track: tramNear checks both.
+  function tramCrossings(route) {
+    const out = [];
+    const { ax, az, ux, uz, len } = route;
+    const bx = ax + ux * len;
+    const bz = az + uz * len;
+    for (const e of tramGraph.edges) {
+      if (e.flip && e.reverse) continue;
+      if (e.box[0] > Math.max(ax, bx) + 1 || e.box[1] < Math.min(ax, bx) - 1 || e.box[2] > Math.max(az, bz) + 1 || e.box[3] < Math.min(az, bz) - 1) continue;
+      const P = e.pts;
+      for (let i = 0; i + 1 < e.cum.length; i++) {
+        const qx = P[2 * i], qz = P[2 * i + 1];
+        const vx = P[2 * i + 2] - qx, vz = P[2 * i + 3] - qz;
+        const den = ux * vz - uz * vx;
+        if (Math.abs(den) < 1e-9) continue;
+        const t = ((qx - ax) * vz - (qz - az) * vx) / den;
+        const k = ((qx - ax) * uz - (qz - az) * ux) / den;
+        if (t < 0 || t > len || k < 0 || k > 1) continue;
+        const sin = Math.abs(den) / Math.hypot(vx, vz);
+        out.push({ t, edge: e, s: e.cum[i] + k * (e.cum[i + 1] - e.cum[i]), clear: Math.min(6, 1.8 / Math.max(sin, 0.3)) });
+      }
+    }
+    return out;
+  }
+
+  // Is a tram's body over point s of tram edge te (either way along that track), or its front due there within
+  // `time` seconds?
+  function tramNear(te, s, time) {
+    for (const t of trams) {
+      const path = t.path;
+      for (let i = 0; i < path.n; i++) {
+        const e = path.edges[i];
+        const at = e === te ? s : e === te.reverse ? te.len - s : -1;
+        if (at < 0) continue;
+        const d = path.start[i] + at - path.u;
+        if (d > -t.length - 1.5 && d < 3 + t.speed * time) return true;
+      }
+    }
+    return false;
+  }
+
   // Continue through validated sidewalk corners. Crossing tracks retain their curb queues and right of way;
   // only a dead end needs a turnaround. Goals guide local choices without a city-wide path search.
   const PED_ACCEL = 1.3; // m/s^2 setting off
@@ -1564,6 +1823,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
         if (gap > 0) room = Math.min(room, Math.max(0, gap - QUEUE_GAP));
       }
     }
+    room = Math.min(room, tramRoom(p));
     vMax = Math.min(vMax, Math.sqrt(2 * PED_BRAKE * room));
     p.v += Math.max(-2 * PED_BRAKE * dt, Math.min(PED_ACCEL * dt, vMax - p.v));
     const movement = Math.min(p.v * dt, room);
@@ -2026,6 +2286,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       if (v.bus) renderBus(v);
       else renderCar(v);
     }
+    if (player.active) for (const t of trams) collideWithTram(t);
     const hideEmpty = ++updates > 2;
     for (const m of bodyMeshes) {
       const n = m.count;
@@ -2107,6 +2368,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     group,
     update,
     setCollisionListener,
+    setTrams,
     cars,
     buses,
     peds,

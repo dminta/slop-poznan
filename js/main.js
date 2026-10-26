@@ -111,8 +111,10 @@ async function initApp() {
   const tramInfra = buildTramInfrastructure(scene, trafficSystem.network);
   allColliders.push(...tramInfra.colliders);
   markInit('tramInfra');
-  // Trams on the GEO.rail track graph, stopping at tramInfra's platforms and held at the road network's signals
-  const tramSystem = createTramSystem(scene, { network: trafficSystem.network, stops: tramInfra.stops });
+  // Trams on the GEO.rail track graph, stopping at tramInfra's platforms and held at the road network's signals. They
+  // brake for the cars and the player in their way; the cars yield to them and pedestrians wait (traffic.js setTrams)
+  const tramSystem = createTramSystem(scene, { network: trafficSystem.network, stops: tramInfra.stops, traffic: trafficSystem });
+  trafficSystem.setTrams(tramSystem);
   markInit('trams');
 
   // 4. Initialize Third-Person Controllers (Person, Car, Cyclist, Helicopter) & Multi-Camera System
@@ -146,7 +148,7 @@ async function initApp() {
   const cameraSystem = new CameraSystem(renderer.domElement, controllerManager);
   const touchControls = new TouchControls(controllerManager);
   const soundButton = document.getElementById('btn-sound');
-  const audioSystem = new CityAudioSystem({ controllerManager, trafficSystem, highwayTraffic, streetDetails }, {
+  const audioSystem = new CityAudioSystem({ controllerManager, trafficSystem, highwayTraffic, tramSystem, streetDetails }, {
     onStateChange: updateSoundButton
   });
   function updateSoundButton() {
@@ -707,6 +709,9 @@ async function initApp() {
     controllerManager.update(dt, elapsed);
     cameraSystem.update(dt, elapsed);
     streetDetails.signalClock.value = elapsed;
+    // Trams first: the cars then take this frame's trams into their lanes and the player collides with them where they
+    // are drawn (the trams brake for last frame's cars)
+    tramSystem.update(dt, elapsed, cameraSystem.currentPos, cameraSystem.camera, controllerManager.getActiveEntity(), controllerManager.activeMode);
     trafficSystem.update(
       dt,
       elapsed,
@@ -716,7 +721,6 @@ async function initApp() {
       cameraSystem.camera
     );
     highwayTraffic.update(dt, cameraSystem.camera, controllerManager.getActiveEntity(), controllerManager.activeMode);
-    tramSystem.update(dt, elapsed, cameraSystem.currentPos, cameraSystem.camera);
     if (!document.hidden && now >= nextPlayerSave) {
       savePlayerState();
       nextPlayerSave = now + 5000;

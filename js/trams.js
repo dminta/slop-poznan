@@ -24,9 +24,13 @@ import { HEADLIGHTS, tramLightSpec, createVehicleHeadlight, placeVehicleHeadligh
 // - Bodies: articulated sections (TRAM_MODELS) each posed on the chord between its two ends on the path, so the
 //   sections bend round curves and stay joined; bellows between them. One instanced mesh per section kind.
 // - Population: a fixed pool of NUM_TRAMS kept within TRAM_RADIUS of the camera, like the street traffic.
+// - Mixed traffic: mapTramsToRoads works out once where the track runs over car lanes and junction curves, for
+//   traffic.js to make the cars yield (and pedestrians wait); the trams themselves only brake for the cars and the
+//   player still in their swept path ahead.
 //
-// Public surface (docs/actors.md "Trams"): createTramSystem(scene, { network }) returns { group, update, trams, pool,
-// graph, stops, signals, models }. `trams` holds the active tram entities, refreshed every update.
+// Public surface (docs/actors.md "Trams"): createTramSystem(scene, { network, traffic }) returns { group, update, trams,
+// pool, graph, stops, signals, models }; update(dt, elapsed, focus, camera, playerEntity, activeMode). `trams` holds
+// the active tram entities, refreshed every update.
 
 const NUM_TRAMS = 24;
 const TRAM_HALF_WIDTH = 1.2;
@@ -56,6 +60,9 @@ const TRAM_CULL = 1500;
 const PATH_CAP = 32;
 const TRAM_SPOT_POOL = 8; // 2 per lit tram
 const TRAM_LIGHT_DIST = 110;
+const OBSTACLE_REACH = 70; // furthest a tram looks for cars and the player on its track
+const SWEEP_STEP = 2;
+const SWEEP_N = Math.ceil(OBSTACLE_REACH / SWEEP_STEP) + 1;
 
 // Articulated models (z = +front). Sections are listed front to rear; `cab` +1 has the driver's cab at +z (the front
 // of the tram), -1 the rear end at -z. Door z centres are on the right (-x) side; 99 = no door. Lengths add up to the
@@ -508,6 +515,144 @@ function findTrackSignals(graph, roadNodes, reach = SIGNAL_REACH) {
   return out;
 }
 
+// Where the trams share the road with the cars (docs/actors.md "Trams"), worked out once from the geometry: street
+// track mostly runs in the widened carriageway, and the geodata carries no link between a track and its road.
+// - edge.lanes [{ edge, lane, s0, s1, l0, l1, dir, pad }]: the stretches [s0, s1] of this tram edge where car lane
+//   `lane` of road edge `edge` runs within `gap` of the track (car and tram bodies overlap);
+//   l0/l1 are the lane positions at s0/s1 (linear in between), dir +1 where the lane runs the tram's way, -1 against
+//   it, 0 where it crosses the track; pad is how far the tram's width reaches along the lane.
+// - edge.junctions [{ node, e, i, f, j, s0, s1, held, by }]: the lane-to-lane curves through road junctions (lane i of
+//   e into lane j of f) that pass over [s0, s1] of this tram edge; the same objects are listed on the road node as
+//   node.tramConflicts. traffic.js marks them `held` (a frame number) by the tram `by` while a tram is over them or
+//   about to be, and cars don't take a held curve.
+// `gap` 2.3 m: the tram's half width 1.2 m plus a car's 0.92 m, plus a little. Measured 2026-10 on the Poznań data:
+// 9.4 of the 72.5 km of directed track run over car lanes (7.9 km the lanes' way, 0.75 km against, 1.1 km across).
+const ROAD_OVERLAP = 2.3;
+function mapTramsToRoads(graph, network, gap = ROAD_OVERLAP) {
+  const roads = (network && network.edges) || [];
+  const CELL = 40;
+  const cellKey = (i, j) => (i + 32768) * 65536 + (j + 32768);
+  const cellOf = (x, z) => cellKey(Math.floor(x / CELL), Math.floor(z / CELL));
+  const addToGrid = (grid, item, x0, x1, z0, z1) => {
+    for (let i = Math.floor(x0 / CELL); i <= Math.floor(x1 / CELL); i++) {
+      for (let j = Math.floor(z0 / CELL); j <= Math.floor(z1 / CELL); j++) {
+        const k = cellKey(i, j);
+        let list = grid.get(k);
+        if (!list) grid.set(k, (list = []));
+        list.push(item);
+      }
+    }
+  };
+  const roadGrid = new Map();
+  for (const r of roads) {
+    if (!r.lanes || !r.lanes.length) continue;
+    let reach = gap;
+    for (const l of r.lanes) reach = Math.max(reach, Math.abs(l) + gap);
+    const ex = r.sx + r.dx * r.len;
+    const ez = r.sz + r.dz * r.len;
+    addToGrid(roadGrid, r, Math.min(r.sx, ex) - reach, Math.max(r.sx, ex) + reach, Math.min(r.sz, ez) - reach, Math.max(r.sz, ez) + reach);
+  }
+  const at = { x: 0, z: 0, tx: 0, tz: 0 };
+  for (const te of graph.edges) {
+    te.lanes = [];
+    te.junctions = [];
+    const open = new Map();
+    for (let s = 0; s <= te.len + 0.5; s += 1) {
+      const ss = Math.min(s, te.len);
+      edgePoint(te, ss, at);
+      const cell = roadGrid.get(cellOf(at.x, at.z));
+      if (!cell) continue;
+      for (const r of cell) {
+        const px = at.x - r.sx;
+        const pz = at.z - r.sz;
+        const along = px * r.dx + pz * r.dz;
+        if (along < 0 || along > r.len) continue;
+        const lat = px * r.rx + pz * r.rz;
+        const cos = at.tx * r.dx + at.tz * r.dz;
+        for (let i = 0; i < r.lanes.length; i++) {
+          if (Math.abs(lat - r.lanes[i]) >= gap) continue;
+          const key = r.id * 16 + i;
+          let run = open.get(key);
+          if (!run || ss - run.s1 > 1.5) {
+            run = { edge: r, lane: i, s0: ss, s1: ss, l0: along, l1: along, dir: 0, pad: 0, cos: 0, n: 0 };
+            open.set(key, run);
+            te.lanes.push(run);
+          }
+          run.s1 = ss;
+          run.l1 = along;
+          run.cos += cos;
+          run.n++;
+        }
+      }
+    }
+    for (const run of te.lanes) {
+      const cos = run.cos / run.n;
+      run.dir = cos > 0.5 ? 1 : cos < -0.5 ? -1 : 0;
+      run.pad = TRAM_HALF_WIDTH * Math.sqrt(Math.max(0, 1 - cos * cos)) + 0.5;
+      run.s0 = Math.max(0, run.s0 - 0.5);
+      run.s1 = Math.min(te.len, run.s1 + 0.5);
+    }
+  }
+
+  // Junction curves over the track: the road nodes near a track, every lane-to-lane curve through them sampled each
+  // metre against the tram edges close by
+  if (!network || !network.nodes || !network.connector || !network.curvePoint) return;
+  // track segments by cell: [edge, first vertex index] pairs
+  const tramGrid = new Map();
+  for (const te of graph.edges) {
+    const p = te.pts;
+    for (let k = 0; k + 1 < te.cum.length; k++) {
+      addToGrid(tramGrid, [te, k], Math.min(p[2 * k], p[2 * k + 2]) - gap, Math.max(p[2 * k], p[2 * k + 2]) + gap,
+        Math.min(p[2 * k + 1], p[2 * k + 3]) - gap, Math.max(p[2 * k + 1], p[2 * k + 3]) + gap);
+    }
+  }
+  const pt = { x: 0, z: 0, dx: 0, dz: 1 };
+  const hits = new Map();
+  for (const n of network.nodes) {
+    if (!n.in || !n.in.length) continue;
+    let close = false;
+    for (let i = -1; i <= 1 && !close; i++) {
+      for (let j = -1; j <= 1 && !close; j++) close = tramGrid.has(cellOf(n.x + i * CELL, n.z + j * CELL));
+    }
+    if (!close) continue;
+    for (const e of n.in) {
+      for (const m of e.moves || []) {
+        const f = m.to;
+        for (let i = 0; i < m.out.length; i++) {
+          const j = m.out[i];
+          if (j < 0) continue;
+          const c = network.connector(e, i, f, j);
+          hits.clear();
+          for (let cs = 0; cs <= c.len + 0.5; cs += 1) {
+            network.curvePoint(c, Math.min(cs, c.len), pt);
+            const cell = tramGrid.get(cellOf(pt.x, pt.z));
+            if (!cell) continue;
+            for (const [te, k] of cell) {
+              const p = te.pts;
+              const ax = p[2 * k], az = p[2 * k + 1];
+              const sx = p[2 * k + 2] - ax, sz = p[2 * k + 3] - az;
+              const l2 = sx * sx + sz * sz;
+              const u = Math.max(0, Math.min(1, ((pt.x - ax) * sx + (pt.z - az) * sz) / l2));
+              if (Math.hypot(ax + sx * u - pt.x, az + sz * u - pt.z) >= gap - 0.1) continue; // a car on its lane line
+              const ts = te.cum[k] + u * (te.cum[k + 1] - te.cum[k]);
+              const h = hits.get(te);
+              if (h) {
+                h[0] = Math.min(h[0], ts);
+                h[1] = Math.max(h[1], ts);
+              } else hits.set(te, [ts, ts]);
+            }
+          }
+          for (const [te, [s0, s1]] of hits) {
+            const conflict = { node: n, e, i, f, j, s0: Math.max(0, s0 - 1.5), s1: Math.min(te.len, s1 + 1.5), held: -1, by: null };
+            te.junctions.push(conflict);
+            (n.tramConflicts || (n.tramConflicts = [])).push(conflict);
+          }
+        }
+      }
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // A tram's path: the edges under and ahead of it, in one arc-length coordinate (u) that starts at the first edge.
 // The branch at every switch is chosen once, when the path is extended, so every check this frame and the next sees
@@ -628,12 +773,13 @@ function poseSections(path, u, model, out) {
 // ---------------------------------------------------------------------------------------------------------------------
 // The tram system
 // ---------------------------------------------------------------------------------------------------------------------
-function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.tramStops } = {}) {
+function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.tramStops, traffic = null } = {}) {
   const group = new THREE.Group();
   group.name = 'Trams';
   scene.add(group);
 
   const graph = buildTrackGraph(rail || []);
+  mapTramsToRoads(graph, network);
   // tram-infra.js stops (with railIndex) sit at the platforms; bare GEO.tramStops nodes are snapped to the track
   const tramStops = stops && stops.length && stops[0].railIndex !== undefined
     ? attachTramStops(graph, stops)
@@ -654,7 +800,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       frontX: 0, frontZ: 0,
       sections: model.sections.map(() => ({ x: 0, z: 0, heading: 0, halfLength: 0, halfWidth: TRAM_HALF_WIDTH, fx: 0, fz: 0, rx: 0, rz: 0 })),
       atStop: false, stopName: '', dwell: 0, doorsOpen: false, nextStop: null, lastStop: null,
-      leader: null, gap: Infinity, waitReason: '',
+      leader: null, gap: Infinity, waitReason: '', obstacle: null,
       deadEndWait: 0, stuck: 0,
       // per-frame occupancy: the path edges under the body, local [s0, s1] on each
       occN: 0, occEdge: new Array(PATH_CAP).fill(null), occS0: new Float64Array(PATH_CAP), occS1: new Float64Array(PATH_CAP),
@@ -769,6 +915,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       if (e.run < 0) continue;
       for (const o of pool) if (o !== t && o.active && inRun(o, e.run, -e.runDir)) return false;
     }
+    if (traffic && !trackClear(path, t.length)) return false;
     t.active = true;
     t.speed = Math.min(8, path.edges[path.indexAt(path.u)].street ? STREET_SPEED : TRACK_SPEED) * (0.4 + 0.6 * rand());
     t.acc = 0;
@@ -781,6 +928,21 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     t.deadEndWait = 0;
     t.stuck = 0;
     placeMid(t);
+    return true;
+  }
+
+  // No car on the track from the rear of a tram placed with its front at path.u to 10 m ahead of it
+  function trackClear(path, length) {
+    for (let d = -length; d <= 10; d += 3) {
+      path.pointAt(path.u + d, _p);
+      for (let pass = 0; pass < 2; pass++) {
+        const list = pass ? traffic.buses : traffic.cars;
+        if (!list) continue;
+        for (const v of list) {
+          if (v.edge && Math.abs(v.x - _p.x) < v.half + 3 && Math.abs(v.z - _p.z) < v.half + 3 && Math.hypot(v.x - _p.x, v.z - _p.z) < v.half + 2.5) return false;
+        }
+      }
+    }
     return true;
   }
 
@@ -887,6 +1049,68 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     return false;
   }
 
+  // The swept path ahead of a tram's front: track points every SWEEP_STEP m up to its braking distance plus a margin,
+  // with their bounding box, to find cars and the player in the way (one tram at a time, so one shared scratch)
+  const sweepX = new Float64Array(SWEEP_N);
+  const sweepZ = new Float64Array(SWEEP_N);
+  const sweepTX = new Float64Array(SWEEP_N);
+  const sweepTZ = new Float64Array(SWEEP_N);
+  let sweepN = 0;
+  let sx0 = 0, sx1 = 0, sz0 = 0, sz1 = 0;
+  function sweep(t) {
+    const path = t.path;
+    const reach = Math.min(OBSTACLE_REACH, 12 + t.speed * D.T + (t.speed * t.speed) / (2 * D.b));
+    sweepN = 0;
+    sx0 = sz0 = Infinity;
+    sx1 = sz1 = -Infinity;
+    for (let d = 0; d <= reach && sweepN < SWEEP_N && path.u + d <= path.end; d += SWEEP_STEP) {
+      path.pointAt(path.u + d, _p);
+      sweepX[sweepN] = _p.x;
+      sweepZ[sweepN] = _p.z;
+      sweepTX[sweepN] = _p.tx;
+      sweepTZ[sweepN] = _p.tz;
+      sweepN++;
+      sx0 = Math.min(sx0, _p.x);
+      sx1 = Math.max(sx1, _p.x);
+      sz0 = Math.min(sz0, _p.z);
+      sz1 = Math.max(sz1, _p.z);
+    }
+  }
+  // Gap from the front to a body (centre x, z, heading, half width & length) in the swept path, or Infinity when it is
+  // clear of it (or already beside the tram: a collision, not something to brake for; or, with `oncoming` false,
+  // facing the tram). Sets _obsV, its speed along the track there.
+  let _obsV = 0;
+  function obstacleGap(x, z, heading, halfW, halfL, vx, vz, oncoming) {
+    const r = halfL + 2;
+    if (sweepN === 0 || x < sx0 - r || x > sx1 + r || z < sz0 - r || z > sz1 + r) return Infinity;
+    let k = 0;
+    let best = Infinity;
+    for (let i = 0; i < sweepN; i++) {
+      const dx = x - sweepX[i];
+      const dz = z - sweepZ[i];
+      const d2 = dx * dx + dz * dz;
+      if (d2 < best) {
+        best = d2;
+        k = i;
+      }
+    }
+    const tx = sweepTX[k];
+    const tz = sweepTZ[k];
+    const dx = x - sweepX[k];
+    const dz = z - sweepZ[k];
+    const cs = Math.sin(heading) * tx + Math.cos(heading) * tz;
+    if (!oncoming && cs < -0.5) return Infinity;
+    const c = Math.abs(cs);
+    const sn = Math.sqrt(Math.max(0, 1 - c * c));
+    if (Math.abs(dx * tz - dz * tx) > TRAM_HALF_WIDTH + halfW * c + halfL * sn + 0.05) return Infinity;
+    const gap = k * SWEEP_STEP + dx * tx + dz * tz - (halfL * c + halfW * sn);
+    if (gap < -1) return Infinity;
+    _obsV = Math.max(0, vx * tx + vz * tz);
+    return gap;
+  }
+  // The player this frame (set in update; active as traffic.js has it: on the ground and not flying)
+  const player = { active: false, entity: null, x: 0, z: 0, heading: 0, vx: 0, vz: 0, halfW: 0.86, halfL: 2.18 };
+
   function drive(t, elapsed) {
     const path = t.path;
     const u = path.u;
@@ -937,6 +1161,43 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
           }
           consider(idm(Math.max(gap, 0.1), headOn ? 0 : o.speed), 'tram');
         }
+      }
+    }
+    // Cars and the player in the way ahead: trams have priority, so this is only safety braking for whoever is
+    // still on the track (cars keep off it through traffic.js; the player doesn't have to). Not for cars facing the
+    // tram: where a lane runs against the track (contraflow track beside a one-way street, mostly squeezed by
+    // defaulted road widths: 0.75 km of it), the cars stop short of the tram's way (traffic.js), and one already in it
+    // can't back out, so waiting for it would only lock both up.)
+    sweep(t);
+    let obstacleGapMin = Infinity;
+    t.obstacle = null;
+    if (traffic) {
+      for (let pass = 0; pass < 2; pass++) {
+        const list = pass ? traffic.buses : traffic.cars;
+        if (!list) continue;
+        for (let i = 0; i < list.length; i++) {
+          const v = list[i];
+          if (!v.edge) continue;
+          const gap = obstacleGap(v.x, v.z, v.yaw + v.yawOffset, v.halfWidth, v.half, v.tx * v.speed + v.vx, v.tz * v.speed + v.vz, false);
+          if (gap === Infinity) continue;
+          if (gap < gapMin) {
+            gapMin = gap;
+            leader = null;
+          }
+          if (gap < obstacleGapMin) {
+            obstacleGapMin = gap;
+            t.obstacle = v;
+          }
+          consider(idm(Math.max(gap, 0.1), _obsV), 'car');
+        }
+      }
+    }
+    if (player.active) {
+      const gap = obstacleGap(player.x, player.z, player.heading, player.halfW, player.halfL, player.vx, player.vz, true);
+      if (gap !== Infinity) {
+        gapMin = Math.min(gapMin, gap);
+        if (gap < obstacleGapMin) t.obstacle = player.entity;
+        consider(idm(Math.max(gap, 0.1), _obsV), 'player');
       }
     }
     t.gap = gapMin;
@@ -1145,7 +1406,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
   let lastFZ = 0;
   let cursor = 0;
 
-  function update(dt, elapsed, focus, camera) {
+  function update(dt, elapsed, focus, camera, playerEntity = null, activeMode = 'car') {
     // 0. View & focus
     if (camera) {
       camera.updateMatrixWorld();
@@ -1166,6 +1427,19 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     lastFX = fx;
     lastFZ = fz;
     refreshNear(fx, fz);
+    player.active = !!playerEntity && activeMode !== 'helicopter' && playerEntity.position.y < 2.6;
+    if (player.active) {
+      const heading = playerEntity.heading || 0;
+      const speed = playerEntity.speed || 0;
+      player.entity = playerEntity;
+      player.x = playerEntity.position.x;
+      player.z = playerEntity.position.z;
+      player.heading = heading;
+      player.vx = Math.sin(heading) * speed + (playerEntity.vx || 0);
+      player.vz = Math.cos(heading) * speed + (playerEntity.vz || 0);
+      player.halfW = activeMode === 'cyclist' ? 0.35 : activeMode === 'person' ? 0.32 : 0.86;
+      player.halfL = activeMode === 'cyclist' ? 0.85 : activeMode === 'person' ? 0.32 : 2.18;
+    }
 
     // 1. Population: retire trams far from the focus, stuck ones and those waiting at a buffer stop out of view;
     //    respawn them near the focus (everything at once after a jump, else a few attempts per frame)
@@ -1284,6 +1558,7 @@ export {
   snapTramStops,
   attachTramStops,
   findTrackSignals,
+  mapTramsToRoads,
   TramPath,
   poseSections,
   createTramSystem
