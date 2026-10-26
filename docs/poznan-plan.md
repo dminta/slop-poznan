@@ -1,6 +1,6 @@
 # Implementation plan: replacing New York with Poznań
 
-Status: **Phases 1–6 done** (each phase heading carries its own status note); Phases 7–12 are not started.
+Status: **Phases 1–7 done** (each phase heading carries its own status note); Phases 8–12 are not started.
 Line references are as of commit `46ec12b` and will drift; grep for the named symbol if a line no longer matches. Read `AGENTS.md` and the topic docs (`geodata.md`, `world.md`, `rendering.md`,
 `actors.md`, `audio.md`, `architecture.md`, `testing.md`) before starting any phase. They hold the repo-wide rules
 (modulepreload + boot count, module syntax, source-sliced tests, generated geodata, CSS `?v=` bump).
@@ -610,6 +610,24 @@ https://dminta.github.io/slop-poznan/. Deviations and open points:
    title "Slop Poznań", the renamed module rules, a pointer to this plan until it is done.
 
 ### Phase 7: Landmarks
+
+**Status: done** (built and checked headlessly, not yet in a browser). Deviations and open points:
+- Layout: `landmarks.js` only assembles; the models live in five area modules (`landmarks-rynek`, `-heritage`,
+  `-centrum`, `-dworzec`, `-towers`) on `landmark-kit.js` (`fitToSite`, shared materials, roof/lathe/prism helpers).
+  Boot preloads are 38. The NYC models were already deleted in Phase 5.
+- All 25 `LANDMARK_SITES` are modelled (≈ 33k triangles, 85 colliders). Domki Budnicze is new: OSM way 343867707 is
+  unnamed, so the query fetches it by id. `buildArcadedHouseRow` (landmarks-rynek.js) is exported for Phase 8.
+- Koziołki: the goats live in the unbatched, unculled `LandmarksDynamic` root; a 26 s show runs when the lighting
+  preset becomes `midday` and every 120 s while it stays. No clock or audio yet (§12).
+- Heights: the model tops are now in `LANDMARK_H`. Fara 40, Zamek Królewski 43, Brama 18, Teatr Wielki 27,
+  Collegium Minus 27, the station buildings, Stary Browar and Wieża Wójtowska are estimates from photos (nDSM, §4.4).
+  Unconfirmed placements: the Zamek Cesarski tower (south-west corner), the Ratusz tower (centred), Iglica's square
+  lattice, AND2's two-volume massing. Delta 4 is not in OSM; `Delta` is the older 11-storey block.
+- Materials: no new tsl-materials.js shaders. Six masonry and three curtain-wall styles plus about 20 plain materials
+  are shared in `createLandmarkMaterials`, with three local pastels for the Domki. Turned and prism parts keep the
+  world-space window grid.
+- The build warns for every name in `q_poz_landmarks.overpassql` that matches nothing in the snapshot.
+- Not done: the Brama footbridge and Most Jordana (bridges.js), teleports and cameras (Phase 12).
 
 **Pattern.** Each landmark is `{ const c0 = colliders.length; …model…; fitToSite([obj], site('OSM name'), c0, {height}) }`
 (`world.md` recipe). It uses the Phase 3 rotation. Add it to `LANDMARK_RESERVE` (`buildings.js:1927-1935`) and,

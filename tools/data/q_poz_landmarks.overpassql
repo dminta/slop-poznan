@@ -6,6 +6,8 @@
   way["building"]["name"="Poznań Główny"](52.392,16.895,52.425,16.985);
   // Bałtyk carries its name only in addr:housename.
   way["building"]["addr:housename"="Bałtyk"](52.392,16.895,52.425,16.985);
+  // The Domki budnicze (the arcaded row south of the Ratusz) are one unnamed building way.
+  way(343867707);
   // The Poznański Czerwiec 1956 crosses are mapped as a single memorial node.
   node["historic"="memorial"]["name"="Poznański Czerwiec 1956"](52.405,16.914,52.410,16.920);
 )->.found;

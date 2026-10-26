@@ -1401,10 +1401,10 @@ function buildCityBlocks(scene) {
   // ============================================================================
   const RESERVE_MARGIN = 3;
   const LANDMARK_RESERVE = [
-    'Ratusz', 'Wieża Wójtowska', 'Fara', 'Zamek Królewski', 'Katedra', 'Brama Poznania', 'Zamek Cesarski', 'Bałtyk',
-    'Okrąglak', 'Collegium Minus', 'Teatr Wielki', 'Pomnik Czerwca 1956', 'Poznań Główny', 'Stary Dworzec', 'Avenida',
-    'Stary Browar', 'Iglica', 'Collegium Altum', 'Andersia', 'Poznań Financial Centre', 'Novotel', 'AND2', 'Nowy Rynek',
-    'Delta'
+    'Ratusz', 'Wieża Wójtowska', 'Domki Budnicze', 'Fara', 'Zamek Królewski', 'Katedra', 'Brama Poznania',
+    'Zamek Cesarski', 'Bałtyk', 'Okrąglak', 'Collegium Minus', 'Teatr Wielki', 'Pomnik Czerwca 1956', 'Poznań Główny',
+    'Stary Dworzec', 'Avenida', 'Stary Browar', 'Iglica', 'Collegium Altum', 'Andersia', 'Poznań Financial Centre',
+    'Novotel', 'AND2', 'Nowy Rynek', 'Delta'
   ].map((name) => {
     const t = LANDMARK_SITES[name];
     if (!t) return null;

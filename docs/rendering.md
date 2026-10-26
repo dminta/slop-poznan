@@ -56,7 +56,7 @@
 - Trees run their own cell culling and LOD in `trees.js`: one hidden group per cell, levels set from `scene.onBeforeRender`, and matrices frozen. They are not handled by `scene-culling.js`.
 
 ## Culling (`scene-culling.js`): registering new static geometry
-- `setupSceneCulling` walks only the roots that `main.js` lists by group name: `CityGrid`, `CityBlocks`, `StreetDetails`, `Landmarks`, `Outskirts`, `Bridges`. Put new static city geometry under one of these groups, or add the new group's name to that list.
+- `setupSceneCulling` walks only the roots that `main.js` lists by group name: `CityGrid`, `CityBlocks`, `StreetDetails`, `Landmarks`, `Outskirts`, `Bridges`. Put new static city geometry under one of these groups, or add the new group's name to that list. Moving parts stay outside them: the Ratusz goats live in the unculled `LandmarksDynamic` root.
 - What it does, by threshold:
   - Instanced meshes with ≥ 64 instances, ≥ 40k triangles in total and a bounding radius of at least 1.5 km are split into spatial chunks with a distance cull. The distance comes from the 90th-percentile instance size, and `MeshBasicNodeMaterial` glows get 3×.
   - Meshes that would get a cull distance over 2 km are chunked into 1 km cells, frustum culling only.

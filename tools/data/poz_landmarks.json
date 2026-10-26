@@ -2,8 +2,8 @@
   "version": 0.6,
   "generator": "Overpass API 0.7.62.11 87bfad18",
   "osm3s": {
-    "timestamp_osm_base": "2026-10-25T19:23:36Z",
-    "timestamp_areas_base": "2026-10-25T16:37:36Z",
+    "timestamp_osm_base": "2026-10-26T10:31:28Z",
+    "timestamp_areas_base": "2026-10-26T04:00:37Z",
     "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
   },
   "elements": [
@@ -964,6 +964,47 @@
     "wikidata": "Q2064095",
     "wikimedia_commons": "File:Archikatedra_Poznań_RB1.JPG",
     "wikipedia": "pl:Bazylika archikatedralna Świętych Apostołów Piotra i Pawła w Poznaniu"
+  }
+},
+{
+  "type": "way",
+  "id": 343867707,
+  "bounds": {
+    "minlat": 52.4079245,
+    "minlon": 16.9339809,
+    "maxlat": 52.4083980,
+    "maxlon": 16.9341577
+  },
+  "geometry": [
+    { "lat": 52.4079950, "lon": 16.9339932 },
+    { "lat": 52.4079261, "lon": 16.9339809 },
+    { "lat": 52.4079259, "lon": 16.9339917 },
+    { "lat": 52.4079249, "lon": 16.9340687 },
+    { "lat": 52.4079245, "lon": 16.9340997 },
+    { "lat": 52.4082683, "lon": 16.9341437 },
+    { "lat": 52.4083815, "lon": 16.9341577 },
+    { "lat": 52.4083962, "lon": 16.9340654 },
+    { "lat": 52.4083980, "lon": 16.9340539 },
+    { "lat": 52.4082955, "lon": 16.9340359 },
+    { "lat": 52.4082706, "lon": 16.9340323 },
+    { "lat": 52.4081694, "lon": 16.9340180 },
+    { "lat": 52.4081152, "lon": 16.9340103 },
+    { "lat": 52.4079950, "lon": 16.9339932 }
+  ],
+  "tags": {
+    "building": "house",
+    "building:levels": "3",
+    "heritage": "2",
+    "heritage:operator": "nid",
+    "image": "https://photos.app.goo.gl/CaokUqR9t1MGpRt87",
+    "layer": "2",
+    "ref:nid": "A-75",
+    "roof:levels": "1",
+    "url": "https://polska-org.pl/7192290,Poznan,Domki_budnicze.html",
+    "url:0": "https://fotopolska.eu/84414,obiekt.html?map_z=19",
+    "wheelchair": "yes",
+    "wikidata": "Q9209924",
+    "wikipedia": "pl:Domki budnicze w Poznaniu"
   }
 },
 {

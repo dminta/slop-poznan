@@ -12,7 +12,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const DATA = process.env.GEO_DATA || fileURLToPath(new URL('data/', import.meta.url));
-const load = (f) => JSON.parse(fs.readFileSync(path.join(DATA, f), 'utf8'));
+const loadText = (f) => fs.readFileSync(path.join(DATA, f), 'utf8');
+const load = (f) => JSON.parse(loadText(f));
 const log = (...a) => console.log('[geodata]', ...a);
 
 const LAT0 = 52.40856;
@@ -42,4 +43,4 @@ const inDetailBox = (x, z, pad = 0) => x >= DX0 - pad && x <= DX1 + pad && z >= 
 log(`frame: origin Ratusz ${LAT0} N ${LON0} E, bearing ${BEARING_DEG}°, KX ${(KX / 1000).toFixed(3)} km/°, KY ${(KY / 1000).toFixed(3)} km/°`);
 log(`detail box: x ${DX0.toFixed(0)}..${DX1.toFixed(0)}, z ${DZ0.toFixed(0)}..${DZ1.toFixed(0)}`);
 
-export { load, log, toWorld, llAffine, LAT0, LON0, BEARING_DEG, DETAIL_LL, DETAIL_BOX, inDetailBox };
+export { load, loadText, log, toWorld, llAffine, LAT0, LON0, BEARING_DEG, DETAIL_LL, DETAIL_BOX, inDetailBox };

@@ -4,7 +4,7 @@
 //
 // Inputs (tools/data/; OpenStreetMap via Overpass, ODbL): poz_parks.json, poz_landmarks.json, poz_admin.json
 
-import { load, log, toWorld, DETAIL_BOX, inDetailBox } from './poz-base.mjs';
+import { load, loadText, log, toWorld, DETAIL_BOX, inDetailBox } from './poz-base.mjs';
 import { r1, ringArea, bbox, rdpRing, centroid, elemRings } from './geo-util.mjs';
 
 const flat = (pts) => pts.flatMap(([x, z]) => [r1(x), r1(z)]);
@@ -183,6 +183,7 @@ const LANDMARK_ELEMENTS = {
   'Fara': ['way/365954906'], // "Bazylika Kolegiacka Matki Bożej Nieustającej Pomocy, ..."
   'Zamek Królewski': ['way/363747422'],
   'Wieża Wójtowska': ['way/366976792'],
+  'Domki Budnicze': ['way/343867707'], // unnamed, wikidata Q9209924
   'Katedra': ['way/279545051'],
   'Brama Poznania': ['way/441733580'],
   'Zamek Cesarski': ['relation/1483520'],
@@ -205,14 +206,19 @@ const LANDMARK_ELEMENTS = {
   'Delta': ['way/106179571'] // the old Delta office block (11 storeys), not Delta 4
 };
 // Heights (m) from §9.1 (pl.wikipedia / Wikidata: tower tops, spires, roof tops). These override OSM, whose height tags
-// here are eaves (Ratusz 16 vs a ≈ 61 m tower), a lower wing (Collegium Altum 16 vs 103.35) or junk (Katedra 0.1)
+// here are eaves (Ratusz 16 vs a ≈ 61 m tower), a lower wing (Collegium Altum 16 vs 103.35) or junk (Katedra 0.1).
+// The second group are the tops of the Phase 7 models (js/landmarks-*.js), estimated from photos and storey counts
+// where no figure is published (Fara: a 27 m nave plus vault and roof); confirm them with nDSM heights (§4.4)
 const LANDMARK_H = {
   'Ratusz': 61, 'Katedra': 62, 'Zamek Cesarski': 75, 'Bałtyk': 67, 'Okrąglak': 45, 'Collegium Altum': 103.35,
   'Andersia': 102.1, 'Poznań Financial Centre': 91, 'Novotel': 68, 'Nowy Rynek': 66, 'AND2': 116, 'Iglica': 64,
-  'Pomnik Czerwca 1956': 21
+  'Pomnik Czerwca 1956': 21,
+  'Fara': 40, 'Zamek Królewski': 43, 'Brama Poznania': 18, 'Teatr Wielki': 27, 'Collegium Minus': 27,
+  'Domki Budnicze': 14.4, 'Wieża Wójtowska': 20.5, 'Poznań Główny': 13.6, 'Stary Dworzec': 19.3, 'Avenida': 25.3,
+  'Stary Browar': 42
 };
 const LEVEL_H = 3.4;
-// No curated height, no plausible OSM height and no levels (Fara, Zamek Królewski): a placeholder until nDSM heights
+// No curated height, no plausible OSM height and no levels: a placeholder until nDSM heights
 const DEFAULT_H = 20;
 // A node-only landmark (the 1956 crosses) gets a square of this side: the monument with its plinth and paving
 const NODE_SIDE = 10;
@@ -264,7 +270,17 @@ function minAreaRect(ring) {
   return best;
 }
 
-const lmIndex = new Map(load('poz_landmarks.json').elements.map((e) => [`${e.type}/${e.id}`, e]));
+const lmElements = load('poz_landmarks.json').elements;
+const lmIndex = new Map(lmElements.map((e) => [`${e.type}/${e.id}`, e]));
+// Every name the query asks for must still name an element: an OSM rename silently drops a landmark (js/landmarks.js
+// fitToSite skips a missing site), so the build says which names matched nothing
+const lmNames = new Set(lmElements.map((e) => e.tags?.name).filter(Boolean));
+for (const m of loadText('q_poz_landmarks.overpassql').matchAll(/\["name"(~|=)"(.*?)"\]/g)) {
+  const names = m[1] === '=' ? [m[2]] : m[2].replace(/^\^\(|\)\$$/g, '').split('|');
+  for (const n of names.map((q) => q.replace(/\\\\(.)/g, '$1'))) {
+    if (!lmNames.has(n)) log(`WARNING landmark query name "${n}" matches nothing in poz_landmarks.json`);
+  }
+}
 const landmarks = {};
 for (const [key, ids] of Object.entries(LANDMARK_ELEMENTS)) {
   let pick = null;

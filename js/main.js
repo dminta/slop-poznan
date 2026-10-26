@@ -81,7 +81,8 @@ async function initApp() {
   markInit('outskirts');
   const bridges = buildBridges(scene, { sidewalks: cityGrid.sidewalks });
   markInit('bridges');
-  const { colliders: landmarkColliders } = buildLandmarks(scene);
+  const landmarks = buildLandmarks(scene);
+  const landmarkColliders = landmarks.colliders;
   markInit('landmarks');
   const cityBlocks = buildCityBlocks(scene);
   markInit('blocks');
@@ -711,6 +712,7 @@ async function initApp() {
     cityBlocks.update(cameraSystem.currentPos.x, cameraSystem.currentPos.z);
     if (cityBlocks.updateLights) cityBlocks.updateLights(cameraSystem.camera);
     if (streetDetails.update) streetDetails.update(cameraSystem.camera);
+    landmarks.update(dt, elapsed, lightingSystem.activePresetId);
     lightingSystem.update(cameraSystem.currentPos);
     mapSystem.update();
     audioSystem.update(dt, elapsed, cameraSystem.camera, lightingSystem.activePresetId === 'midnight');
