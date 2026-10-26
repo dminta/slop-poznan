@@ -2053,8 +2053,8 @@ const TRAM_PROFILE = [[1.1, 0.3], [1.19, 0.38], [1.2, 0.6], [1.2, 2.3], [1.18, 2
 const TRAM_ROOF = 3.18;
 // The nose over its last `len` metres: plan taper, windscreen rake (top back), rounded corners, chin
 const TRAM_NOSE = { len: 1.6, taper: 0.14, rake: 0.42, round: 0.45, chin: 0.12, u: [0, 0.3, 0.55, 0.75, 0.9, 1] };
-// Contact wire height the pantograph head is raised to (street catenary ~5.5-6 m)
-const TRAM_PANTOGRAPH_HEAD = 5.5;
+// Height the pantograph head is raised to: its top (head + 0.03) meets the 5.8 m contact wire (tram-infra.js WIRE_Y)
+const TRAM_PANTOGRAPH_HEAD = 5.77;
 
 function tramRing(z, u, cab) {
   const ring = mirrorSection(TRAM_PROFILE, [0, TRAM_ROOF], z);
