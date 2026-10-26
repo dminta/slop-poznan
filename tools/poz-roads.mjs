@@ -11,7 +11,8 @@
 //   plazas:         [{ name, ring: [[x, z]...], holes? }] pedestrian areas and squares, negative shoelace winding;
 //                   holes: a multipolygon's inner rings of PLAZA_HOLE_M2 and up (buildings on the square), positive
 //   pedestrianWays: [{ name, w, pts }] linear highway=pedestrian streets (Półwiejska, Stary Rynek's lanes)
-//   rail:           [{ kind: 'tram'|'rail', street: 0|1, tracks, pts }] chained OSM track ways (one entry per mapped track)
+//   rail:           [{ kind: 'tram'|'rail', street: 0|1, tracks, oneway: 0|1, pts }] chained OSM track pieces (one entry
+//                   per mapped track, cut at switches and crossings; a one-way track runs along its points)
 //   railCorridors:  { rings: [ring...], lines: [{ pts, w }] } landuse=railway areas and off-street tracks (non-buildable)
 //   roads:          GEO.roads tuples [name, w, dir, lanes, hw, flatPts]
 //   tramStops:      [{ name, x, z }]
@@ -167,8 +168,25 @@ for (const e of osmRail.elements) {
   if (underground(t)) { droppedRailTunnel++; continue; }
   const pts = e.geometry.map((g) => toWorld(g.lon, g.lat));
   if (!touchesBox(pts, PIECE_PAD)) continue;
+  // oneway=-1 tracks are turned round so every one-way track runs along its points (85% of the tram ways carry oneway)
+  const oneway = isOneway(t);
+  const nodes = e.nodes.slice();
+  if (oneway < 0) { pts.reverse(); nodes.reverse(); }
   trackWays.push({ id: e.id, kind: t.railway === 'tram' ? 'tram' : 'rail', tracks: parseInt(t.tracks, 10) || 1,
-    bridge: t.bridge && t.bridge !== 'no' ? 1 : 0, pts, nodes: e.nodes });
+    oneway: oneway ? 1 : 0, bridge: t.bridge && t.bridge !== 'no' ? 1 : 0, pts, nodes });
+}
+// Track pieces for GEO.rail: every track way cut at the nodes it shares with another track way (switches, crossings),
+// like the road pieces, so a chain end is a real junction and the runtime can join the tram network by end coordinates
+const trackUse = new Map();
+for (const t of trackWays) for (const n of new Set(t.nodes)) trackUse.set(n, (trackUse.get(n) || 0) + 1);
+const trackPieces = [];
+for (const t of trackWays) {
+  let i0 = 0;
+  for (let i = 1; i < t.nodes.length; i++) {
+    if (i < t.nodes.length - 1 && trackUse.get(t.nodes[i]) < 2) continue;
+    trackPieces.push({ way: t, pts: t.pts.slice(i0, i + 1), nodes: t.nodes.slice(i0, i + 1) });
+    i0 = i;
+  }
 }
 
 // Segment grid for "runs along" tests between road pieces and tram tracks
@@ -306,15 +324,13 @@ function chainByNodes(items) {
   return out;
 }
 
+for (const t of trackWays) t.street = t.kind === 'tram' && onStreet(t.pts) ? 1 : 0;
 const rail = [];
-for (const c of chainByNodes(trackWays.map((t) => {
-  const street = t.kind === 'tram' && onStreet(t.pts) ? 1 : 0;
-  t.street = street;
-  return { key: `${t.kind}|${street}|${t.tracks}`, pts: t.pts, nodes: t.nodes, directed: false };
-}))) {
-  const [kind, street, tracks] = c.key.split('|');
+for (const c of chainByNodes(trackPieces.map(({ way: t, pts, nodes }) => (
+  { key: `${t.kind}|${t.street}|${t.tracks}|${t.oneway}`, pts, nodes, directed: !!t.oneway })))) {
+  const [kind, street, tracks, oneway] = c.key.split('|');
   if (!touchesBox(c.pts, 0)) continue;
-  rail.push({ kind, street: +street, tracks: +tracks, pts: rdp(c.pts, 0.3).map(([x, z]) => [r1(x), r1(z)]) });
+  rail.push({ kind, street: +street, tracks: +tracks, oneway: +oneway, pts: rdp(c.pts, 0.3).map(([x, z]) => [r1(x), r1(z)]) });
 }
 
 // Non-buildable rail land: landuse=railway areas, plus a corridor around every off-street track (street trams are

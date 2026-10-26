@@ -3,9 +3,9 @@
 // usage: node --max-old-space-size=8192 tools/build-poznan.mjs [out.js]
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { log, llAffine, LAT0, LON0, BEARING_DEG, DETAIL_BOX } from './poz-base.mjs';
+import { log, llAffine, LAT0, LON0, BEARING_DEG, DETAIL_BOX, inDetailBox } from './poz-base.mjs';
 import { r1, Raster } from './geo-util.mjs';
-import { pieces, plazas, rail, roads, signalNodes } from './poz-roads.mjs';
+import { pieces, plazas, rail, roads, signalNodes, tramStops } from './poz-roads.mjs';
 import { water, land, landHoles, outskirts, outskirtsHoles } from './poz-water.mjs';
 import { parks, landmarks, districts, labels } from './poz-extra.mjs';
 import { blocks, STRIP, SIDEWALK } from './poz-blocks.mjs';
@@ -74,7 +74,11 @@ const GEO = {
   // nodes [x, z, ...], links [a, b, name index, width, lanes, dir (1 a -> b, -1 b -> a, 0 both), inner points [x, z, ...],
   // flags (bit 0 bridge, bit 1 tram on street, bit 2 roundabout)], names, signals [node index]
   roadGraph,
-  rail: rail.map((r) => ({ kind: r.kind, street: r.street, tracks: r.tracks, pts: flat(r.pts) })),
+  // [{ kind: 'tram'|'rail', street (1 street-running), tracks, oneway (1: runs along pts), pts }]; cut at every switch and
+  // crossing, so the tram network joins on equal end coordinates
+  rail: rail.map((r) => ({ kind: r.kind, street: r.street, tracks: r.tracks, oneway: r.oneway, pts: flat(r.pts) })),
+  // [{ name, x, z }] railway=tram_stop nodes inside the detail box (one per stop position, usually on the track)
+  tramStops: tramStops.filter((s) => inDetailBox(s.x, s.z, 0)),
   // [{ name, ring, holes? }] pedestrian areas and squares; holes are the buildings standing on them (Stary Rynek's
   // central block), which the block raster gives back as blocks
   plazas: plazas.map((p) => (p.holes ? { name: p.name, ring: flat(p.ring), holes: p.holes.map(flat) } : { name: p.name, ring: flat(p.ring) })),
