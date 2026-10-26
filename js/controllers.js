@@ -27,9 +27,9 @@ import { HEADLIGHTS, createVehicleHeadlight, placeVehicleHeadlight } from './veh
 // Sculpted, non-blocky GTA 6-style 3D models, animations, and physics controllers
 // for Third-Person Navigation:
 // 1. Person (Skinned Pedestrian: planted-footstep IK walk/run/jump, see pedestrians.js)
-// 2. Car (Aerodynamic Sculpted NYC Medallion Yellow Taxi with Sloped Windshield & Clearcoat)
+// 2. Car (Aerodynamic Sculpted Poznań Taxi Sedan with Sloped Windshield & Clearcoat)
 // 3. Cyclist (Sculpted Road Cyclist with Drop-Bar Frame & Aero Helmet)
-// 4. Helicopter (Manhattan Sightseeing Twin-Turbine Chopper)
+// 4. Helicopter (Sightseeing Twin-Turbine Chopper)
 
 // Where the four modes start, in SPAWN's frame (city-config.js): `fwd` metres along its heading and `left` metres to its
 // left. The car and the bicycle stand in its roadway right of the centreline, the pedestrian on the sidewalk to its right
@@ -166,57 +166,119 @@ function buildingContact(c, x, y, z, body, contact) {
   return true;
 }
 
-function createTaxiDoorDecalTexture() {
+// The taxi's side stripe, one per side: a white band edged with yellow & black checks that runs over both doors, "TAXI"
+// and the city on the front door, the side number on the rear one. The patch's u runs front to rear on the +x side and
+// rear to front on the -x side (buildCarSidePatch), so each side gets its own canvas with the blocks placed by their z:
+// one mirrored texture would mirror the lettering too. No city crest (a licensed emblem); the number is made up.
+const TAXI_STRIPE_PX_PER_M = 588; // ~1024 px over the 1.74 m stripe
+const TAXI_SIDE_NUMBER = '1427';
+
+function createTaxiStripeTexture(spec, z0, z1, frontOnLeft) {
   const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 128;
+  c.width = Math.round((z1 - z0) * TAXI_STRIPE_PX_PER_M);
+  c.height = 96;
   const ctx = c.getContext('2d');
-  ctx.fillStyle = '#ffbe14';
-  ctx.fillRect(0, 0, 256, 128);
-  // Black T&LC circle emblem
-  ctx.fillStyle = '#111317';
-  ctx.beginPath();
-  ctx.arc(58, 64, 42, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#ffbe14';
-  ctx.font = '900 32px Inter, Arial, sans-serif';
+  const w = c.width, h = c.height;
+  const xAt = (z) => (frontOnLeft ? z1 - z : z - z0) * TAXI_STRIPE_PX_PER_M;
+  ctx.fillStyle = '#f7f7f2';
+  ctx.fillRect(0, 0, w, h);
+  const check = 12;
+  for (let x = 0, k = 0; x < w; x += check, k++) {
+    ctx.fillStyle = k % 2 ? '#15171b' : '#f5c400';
+    ctx.fillRect(x, 0, check, check);
+    ctx.fillStyle = k % 2 ? '#f5c400' : '#15171b';
+    ctx.fillRect(x, h - check, check, check);
+  }
+  ctx.fillStyle = '#15171b';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('T', 58, 66);
-  // NYC TAXI typography & Fare Rate
-  ctx.fillStyle = '#111317';
-  ctx.textAlign = 'left';
-  ctx.font = '900 26px Inter, Arial, sans-serif';
-  ctx.fillText('NYC TAXI', 112, 42);
-  ctx.font = '700 15px JetBrains Mono, monospace';
-  ctx.fillText('7Y48 · MEDALLION', 112, 68);
-  ctx.font = '600 13px Inter, Arial, sans-serif';
-  ctx.fillText('$3.00 INITIAL FARE', 112, 90);
+  const frontDoor = (spec.doors[0] + spec.doors[1]) / 2;
+  const rearDoor = (spec.doors[1] + spec.doors[2]) / 2;
+  ctx.font = '900 54px Inter, Arial, sans-serif';
+  ctx.fillText('TAXI', xAt(frontDoor), h * 0.39);
+  ctx.font = '700 15px Inter, Arial, sans-serif';
+  ctx.fillText('POZNAŃ', xAt(frontDoor), h * 0.74);
+  ctx.font = '800 40px Inter, Arial, sans-serif';
+  const boxW = ctx.measureText(TAXI_SIDE_NUMBER).width + 24;
+  ctx.fillRect(xAt(rearDoor) - boxW / 2, check + 8, boxW, h - 2 * check - 16);
+  ctx.fillStyle = '#f7f7f2';
+  ctx.fillText(TAXI_SIDE_NUMBER, xAt(rearDoor), h * 0.5);
+  // The decal covers the middle shut line the body material draws, so it carries its own
+  ctx.fillStyle = 'rgba(20, 22, 26, 0.75)';
+  ctx.fillRect(xAt(spec.doors[1]) - 1, 0, 2, h);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
   return tex;
 }
 
-function createNYLicensePlateTexture() {
+// A Polish EU plate, 520 × 114 mm, drawn in millimetres at 2 px/mm: the blue EU strip with the ring of stars and "PL",
+// then the district code (PO is Poznań city), the round registration sticker and the number. The glyphs are squeezed
+// horizontally to fit, as the narrow plate typeface is.
+const PLATE_W = 0.52;
+const PLATE_H = 0.114;
+const PLATE_PX_PER_MM = 2;
+
+function createPolishLicensePlateTexture(district, number) {
+  const wMm = PLATE_W * 1000, hMm = PLATE_H * 1000;
   const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 128;
+  c.width = wMm * PLATE_PX_PER_MM;
+  c.height = hMm * PLATE_PX_PER_MM;
   const ctx = c.getContext('2d');
-  ctx.fillStyle = '#ffb81c';
-  ctx.fillRect(0, 0, 256, 128);
-  ctx.fillStyle = '#0d2244';
-  ctx.fillRect(6, 6, 244, 24);
-  ctx.fillStyle = '#ffb81c';
-  ctx.font = '800 15px Inter, Arial, sans-serif';
+  ctx.scale(PLATE_PX_PER_MM, PLATE_PX_PER_MM);
+  ctx.fillStyle = '#16181c';
+  ctx.fillRect(0, 0, wMm, hMm);
+  ctx.fillStyle = '#f8f8f6';
+  ctx.fillRect(3, 3, wMm - 6, hMm - 6);
+  const stripW = 42;
+  ctx.fillStyle = '#003399';
+  ctx.fillRect(3, 3, stripW, hMm - 6);
+  ctx.fillStyle = '#ffcc00';
+  const cx = 3 + stripW / 2, cy = 36;
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.arc(cx + Math.cos(a) * 13, cy + Math.sin(a) * 13, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '700 24px Arial, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('NEW YORK', 128, 23);
-  ctx.fillStyle = '#0d2244';
-  ctx.font = '900 48px JetBrains Mono, monospace';
-  ctx.fillText('7Y48A', 128, 82);
-  ctx.font = '700 13px Inter, Arial, sans-serif';
-  ctx.fillText('NYC T&LC', 128, 114);
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText('PL', cx, 96);
+  // Bold Arial's caps are 0.72 em, so 110 mm type gives the plate's ~80 mm characters
+  ctx.fillStyle = '#16181c';
+  ctx.font = '700 110px "Arial Narrow", Arial, sans-serif';
+  ctx.textAlign = 'left';
+  const gap = 34;
+  const wd = ctx.measureText(district).width;
+  const total = wd + gap + ctx.measureText(number).width;
+  const left = stripW + 3;
+  const k = Math.min(1, (wMm - left - 20) / total);
+  const x0 = left + (wMm - left - total * k) / 2;
+  ctx.save();
+  ctx.translate(x0, hMm / 2 + 39);
+  ctx.scale(k, 1);
+  ctx.fillText(district, 0, 0);
+  ctx.fillText(number, wd + gap, 0);
+  ctx.restore();
+  const sx = x0 + (wd + gap / 2) * k, sy = hMm / 2;
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(sx, sy, 10, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#d4213d';
+  ctx.beginPath();
+  ctx.arc(sx, sy, 10, 0, Math.PI);
+  ctx.fill();
+  ctx.strokeStyle = '#9a9ca0';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.arc(sx, sy, 10, 0, Math.PI * 2);
+  ctx.stroke();
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
   return tex;
 }
 
@@ -467,7 +529,7 @@ class ThirdPersonControllerManager {
   }
 
   // =========================================================================
-  // 1. PERSON (SKINNED NYC PEDESTRIAN WITH PLANTED-FOOTSTEP IK GAIT, see pedestrians.js)
+  // 1. PERSON (SKINNED PEDESTRIAN WITH PLANTED-FOOTSTEP IK GAIT, see pedestrians.js)
   // =========================================================================
   createPersonEntity() {
     const root = new THREE.Group();
@@ -505,7 +567,7 @@ class ThirdPersonControllerManager {
   }
 
   // =========================================================================
-  // 2. CAR (3D LOFTED SCULPTED NYC MEDALLION YELLOW TAXI SEDAN)
+  // 2. CAR (3D LOFTED SCULPTED POZNAŃ TAXI SEDAN)
   // =========================================================================
   createCarEntity() {
     const root = new THREE.Group();
@@ -515,7 +577,9 @@ class ThirdPersonControllerManager {
     root.add(chassisPivot);
 
     const spec = BODY_SPECS.taxi;
-    const taxiLoftMat = createLoftedCarMaterial(spec, 0xffbe14);
+    // Polish taxis come in any colour; the roof lamp and the side stripe mark this one out. Silver keeps it visible on
+    // dark asphalt by day and under street lights.
+    const taxiLoftMat = createLoftedCarMaterial(spec, 0xb4b9bf);
 
     // 1. 3D Lofted Taxi Body + Curved Windscreens + Crowned Roof + Side Mirrors + Roof Sign
     const carBodyGeo = buildCarGeometry(spec, false);
@@ -524,32 +588,37 @@ class ThirdPersonControllerManager {
     carBodyMesh.receiveShadow = true;
     chassisPivot.add(carBodyMesh);
 
-    // 2. Authentic NYC Taxi Side Door T&LC Medallion & Fare Tariff Emblem Decals, hugging the curved front doors
-    const doorDecalTex = createTaxiDoorDecalTexture();
-    const doorDecalMat = new THREE.MeshStandardNodeMaterial({
-      map: doorDecalTex,
-      roughness: 0.24,
-      metalness: 0.34,
-      polygonOffset: true,
-      polygonOffsetFactor: -2,
-      polygonOffsetUnits: -2
-    });
-    const doorMid = (spec.doors[0] + spec.doors[1]) / 2;
+    // 2. Side stripe over both doors, hugging the body. It sits from 0.585 m up, over the badge the taxi body material
+    // paints on the front door, and stops 6 cm short of the front and rear shut lines.
+    const stripeZ0 = spec.doors[2] + 0.06, stripeZ1 = spec.doors[0] - 0.06;
     for (const side of [-1, 1]) {
-      const decal = new THREE.Mesh(buildCarSidePatch(spec, side, doorMid - 0.36, doorMid + 0.36, 0.53, 0.81, 0.003), doorDecalMat);
-      chassisPivot.add(decal);
+      const stripeTex = createTaxiStripeTexture(spec, stripeZ0, stripeZ1, side > 0);
+      const stripeMat = new THREE.MeshStandardNodeMaterial({
+        map: stripeTex,
+        roughness: 0.24,
+        metalness: 0.06,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2
+      });
+      const y0 = 0.585, y1 = y0 + stripeTex.image.height / TAXI_STRIPE_PX_PER_M; // square pixels
+      chassisPivot.add(new THREE.Mesh(buildCarSidePatch(spec, side, stripeZ0, stripeZ1, y0, y1, 0.003), stripeMat));
     }
 
-    // 3. High-Detail NY Empire Gold License Plates on the bumpers
-    const nyPlateTex = createNYLicensePlateTexture();
-    const nyPlateMat = new THREE.MeshStandardNodeMaterial({ map: nyPlateTex, roughness: 0.28 });
-    const rearPlate = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.14, 0.02), nyPlateMat);
-    rearPlate.position.set(0, spec.plates[1], spec.zRear - 0.006);
-    chassisPivot.add(rearPlate);
-
-    const frontPlate = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.14, 0.02), nyPlateMat);
-    frontPlate.position.set(0, spec.plates[0], spec.zFront + 0.006);
-    chassisPivot.add(frontPlate);
+    // 3. Polish EU plates on black holders. The holders are wider and taller than the plate the body material paints
+    // underneath, so none of it shows round the plate.
+    const plateTex = createPolishLicensePlateTexture('PO', '4K217');
+    const plateMat = new THREE.MeshStandardNodeMaterial({ map: plateTex, roughness: 0.28 });
+    const holderMat = new THREE.MeshStandardNodeMaterial({ color: 0x121417, roughness: 0.6 });
+    const plateGeo = new THREE.BoxGeometry(PLATE_W, PLATE_H, 0.008);
+    const holderGeo = new THREE.BoxGeometry(PLATE_W + 0.016, PLATE_H + 0.018, 0.014);
+    for (const [y, z, dir] of [[spec.plates[0], spec.zFront, 1], [spec.plates[1], spec.zRear, -1]]) {
+      const holder = new THREE.Mesh(holderGeo, holderMat);
+      holder.position.set(0, y, z + dir * 0.001);
+      const plate = new THREE.Mesh(plateGeo, plateMat);
+      plate.position.set(0, y, z + dir * 0.012);
+      chassisPivot.add(holder, plate);
+    }
 
     // 3b. Brake lights, CHMSL & turn signals are lit by the taxi material from its carState uniform (see updateCar)
     const carState = taxiLoftMat.userData.carState;
@@ -781,7 +850,7 @@ class ThirdPersonControllerManager {
   }
 
   // =========================================================================
-  // 4. HELICOPTER (3D LOFTED MANHATTAN SIGHTSEEING TWIN-TURBINE CHOPPER)
+  // 4. HELICOPTER (3D LOFTED SIGHTSEEING TWIN-TURBINE CHOPPER)
   // =========================================================================
   createHelicopterEntity() {
     const root = new THREE.Group();
