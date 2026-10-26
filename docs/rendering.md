@@ -39,6 +39,21 @@
 - **Facade projection frame:** walls choose their texture axis from `facadeWorldNormal` and `facadeAlongZ`, a flat-interpolated varying computed in the vertex shader from `modelNormalMatrix * normalLocal`. Do not use `normalWorldGeometry` to choose the axis. Its view-space round trip flips the dominant axis on 45° walls as the camera turns, which flickered the diagonal glass of a Manhattan tower. With `boxLocal` (instanced boxes from `createFacadeBoxes`, which may be rotated about +y), the walls are told apart by `normalGeometry` instead.
 - `tests/facade-projection.test.cjs` slices the source text of `tsl-materials.js` by literal anchors and evaluates that text numerically. The anchors are `const facadeNormalVertex =` … `const facadeAlongZ =` … `.setInterpolation(…);`, the body of `function facadeCell(` up to `let bayWidth`, and `const rayWorld =` (inside `evaluateApartmentInterior`) up to `// Slab intersection`. Keep these anchors. Inside those slices, use only the functions that the test's sandbox stubs (`normalize`, `varying`, `abs`, `sign`, `step`, `max`, `mix`, `vec3`, `dot`); if you need more, extend the stubs.
 - `tests/smoke-texture.test.cjs` likewise slices from `let _smokeCloudTexture =` to the next `/**`, and checks the baked bytes and the exact hash counts. If you change the smoke bake, update the expected counts on purpose.
+- **Facade and roof families.** Each family is one pipeline, whatever its options (only `boxLocal` and the masonry
+  window ratios change the graph):
+  - `createPreWarBuildingMaterial`: `masonry: 'brick' | 'ashlar' | 'plaster'` picks the street-front finish, as a
+    uniform. Rear and lot-line walls stay brick. The doc comment lists the option sets for the Poznań kamienica colours.
+  - `createCurtainWallMaterial`: glass.
+  - `createPanelBlockMaterial`: wielka płyta slabs. It has 2.8 m storeys of panels, joints at the floor and sill lines,
+    stacked loggia columns (`loggiaPeriod`) and the same night interiors. It uses the `facadeCell` contract, so it can be
+    a facade material on `createFacadeBoxes` boxes. buildings.js runs it that way (`boxLocal: true`) in five colours, one pipeline;
+    keep `floorHeight` at 2.8 in its options, the massing reads storey heights from them.
+  - `createRoofMaterial({ kind: 'tile' | 'slate' | 'metal' | 'copper', gableColor })`: pitched roofs. The kind's look is
+    carried in uniforms (`ROOF_KINDS`), so all four share one pipeline. The covering is laid out in world metres from
+    `facadeWorldNormal`, with courses along the eave, so the mesh needs no uvs and instances can be scaled non-uniformly.
+    The geometry needs flat per-face normals (non-indexed, or split vertices). Vertical faces render as gable-end
+    render, and faces pitched under about 11° (mansard tops) drop the courses. buildings.js makes the tile, slate and copper ones for roofs.js; their
+    twelve meshes are static under `CityBlocks`, so scene culling chunks them.
 - Use `canyonSkyAONode()` as the `aoNode` for street-level city surfaces, and read sun and sky colours from `cityUniforms` so they follow the presets. It opens up over 0–22 m (Poznań's ≈ 18–25 m roofline) and inside the parks.
 - Shaders that need to know where land or parks are sample `getLandMaskTexture()` (8 m cells, 1 on land and bridge decks) or `getParkMaskTexture()` (16 m cells, each block's `park` share) through `boxUV`, built lazily from the city-config land raster and `BLOCKS` over the detail box. The water's night skyline marches the reflected ray over the land mask (ten taps) and fades out beyond the box.
 
@@ -50,7 +65,7 @@
 5. Run the app and confirm that the compile step has no `[compile]` warnings in the console.
 
 ## Instancing and upload budgets
-- For pooled or streamed instanced meshes (building detail inside `STREAM_RADIUS`, trees, fire escapes, traffic, pedestrians), allocate the full capacity once and set `mesh.count`. Upload only the active prefix through a local `flagRange` helper: `clearUpdateRanges()`, then `addUpdateRange(0, count * itemSize)`, then `needsUpdate = true`. Copies of that helper live in `buildings.js`, `traffic.js` and `fire-escapes.js`. Do the same for custom per-instance attributes and for `instanceColor`.
+- For pooled or streamed instanced meshes (building detail inside `STREAM_RADIUS`, trees, balconies, traffic, pedestrians), allocate the full capacity once and set `mesh.count`. Upload only the active prefix through a local `flagRange` helper: `clearUpdateRanges()`, then `addUpdateRange(0, count * itemSize)`, then `needsUpdate = true`. Copies of that helper live in `buildings.js`, `traffic.js` and `balconies.js`. Do the same for custom per-instance attributes and for `instanceColor`.
 - Prefer static usage plus update ranges over `DynamicDrawUsage`. three.js re-uploads a dynamic attribute in every render pass: two shadow cascades plus the scene pass, about 7 MB per frame for trees.
 - Static per-instance data must live in `InstancedBufferAttribute`s on the geometry (like `box` and `faces` in `createFacadeBoxes`) or in `instanceColor`. Chunking copies only these. Storage buffers indexed by `instanceIndex` would point at the wrong data after chunking.
 - Trees run their own cell culling and LOD in `trees.js`: one hidden group per cell, levels set from `scene.onBeforeRender`, and matrices frozen. They are not handled by `scene-culling.js`.

@@ -25,7 +25,7 @@ import {
   fwidth,
   select
 } from 'three/tsl';
-import { cityUniforms } from './tsl-materials.js';
+import { cityUniforms, createPanelBlockMaterial, createFacadeBoxes, WALL_KINDS } from './tsl-materials.js';
 import { LL, OUTSKIRTS, OUTSKIRTS_HOLES, DISTRICTS, CITY_BOUNDS } from './city-config.js';
 
 // js/outskirts.js
@@ -36,8 +36,9 @@ import { LL, OUTSKIRTS, OUTSKIRTS_HOLES, DISTRICTS, CITY_BOUNDS } from './city-c
 // - A horizon filler beyond the city line, so the city does not float in a sea
 // - A procedural "city carpet" ground shader: per-district street grids (a baked zone map), sidewalks, roofs, gardens,
 //   forests, cemeteries, industry & rail yards, fields and airfields from a land-use map, street lights at night
-// - Instanced buildings on the same grids: 5/11/16-storey panel slabs on the osiedla (Winogrady, Piątkowo, Rataje,
-//   Chartowo, Żegrze), plastered blocks in Grunwald, houses in the suburban belt, sheds on the industrial estates
+// - Instanced buildings on the same grids: 5/11/16-storey panel slabs and point blocks on lawns on the osiedla
+//   (Winogrady, Piątkowo, Rataje, Chartowo, Żegrze) in the shared wielka płyta facade (createPanelBlockMaterial),
+//   plastered blocks in Grunwald, houses in the suburban belt, sheds on the industrial estates
 
 // =====================================================================================================================
 // 1. GEOMETRY HELPERS & LAND
@@ -613,19 +614,22 @@ function zoneToWorld(zone, u, v) {
   return { x: zone.ox + u * zone.cos - v * zone.sin, z: zone.oz + u * zone.sin + v * zone.cos };
 }
 
-// Grid parameters of the zone texel under luUV: p0 = (cos, sin, origin x, origin z), p1 = (pu, pv, su, sv)
+// Grid parameters of the zone texel under luUV: p0 = (cos, sin, origin x, origin z), p1 = (pu, pv, su, sv); green = 1
+// in the osiedle zones, whose superblocks are lawns and trees around the slabs rather than lots of roofs
 function zoneParamsNode(luUV) {
   const zid = floor(texture(zoneTexture, luUV).r.mul(255.0).add(0.5)).toVar();
   const p0Of = (z) => vec4(z.cos, z.sin, z.ox, z.oz);
   const p1Of = (z) => vec4(z.pu, z.pv, z.su, z.sv);
   let p0 = p0Of(ZONE_LIST[0]);
   let p1 = p1Of(ZONE_LIST[0]);
+  let green = float(ZONE_LIST[0].kind === 'osiedle' ? 1 : 0);
   for (let k = 1; k < ZONE_LIST.length; k++) {
     const hit = abs(zid.sub(k)).lessThan(0.5);
     p0 = select(hit, p0Of(ZONE_LIST[k]), p0);
     p1 = select(hit, p1Of(ZONE_LIST[k]), p1);
+    green = select(hit, float(ZONE_LIST[k].kind === 'osiedle' ? 1 : 0), green);
   }
-  return { p0, p1 };
+  return { p0, p1, green };
 }
 
 // =====================================================================================================================
@@ -670,9 +674,10 @@ function createLandMaterial() {
   const wp = positionWorld;
   const luUV = vec2(wp.x.sub(LU.minX).div(LU.maxX - LU.minX), wp.z.sub(LU.minZ).div(LU.maxZ - LU.minZ));
   const lu = texture(landUseTexture, luUV).toVar();
-  const { p0, p1 } = zoneParamsNode(luUV);
+  const { p0, p1, green } = zoneParamsNode(luUV);
   const zp0 = p0.toVar();
   const zp1 = p1.toVar();
+  const osiedle = green.toVar();
 
   const dx = wp.x.sub(zp0.z);
   const dz = wp.z.sub(zp0.w);
@@ -714,7 +719,12 @@ function createLandMaterial() {
   const treeNoise = valueNoise(wp.xz.mul(0.11)).toVar();
   const cTree = mix(srgb(0.19, 0.26, 0.13), srgb(0.30, 0.37, 0.19), treeNoise);
   const yardAmount = clamp(yardBand.mul(0.85).add(lu.b.mul(0.35)).mul(smoothstep(0.25, 0.65, treeNoise.add(lu.b.mul(0.3)))), 0.0, 1.0);
-  const lotsCol = mix(roofCol, cTree, yardAmount);
+  // Osiedle superblocks: mown lawns between the slabs with clumps of trees (birches, limes) and pale footpaths
+  const clumps = smoothstep(0.5, 0.72, valueNoise(wp.xz.mul(0.05)).mul(0.7).add(treeNoise.mul(0.3)));
+  const pathU = boxPulse(gu.mul(4.0), 0.49, 0.51, fwU.mul(4.0));
+  const pathV = boxPulse(gv.mul(3.0), 0.485, 0.515, fwV.mul(3.0));
+  const cOsiedle = mix(mix(srgb(0.38, 0.47, 0.22), cTree, clumps), srgb(0.6, 0.59, 0.56), max(pathU, pathV).mul(0.8));
+  const lotsCol = mix(mix(roofCol, cTree, yardAmount), cOsiedle, osiedle);
 
   const cAsphalt = srgb(0.30, 0.30, 0.31);
   const cSidewalk = srgb(0.56, 0.55, 0.53);
@@ -764,15 +774,16 @@ function createLandMaterial() {
   const flat = float(1.0).sub(smoothstep(0.1, 0.3, slope));
   const open = float(1.0).sub(lu.a.mul(float(1.0).sub(lu.g)));
   const street = float(1.0).sub(inBlock).mul(float(1.0).sub(park)).mul(open).mul(flat);
-  const windowGlow = inLots.mul(step(0.9, lotHash).mul(lotDetail).add(float(1.0).sub(lotDetail).mul(0.1))).mul(float(1.0).sub(park)).mul(open).mul(flat);
+  const windowGlow = inLots.mul(step(0.9, lotHash).mul(lotDetail).add(float(1.0).sub(lotDetail).mul(0.1))).mul(float(1.0).sub(park)).mul(open).mul(flat)
+    .mul(float(1.0).sub(osiedle));
   mat.emissiveNode = vec3(1.0, 0.62, 0.3).mul(street.mul(0.55).add(windowGlow.mul(0.18))).mul(nightFactorNode());
   return mat;
 }
 
 /**
  * Outskirts building facades (instanced unit boxes): punched windows in plaster or brick, curtain-wall glass,
- * warehouse sashes, the tight window grid of the panel blocks (wielka płyta, 2.8 m storeys) or the larger grid of newer
- * blocks by style, a per-building tint, darker ground floors, flat roofs (red tile on low punched-window houses) and lit
+ * warehouse sashes, a tight 2.8 m panel grid (style 3, unused since the panel blocks moved to createPanelBlockMaterial)
+ * or the larger grid of newer blocks by style, a per-building tint, darker ground floors, flat roofs (red tile on low punched-window houses) and lit
  * windows at night. Instance attributes: bInfo = (width, height, depth, seed), bTint = (r, g, b, style).
  */
 function createBoroughBuildingMaterial() {
@@ -1014,9 +1025,6 @@ const BOX_GEO = (() => {
 
 // Facade swatches in sRGB (converted to linear when the instance tints are written)
 const PALETTE = {
-  // Panel blocks: grey and white concrete, and the pastel coats of the 2000s thermal retrofits
-  panel: [[0.66, 0.66, 0.64], [0.58, 0.58, 0.57], [0.86, 0.85, 0.82], [0.80, 0.80, 0.78], [0.88, 0.80, 0.56],
-    [0.70, 0.80, 0.64], [0.64, 0.74, 0.84], [0.88, 0.68, 0.58], [0.90, 0.76, 0.62]],
   // Plastered kamienice & villas: ochre, cream, grey-green, salmon; and red clinker brick
   plaster: [[0.80, 0.66, 0.44], [0.86, 0.80, 0.66], [0.62, 0.66, 0.58], [0.82, 0.62, 0.52], [0.72, 0.71, 0.68], [0.56, 0.28, 0.20]],
   house: [[0.86, 0.84, 0.78], [0.80, 0.76, 0.66], [0.74, 0.72, 0.70], [0.84, 0.74, 0.60], [0.66, 0.70, 0.72]],
@@ -1027,10 +1035,30 @@ const PALETTE_STYLE = { panel: 3, plaster: 0, house: 0, industrial: 2, modern: 4
 
 const pickFrom = (arr, rand) => arr[Math.floor(rand() * arr.length) % arr.length];
 
+// Panel-block (wielka płyta) finishes for createPanelBlockMaterial, by share of the osiedla: bare grey and cream
+// concrete, and the white insulation with blue, ochre or green accents of the 2000s thermal retrofits
+// (termomodernizacja), which most Poznań slabs wear today. Each finish is one material (and one draw per chunk) on
+// the one boxLocal pipeline; `tint` (sRGB) colours the roof structures on top.
+const PANEL_FINISHES = [
+  { weight: 0.22, opts: { panelColor: 0xbdbab2, seed: 81.3 }, tint: [0.74, 0.73, 0.70] },
+  { weight: 0.14, opts: { panelColor: 0xd9cfb4, seed: 83.7 }, tint: [0.85, 0.81, 0.71] },
+  { weight: 0.24, opts: { panelColor: 0xe6e1d6, accentColor: 0x9fb8c9, bandAccent: 0.7, seed: 86.1 }, tint: [0.90, 0.88, 0.84] },
+  { weight: 0.22, opts: { panelColor: 0xe6e1d6, accentColor: 0xd8a86b, bandAccent: 0.7, seed: 88.9 }, tint: [0.90, 0.88, 0.84] },
+  { weight: 0.18, opts: { panelColor: 0xe6e1d6, accentColor: 0x9cbf8e, bandAccent: 0.7, seed: 91.5 }, tint: [0.90, 0.88, 0.84] }
+];
+function pickFinish(rand) {
+  let r = rand();
+  for (let k = 0; k < PANEL_FINISHES.length; k++) if ((r -= PANEL_FINISHES[k].weight) < 0) return k;
+  return PANEL_FINISHES.length - 1;
+}
+
 // Generic blocks out to ~9 km from the detail box (the aerial perspective swallows the city beyond ~8 km; the ground
 // shader carries the street grids on to the horizon)
 const MAX_BUILD_DIST = 9000;
 const PANEL_STOREY = 2.8;
+const PANEL_ATTIC = 1.2; // solid attic parapet over the top storey (the facade shows it as a coping band)
+// Clear distance between panel buildings: ~0.9 x the taller one's height, never under 18 m
+const panelGap = (h) => Math.max(18, 0.9 * h);
 
 // World rectangles searched for each zone's blocks: the zone map's extent over the outskirts within reach
 const BUILD_REGIONS = (() => {
@@ -1094,6 +1122,13 @@ function generateBlock(list, zone, land, i, j, c, dM, lu, rand) {
         if (landAt(q.x, q.z) !== land || shoreDist(land, q.x, q.z, 8) < 5) return null;
       }
     }
+    // Zones meet at an angle: keep every footprint inside its own zone (panel blocks half a panelGap clear of the
+    // border), so neighbouring grids' buildings don't run into each other
+    const m = style === 3 ? 9 : 0;
+    for (let k = 0; k < 4; k++) {
+      const q = zoneToWorld(zone, uc + (k & 1 ? 1 : -1) * (w * 0.5 + m), vc + (k & 2 ? 1 : -1) * (d * 0.5 + m));
+      if (zoneAt(q.x, q.z) !== zone) return null;
+    }
     const rec = { x: p.x, y: land.top, z: p.z, w, h, d, rot, tint, style, seed: rand() * 100 };
     list.push(rec);
     return rec;
@@ -1108,24 +1143,36 @@ function generateBlock(list, zone, land, i, j, c, dM, lu, rand) {
   const uc = (u0 + u1) * 0.5;
   const vc = (v0 + v1) * 0.5;
 
-  // Osiedle superblock: slabs and point blocks set well apart on a lawn
+  // Osiedle superblock: slabs and point blocks set well apart on a lawn (the ground shader paints osiedle blocks as
+  // lawns and trees). Panel buildings carry `panel` (finish, entrance side) and go to createPanelBlockMaterial.
+  const panel = (rec, finish, tower) => {
+    if (rec) rec.panel = { finish, tower, entry: rand() < 0.5 ? 0 : 1, shop: tower && rand() < 0.3 };
+    return rec;
+  };
   if (hood.kind === 'osiedle' || (hood.osiedle && rand() < hood.osiedle)) {
     const r = rand();
     const storeys = r < 0.5 ? 5 : r < 0.82 ? 11 : 16;
-    const h = storeys * PANEL_STOREY + 1.2;
-    const tint = pickFrom(PALETTE.panel, rand);
+    const h = storeys * PANEL_STOREY + PANEL_ATTIC;
+    const finish = pickFinish(rand);
+    const finishOf = () => (rand() < 0.7 ? finish : pickFinish(rand));
     if (storeys === 16) {
       // A row of point blocks with a long 5-storey slab along the far side
-      const n = Math.max(1, Math.min(4, Math.floor(bw / 60)));
+      const n = Math.max(1, Math.min(4, Math.floor((bw + panelGap(h)) / (24 + panelGap(h)))));
       for (let k = 0; k < n; k++) {
         const tu = u0 + (bw / n) * (k + 0.5);
         const tv = v0 + bd * (0.3 + rand() * 0.15);
-        roofBox(place(tu, tv, 24, 21, h, rand() < 0.6 ? tint : pickFrom(PALETTE.panel, rand), 3), tu, tv);
+        const f = finishOf();
+        roofBox(panel(place(tu, tv, 24, 21, h, PANEL_FINISHES[f].tint, 3), f, true), tu, tv);
       }
-      if (bd > 90) roofBox(place(uc, v1 - 8, Math.min(bw * 0.8, 110), 12, 5 * PANEL_STOREY + 1.2, pickFrom(PALETTE.panel, rand), 3), uc, v1 - 8);
+      if (bd > 90) {
+        const f = finishOf();
+        const sh = 5 * PANEL_STOREY + PANEL_ATTIC;
+        roofBox(panel(place(uc, v1 - 8, Math.min(bw * 0.8, 110), 12, sh, PANEL_FINISHES[f].tint, 3), f, false), uc, v1 - 8);
+      }
       return;
     }
-    // Parallel slabs, spaced by about one and a half heights; a quarter of the blocks turn them across
+    // Parallel slabs, spaced by about one and a half heights; a quarter of the blocks turn them across. Long 5-storey
+    // slabs (60-120 m), shorter 11-storey ones; two slabs end to end keep panelGap between their gable ends.
     const across = rand() < 0.25;
     const lu0 = across ? v0 : u0;
     const span = across ? bd : bw;
@@ -1135,15 +1182,18 @@ function generateBlock(list, zone, land, i, j, c, dM, lu, rand) {
     const rows = Math.max(1, Math.floor((deep - depth) / pitch) + 1);
     const off = (deep - depth - (rows - 1) * pitch) * 0.5 + depth * 0.5;
     const maxLen = storeys === 5 ? 120 : 80;
+    const segs = span > maxLen + panelGap(h) + 30 ? 2 : 1;
     for (let k = 0; k < rows; k++) {
       if (rand() < 0.12) continue;
-      const segs = span > maxLen * 1.5 ? 2 : 1;
       for (let s = 0; s < segs; s++) {
-        const len = Math.min(maxLen, (span / segs) * (0.7 + rand() * 0.2));
-        const a = lu0 + (span / segs) * (s + 0.5);
+        const share = span / segs;
+        const len = Math.min(maxLen, share * (0.7 + rand() * 0.2), share - (segs > 1 ? panelGap(h) : 0));
+        if (len < 30) continue;
+        const a = lu0 + share * (s + 0.5);
         const b = (across ? u0 : v0) + off + k * pitch;
-        const t = rand() < 0.7 ? tint : pickFrom(PALETTE.panel, rand);
-        const rec = across ? place(b, a, depth, len, h, t, 3) : place(a, b, len, depth, h, t, 3);
+        const f = finishOf();
+        const t = PANEL_FINISHES[f].tint;
+        const rec = panel(across ? place(b, a, depth, len, h, t, 3) : place(a, b, len, depth, h, t, 3), f, false);
         if (across) roofBox(rec, b, a);
         else roofBox(rec, a, b);
       }
@@ -1285,6 +1335,43 @@ function buildBuildingChunks(list, material, chunkSize, name) {
   return meshes;
 }
 
+// Panel buildings: createFacadeBoxes boxes (whole panel bays on every wall, y = box centre) on the wielka płyta
+// facade, one InstancedMesh per chunk and finish. Slabs show windowless gable ends on their short sides and the
+// stairwell doors on one long side; point blocks have windows all round, some with glazed shops on the ground floor.
+function buildPanelChunks(list, chunkSize, name) {
+  const materials = PANEL_FINISHES.map((f) => createPanelBlockMaterial({ ...f.opts, boxLocal: true }));
+  const groups = new Map();
+  for (const b of list) {
+    const key = Math.floor(b.x / chunkSize) + ',' + Math.floor(b.z / chunkSize) + ':' + b.panel.finish;
+    let arr = groups.get(key);
+    if (!arr) groups.set(key, (arr = []));
+    arr.push(b);
+  }
+  const { shop, entry, rear, lotLine } = WALL_KINDS;
+  const meshes = [];
+  for (const [key, arr] of groups) {
+    const boxes = arr.map((b) => {
+      const p = b.panel;
+      const front = p.shop ? shop : entry;
+      let faces;
+      if (p.tower) faces = p.entry ? [rear, rear, front, rear] : [rear, rear, rear, front];
+      else if (b.w >= b.d) faces = p.entry ? [lotLine, lotLine, entry, rear] : [lotLine, lotLine, rear, entry];
+      else faces = p.entry ? [entry, rear, lotLine, lotLine] : [rear, entry, lotLine, lotLine];
+      return { x: b.x, y: b.y + b.h * 0.5, z: b.z, w: b.w, h: b.h, d: b.d, ry: b.rot, faces, tone: (b.seed % 1) * 0.98 };
+    });
+    const mesh = createFacadeBoxes(materials[arr[0].panel.finish], boxes);
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.name = name + ':' + key;
+    meshes.push(mesh);
+  }
+  // Every finish is the same pipeline: precompile one of them
+  for (const mesh of meshes) if (mesh !== meshes[0]) mesh.userData.sharesPipelineWith = meshes[0];
+  return meshes;
+}
+
 // =====================================================================================================================
 // 7. ASSEMBLY
 // =====================================================================================================================
@@ -1310,11 +1397,15 @@ function buildOutskirts(scene) {
   group.add(landMesh, bankMesh, fillerMesh);
 
   const { list, stats } = generateOutskirtsBuildings();
+  const panels = list.filter((b) => b.panel);
+  const others = list.filter((b) => !b.panel);
   const buildingMat = createBoroughBuildingMaterial();
-  for (const mesh of buildBuildingChunks(list, buildingMat, 1200, 'OutskirtsBuildings')) group.add(mesh);
+  for (const mesh of buildBuildingChunks(others, buildingMat, 1200, 'OutskirtsBuildings')) group.add(mesh);
+  // Bigger chunks for the panel blocks, as each costs one draw per finish: 60 draws over the osiedla (2400 m: 96)
+  for (const mesh of buildPanelChunks(panels, 3600, 'OutskirtsPanelBlocks')) group.add(mesh);
 
   scene.add(group);
-  console.info(`[outskirts] ${list.length} buildings ${JSON.stringify(stats)} built in ${(performance.now() - t0).toFixed(0)} ms`);
+  console.info(`[outskirts] ${list.length} buildings (${panels.length} panel blocks) ${JSON.stringify(stats)} built in ${(performance.now() - t0).toFixed(0)} ms`);
   return { group, colliders: [] };
 }
 

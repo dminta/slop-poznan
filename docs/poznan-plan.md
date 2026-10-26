@@ -1,6 +1,6 @@
 # Implementation plan: replacing New York with Poznań
 
-Status: **Phases 1–7 done** (each phase heading carries its own status note); Phases 8–12 are not started.
+Status: **Phases 1–8 done** (each phase heading carries its own status note); Phases 9–12 are not started.
 Line references are as of commit `46ec12b` and will drift; grep for the named symbol if a line no longer matches. Read `AGENTS.md` and the topic docs (`geodata.md`, `world.md`, `rendering.md`,
 `actors.md`, `audio.md`, `architecture.md`, `testing.md`) before starting any phase. They hold the repo-wide rules
 (modulepreload + boot count, module syntax, source-sliced tests, generated geodata, CSS `?v=` bump).
@@ -672,6 +672,25 @@ snapshot. An OSM rename silently drops a landmark, because `fitToSite` returns e
 warning in `build-poznan.mjs` for any requested name that has no match.
 
 ### Phase 8: Architecture (buildings.js)
+
+**Status: done** (built and checked headlessly and in Dawn offscreen renders of the materials, not yet in a browser).
+Deviations and open points:
+- Corners and fronts come from the block's curb outline (`frontages()`: a 10 m sample test plus an 18 m outward ray
+  test for slivers between frontage frames), not from `frames`. 19% of lot-rect area stays courtyard (true block
+  interiors). The core builds ≈ 12,000 buildings (was ≈ 26,800 with the narrower NYC lots).
+- Profiles also use geometry, not only `GEO.districts`: offices within 240 m of Bałtyk/Andersia/AND2/PFC/Collegium
+  Altum, `CESARSKA_BOX` around Zamek Cesarski–Teatr Wielki, Rynek fronts probed against the `Stary Rynek` plaza ring,
+  Ostrów/Śródka within 650 m of the Katedra. Only 4 buildings qualify as `monumental`.
+- Rynek houses are facade boxes with a gable roof spec, not `buildArcadedHouseRow` (keeps them in the batched boxes).
+- Materials: `createRoofMaterial` (tile/slate/metal/copper share one pipeline), `createPanelBlockMaterial` (+1 pipeline),
+  `masonry: 'brick'|'ashlar'|'plaster'` on `createPreWarBuildingMaterial`. The pre-war shader still draws window
+  air-conditioners (NYC leftover).
+- Roofs: `js/roofs.js` (boot preloads 39), 9,240 roofs / 21k instances; chimneys and skylights replace water towers;
+  scaffold sheds became renovation scaffolding with building-wrap adverts. There was no billboard machinery to convert.
+- Balconies: `fire-escapes.js` → `balconies.js`, street fronts only, `BALCONY_P` 0.5.
+- Outskirts osiedla use the panel material (60 extra draw calls); `place()` now rejects footprints leaving their zone.
+- Browser checks pending: roof normals/pitch and ridge alignment on turned blocks, panel shader cost and shimmer on
+  distant slabs, balcony LOD popping, startup time (build ≈ 460 ms headless, was ≈ 300 ms).
 
 1. **Districts → profiles.** Rewrite `blockProfile(blk, district)` (`buildings.js:1766-1800`) and the profile constants
    (`RES_*`, `LOFT_*`, `OFFICE_*`, `PROJECTS_*`, `uptownProfile`, `harlemProfile`) for `GEO.districts`:
