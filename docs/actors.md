@@ -4,7 +4,7 @@
 - `js/traffic.js` has two independent systems. `createTrafficSystem` covers the road graph: cars, buses, **all pedestrian behaviour** (spawning, walking, crosswalk rules, queues, conversations), collision sparks and the pooled vehicle lights. `createHighwayTraffic` covers lane polylines `city-grid.js` may lay outside the road graph (`cityGrid.highwayLanes`; empty in Poznań, so it builds no cars). It is a lighter model: IDM per lane, no lane changes, cyclic leaders, 3 LODs, lamp flares.
 - `js/pedestrians.js` is only the body: `PersonRig` (planted-foot gait + IK) and `PersonCrowd` (one instanced skinned draw per LOD). `controllers.js` also uses them for the player's pedestrian and the cyclist's rider.
 - `js/pedestrian-routes.js` lazily builds and caches sidewalk tracks (`along(edge)`), crosswalk tracks (`across(node)`: one per junction arm, oriented along the arm road's `clx/clz`, at every junction except shape nodes (bends)) and the corner links between them (`next`). Junction links connect only points on the same block (`blockAt`). Crossing the road always goes through a crosswalk track.
-- `js/trams.js` is a third, separate system: trams on the `GEO.rail` track graph (section "Trams" below).
+- `js/trams.js` is a third, separate system: trams on the `GEO.rail` track graph (section "Trams" below). `traffic.js` makes the cars and pedestrians give way to them and collides the player with them.
 - `js/actor-models.js` holds the vehicle geometry and TSL materials (cars, bus, trams, and the player's helicopter). `js/vehicle-lights.js` holds the one headlight profile shared by street traffic, highway traffic and the player's taxi.
 - `main.js` calls `trafficSystem.update(dt, elapsed, cameraSystem.currentPos, activeEntity, activeMode, camera)`. The **focus is the camera position, not the player**. Consumers of the returned `cars`/`buses`/`peds`/`highwayTraffic.cars`: `audio-sources.js` (reads `edge, x, z, speed, acc, driver.a, yaw, yawOffset, isPolice, isSUV, bus, wait, gap, leaderSpeed, conn, yielding`; for peds `placed, v, conversation, rig.feet`, plus track fields) and the `city-map.js` radar. Renaming these fields breaks those modules.
 
@@ -39,12 +39,14 @@
 - `tools/benchmark-pedestrians.mjs` (usage in [`testing.md`](testing.md)) is the correctness check after `PersonRig` changes; it string-replaces `if (updatePose) this.solve();`, so keep that exact text.
 
 ## Test-harness coupling (gotcha)
-`traffic.test.cjs` and `traffic-performance.test.cjs` extract inner functions of `traffic.js` by regex: from a line starting `  function name(` up to the first line that is exactly `  }`. They then run each function in a `vm` with a hand-written context of its free variables. The extracted functions are `mayEnter, signalAhead, canStop, yieldToCrossTraffic, yieldOncoming, nearView, refreshNear, spawnVehicle, spawnPed, renderPed, updateSparks, flagRange, playerInLane`, plus the `const pl = entity ... } : null;` snippet in highway `update`. Keep them as 2-space-indented `function` declarations. When a change adds a free variable or helper to one of them, add a stub to the matching test context.
+`traffic.test.cjs` and `traffic-performance.test.cjs` extract inner functions of `traffic.js` by regex: from a line starting `  function name(` up to the first line that is exactly `  }`. They then run each function in a `vm` with a hand-written context of its free variables. The extracted functions are `mayEnter, signalAhead, canStop, yieldToCrossTraffic, yieldOncoming, nearView, refreshNear, spawnVehicle, spawnPed, renderPed, updateSparks, flagRange, playerInLane, occupyTrams, tramBlocks, inTramLane, overlapWithPlayer, collideWithTram, tramRoom, tramCrossings, tramNear` (`mayEnter` needs a `tramBlocks` stub, `spawnVehicle` a `nearTram` one), plus the `const pl = entity ... } : null;` snippet in highway `update`. Keep them as 2-space-indented `function` declarations. When a change adds a free variable or helper to one of them, add a stub to the matching test context.
 
 ## Trams (`js/trams.js`)
-`createTramSystem(scene, { network, rail = GEO.rail, stops = GEO.tramStops })` is built in `main.js` after the road
-paint, and `update(dt, elapsed, focus, camera)` runs after the highway traffic. It never touches `trafficSystem`; it
-reads only the road network's signal nodes.
+`createTramSystem(scene, { network, rail = GEO.rail, stops = GEO.tramStops, traffic })` is built in `main.js` after
+the road paint, and `update(dt, elapsed, focus, camera, playerEntity, activeMode)` runs before the street traffic. It
+reads the road network (signal nodes, lanes and junction curves for `mapTramsToRoads`) and, read-only,
+`traffic.cars`/`traffic.buses` (`edge, x, z, yaw, yawOffset, half, halfWidth, tx, tz, speed, vx, vz`) to brake for
+them; `traffic.js` does the yielding (see "Interactions" below).
 
 - **Track graph** (`buildTrackGraph`, pure). Tram chains become directed edges. One-way chains run one way. A two-way
   chain that runs parallel to another tram track 1.8–6.5 m away is one track of a double-track pair (OSM rarely tags
@@ -98,10 +100,42 @@ reads only the road network's signal nodes.
   the body with local `[s0, s1]`, updated before driving.
 - `tramSystem.graph` (`{ nodes, edges, runs }`), `tramSystem.stops`, `tramSystem.signals` (`{ node, edge, s, group }`,
   where `node` is the road-network node), and `tramSystem.models`.
-- Hooks still to add: trams don't see the player or cars yet. Add a candidate to `drive()` through `consider(idm(gap,
-  vLead), 'player')`, as the other constraints do. For cars on shared street edges, map tram sections onto the
-  overlapping car lanes as `occ` leaders in `traffic.js` `buildOccupancy()`. Audio can read `speed`, `acc`,
-  `atStop`/`doorsOpen` (a bell on departure) and `waitReason`.
+- Also `obstacle`: the car (or player entity) nearest in the tram's way this frame, or null. Audio reads `x, z,
+  heading, speed, acc, atStop, waitReason, length, id` and `sections[k].heading` (docs/audio.md).
+
+**Interactions** (mixed traffic; `main.js` runs `tramSystem.update` before `trafficSystem.update` and calls
+`trafficSystem.setTrams(tramSystem)` once):
+- **Road mapping** (`mapTramsToRoads(graph, network)`, pure, run by `createTramSystem`; ~0.1 s on the Poznań data).
+  The geodata carries no link between a track and its road, so it is geometric. `te.lanes`: the stretches of each tram
+  edge where a car lane's centre line is within `ROAD_OVERLAP` 2.3 m of the track (tram 1.2 + car 0.92 half widths),
+  with the lane positions at both ends, `dir` (+1 the lane's way, -1 against it, 0 across) and `pad` (the tram's width
+  along the lane). `te.junctions` / `node.tramConflicts` (same objects): the lane-to-lane junction curves (`e, i, f, j`)
+  passing within 2.2 m of the track. Measured: 9.4 of 72.5 km of directed track over lanes (7.9 km the lanes' way,
+  0.75 km against, 1.1 km across), 939 junction curves at 205 nodes.
+- **Cars yield** (`traffic.js` `occupyTrams()`, at the end of `buildOccupancy()`). Each tram goes into the lanes under
+  its body as a pooled proxy `occ` entry (`v.tram`, `half`, `speed`, `driver`, `v0`; `claimed: true`, `move: null`,
+  `edge: null` so the merge/claim/turn checks skip it). In lanes running its way it reaches `4 m + speed × 1 s` ahead
+  of the front and moves at the tram's speed; in lanes against or across it, it reaches `8 m + 6 s` ahead (at most
+  `TRAM_REACH` 70 m) and stands still, so cars stop short of the track. The reach never covers a car already there
+  (it ends 0.3 m short of it; a crossing with a car on it gets no proxy). Junction curves within the same reach are
+  marked `held = tramFrame, by = tram`; `mayEnter` refuses a held curve through `tramBlocks(v, n, f, j)`, except for
+  the car the tram waits for (`tram.obstacle`), a car right in front of the front, or one ahead in a lane the tram
+  runs along (`inTramLane`). While a tram waits for a car (`waitReason 'car'`) it holds only what its body is over.
+  `spawnVehicle` rejects places within 3 m of a tram body (`nearTram`); tram spawns reject track with a car on it.
+- **Trams brake** (`drive()`): the path ahead is sampled every 2 m up to the braking distance + 12 m (≤ 70 m); cars,
+  buses and the player whose OBB reaches into that swept corridor are IDM leaders at their speed along the track
+  (`waitReason 'car'` / `'player'`). Bodies already beside the tram (gap < -1 m) are collisions, not leaders. Cars
+  facing the tram are ignored: where a lane runs against the track a car can't back out, so waiting would deadlock (the
+  proxies keep cars out of the tram's way there instead). A headless 10-minute run on the real network: no car or
+  pedestrian overlapping a tram body after the first frame (3665 / 49 overlap samples without the interactions), no
+  tram held 90 s.
+- **Pedestrians** (`tramRoom(p)` in `walk()`): each walking track caches `route.tramCrossings` (where it crosses a
+  track, and how far along it the tram body reaches, `1.8 m / sin(angle)`); a pedestrian stops short of the next
+  crossing while `tramNear` finds a tram body over it or a front due within `PED_TRAM_TIME` 6 s. Anyone already on the
+  rails walks on. Standing on a crosswalk keeps them in `n.walkers`, so cars wait for them.
+- **Player** (`collideWithTram(t)` after the cars in `update()`): SAT (`overlapWithPlayer`) against every section OBB.
+  The tram is immovable: the player takes the whole push, loses speed (up to 75% head-on) and, in the car, gets a
+  bus-sized knock; a crash is reported with `b` = the tram (no `type`), not for a pedestrian.
 
 ## Vehicle lights and turn-signal conventions
 - Model space: +Z is forward and **+X is the vehicle's left**. `carState` (vec4) = (brake, left/+x signal, right/−x signal, livery 1 = police). `busState` uses the same first three. `v.blink < 0` means left. `pose()` sets the blink from a lane change (sign of `dl`) or from a planned turn within 35 m of the edge end or inside the connector. The flash period is 0.8 s, offset per vehicle by `blinkPhase`. Brake lights on street traffic come on at `acc < -0.8 || speed < 0.3`. Highway cars set only brake, at `acc < -1.2`. The player's taxi uses the fixed-colour material variant and drives `material.userData.carState` from `controllers.js`.

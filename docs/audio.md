@@ -10,8 +10,8 @@ signal ticks, wind gusts) is computed sample by sample in `createSynthResources`
 - `audio-system.js` (`CityAudioSystem`, internal `SpatialEmitter`): context lifecycle, master graph, voice
   budgets, pooling, event emission, crash gating, footstep/conversation/signal/horn scheduling.
 - `audio-synthesis.js`: shared buffers plus `createMotorVoice` (continuous voices: `sedan`, `suv`, `bus`,
-  `helicopter`, `cyclist`, `siren`). Also exports `setControlRate`.
-- `audio-events.js`: one-shot buffers, `playEvent` (`footstep`, `talk`, `horn`, `signal`, `crash`) and the
+  `helicopter`, `cyclist`, `siren`, `tram`). Also exports `setControlRate`.
+- `audio-events.js`: one-shot buffers, `playEvent` (`footstep`, `talk`, `horn`, `signal`, `crash`, `bell`) and the
   non-spatial `createWindVoice`.
 - `audio-sources.js` (`CityAudioSources`): reads simulation objects into reused snapshot records. This is the
   only place that knows simulation field names.
@@ -37,7 +37,7 @@ mix -> DynamicsCompressor -> master(gain, ramps to 0.65) -> destination
 
 ## Lifecycle, autoplay and unlock
 
-- `main.js` constructs `CityAudioSystem({ controllerManager, trafficSystem, highwayTraffic, streetDetails }, { onStateChange })`.
+- `main.js` constructs `CityAudioSystem({ controllerManager, trafficSystem, highwayTraffic, tramSystem, streetDetails }, { onStateChange })`.
   It calls `update(dt, elapsed, camera, night)` every frame, `honk()` on KeyB, `setEnabled()` on KeyN and the
   `#btn-sound` button, and `dispose()` on `pagehide` (only when the page is not persisted to bfcache).
 - No context exists until a user gesture. `pointerdown`/`keydown` listeners on `document` call `unlock()`, which
@@ -58,20 +58,27 @@ mix -> DynamicsCompressor -> master(gain, ramps to 0.65) -> destination
 - `update` runs at about 10 Hz: an accumulator, with `dt` clamped to 0.25. Crashes are the exception. They arrive
   synchronously from physics, between ticks.
 - `CityAudioSources.collect()` keeps the N nearest candidates per category with `NearestSources` (bounded insertion,
-  reused records): motors 10, sirens 2, people 6, signals 2. The player passes score `-1`, so it is always
+  reused records): motors 10, sirens 2, trams 3, people 6, signals 2. The player passes score `-1`, so it is always
   included. Records are overwritten on the next `collect()`. Copy any field you need to keep (`emit` copies
   `position: { ...source }`).
 - Source `id` is the simulation object itself (car, ped, controller entity, signal site), never an array index.
   Pools (`Map`) and per-source state (`WeakMap`) are keyed by it, so voices survive re-ranking and pooled-object
   reuse.
-- `updatePool` limits live voices with `limits` (motors 8 / sirens 2 / events 8; on small devices, meaning
-  `hardwareConcurrency <= 4` or a coarse pointer: 6 / 1 / 5). An unselected slot fades out over 0.12 s before it is
+- `updatePool` limits live voices with `limits` (motors 8 / sirens 2 / trams 3 / events 8; on small devices, meaning
+  `hardwareConcurrency <= 4` or a coarse pointer: 6 / 1 / 2 / 5). An unselected slot fades out over 0.12 s before it is
   disposed, and retiring slots still count against the limit, so churn cannot double the graph.
 - Voices are not reused. A new source gets a new emitter and voice. Buffer sources start at a serial-based
   golden-ratio offset so identical loops do not phase-lock.
 - Per-source distance fade: emitter gain uses a smoothstep over the last 30 % of `source.range`. `emit()` drops
   an event outright if it is beyond its kind's range (crash range scales with severity).
 - Police cars get two records: a normal motor and a `siren` (in `sources.sirens`, its own pool and range).
+- Trams are their own category (`sources.trams`, pool `this.trams`, range 220 m, ref distance 7), never mixed into
+  the motors. The `tram` voice: a baked traction loop (`resources.traction`, 250 Hz reference) pitched 0.55–2.45× over
+  0–18 m/s and loud with `load` (|acc|: regenerative braking whines too), rail rumble (low-passed noise rising with
+  speed), the auxiliary converter's 100 Hz hum, and flange squeal (noise through a Q 28 band-pass near 2.9 kHz with a
+  4.3 Hz wobble) scaled by `squeal`. `squeal` comes from the bend under the body (front-to-rear section heading change
+  over the length, i.e. 1/radius, from R ≈ 80 m to full at R ≈ 30 m) and needs > 1 m/s. `motorParams.squeal` is passed
+  to every voice; the others ignore it.
 - Inactive player bicycles are skipped (their stored speed is stale). Inactive player vehicles sound at reduced
   gain with zero speed/load. Highway cars with `y < -0.05` (lane-end dips, underpasses) are silent.
 
@@ -88,6 +95,8 @@ freezes. If you rename or remove any of these, update `audio-sources.js` in the 
 - controller entities: `type`, `position`, `speed`, `heading`, `verticalSpeed`, `verticalVel`, `mesh.visible`,
   `rig`, plus `controllerManager.keys`, `getActiveEntity()`, `getGroundHeight()`. `helicopterVerticalSpeed` clamps at
   y 0.25 / 380 to mirror the controller's altitude clamp. If you change those limits in `controllers.js`, update it.
+- trams (`tramSystem.trams`): `id`, `x`, `z`, `heading`, `speed`, `acc`, `atStop`, `waitReason` (`'player'` rings the
+  bell), `length`, `sections[k].heading`.
 - `streetDetails.audioSignals`: pole positions with `isAvenue`. WALK timing comes from `walkSignal` in `city-config.js`.
 - Footsteps fire when `rig.phase + offset` wraps (one per foot). Changing the rig's phase convention breaks them.
 
@@ -104,6 +113,10 @@ freezes. If you rename or remove any of these, update `audio-sources.js` in the 
   for more than 0.3 s. Cyclists are lighter (lower severity and intensity). A crash may evict the weakest crash
   (at most 3 at once) or a background event, but never a horn. Crash emitters start at full gain (`immediate`),
   which keeps the transient.
+- Bells: a tram's `bell` event (two strokes of a synthesized gong 0.24 s apart, the second a tone lower) rings when its
+  `atStop` goes false (departure, doors closed), and every 4–6 s while its `waitReason` is `'player'`. Per-tram state
+  (`tramStopped`, `bell`) is in `this.states`. Bells follow the tram (`follow`), ref 9, range 160, and are never
+  evicted for a crash, like horns.
 - Horns: automatic horns go off when an NPC is `blocked` for more than 4 s, with a 3 s global gap and an 18-33 s
   per-car gap. `honk()` handles the player's KeyB and works for `type === 'car'` only.
 - Conversations: only the pair's `a` member drives turns, and only while both peds are nearly still. The next turn

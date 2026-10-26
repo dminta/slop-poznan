@@ -51,16 +51,19 @@ The loop runs these in order:
 2. `controllerManager.update`
 3. `cameraSystem.update`
 4. `signalClock`
-5. `trafficSystem.update` (receives the camera position, active entity, mode and camera)
-6. `highwayTraffic.update`
-7. a throttled save
-8. the building, street-detail and lighting updates (these use `cameraSystem.currentPos`)
-9. `mapSystem.update`
-10. `audioSystem.update`
-11. `updateSceneCulling` (skipped on the warm-up frame)
-12. `renderPipeline.render()`
+5. `tramSystem.update` (camera position, camera, active entity and mode)
+6. `trafficSystem.update` (receives the camera position, active entity, mode and camera)
+7. `highwayTraffic.update`
+8. a throttled save
+9. the building, street-detail and lighting updates (these use `cameraSystem.currentPos`)
+10. `mapSystem.update`
+11. `audioSystem.update`
+12. `updateSceneCulling` (skipped on the warm-up frame)
+13. `renderPipeline.render()`
 
 Why the order matters:
+- Trams run before the street traffic: the cars put this frame's trams into their lanes and the player collides with
+  the trams where they are drawn. The trams brake for the cars of the frame before.
 - Gamepad input runs first so it applies in the same frame. The camera runs after movement so it follows the final position.
   Traffic runs after the player moves so it collides with the player's new position.
 - Traffic consumes and clears `car.lastCollisionSpark`, which `resolveHorizontalCollision` sets.

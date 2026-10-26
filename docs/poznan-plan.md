@@ -1,6 +1,7 @@
 # Implementation plan: replacing New York with Poznań
 
-Status: **Phases 1–8 done** (each phase heading carries its own status note); Phases 9–12 are not started.
+Status: **Phases 1–9 done** (each phase heading carries its own status note; Phase 9 skips PST and the Kaponiera
+portals); Phases 10–12 are not started.
 Line references are as of commit `46ec12b` and will drift; grep for the named symbol if a line no longer matches. Read `AGENTS.md` and the topic docs (`geodata.md`, `world.md`, `rendering.md`,
 `actors.md`, `audio.md`, `architecture.md`, `testing.md`) before starting any phase. They hold the repo-wide rules
 (modulepreload + boot count, module syntax, source-sliced tests, generated geodata, CSS `?v=` bump).
@@ -744,7 +745,10 @@ Deviations and open points:
 
 ### Phase 9: Trams
 
-**Status: step 1 done; the actor system (step 2 onwards) is in progress.** Step 1 is `js/tram-infra.js`
+**Status: done (steps 1–3); steps 4 (PST) and 5 (Kaponiera portals) skipped.** Interactions (cars yield, trams brake
+for cars and the player, pedestrians wait, player SAT collisions) and audio (tram motor voice, bell) are in
+[`actors.md`](actors.md#trams-jstramsjs) "Interactions" and [`audio.md`](audio.md); checked headless on the real
+network, not yet in a browser. Step 1 is `js/tram-infra.js`
 ([`world.md`](world.md#tram-infrastructure)), built after the road network and kept clear of its lanes. It places 121
 stops (97 islands) from the 142 stop nodes; the stops in the centre that are missing (Katedra, Fredry, Rondo Śródka,
 Pl. Wielkopolski, Stare Zoo) have no track in `GEO.rail` within 25 m. Not yet checked in a
@@ -764,8 +768,9 @@ browser.
    track graph with switches, right-hand running on unmarked double track, single-track blocks, clearance points and
    uncut crossings; stops from `tram-infra.js` with a 20–30 s dwell and doors; signals; IDM following;
    Gamma and Tramino articulated bodies with bellows and a pantograph; headlights; the map radar (`trams` array).
-   Random branches at switches; no GTFS routes. **Still open:** cars yielding on shared edges, pedestrians, player
-   collisions and audio (the hooks are listed in actors.md). Template: `createHighwayTraffic` (`traffic.js:2128-2160`;
+   Random branches at switches; no GTFS routes. **Interactions done**: cars yielding on shared lanes and junction
+   curves, trams braking for cars and the player, pedestrians waiting at the rails, player collisions per section.
+   Template: `createHighwayTraffic` (`traffic.js:2128-2160`;
    lane polylines, IDM per lane, no lane changes, cyclic leaders, LOD). Add:
    - track polylines from `GEO.rail`, with junction/switch topology and line routes. Optionally take the routes from the
      ZTM GTFS (`ztm.poznan.pl/otwarte-dane`, free; credit the source, the last-update date and "processed");
@@ -781,11 +786,11 @@ browser.
      - cars on shared edges must yield to trams. Insert the tram as an `occ` leader on overlapping car lanes;
      - pedestrians must not walk through trams;
      - player collisions use SAT extents per section.
-3. `vehicle-lights.js` spec (`headlight`, `zFront`) for trams (**done**: `tramLightSpec`; the radar draws `tramSystem.trams`). Audio: a tram motor kind and the bell (§12). The map radar
+3. `vehicle-lights.js` spec (`headlight`, `zFront`) for trams (**done**: `tramLightSpec`; the radar draws `tramSystem.trams`). Audio: a tram motor kind and the bell (§12) (**done**: `tram` voice, `bell` event). The map radar
    and audio read a separate `trams` array; don't mix trams into `cars`/`buses`.
-4. **PST (Pestka)**: the grade-separated fast tram north of the centre, partly in a cutting. Mostly outside D3. Skip it, or
+4. **PST (Pestka)** (**skipped**: not done): the grade-separated fast tram north of the centre, partly in a cutting. Mostly outside D3. Skip it, or
    render it as an off-street track only.
-5. Rondo Kaponiera: trams run below the roundabout. Tunnelled track is dropped from the at-grade data (§4.2). Show tram
+5. Rondo Kaponiera (**skipped**: no portals): trams run below the roundabout. Tunnelled track is dropped from the at-grade data (§4.2). Show tram
    portals only if time allows.
 
 ### Phase 10: Other vehicles and drivers
