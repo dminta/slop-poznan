@@ -2,6 +2,7 @@ import { signalPhase, walkSignal } from './city-config.js';
 
 const MOTOR_RANGE = 180;
 const SIREN_RANGE = 220;
+const TRAM_RANGE = 220;
 const PEOPLE_RANGE = 45;
 const SIGNAL_RANGE = 35;
 const unit = (value) => Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
@@ -83,20 +84,22 @@ class NearestSources {
 // Read at audio's control rate (10 Hz), after simulation updates. Snapshots remain valid until the next collect().
 // IDs are the simulation objects, independent of pooled record order, so voices survive ranking changes/recycling.
 class CityAudioSources {
-  constructor({ controllerManager, trafficSystem, highwayTraffic, streetDetails }) {
+  constructor({ controllerManager, trafficSystem, highwayTraffic, tramSystem = null, streetDetails }) {
     this.controllers = controllerManager;
     this.players = Object.values(controllerManager.entities);
     this.cars = trafficSystem.cars;
     this.buses = trafficSystem.buses;
     this.peds = trafficSystem.peds;
     this.highwayCars = highwayTraffic.cars;
+    this.tramList = tramSystem ? tramSystem.trams : [];
     this.signalSites = streetDetails.audioSignals;
     this.motors = new NearestSources(10);
     this.sirens = new NearestSources(2);
+    this.trams = new NearestSources(3);
     this.people = new NearestSources(6);
     this.signals = new NearestSources(2);
     this.snapshot = {
-      motors: this.motors.items, sirens: this.sirens.items,
+      motors: this.motors.items, sirens: this.sirens.items, trams: this.trams.items,
       people: this.people.items, signals: this.signals.items, traffic: 0, motion: 0
     };
   }
@@ -159,9 +162,35 @@ class CityAudioSources {
     }
   }
 
+  // Trams (trams.js tramSystem.trams): their own category and voice pool, never mixed into the cars. Load is traction
+  // effort either way (the motors whine as loud braking as pulling); squeal grows with the bend under the body (heading
+  // change from the front section to the rear one over the length: 1/radius) on curves tighter than ~80 m; `bell` asks
+  // for a ding while the tram waits for the player in its way. `stopped` (at a stop, doors open) lets the system ring
+  // the departure bell.
+  tramSources() {
+    for (let i = 0; i < this.tramList.length; i++) {
+      const t = this.tramList[i];
+      const d2 = this.distanceSq(t.x, 1.2, t.z);
+      if (!Number.isFinite(d2) || d2 > TRAM_RANGE * TRAM_RANGE) continue;
+      if (d2 <= MOTOR_RANGE * MOTOR_RANGE) {
+        this.snapshot.traffic += (1 - d2 / (MOTOR_RANGE * MOTOR_RANGE)) * (0.3 + 1.2 * unit(t.speed / 12));
+      }
+      const item = this.trams.take(d2);
+      if (!item) continue;
+      const sections = t.sections;
+      let bend = sections[0].heading - sections[sections.length - 1].heading;
+      bend -= Math.round(bend / (Math.PI * 2)) * Math.PI * 2;
+      const load = unit(Math.abs(t.acc) / 1.15 * 0.85 + unit(t.speed / 2) * 0.15);
+      writeMotor(item, t, 'tram', t.x, 1.2, t.z, t.speed, load, t.heading, false, false, seedAt(3000 + t.id), false, 1, TRAM_RANGE);
+      item.squeal = unit((Math.abs(bend) / t.length - 0.0125) / 0.02) * unit((t.speed - 1) / 3);
+      item.stopped = !!t.atStop;
+      item.bell = t.waitReason === 'player';
+    }
+  }
+
   collect(listenerPosition, elapsed) {
     this.listener = listenerPosition;
-    this.motors.items.length = this.sirens.items.length = this.people.items.length = this.signals.items.length = 0;
+    this.motors.items.length = this.sirens.items.length = this.trams.items.length = this.people.items.length = this.signals.items.length = 0;
     this.snapshot.traffic = 0;
     const active = this.controllers.getActiveEntity();
     const keys = this.controllers.keys;
@@ -203,6 +232,7 @@ class CityAudioSources {
       this.motor(car, car.kind === 'suv' ? 'suv' : 'sedan', car.x, car.y + 0.7, car.z,
         car.v, roadLoad(car.v, car.acc, 1.6), car.yaw, false, false, seedAt(2000 + i), car.v < 0.5);
     }
+    this.tramSources();
     this.snapshot.traffic = unit(this.snapshot.traffic / 16);
 
     for (let i = 0; i < this.peds.length; i++) {

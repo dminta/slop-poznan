@@ -100,9 +100,10 @@ class CityAudioSystem {
       this.enabled = (localStorage.getItem('sound') ?? localStorage.getItem('nyc-sound')) !== 'off';
     } catch { /* Private browsing. */ }
     const smallDevice = navigator.hardwareConcurrency <= 4 || matchMedia('(pointer: coarse)').matches;
-    this.limits = smallDevice ? { motors: 6, sirens: 1, events: 5 } : { motors: 8, sirens: 2, events: 8 };
+    this.limits = smallDevice ? { motors: 6, sirens: 1, trams: 2, events: 5 } : { motors: 8, sirens: 2, trams: 3, events: 8 };
     this.motors = new Map();
     this.sirens = new Map();
+    this.trams = new Map();
     this.events = [];
     this.states = new WeakMap();
     this.conversations = new WeakMap();
@@ -115,7 +116,7 @@ class CityAudioSystem {
     this.collisionSystems = [simulation.controllerManager, simulation.trafficSystem];
     this.onCollision = (impact) => this.crash(impact);
     for (const system of this.collisionSystems) system.setCollisionListener?.(this.onCollision);
-    this.motorParams = { speed: 0, load: 0, verticalSpeed: 0, doppler: 1, seed: 0 };
+    this.motorParams = { speed: 0, load: 0, verticalSpeed: 0, squeal: 0, doppler: 1, seed: 0 };
     this.windParams = { speed: 0, altitude: 0, night: 0, traffic: 0, enclosure: 0 };
     this.footPosition = { x: 0, y: 0, z: 0, seed: 0 };
     this.onGesture = (event) => {
@@ -210,7 +211,7 @@ class CityAudioSystem {
   }
 
   reset() {
-    for (const pool of [this.motors, this.sirens]) {
+    for (const pool of [this.motors, this.sirens, this.trams]) {
       for (const slot of pool.values()) { slot.voice.dispose(); slot.emitter.dispose(); }
       pool.clear();
     }
@@ -276,7 +277,7 @@ class CityAudioSystem {
         // Retiring voices count against the budget, so rapid source changes cannot temporarily double the graph.
         if (pool.size >= limit) continue;
         const emitter = new SpatialEmitter(this.context, this.mix, this.reflections, this.acoustics,
-          siren ? 9 : source.kind === 'helicopter' ? 12 : 4, siren ? 0.9 : 0, siren);
+          siren ? 9 : source.kind === 'helicopter' ? 12 : source.kind === 'tram' ? 7 : 4, siren ? 0.9 : 0, siren);
         slot = { emitter, voice: createMotorVoice(this.context, this.resources, siren ? 'siren' : source.kind, emitter.input),
           distance: 0, x: source.x, y: source.y, z: source.z, fresh: true };
         pool.set(source.id, slot);
@@ -291,6 +292,7 @@ class CityAudioSystem {
       params.speed = source.speed;
       params.load = source.load;
       params.verticalSpeed = source.verticalSpeed;
+      params.squeal = source.squeal || 0;
       params.seed = source.seed;
       params.doppler = clamp(343 / (343 + radial), 0.85, 1.18);
       slot.voice.update(params, now);
@@ -320,8 +322,8 @@ class CityAudioSystem {
     const now = this.context.currentTime;
     const crash = kind === 'crash';
     const severity = clamp(options.severity ?? options.intensity ?? 1, 0, 1);
-    const ref = crash ? 4 + severity * 8 : kind === 'horn' ? 8 : kind === 'talk' ? 2 : 1.8;
-    const range = crash ? 50 + severity * 110 : kind === 'horn' ? 140 : kind === 'talk' ? 30 : kind === 'footstep' ? 22 : 35;
+    const ref = crash ? 4 + severity * 8 : kind === 'horn' ? 8 : kind === 'bell' ? 9 : kind === 'talk' ? 2 : 1.8;
+    const range = crash ? 50 + severity * 110 : kind === 'horn' ? 140 : kind === 'bell' ? 160 : kind === 'talk' ? 30 : kind === 'footstep' ? 22 : 35;
     if (Math.hypot(source.x - this.listener.x, source.y - this.listener.y, source.z - this.listener.z) > range) return false;
     if (crash) {
       // Impacts are immediate, between the 10 Hz ambience updates. Reclaim finished events first, then let
@@ -341,18 +343,18 @@ class CityAudioSystem {
         this.removeEvent(weakest);
       }
       if (this.events.length >= this.limits.events) {
-        const background = this.events.findIndex(event => event.kind !== 'crash' && event.kind !== 'horn');
+        const background = this.events.findIndex(event => event.kind !== 'crash' && event.kind !== 'horn' && event.kind !== 'bell');
         if (background < 0) return false;
         this.removeEvent(background);
       }
     }
     if (this.events.length >= this.limits.events) return false;
     const emitter = new SpatialEmitter(this.context, this.mix, this.reflections, this.acoustics,
-      ref, kind === 'talk' ? 1.5 : 0, kind === 'horn');
+      ref, kind === 'talk' ? 1.5 : kind === 'bell' ? 1.6 : 0, kind === 'horn');
     // Do not fade away the first few milliseconds of a crash: its spatial gain and filtering are ready at onset.
     emitter.update(source, this.listener, now, range, true, crash);
     const voice = playEvent(this.context, this.resources, kind, emitter.input, { seed: source.seed, ...options });
-    this.events.push({ kind, voice, emitter, id: source.id, range, severity, position: { ...source }, follow: kind === 'talk' || kind === 'horn' });
+    this.events.push({ kind, voice, emitter, id: source.id, range, severity, position: { ...source }, follow: kind === 'talk' || kind === 'horn' || kind === 'bell' });
     return true;
   }
 
@@ -437,13 +439,25 @@ class CityAudioSystem {
           event.voice.dispose();
           event.follow = false; // Fade at the old position if the meeting ended or a pedestrian was recycled.
         }
-        const source = event.follow && (sources.motors.find(s => s.id === event.id) || sources.people.find(s => s.id === event.id));
+        const source = event.follow && (sources.motors.find(s => s.id === event.id) || sources.trams.find(s => s.id === event.id)
+          || sources.people.find(s => s.id === event.id));
         if (source) Object.assign(event.position, source);
         event.emitter.update(event.position, this.listener, now, event.range);
       }
     }
     this.updatePool(this.motors, sources.motors, this.limits.motors, now, dt);
     this.updatePool(this.sirens, sources.sirens, this.limits.sirens, now, dt, true);
+    this.updatePool(this.trams, sources.trams, this.limits.trams, now, dt);
+    // Tram bells: a ding-ding as a tram leaves its stop (once the doors have closed), and every few seconds while it
+    // waits for the player on its track
+    for (const source of sources.trams) {
+      const state = this.state(source, now);
+      const departing = state.tramStopped === true && !source.stopped;
+      state.tramStopped = source.stopped;
+      if (departing || (source.bell && now >= (state.bell || 0))) {
+        if (this.emit('bell', source, { intensity: source.bell ? 0.8 : 0.55 })) state.bell = now + 4 + state.variation * 2;
+      }
+    }
     for (const source of sources.people) {
       const state = this.state(source, now);
       const moved = Math.hypot(source.x - state.x, source.z - state.z);

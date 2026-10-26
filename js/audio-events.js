@@ -285,6 +285,19 @@ function signal(ctx, walk) {
   }, 0.45);
 }
 
+function bell(ctx) {
+  // One stroke of a tram's electric gong: a struck metal dish (inharmonic partials, the higher ones dying first) with a
+  // short click of the clapper. playEvent rings it twice, the second a tone lower: the Poznań trams' ding-ding.
+  const random = randomSource(91);
+  const partials = [[1, 1, 1.1], [2.32, 0.55, 0.5], [4.25, 0.3, 0.24], [6.63, 0.16, 0.12], [9.38, 0.08, 0.07]];
+  return makeBuffer(ctx, 1.3, (t) => {
+    let tone = 0;
+    for (const [ratio, amplitude, decay] of partials) tone += Math.sin(TAU * 1180 * ratio * t) * amplitude * Math.exp(-t / decay);
+    const click = (random() * 2 - 1) * Math.exp(-t / 0.0015) * 0.5;
+    return (tone + click) * (1 - Math.exp(-t / 0.0006));
+  }, 0.6);
+}
+
 export function createEventResources(ctx, resources) {
   const speakers = [
     { pitch: 99, formants: 0.88, breath: 0.06 }, { pitch: 119, formants: 0.94, breath: 0.10 },
@@ -303,7 +316,8 @@ export function createEventResources(ctx, resources) {
     },
     gusts: gustBuffer(ctx),
     signalTick: signal(ctx, false),
-    signalWalk: signal(ctx, true)
+    signalWalk: signal(ctx, true),
+    bell: bell(ctx)
   };
 }
 
@@ -311,7 +325,7 @@ export function playEvent(ctx, resources, kind, output, options = {}) {
   const random = randomSource(options.seed);
   const start = Math.max(ctx.currentTime, finite(options.when, ctx.currentTime));
   const intensity = clamp(finite(options.intensity, 1));
-  const levels = { footstep: 0.22, talk: 0.065, horn: 0.23, signal: 0.13, crash: 0.35 };
+  const levels = { footstep: 0.22, talk: 0.065, horn: 0.23, signal: 0.13, crash: 0.35, bell: 0.2 };
   if (!Object.hasOwn(levels, kind) || intensity === 0) return { endTime: start, dispose() {} };
   const gain = ctx.createGain();
   gain.gain.value = intensity * levels[kind];
@@ -379,6 +393,10 @@ export function playEvent(ctx, resources, kind, output, options = {}) {
     }
   } else if (kind === 'horn') {
     play(resources.horns[Math.floor(random() * resources.horns.length)], start, 0.94 + random() * 0.12);
+  } else if (kind === 'bell') {
+    const pitch = 0.97 + random() * 0.06;
+    play(resources.bell, start, pitch);
+    play(resources.bell, start + 0.24, pitch * 0.84, 0.9);
   } else if (kind === 'crash') {
     const severity = clamp(finite(options.severity, intensity));
     const variant = Math.floor(random() * resources.crashes.body.length);

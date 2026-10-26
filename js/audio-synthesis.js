@@ -198,6 +198,28 @@ function chainBuffer(context) {
   return normalizeLoop(buffer, 0.16, 0.8);
 }
 
+function tractionBuffer(context) {
+  const rate = context.sampleRate;
+  const buffer = context.createBuffer(1, Math.round(rate * 2), rate);
+  const data = buffer.getChannelData(0), random = randomSequence(0x7472616d);
+  let lowNoise = 0;
+  for (let i = 0; i < data.length; i++) {
+    const t = i / rate;
+    const white = random() * 2 - 1;
+    lowNoise += (white - lowNoise) * 0.2;
+    // Traction motor and inverter at a 250 Hz reference: the fundamental, a strong second and a thin, slowly
+    // wavering fifth harmonic over a little brush of noise. Whole cycles in two seconds, so the loop wraps cleanly;
+    // playback rate carries it up the speed range (the familiar rising whine as a tram pulls away).
+    const waver = Math.sin(2 * Math.PI * 3 * t) * 0.35;
+    data[i] = Math.sin(2 * Math.PI * 250 * t) * 0.42
+      + Math.sin(2 * Math.PI * 500 * t + 0.6) * 0.30
+      + Math.sin(2 * Math.PI * 750 * t) * 0.10
+      + Math.sin(2 * Math.PI * 1250 * t + waver) * 0.12
+      + (white - lowNoise) * 0.06;
+  }
+  return normalizeLoop(buffer, 0.24, 0.8);
+}
+
 function sirenSweepWave(context) {
   const real = new Float32Array(25), imaginary = new Float32Array(25);
   // Electronic wail/yelp circuits use a nearly triangular control voltage, with softened turning points.
@@ -283,6 +305,7 @@ export function createSynthResources(context) {
     turbine: turbineBuffer(context),
     ratchet: ratchetBuffer(context),
     chain: chainBuffer(context),
+    traction: tractionBuffer(context),
     sirenWave: wave([0, 1, 0.13, 0.29, 0.055, 0.11, 0.025, 0.045, 0.012, 0.018]),
     sirenSweep: sirenSweepWave(context),
     voiceSerial: 0
@@ -303,7 +326,7 @@ function smoothParameter(parameter, timeConstant = 0.07, epsilon = 0.0001, snapI
 }
 
 export function createMotorVoice(context, resources, kind, output) {
-  if (!['sedan', 'suv', 'bus', 'helicopter', 'cyclist', 'siren'].includes(kind)) {
+  if (!['sedan', 'suv', 'bus', 'helicopter', 'cyclist', 'siren', 'tram'].includes(kind)) {
     throw new RangeError(`Unknown motor voice: ${kind}`);
   }
   const nodes = [];
@@ -519,6 +542,55 @@ export function createMotorVoice(context, resources, kind, output) {
       chainFrequency((1700 + load * 600) * doppler, now);
       noiseRate((0.9 + Math.min(1, movement) * 0.2) * doppler, now);
     };
+  } else if (kind === 'tram') {
+    // Electric traction: no engine, so the motor whine (rising with speed, loud with effort either way: regenerative
+    // braking whines too), the steel wheels' rumble on the rails, a flange squeal on tight bends and the auxiliary
+    // converter's low hum that goes on at a stop.
+    const whine = loop(resources.traction);
+    const whineFilter = filter('bandpass', 900, 0.6);
+    const whineGain = gain();
+    whine.connect(whineFilter).connect(whineGain).connect(mix);
+    const hum = oscillator('sawtooth', 100);
+    const humFilter = filter('lowpass', 320, 0.7);
+    const humGain = gain(0.018);
+    hum.connect(humFilter).connect(humGain).connect(mix);
+    const rail = loop();
+    const railFilter = filter('lowpass', 300, 0.8);
+    const railGain = gain();
+    rail.connect(railFilter).connect(railGain).connect(mix);
+    const flange = loop();
+    const squealFilter = filter('bandpass', 2900, 28);
+    const squealGain = gain();
+    flange.connect(squealFilter).connect(squealGain).connect(mix);
+    const wobble = oscillator('sine', 4.3);
+    const wobbleDepth = gain();
+    wobble.connect(wobbleDepth).connect(squealGain.gain);
+    const whineRate = smoothParameter(whine.playbackRate, 0.08, 0.0005, true);
+    const whineCutoff = smoothParameter(whineFilter.frequency, 0.1, 1);
+    const whineLevel = smoothParameter(whineGain.gain, 0.12);
+    const humFrequency = smoothParameter(hum.frequency, 0.2, 0.1);
+    const railLevel = smoothParameter(railGain.gain, 0.15);
+    const railCutoff = smoothParameter(railFilter.frequency, 0.15, 1);
+    const squealLevel = smoothParameter(squealGain.gain, 0.25);
+    const squealDepth = smoothParameter(wobbleDepth.gain, 0.25);
+    const squealPitch = smoothParameter(squealFilter.frequency, 0.4, 1);
+    const noiseRate = smoothParameter(rail.playbackRate, 0.12, 0.001);
+    render = (speed, load, doppler, now, verticalSpeed, squeal) => {
+      const moving = Math.min(1, speed / 1.5);
+      const pace = Math.min(1, speed / 18);
+      const rate = (0.55 + pace * 1.9) * (0.98 + variation * 0.04) * doppler;
+      whineRate(rate, now);
+      whineCutoff(250 * rate * 2.4, now);
+      whineLevel(moving * (0.03 + load * 0.15 + pace * 0.03), now);
+      humFrequency(100 * doppler, now);
+      railLevel(Math.pow(pace, 1.2) * 0.42, now);
+      railCutoff((180 + pace * 900) * doppler, now);
+      const screech = squeal * moving * 0.22;
+      squealLevel(screech, now);
+      squealDepth(screech * 0.6, now);
+      squealPitch((2700 + variation * 600 + Math.sin(now * 1.3 + variation * 9) * 180) * doppler, now);
+      noiseRate((0.85 + pace * 0.3) * doppler, now);
+    };
   } else {
     const siren = oscillator(resources.sirenWave, 1125);
     const highpass = filter('highpass', 480, 0.7);
@@ -554,7 +626,7 @@ export function createMotorVoice(context, resources, kind, output) {
     };
   }
 
-  function update({ speed = 0, load = 0, doppler = 1, seed = 0, verticalSpeed = 0 } = {}, now = context.currentTime) {
+  function update({ speed = 0, load = 0, doppler = 1, seed = 0, verticalSpeed = 0, squeal = 0 } = {}, now = context.currentTime) {
     if (disposed) return;
     const safeSeed = Number.isFinite(seed) ? seed : 0;
     if (safeSeed !== lastSeed) {
@@ -568,7 +640,8 @@ export function createMotorVoice(context, resources, kind, output) {
       Number.isFinite(load) ? clamp(load, 0, 1) : 0,
       Number.isFinite(doppler) ? clamp(doppler, 0.5, 2) : 1,
       time,
-      Number.isFinite(verticalSpeed) ? clamp(verticalSpeed, -30, 30) : 0
+      Number.isFinite(verticalSpeed) ? clamp(verticalSpeed, -30, 30) : 0,
+      Number.isFinite(squeal) ? clamp(squeal, 0, 1) : 0
     );
   }
 
