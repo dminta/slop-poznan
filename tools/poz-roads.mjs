@@ -6,7 +6,8 @@
 // junction and its end node ids give the road graph its topology (poz-roadgraph.mjs) without guessing from coordinates.
 //
 // Exports (world metres, x east, z south):
-//   pieces:         [{ id, wayId, name, cls, w, lanes, dir, bridge, tram, roundabout, pts: [[x, z]...], nodes: [osmId...] }]
+//   pieces:         [{ id, wayId, name, cls, w, lanes, dir, bridge, tram, roundabout, kmh, kmhTagged, pts: [[x, z]...],
+//                   nodes: [osmId...] }]; kmh: the speed limit (km/h), kmhTagged: 1 when OSM states it (speedLimit)
 //                   at-grade drivable pieces touching DETAIL_BOX + PIECE_PAD (tunnels and layer < 0 dropped)
 //   plazas:         [{ name, ring: [[x, z]...], holes? }] pedestrian areas and squares, negative shoelace winding;
 //                   holes: a multipolygon's inner rings of PLAZA_HOLE_M2 and up (buildings on the square), positive
@@ -96,6 +97,27 @@ const touchesBox = (pts, pad) => {
   for (const [x, z] of pts) { a = Math.min(a, x); b = Math.max(b, x); c = Math.min(c, z); d = Math.max(d, z); }
   return b >= x0 - pad && a <= x1 + pad && d >= z0 - pad && c <= z1 + pad;
 };
+// Speed limit in km/h. Inside a Polish built-up area the default is 50 (PL:urban) and 20 in a living street
+// (strefa zamieszkania); 30/20 zones are signed, and OSM states them as `maxspeed` plus a `source:maxspeed` or
+// `maxspeed:type` of PL:zone30. Measured on the 2026-10-25 snapshot: every `maxspeed` is a plain number (5-80), and 83%
+// of the drivable ways other than service roads carry one; 27 ways tag only `maxspeed:forward`/`:backward`, which give
+// the lower of the two here (a link carries one limit). Untagged ways fall back to the zone tag, then the class.
+const ZONE_KMH = (v) => {
+  if (!v) return 0;
+  const m = /PL:zone(\d+)/.exec(v);
+  if (m) return +m[1];
+  if (/PL:living_street/.test(v)) return 20;
+  return /PL:urban/.test(v) ? 50 : 0;
+};
+const CLASS_KMH = { living_street: 20, service: 20 };
+function speedLimit(t, cls) {
+  const tagged = parseInt(t.maxspeed, 10);
+  if (tagged > 0) return { kmh: tagged, tagged: 1 };
+  const dirs = [parseInt(t['maxspeed:forward'], 10), parseInt(t['maxspeed:backward'], 10)].filter((v) => v > 0);
+  if (dirs.length) return { kmh: Math.min(...dirs), tagged: 1 };
+  const zone = ZONE_KMH(t['zone:maxspeed']) || ZONE_KMH(t['maxspeed:type']) || ZONE_KMH(t['source:maxspeed']);
+  return { kmh: zone || CLASS_KMH[cls] || 50, tagged: 0 };
+}
 const underground = (t) => (t.tunnel && t.tunnel !== 'no' && t.tunnel !== 'building_passage') || parseFloat(t.layer) < 0;
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -134,10 +156,12 @@ for (const w of drivableWays) {
   const lanesTagged = Number.isFinite(lanesTag) && lanesTag > 0;
   const lanes = lanesTagged ? lanesTag : defaultLanes(cls, dir);
   const { w: width, explicit } = widthOf(t, cls, dir, lanes, lanesTagged);
+  const limit = speedLimit(t, cls);
   const base = {
     wayId: w.id, name: t.name || t.ref || '', cls, w: width, explicitW: explicit, lanes, dir,
     bridge: t.bridge && t.bridge !== 'no' ? 1 : 0, tram: 0,
-    roundabout: t.junction === 'roundabout' || t.junction === 'circular' ? 1 : 0
+    roundabout: t.junction === 'roundabout' || t.junction === 'circular' ? 1 : 0,
+    kmh: limit.kmh, kmhTagged: limit.tagged
   };
   // Cut indices: the ends plus every split node in between
   const cuts = [0];

@@ -592,6 +592,12 @@ function mapTramsToRoads(graph, network, gap = ROAD_OVERLAP) {
       run.s0 = Math.max(0, run.s0 - 0.5);
       run.s1 = Math.min(te.len, run.s1 + 0.5);
     }
+    // A street-running tram keeps to the road's posted limit (road-network.js `limit`, from OSM maxspeed): the lowest
+    // of the lanes it runs along for 10 m or more, so a 30 zone slows it too
+    te.roadLimit = Infinity;
+    for (const run of te.lanes) {
+      if (run.dir !== 0 && run.s1 - run.s0 >= 10 && run.edge.limit) te.roadLimit = Math.min(te.roadLimit, run.edge.limit);
+    }
   }
 
   // Junction curves over the track: the road nodes near a track, every lane-to-lane curve through them sampled each
@@ -1117,7 +1123,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     const ic = path.indexAt(u);
     const here = path.edges[ic];
     _v = t.speed;
-    _v0 = Math.max(1, (here.street ? STREET_SPEED : TRACK_SPEED) * t.v0Factor);
+    _v0 = Math.max(1, Math.min(here.street ? STREET_SPEED : TRACK_SPEED, here.roadLimit || Infinity) * t.v0Factor);
     t.v0 = _v0;
     _acc = D.a * (1 - (_v / _v0) ** 4);
     _reason = '';
@@ -1294,6 +1300,11 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       const sj = path.start[j];
       if (sj - u > CURVE_LOOKAHEAD) break;
       const e = path.edges[j];
+      // ...and a lower limit ahead (a 30 zone, or street running after segregated track) like a curve at its start
+      if (j > ic && sj > u) {
+        const vl = Math.max(1, Math.min(e.street ? STREET_SPEED : TRACK_SPEED, e.roadLimit || Infinity) * t.v0Factor);
+        if (vl < _v0) consider(idm(sj - u + D.s0 + vl * D.T, vl), 'curve');
+      }
       const cum = e.cum;
       for (let i = 0; i < cum.length; i++) {
         const vl = e.vmax[i];

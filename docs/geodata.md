@@ -15,7 +15,7 @@ GEO_DATA=/some/dir node ... tools/build-poznan.mjs                # read inputs 
 ```
 - The run takes about 11 s, with a peak RSS of ≈ 0.76 GB. Keep the 8 GB heap flag that the header usage line and `tests/geodata.test.mjs` pass, because the 1 m rasters and the EDTs are large.
 - The output is deterministic. A rebuild from the committed `tools/data` reproduces the committed `js/geodata.js` byte for byte (verified). After any change to tools/, build to a temporary path and `cmp` it against the committed file: an unexpected diff means a behaviour change.
-- `js/geodata.js` is GENERATED: its header says "do not edit by hand", and its single JSON line is about 1.26 MB. To change any geodata value, change the tools or the inputs and rebuild. Commit the regenerated file together with the tool change.
+- `js/geodata.js` is GENERATED: its header says "do not edit by hand", and its single JSON line is about 1.29 MB. To change any geodata value, change the tools or the inputs and rebuild. Commit the regenerated file together with the tool change.
 - Read the build's `[geodata]` log lines (counts, the frame, the per-key KB at the end). They are the quickest sanity check after a change.
 - Inspect the output with `head -c 1500 js/geodata.js`, or `import('./js/geodata.js')` in node. Never read the whole file.
 
@@ -104,7 +104,14 @@ The build (`docs/poznan-plan.md` §2, §4) reads only the `poz_*.json` snapshots
   - `poz-blocks.mjs`: curb islands on a 1 m raster over the detail box (6,126 × 3,674 cells). It ports
     the former Manhattan `geo-blocks.mjs` and adds a bbox prefilter to the nearest-edge loop of `blockFrames`.
   - `poz-roadgraph.mjs`: `buildRoadGraph(pieces, signalNodes, { service })`, called by the build script.
-- Output (1.26 MB): `roads` 246 KB, `roadGraph` 201 KB (3,903 links), `blocks` 412 KB (822), `parks` 193 KB, `rail` 69 KB,
+- Speed limits (`speedLimit` in `poz-roads.mjs`, the last element of each `roadGraph.links` tuple, km/h): OSM `maxspeed`,
+  else the lower of `maxspeed:forward`/`:backward`, else a zone tag (`zone:maxspeed`, `maxspeed:type` or
+  `source:maxspeed` of `PL:zone30`/`PL:zone20`/`PL:living_street`/`PL:urban`), else the class: 20 for `living_street`
+  (and `service`), 50 for the rest (the built-up limit). Every `maxspeed` in the snapshot is a plain number. Measured on
+  the 2026-10-25 snapshot: tagged on 83.3% of the graph's 229.8 km; 20 km/h 32.1 km, 30 km/h 73.8 km, 40 km/h 9.3 km,
+  50 km/h 103.8 km, 70 km/h 9.1 km (Krzywoustego, Hlonda, Warszawska, Niestachowska), and under 2 km each of 10
+  and 60. The build logs this line as `road graph: speed limits tagged on …`.
+- Output (1.29 MB): `roads` 246 KB, `roadGraph` 213 KB (3,903 links), `blocks` 412 KB (822), `parks` 193 KB, `rail` 69 KB,
   `plazas` 42 KB, `water` 22 KB, `outskirts` 17 KB plus 10 KB of holes, `districts` 17 KB. The rest is under 10 KB each.
 - Holes are separate keys: `landHoles` and `outskirtsHoles` are `[{ outer, ring }]` with positive winding, where `outer`
   indexes `land` or `outskirts`. `water[i].holes` (islands) and `plazas[i].holes` (buildings on a square) are nested and
@@ -122,6 +129,6 @@ The build (`docs/poznan-plan.md` §2, §4) reads only the `poz_*.json` snapshots
   `labels`. Each sits at the point of its water body farthest from the shore inside the detail box.
 
 ## Tests
-- `tests/geodata.test.mjs` copies `tools/*.mjs` into a temporary directory whose path contains spaces and non-ASCII characters (`'Poznań Zażółć 東京 '`), symlinks `tools/data` into it, runs the build with GEO_DATA unset, the default output path and `--max-old-space-size=8192`, then imports the output and checks the version, ≥ 3 land rings, the Warta, a bridge link, > 100 signals, the Ratusz, > 500 blocks and that `frame.ll` puts the Ratusz at the origin. It guards path handling: resolve paths with `fileURLToPath(new URL(..., import.meta.url))`, never `URL.pathname`. New tool modules must be `.mjs` files directly in `tools/`, or the test will not copy them. It takes about 11 s (timeout 180 s).
+- `tests/geodata.test.mjs` copies `tools/*.mjs` into a temporary directory whose path contains spaces and non-ASCII characters (`'Poznań Zażółć 東京 '`), symlinks `tools/data` into it, runs the build with GEO_DATA unset, the default output path and `--max-old-space-size=8192`, then imports the output and checks the version, ≥ 3 land rings, the Warta, a bridge link, > 100 signals, plausible link speed limits (values, the 50 and ≤ 30 km/h shares, a 70 km/h artery), the Ratusz, > 500 blocks and that `frame.ll` puts the Ratusz at the origin. It guards path handling: resolve paths with `fileURLToPath(new URL(..., import.meta.url))`, never `URL.pathname`. New tool modules must be `.mjs` files directly in `tools/`, or the test will not copy them. It takes about 11 s (timeout 180 s).
 - `tests/overpass.test.mjs` replaces `curl` and `sleep` with stubs on PATH and checks the keep-old-data-on-failure guarantees above, including that all 3 endpoints are tried and no temp files are left behind. If you change the retry or endpoint logic, update the expected call counts.
 - Run both with `node --test tests/geodata.test.mjs tests/overpass.test.mjs`. Neither needs network access.

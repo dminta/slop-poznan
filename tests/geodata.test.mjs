@@ -31,6 +31,13 @@ test('Poznań geodata builds offline with default paths in a checkout containing
     assert.ok(GEO.water.some((w) => w.name === 'Warta'));
     assert.ok(GEO.roadGraph.links.some((l) => l[7] & 1), 'a bridge link');
     assert.ok(GEO.roadGraph.signals.length > 100);
+    // Speed limits (km/h) on every link: the built-up 50 on most, with many 30/20 zones and a few 70 km/h arteries
+    const limits = GEO.roadGraph.links.map((l) => l[8]);
+    assert.ok(limits.every((v) => [5, 10, 15, 20, 30, 40, 50, 60, 70, 80].includes(v)), 'plausible limits');
+    const share = (f) => limits.filter(f).length / limits.length;
+    assert.ok(share((v) => v === 50) > 0.3, '50 km/h is the common limit');
+    assert.ok(share((v) => v <= 30) > 0.3, 'many 30 and 20 zones');
+    assert.ok(limits.includes(70), 'a 70 km/h artery');
     assert.ok(GEO.landmarks['Ratusz']);
     assert.ok(GEO.blocks.length > 500);
     // frame.ll puts the Ratusz (the D1 origin) at the world origin

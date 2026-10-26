@@ -3,8 +3,8 @@
 // trailing `flags` element per link and `signals`.
 //
 //   nodes:   [x0, z0, x1, z1, ...] (0.1 m)
-//   links:   [[a, b, nameIdx, w, lanes, dir, innerFlat, flags]]; dir 1 = a→b, -1 = b→a, 0 = both;
-//            flags bit 0 bridge, bit 1 tram on street, bit 2 roundabout
+//   links:   [[a, b, nameIdx, w, lanes, dir, innerFlat, flags, kmh]]; dir 1 = a→b, -1 = b→a, 0 = both;
+//            flags bit 0 bridge, bit 1 tram on street, bit 2 roundabout; kmh the speed limit (poz-roads.mjs speedLimit)
 //   names:   display names (diacritics as signed; '' for unnamed)
 //   signals: [nodeIdx] sorted, unique
 import { log, inDetailBox } from './poz-base.mjs';
@@ -80,7 +80,7 @@ export function buildRoadGraph(pieces, signalNodes, { service = false } = {}) {
     const b = nodeAt(p.nodes[p.nodes.length - 1], ...p.pts[p.pts.length - 1]);
     if (a === b) continue;
     const flags = (p.bridge ? BRIDGE : 0) | (p.tram ? TRAM : 0) | (p.roundabout ? ROUNDABOUT : 0);
-    links.push([a, b, nameId(p.name), p.w, p.lanes, p.dir, rdp(p.pts, 0.4), flags]);
+    links.push([a, b, nameId(p.name), p.w, p.lanes, p.dir, rdp(p.pts, 0.4), flags, p.kmh]);
     linkPieces.push(p);
   }
 
@@ -166,10 +166,10 @@ export function buildRoadGraph(pieces, signalNodes, { service = false } = {}) {
     if (!used.has(i)) { used.set(i, outNodes.length / 2); outNodes.push(r1(nodes[i][0]), r1(nodes[i][1])); }
     return used.get(i);
   };
-  const outLinks = links.map(([a, b, n, w, lanes, dir, line, flags]) => {
+  const outLinks = links.map(([a, b, n, w, lanes, dir, line, flags, kmh]) => {
     const ia = idOf(a), ib = idOf(b);
     const inner = line.slice(1, -1).flatMap(([x, z]) => [r1(x), r1(z)]);
-    return [ia, ib, n, w, lanes, dir, inner, flags];
+    return [ia, ib, n, w, lanes, dir, inner, flags, kmh];
   });
   const signals = [...signalSet].filter((i) => used.has(i)).map((i) => used.get(i)).sort((p, q) => p - q);
 
@@ -183,6 +183,16 @@ export function buildRoadGraph(pieces, signalNodes, { service = false } = {}) {
   const nFlag = (bit) => outLinks.filter((l) => l[7] & bit).length;
   log(`road graph: ${outNodes.length / 2} nodes, ${outLinks.length} links, ${names.length} names; bridge ${nFlag(BRIDGE)}, tram ${nFlag(TRAM)}, roundabout ${nFlag(ROUNDABOUT)} links`);
   log(`road graph: ${compLinks.size} components, the largest holds ${largest} links (${((100 * largest) / outLinks.length).toFixed(1)}%)`);
+  // Speed limits by length: the share OSM states, and the length per limit
+  let tagLen = 0, allLen = 0;
+  const byKmh = {};
+  linkPieces.forEach((p, li) => {
+    const L = adj[links[li][0]].find((q) => q[2] === li)[1];
+    allLen += L;
+    if (p.kmhTagged) tagLen += L;
+    byKmh[p.kmh] = (byKmh[p.kmh] || 0) + L;
+  });
+  log(`road graph: speed limits tagged on ${((100 * tagLen) / allLen).toFixed(1)}% of ${(allLen / 1000).toFixed(1)} km; ${Object.entries(byKmh).sort((p, q) => p[0] - q[0]).map(([k, L]) => `${k} km/h ${(L / 1000).toFixed(1)} km`).join(', ')}`);
   log(`road graph: ${signals.length} signalled junctions from ${signalNodes.length} signal nodes (${byNode} on the junction, ${byAlong} along a piece, ${byNear} nearest; ${missed} unsnapped in the box, ${outside} outside)`);
   return { nodes: outNodes, links: outLinks, names, signals };
 }

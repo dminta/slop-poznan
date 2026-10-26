@@ -24,6 +24,8 @@ const SHORE_MARGIN = 6;
 // more (OSM lanes, both ways). The graph carries no road class, so width and lanes stand in for primary/secondary.
 const MAJOR_WIDTH = 14.5;
 const isMajorRoad = (width, lanes) => width >= MAJOR_WIDTH || lanes >= 3;
+// km/h: the Polish built-up limit, for a link without one (the geodata gives every Poznań link its OSM or class limit)
+const DEFAULT_KMH = 50;
 // Signal sites (OSM traffic_signals nodes) further than this from the junction they belong to are not one of its own:
 // the graph merges a divided road's corners into one junction up to ~14 m across (2.)
 const SIGNAL_REACH = 12;
@@ -126,7 +128,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
     for (let i = 0; i < RG.nodes.length; i += 2) pos.push({ x: RG.nodes[i], z: RG.nodes[i + 1] });
     const links = [];
     const roads = new Map(); // street name -> { len, majorLen, widths: [[w, len]], width, major }
-    for (const [a, b, ni, w, lanes, dir, inner] of RG.links) {
+    for (const [a, b, ni, w, lanes, dir, inner, , kmh] of RG.links) {
       const pts = [pos[a]];
       for (let k = 0; k < inner.length; k += 2) pts.push({ x: inner[k], z: inner[k + 1] });
       pts.push(pos[b]);
@@ -139,7 +141,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
         r.widths.push([w, len]);
         if (isMajorRoad(w, lanes)) r.majorLen += len;
       } else if (lanes >= 3) r.majorLen += len;
-      links.push({ a, b, name: RG.names[ni], w, lanes, dir, pts, len });
+      links.push({ a, b, name: RG.names[ni], w, lanes, dir, pts, len, limit: (kmh || DEFAULT_KMH) / 3.6 });
     }
     // Each named road's links: their length-weighted median width stands in where a link has none, and a road that is
     // major over most of its length is major throughout, so that its narrower stretches keep its buses
@@ -194,13 +196,13 @@ function buildRoadNetwork(sidewalks, obstacles) {
       if (l.dir !== 0) {
         const n = Math.max(1, Math.min(l.lanes || 1, Math.floor((half - LANE_CLEAR) / (LANE_W / 2)) + 1));
         const lanes = Array.from({ length: n }, (_, k) => (k - (n - 1) / 2) * LANE_W);
-        return { half, axis, major, fwd: l.dir > 0 ? lanes : [], back: l.dir < 0 ? lanes : [] };
+        return { half, axis, major, limit: l.limit, fwd: l.dir > 0 ? lanes : [], back: l.dir < 0 ? lanes : [] };
       }
       const n = Math.max(1, Math.min(Math.round((l.lanes || 2) / 2), Math.floor((half - LANE_CLEAR + LANE_W / 2) / LANE_W)));
       // a road too narrow for a full lane each way (two-way service roads and lanes from ~3.3 m) keeps both to it
       const first = Math.min(LANE_W / 2, half / 2);
       const each = Array.from({ length: n }, (_, k) => first + k * LANE_W);
-      return { half, axis, major, fwd: each, back: each };
+      return { half, axis, major, limit: l.limit, fwd: each, back: each };
     }
     const DEG = Math.PI / 180;
     for (const l of links) {
@@ -280,7 +282,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
     }
     return true;
   };
-  function addEdge(from, to, axis, major, lanes, half, divided) {
+  function addEdge(from, to, axis, major, lanes, half, divided, limit) {
     const x0 = from.x;
     const z0 = from.z;
     const span = Math.hypot(to.x - x0, to.z - z0);
@@ -289,7 +291,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
     const dz = (to.z - z0) / span;
     const open = lanes.filter((o) => laneOpen(x0, z0, dx, dz, span, o));
     if (!open.length) return;
-    edges.push({ from, to, axis, major, x0, z0, dx, dz, rx: -dz, rz: dx, span, half, lanes: open.sort((p, q) => p - q), moves: [], cand: lanes, divided: !!divided });
+    edges.push({ from, to, axis, major, x0, z0, dx, dz, rx: -dz, rz: dx, span, half, lanes: open.sort((p, q) => p - q), moves: [], cand: lanes, divided: !!divided, limit });
   }
   // A divided road drawn as two one-way roadways between the same two junctions runs both ways
   // along one centreline here: each way keeps to the right of it, as on a two-way street, and the road is as wide as
@@ -321,8 +323,8 @@ function buildRoadNetwork(sidewalks, obstacles) {
     }
   }
   for (const r of genRuns) {
-    if (r.fwd.length) addEdge(r.from, r.to, r.axis, r.major, r.fwd, r.half, r.divided);
-    if (r.back.length) addEdge(r.to, r.from, r.axis, r.major, r.back, r.half, r.divided);
+    if (r.fwd.length) addEdge(r.from, r.to, r.axis, r.major, r.fwd, r.half, r.divided, r.limit);
+    if (r.back.length) addEdge(r.to, r.from, r.axis, r.major, r.back, r.half, r.divided, r.limit);
   }
   // Two edges from one node to the same next one (a service road whose ends were drawn onto its main road's junctions)
   // would drive through each other: keep the one with the most lanes
