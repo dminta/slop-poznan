@@ -1,7 +1,7 @@
 # Implementation plan: replacing New York with Poznań
 
-Status: **Phases 1–9 done** (each phase heading carries its own status note; Phase 9 skips PST and the Kaponiera
-portals); Phases 10–12 are not started.
+Status: **Phases 1–10 done** (each phase heading carries its own status note; Phase 9 skips PST and the Kaponiera
+portals, Phase 10 the articulated bus and the S-2 arrow); Phases 11–12 are not started.
 Line references are as of commit `46ec12b` and will drift; grep for the named symbol if a line no longer matches. Read `AGENTS.md` and the topic docs (`geodata.md`, `world.md`, `rendering.md`,
 `actors.md`, `audio.md`, `architecture.md`, `testing.md`) before starting any phase. They hold the repo-wide rules
 (modulepreload + boot count, module syntax, source-sliced tests, generated geodata, CSS `?v=` bump).
@@ -80,7 +80,7 @@ in `tools/build-geodata.mjs`. Proposed contract:
 | `labels` | `[{name, kind, x, z}]` | **new** | Area labels for the map (`place=suburb/quarter/neighbourhood`, water names). Replaces `AREA_LABELS` in `city-map.js`. |
 | `streets`, `avenues` | `[]` | kept empty | They stay so the runtime can tolerate empty lists during the transition; delete them in Phase 12. |
 | `roads` | `[name, w, dir, lanes, hw, flatPts]` | kept | `name` is the display name (`ul. Święty Marcin`), not upper-case CSCL. `dir` becomes `1/-1/0` instead of `FT/TF/TW` (update `city-config` `ROADS`). |
-| `roadGraph` | `{ nodes, links:[[a,b,nameIdx,w,lanes,dir,innerFlat,flags]], names, signals:[nodeIdx] }` | extended | `flags` bit 0 = bridge, bit 1 = tram on street, bit 2 = roundabout. `signals` comes from OSM `highway=traffic_signals` nodes snapped to junctions. |
+| `roadGraph` | `{ nodes, links:[[a,b,nameIdx,w,lanes,dir,innerFlat,flags,kmh]], names, signals:[nodeIdx] }` | extended | `flags` bit 0 = bridge, bit 1 = tram on street, bit 2 = roundabout. `kmh` is the speed limit (OSM `maxspeed`, zone tags, else by class; Phase 10). `signals` comes from OSM `highway=traffic_signals` nodes snapped to junctions. |
 | `rail` | `[{kind:'tram'\|'rail', street:0\|1, tracks, pts}]` | **new** | From `railway=tram` (476 ways, 1435 mm, 600 V) and `railway=rail`. |
 | `plazas` | `[{name, ring}]` | changed | Pedestrian areas (`highway=pedestrian` areas, `area:highway`, `place=square`): Stary Rynek, Plac Wolności, Plac Kolegiacki, Półwiejska. |
 | `blocks` | unchanged tuple | kept | `[outline, rects, parkShare, parkName, rect, frames]`. Generic. |
@@ -794,6 +794,13 @@ browser.
    portals only if time allows.
 
 ### Phase 10: Other vehicles and drivers
+
+**Status: done, except the articulated 18 m bus and the conditional green arrow (S-2).** Checked headless (tests,
+`createTrafficSystem` on the real network); see [`actors.md`](actors.md) for the livery codes (`carState.w`: 1 Policja,
+2 PRM ambulance, 3 PSP fire, all with `isPolice` for the siren and signal privileges), the MPK bus routes, per-link
+speed limits (`edge.limit`, driver `pace`/`vmax`) and the `'redAmber'` phase. Taxis are ordinary colours with a TAXI
+roof lamp; NPC and player cars carry EU "PO" plates; drivers honk after 8 s blocked. The bus still has the folded front
+bike rack from the NYC model.
 
 All in `traffic.js`, `actor-models.js`, `controllers.js` and `vehicle-lights.js`. Mind the audio field contract
 (`docs/audio.md`).
