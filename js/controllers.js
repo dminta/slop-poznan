@@ -588,9 +588,9 @@ class ThirdPersonControllerManager {
     carBodyMesh.receiveShadow = true;
     chassisPivot.add(carBodyMesh);
 
-    // 2. Side stripe over both doors, hugging the body. It sits from 0.585 m up, over the badge the taxi body material
-    // paints on the front door, and stops 6 cm short of the front and rear shut lines.
-    const stripeZ0 = spec.doors[2] + 0.06, stripeZ1 = spec.doors[0] - 0.06;
+    // 2. Side stripe over both doors, hugging the body. It sits from 0.55 m up, over the chequer strip, red badge and
+    // side number the taxi body material paints for street taxis, and stops 5–6 cm short of the shut lines.
+    const stripeZ0 = spec.doors[2] + 0.06, stripeZ1 = spec.doors[0] - 0.05;
     for (const side of [-1, 1]) {
       const stripeTex = createTaxiStripeTexture(spec, stripeZ0, stripeZ1, side > 0);
       const stripeMat = new THREE.MeshStandardNodeMaterial({
@@ -601,7 +601,7 @@ class ThirdPersonControllerManager {
         polygonOffsetFactor: -2,
         polygonOffsetUnits: -2
       });
-      const y0 = 0.585, y1 = y0 + stripeTex.image.height / TAXI_STRIPE_PX_PER_M; // square pixels
+      const y0 = 0.55, y1 = y0 + stripeTex.image.height / TAXI_STRIPE_PX_PER_M; // square pixels
       chassisPivot.add(new THREE.Mesh(buildCarSidePatch(spec, side, stripeZ0, stripeZ1, y0, y1, 0.003), stripeMat));
     }
 
