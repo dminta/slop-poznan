@@ -744,6 +744,12 @@ Deviations and open points:
 
 ### Phase 9: Trams
 
+**Status: step 1 done; the actor system (step 2 onwards) is in progress.** Step 1 is `js/tram-infra.js`
+([`world.md`](world.md#tram-infrastructure)), built after the road network and kept clear of its lanes. It places 121
+stops (97 islands) from the 142 stop nodes; the stops in the centre that are missing (Katedra, Fredry, Rondo Śródka,
+Pl. Wielkopolski, Stare Zoo) have no track in `GEO.rail` within 25 m. Not yet checked in a
+browser.
+
 1. **Static first** (no actors):
    - `GEO.rail` → grooved-rail paint or meshes (2 × 1435 mm per track) in `road-paint.js`, or a dedicated instanced
      mesh;

@@ -3089,5 +3089,6 @@ export {
   createParkLawnMaterial,
   createSteamMaterial,
   createContactShadowMaterial,
-  createCarFlareMaterial
+  createCarFlareMaterial,
+  _transparentEffectMRT as transparentEffectMRT
 };

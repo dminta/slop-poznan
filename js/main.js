@@ -13,6 +13,7 @@ import { buildStreetDetails } from './street-details.js';
 import { createTrafficSystem, createHighwayTraffic } from './traffic.js';
 import { createTramSystem } from './trams.js';
 import { buildRoadPaint } from './road-paint.js';
+import { buildTramInfrastructure } from './tram-infra.js';
 import { ThirdPersonControllerManager } from './controllers.js';
 import { TouchControls } from './touch-controls.js';
 import { GamepadControls } from './gamepad-controls.js';
@@ -105,8 +106,13 @@ async function initApp() {
   const highwayTraffic = createHighwayTraffic(scene, cityGrid.highwayLanes);
   buildRoadPaint(scene, trafficSystem.network);
   markInit('roadPaint');
-  // Trams on the GEO.rail track graph, held at the road network's signals (trams.js)
-  const tramSystem = createTramSystem(scene, { network: trafficSystem.network });
+  // Rails, overhead line and stops, placed clear of the car lanes just built (none of it is a traffic obstacle);
+  // the player collides with the poles and stop furniture
+  const tramInfra = buildTramInfrastructure(scene, trafficSystem.network);
+  allColliders.push(...tramInfra.colliders);
+  markInit('tramInfra');
+  // Trams on the GEO.rail track graph, stopping at tramInfra's platforms and held at the road network's signals
+  const tramSystem = createTramSystem(scene, { network: trafficSystem.network, stops: tramInfra.stops });
   markInit('trams');
 
   // 4. Initialize Third-Person Controllers (Person, Car, Cyclist, Helicopter) & Multi-Camera System
@@ -163,7 +169,7 @@ async function initApp() {
 
   // City-wide static geometry: chunk & distance-cull the small props, shadow stand-ins for the big casters
   // (scene-culling.js)
-  const cullingRoots = ['CityGrid', 'CityBlocks', 'StreetDetails', 'Landmarks', 'Outskirts', 'Bridges']
+  const cullingRoots = ['CityGrid', 'CityBlocks', 'StreetDetails', 'Landmarks', 'Outskirts', 'Bridges', 'TramInfrastructure']
     .map((name) => scene.getObjectByName(name))
     .filter(Boolean);
   setupSceneCulling(scene, cullingRoots, lightingSystem.sunLight.shadow);
