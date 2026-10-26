@@ -667,7 +667,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // Can v, d metres before a line, still stop at it braking no harder than its driver comfortably does?
   const canStopBefore = (v, d) => freeAcc(v) + stopAt(v, d) > -v.driver.b;
 
-  // Braking for a red (or an amber with room to stop) at the end of edge f, `d` metres ahead
+  // Braking for a red or red+amber (or an amber with room to stop) at the end of edge f, `d` metres ahead
   function signalAhead(v, f, d) {
     if (v.isPolice || !f.to.signal || d > LOOKAHEAD) return 0;
     const phase = phaseOf(f);
@@ -721,7 +721,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   function yieldOncoming(o, impatient, v = null) {
     if (!o) return false;
     if (o.through > 0) return true;
-    const red = o.to.signal && phaseOf(o) === 'red';
+    const phase = o.to.signal ? phaseOf(o) : 'green';
+    const red = phase === 'red' || phase === 'redAmber';
     for (const list of o.occ) {
       const lead = leadOf(list);
       if (!lead || (lead.v.edge === o && lead.v.move.turn === 'L')) continue;
@@ -884,7 +885,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       }
       return false;
     }
-    if (!v.isPolice && (phase === 'red' || (phase === 'amber' && stoppable))) return false;
+    if (!v.isPolice && (phase === 'red' || phase === 'redAmber' || (phase === 'amber' && stoppable))) return false;
     if (boxBusy(n, e.axisIndex)) return false; // crossing traffic inside
     if (tramBlocks(v, n, f, j)) return false; // a tram over its way across, or coming up to it
     const lead = ahead(e.occ[v.lane], v.s, v);

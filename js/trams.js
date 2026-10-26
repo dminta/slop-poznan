@@ -1289,7 +1289,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
         const gap = sj + sig.s - u;
         if (gap < 0.2 || gap > LOOKAHEAD) continue;
         const phase = signalPhase(elapsed, sig.group === 0);
-        if (phase === 'green') continue;
+        if (phase === 'green') continue; // red and red+amber hold the tram
         if (phase === 'amber' && gap < (_v * _v) / (2 * D.bMax) + 1) continue;
         consider(wall(gap - 0.5), 'signal');
       }

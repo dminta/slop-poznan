@@ -37,7 +37,7 @@ function createStreetSignBladeTexture(label) {
  * Driven by the shared signal clock and SIGNAL_TIMING (city-config.js), which js/traffic.js obeys.
  */
 function createTrafficSignalLensMaterial(isAvenueHead, clock) {
-  const { cycle, avenueAmber, avenueRed, streetAmber } = SIGNAL_TIMING;
+  const { cycle, avenueAmber, avenueRed, streetAmber, redAmber } = SIGNAL_TIMING;
   const mat = new THREE.MeshBasicNodeMaterial();
   mat.colorNode = Fn(() => {
     const t = mod(clock, cycle);
@@ -48,12 +48,13 @@ function createTrafficSignalLensMaterial(isAvenueHead, clock) {
 
     // Avenue phase: Green, then Amber from avenueAmber, Red from avenueRed
     // Street phase: Red until avenueRed, then Green, Amber from streetAmber
+    // Both: the amber lights up beside the red for the last redAmber seconds of the red (red+amber, then green)
     const greenActive = isAvenueHead
       ? float(1.0).sub(step(avenueAmber, t))
       : step(avenueRed, t).mul(float(1.0).sub(step(streetAmber, t)));
     const amberActive = isAvenueHead
-      ? step(avenueAmber, t).mul(float(1.0).sub(step(avenueRed, t)))
-      : step(streetAmber, t);
+      ? step(avenueAmber, t).mul(float(1.0).sub(step(avenueRed, t))).add(step(cycle - redAmber, t))
+      : step(streetAmber, t).add(step(avenueRed - redAmber, t).mul(float(1.0).sub(step(avenueRed, t))));
     const redActive = isAvenueHead
       ? step(avenueRed, t)
       : float(1.0).sub(step(avenueRed, t));

@@ -133,6 +133,17 @@ test('police pass red and amber signals while ordinary cars stop', () => {
   }
 });
 
+test('red and amber together still holds ordinary cars, but not police', () => {
+  const { car, state, mayEnter, signalAhead } = intersectionHarness();
+  state.phase = 'redAmber';
+  assert.equal(mayEnter(car, 18), false);
+  assert.equal(mayEnter(car, 0), false, 'not even waiting at the line');
+  assert.equal(signalAhead(car, car.edge, 18), -3);
+  car.isPolice = true;
+  assert.equal(mayEnter(car, 18), true);
+  assert.equal(signalAhead(car, car.edge, 18), 0);
+});
+
 test('police still wait for crossing traffic, pedestrians, a tram and a blocked exit', () => {
   const { car, state, mayEnter } = intersectionHarness();
   car.isPolice = true;
@@ -177,6 +188,13 @@ test('left turns account for oncoming police even when their signal is red', () 
   assert.equal(yieldOncoming(edge, false), true);
   car.speed = 0;
   assert.equal(yieldOncoming(edge, false), false);
+  // red and amber together holds oncoming traffic like red
+  context.phaseOf = () => 'redAmber';
+  car.speed = 10;
+  car.isPolice = false;
+  assert.equal(yieldOncoming(edge, false), false);
+  context.phaseOf = () => 'green';
+  assert.equal(yieldOncoming(edge, false), true);
 });
 
 function populationContext() {
