@@ -11,7 +11,7 @@ for (const [width, height, dpr] of [[500, 300, 1], [320, 180, 1.5], [1920, 1080,
     const window = { innerWidth: width, innerHeight: height, devicePixelRatio: dpr };
     const { CityMapSystem } = loadModule(source, {
       globals: { window, performance: { now: () => 0 } },
-      imports: { './geodata.js': { GEO: {} }, './city-config.js': { ROADS: [], AREA_LABELS: [], LABEL_ALIAS: {} } }
+      imports: { './geodata.js': { GEO: {} }, './city-config.js': { ROADS: [], LABEL_ALIAS: {} } }
     });
     const map = Object.create(CityMapSystem.prototype);
     // Capture the production render viewport; drawing primitives are irrelevant to coordinate conversion.
@@ -106,8 +106,7 @@ function mapHarness() {
       clamps.push([x, z, margin]);
       return { x: x + 12, z };
     },
-    LAND_RINGS: [], LAND_HOLES: [], WATER: [], OUTSKIRTS: [], OUTSKIRTS_HOLES: [], PLAZAS: [], BRIDGES: [],
-    AREA_LABELS: [['Stare Miasto', 0, 0, 2]],
+    LAND_RINGS: [], LAND_HOLES: [], WATER: [], OUTSKIRTS: [], OUTSKIRTS_HOLES: [], PLAZAS: [], BRIDGES: [], RAIL: [],
     LABEL_ALIAS: {},
     foldText: (text) => String(text).toLowerCase(),
     mapCaps: (text) => String(text).toUpperCase(),
@@ -117,7 +116,10 @@ function mapHarness() {
   };
   const { CityMapSystem } = loadModule(source, {
     globals: { window, document },
-    imports: { './geodata.js': { GEO: { frame: {} } }, './city-config.js': config }
+    imports: {
+      './geodata.js': { GEO: { frame: {}, labels: [{ name: 'Stare Miasto', kind: 'suburb', x: 0, z: 0 }] } },
+      './city-config.js': config
+    }
   });
   const teleports = [], toggles = [];
   const map = new CityMapSystem({
@@ -228,7 +230,7 @@ test('mouse hover and zoom buttons remain available without a pan', () => {
 
 function routeModule() {
   return loadModule(source, {
-    imports: { './geodata.js': { GEO: {} }, './city-config.js': { ROADS: [], AREA_LABELS: [], LABEL_ALIAS: {} } }
+    imports: { './geodata.js': { GEO: {} }, './city-config.js': { ROADS: [], LABEL_ALIAS: {} } }
   });
 }
 
@@ -304,4 +306,77 @@ test('the map compass tooltip states the grid bearing', () => {
   assert.equal(compassTitle(29.02), 'True north · the street grid runs 29° east of it');
   assert.equal(compassTitle(-12.6), 'True north · the street grid runs 13° west of it');
   assert.equal(compassTitle(0.2), 'True north');
+});
+
+// A polyline from (x0, z0) heading `deg` degrees (atan2 convention: 0 east, 90 south) through `n` steps of `step` metres,
+// turning `turn` degrees at every vertex
+function polyline(x0, z0, deg, n, step, turn = 0) {
+  const pts = [{ x: x0, z: z0 }];
+  let a = deg * Math.PI / 180;
+  for (let i = 0; i < n; i++) {
+    const p = pts[pts.length - 1];
+    pts.push({ x: p.x + Math.cos(a) * step, z: p.z + Math.sin(a) * step });
+    a += turn * Math.PI / 180;
+  }
+  return pts;
+}
+
+test('street labels are spread by arc length and turned along a straight street, never upside down', () => {
+  const { roadLabelAnchors } = routeModule();
+  const east = roadLabelAnchors(polyline(0, 0, 0, 25, 40));
+  assert.deepEqual([...east.map((a) => Math.round(a.x))], [125, 375, 625, 875], 'one name per 250 m share, mid-share');
+  for (const a of east) {
+    assert.ok(Math.abs(a.z) < 1e-9 && Math.abs(a.ang) < 1e-9);
+    assert.ok(a.len >= 250 - 1e-6, 'the straight span is measured both ways from the anchor');
+  }
+  const west = roadLabelAnchors(polyline(1000, 0, 180, 25, 40));
+  assert.ok(west.every((a) => Math.abs(a.ang) < 1e-9), 'westbound names read left to right');
+  const south = roadLabelAnchors(polyline(0, 0, 90, 10, 40));
+  assert.ok(south.every((a) => Math.abs(a.ang + Math.PI / 2) < 1e-9), 'vertical names read upwards');
+  assert.equal(roadLabelAnchors(polyline(0, 0, 0, 1, 15)).length, 0, 'too short for a name');
+});
+
+test('street labels follow a curve and keep off sharp bends', () => {
+  const { roadLabelAnchors } = routeModule();
+  // an L: 300 m east, then 300 m south
+  const corner = roadLabelAnchors([{ x: 0, z: 0 }, { x: 300, z: 0 }, { x: 300, z: 300 }]);
+  assert.equal(corner.length, 2);
+  for (const a of corner) {
+    const along = a.z === 0 ? 300 - a.x : a.z;
+    assert.ok(a.len / 2 <= along + 1e-6, `the label at (${a.x}, ${a.z}) does not reach round the corner`);
+  }
+  assert.ok(Math.abs(corner[0].ang) < 1e-9 && Math.abs(corner[1].ang + Math.PI / 2) < 1e-9);
+  // a gentle arc (1° per 10 m vertex, radius ≈ 573 m): each name is turned to the street's direction where it sits
+  const arc = polyline(0, 0, 0, 120, 10, 1);
+  const anchors = roadLabelAnchors(arc);
+  assert.ok(anchors.length >= 4);
+  for (const a of anchors) {
+    let i = 0;
+    let best = Infinity;
+    arc.forEach((p, j) => {
+      const d = Math.hypot(p.x - a.x, p.z - a.z);
+      if (d < best) { best = d; i = j; }
+    });
+    let tangent = Math.atan2(arc[Math.min(i + 1, arc.length - 1)].z - arc[Math.max(i - 1, 0)].z,
+      arc[Math.min(i + 1, arc.length - 1)].x - arc[Math.max(i - 1, 0)].x);
+    if (tangent >= Math.PI / 2 - 0.01) tangent -= Math.PI;
+    else if (tangent < -Math.PI / 2 - 0.01) tangent += Math.PI;
+    assert.ok(best < 10 && Math.abs(a.ang - tangent) < 0.05, `anchor at ${i} turned ${a.ang} vs ${tangent}`);
+    assert.ok(a.len > 100 && a.len < 500, 'the span stops where the arc has turned ~11° either way');
+  }
+  // a hairpin turning 30° per 5 m vertex has no straight stretch long enough for a name
+  assert.equal(roadLabelAnchors(polyline(0, 0, 0, 12, 5, 30)).length, 0);
+});
+
+test('pieces of one street are chained end to end, but not through a fork', () => {
+  const { chainRoadPieces } = routeModule();
+  const p = (x, z) => ({ x, z });
+  // a, b reversed, c: one street of three pieces; d and e fork from c's far end
+  const pieces = [[p(0, 0), p(100, 0)], [p(200, 0), p(100.2, 0)], [p(200, 0), p(300, 0)],
+    [p(300, 0), p(400, 50)], [p(300, 0), p(400, -50)]];
+  const chains = chainRoadPieces(pieces);
+  assert.equal(chains.length, 3);
+  assert.deepEqual([...chains[0].pieces].sort(), [0, 1, 2]);
+  assert.deepEqual([...chains[0].pts.map((q) => q.x)], [0, 100, 200, 300], 'b is reversed to run on from a');
+  assert.deepEqual(Array.from(chains.slice(1), (c) => [...c.pieces]), [[3], [4]]);
 });

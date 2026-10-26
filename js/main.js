@@ -276,7 +276,7 @@ async function initApp() {
     elControlsHint.replaceChildren(...items);
   }
 
-  // The taxi-yellow pill under the selected mode glides from button to button
+  // The accent pill under the selected mode glides from button to button
   function placeModeIndicator() {
     const active = modeSwitch ? modeSwitch.querySelector('.mode-btn.active') : null;
     if (!active) return;
@@ -396,7 +396,19 @@ async function initApp() {
     if (btn && e.detail > 0) btn.blur();
   });
 
-  // Where you are: the place's name over its street corner, drawn as a pair of street-name signs
+  // Where you are: the place's name over its street corner, drawn as a pair of street-name plates
+  // OSM names drop "ulica", so a plate reads "ul." unless the name starts with its own kind of place: that word
+  // becomes the small abbreviation over the name ("Aleja Niepodległości" → "al." / "Niepodległości"), and squares that
+  // are named by their kind (Rynek Jeżycki, Zaułek Ślepego Antka) carry no prefix at all
+  const STREET_KINDS = { Aleja: 'al.', Aleje: 'al.', Plac: 'pl.', Osiedle: 'os.', Rondo: 'rondo', Most: 'most' };
+  const UNPREFIXED_KINDS = new Set(['Rynek', 'Stary', 'Zaułek', 'Pasaż', 'Wzgórze', 'Bulwar']);
+  function splitStreetKind(name) {
+    const space = name.indexOf(' ');
+    const first = space > 0 ? name.slice(0, space) : name;
+    if (space > 0 && STREET_KINDS[first]) return [STREET_KINDS[first], name.slice(space + 1)];
+    if (UNPREFIXED_KINDS.has(first)) return ['', name];
+    return ['ul.', name];
+  }
   const roadNames = new Set(ROADS.map((r) => r.name));
   const placeNames = new Set(CITY_LANDMARKS.map((l) => l.name));
   let locationText = '';
@@ -431,9 +443,19 @@ async function initApp() {
         row.appendChild(near);
       }
       for (const name of streets.split(' & ')) {
+        const [kind, rest] = splitStreetKind(name);
         const sign = document.createElement('span');
         sign.className = 'street-sign';
-        sign.textContent = name;
+        if (kind) {
+          const prefix = document.createElement('span');
+          prefix.className = 'street-sign-kind';
+          prefix.textContent = kind;
+          sign.appendChild(prefix);
+        }
+        const label = document.createElement('span');
+        label.className = 'street-sign-name';
+        label.textContent = rest;
+        sign.appendChild(label);
         row.appendChild(sign);
       }
       nodes.push(row);

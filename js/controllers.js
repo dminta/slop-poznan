@@ -596,7 +596,7 @@ class ThirdPersonControllerManager {
 
     return {
       type: 'car',
-      label: 'NYC Yellow Taxi',
+      label: 'Poznań Taxi',
       mesh: root,
       chassisPivot,
       carState,
@@ -757,7 +757,7 @@ class ThirdPersonControllerManager {
 
     return {
       type: 'cyclist',
-      label: 'NYC Bike Lane Cyclist',
+      label: 'Bike Lane Cyclist',
       mesh: root,
       leanPivot,
       frontWheel,

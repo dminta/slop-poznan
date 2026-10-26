@@ -262,10 +262,6 @@ const SIGNAL_SITES = (() => {
 // 0 both ways. Names are as signed, without the "ul." prefix (OSM convention).
 const ROADS = GEO.roads.map(([name, w, dir, lanes, hw, flat]) => ({ name, raw: name, w, dir, lanes, highway: !!hw, pts: toPts(flat) }));
 
-// Map names (GEO.labels: [{ name, kind: 'suburb'|'quarter'|'neighbourhood'|'water', x, z }]) as the map's
-// [[name, x, z, kind]] with kinds 0 district, 1 water, 2 neighbourhood; the map upper-cases them for display
-const LABEL_KIND = { suburb: 0, water: 1, quarter: 2, neighbourhood: 2 };
-const AREA_LABELS = GEO.labels.map((l) => [l.name, l.x, l.z, LABEL_KIND[l.kind] ?? 2]);
 // Shorter map names for a few real street names
 const LABEL_ALIAS = {};
 
@@ -543,7 +539,6 @@ export {
   waterAt,
   SIGNAL_SITES,
   ROADS,
-  AREA_LABELS,
   LABEL_ALIAS,
   nearestRoads,
   BLOCKS,

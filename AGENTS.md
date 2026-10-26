@@ -1,7 +1,11 @@
 # Slop Poznań
 
 A no-build three.js Poznań simulation (WebGPURenderer + TSL). `index.html` loads native ES modules from `js/`; three.js is
-`three@dev` from jsDelivr via the import map, so APIs can drift between visits. Served as static files (GitHub Pages).
+`three@dev` from jsDelivr via the import map, so APIs can drift between visits. Served as static files (GitHub Pages) at
+https://dminta.github.io/slop-poznan/ from github.com/dminta/slop-poznan.
+
+It is a port of a Manhattan simulation, still in progress: `docs/poznan-plan.md` tracks which phases are done and which
+NYC leftovers (names, ids, comments) are still expected. Check it before renaming or deleting anything NYC-flavoured.
 
 ## Commands
 - Tests: `node --test tests/` (~11 s, mostly the Poznań geodata rebuild); quick loop: `node --test tests/*.cjs` (<1 s). Node 22+.
@@ -19,6 +23,7 @@ A no-build three.js Poznań simulation (WebGPURenderer + TSL). `index.html` load
   indentation. When you rename, re-indent or add free variables there, update the test markers and stubs in the same change.
 - **`js/geodata.js` is generated**: change `tools/` or `tools/data/` and rebuild (`docs/geodata.md`).
 - **CSS**: when `css/style.css` changes, bump its `?v=YYYYMMDD-<slug>` query in `index.html`.
+- **UI text** is English with Polish place names, diacritics kept (Św. Marcin, Łazarz); units are metric (km/h, m).
 - **Shared state** flows through constructor injection from `main.js`, static imports and exported singletons
   (`cityUniforms`); keep `window` free of app globals.
 - **Hot paths** (per-frame code) reuse scratch objects and fixed pools; lights and instanced meshes are created at build time

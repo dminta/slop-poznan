@@ -13,7 +13,7 @@ import {
   OUTSKIRTS_HOLES,
   PLAZAS,
   BRIDGES,
-  AREA_LABELS,
+  RAIL,
   LABEL_ALIAS,
   getLocationLabel,
   isTypingInField,
@@ -28,10 +28,11 @@ import {
 // frame is not turned, GEO.frame.bearingDeg = 0). They draw the very geography the city is built from (GEO, from
 // OpenStreetMap): the land in the detailed core and the low-detail outskirts out to the city line, the Warta, the
 // Cybina, Malta & the ponds, every curb island (block) with the building footprints standing on it, the parks and
-// squares, the real street centrelines (labelled along their course) and the bridges.
+// squares, the real street centrelines (labelled along their course), the tram & rail lines and the bridges, with the
+// district, quarter and water names from GEO.labels.
 
 const FONT = 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-const MIN_ZOOM = 0.03; // full map, pixels per metre: the whole city out to its boundary (~24 km across)
+const MIN_ZOOM = 0.03; // full map, pixels per metre, when there is no city line to fit (minZoom fits it, ~24 km across)
 const MAX_ZOOM = 3.0; // single lots
 const RADAR_SCALE = 0.32; // radar pixels per metre on the ground (zooms out with altitude)
 const GRID_BEARING = (GEO.frame && GEO.frame.bearingDeg) || 0; // the map's up direction, degrees east of true north
@@ -44,8 +45,8 @@ function compassTitle(bearingDeg) {
 }
 
 // Map palette, shared by the radar & the atlas (in step with css/style.css): graphite ground with the streets a shade
-// lighter than the blocks they run between, muted parks & water; a taxi-yellow GPS route, white landmarks & player,
-// cyan search hits and amber highways
+// lighter than the blocks they run between, muted parks & water; a yellow GPS route, white landmarks & player, cyan
+// search hits, amber highways, thin red tram lines and dashed grey railways
 const MAP = {
   water: '#0a1118',
   beyond: '#12161b', // the land past the city line
@@ -65,13 +66,27 @@ const MAP = {
   mainRoads: '#3a434f',
   highway: '#b27a35',
   bridge: '#c08a3e',
+  tram: '#b8434d',
+  rail: '#5f6875',
   route: '#ffc21a',
   search: '#5fd0ff',
   halo: 'rgba(8, 11, 15, 0.9)'
 };
 
-// District (0), water (1) & neighbourhood (2) names at their real places (world metres; city-config.js), in capitals
-const AREA_TITLES = AREA_LABELS.map(([label, x, z, kind]) => [mapCaps(label), x, z, kind]);
+// Area names at their real places (GEO.labels, world metres), by kind: the zoom range (pixels per metre) they show in
+// and their type. Districts & quarters are set in spaced capitals (mapCaps upper-cases in Polish, so Ż/Ó/Ś stay), the
+// water in italic mixed case. Placed in this order, so the larger names win a collision.
+const AREA_STYLE = {
+  suburb: { minS: 0, maxS: 0.3, font: '700 15px', color: 'rgba(168, 178, 192, 0.5)', tracking: '3px', caps: true },
+  water: { minS: 0.04, maxS: 2, font: 'italic 500 12.5px', color: 'rgba(112, 168, 214, 0.6)', tracking: '1px' },
+  quarter: { minS: 0.06, maxS: 1.5, font: '700 11.5px', color: 'rgba(168, 178, 192, 0.48)', tracking: '2px', caps: true },
+  neighbourhood: { minS: 0.12, maxS: 1.5, font: '700 10.5px', color: 'rgba(168, 178, 192, 0.44)', tracking: '1.8px', caps: true }
+};
+const AREA_ORDER = Object.keys(AREA_STYLE);
+const AREA_TITLES = (GEO.labels || [])
+  .filter((l) => AREA_STYLE[l.kind])
+  .sort((a, b) => AREA_ORDER.indexOf(a.kind) - AREA_ORDER.indexOf(b.kind))
+  .map((l) => ({ text: AREA_STYLE[l.kind].caps ? mapCaps(l.name) : l.name, style: AREA_STYLE[l.kind], x: l.x, z: l.z }));
 
 // ---------------------------------------------------------------------------------------------------------------------
 // World-space vector layers: built once into Path2D objects (world metres) and drawn through a canvas transform
@@ -217,6 +232,11 @@ function mapLayers() {
     } else if (r.w >= 15) L.mainRoads.line(r.pts);
   }
 
+  // Tram tracks (street-running and on their own right of way) and the railways
+  L.trams = new TiledLayer(1000);
+  L.rail = new TiledLayer(1000);
+  for (const r of RAIL || []) (r.kind === 'tram' ? L.trams : L.rail).line(r.pts);
+
   // Landmark lots (real OpenStreetMap outlines)
   L.landmarks = new Path2D();
   for (const name in LANDMARK_SITES) {
@@ -255,54 +275,207 @@ function footprintLayers(all) {
   return FOOTPRINTS;
 }
 
-// Street name labels: anchors every ~260 m along each straight run of a real centreline (fixed in the world, so labels
-// never slide while the map pans), with the direction of the street there (never upside down: vertical names read
-// upwards)
-const ROAD_LABELS = [];
-for (const r of ROADS) {
-  const text = LABEL_ALIAS[r.name] || r.name;
-  if (!text || /^Unnamed/.test(text)) continue;
+// Street name labels: anchors spread by arc length along each real centreline (fixed in the world, so labels never
+// slide while the map pans), each at the straightest stretch of its share of the street. OSM centrelines bend through
+// many short segments (≈ 38 m on average), so an anchor measures how far the street runs either way before it turns
+// more than LABEL_BEND from the direction there; `len` is that straight span, and a name is drawn only where it fits.
+const LABEL_SPACING = 260; // metres of street per anchor
+const LABEL_BEND = 0.2; // radians (≈ 11°) the street may turn under half a label
+const LABEL_REACH = 400; // farthest an anchor looks along the street for a bend, metres
+const LABEL_MIN_LEN = 20; // shortest straight span worth an anchor, metres
+
+function angleGap(a, b) {
+  let d = Math.abs(a - b) % (2 * Math.PI);
+  return d > Math.PI ? 2 * Math.PI - d : d;
+}
+
+// The point `at` metres along a polyline with cumulative lengths `cum`, into out (index of its segment in out.i)
+function pointAlong(pts, cum, at, out) {
+  const n = pts.length;
+  let lo = 0;
+  let hi = n - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (cum[mid] <= at) lo = mid;
+    else hi = mid;
+  }
+  const seg = cum[hi] - cum[lo];
+  const t = seg > 0 ? Math.min(1, Math.max(0, (at - cum[lo]) / seg)) : 0;
+  out.i = lo;
+  out.x = pts[lo].x + (pts[hi].x - pts[lo].x) * t;
+  out.z = pts[lo].z + (pts[hi].z - pts[lo].z) * t;
+  return out;
+}
+
+// The label anchor at `at` metres along the street: { x, z, ang, len } with ang the chord across the straight span
+// (kept upright: never upside down, vertical names read upwards)
+function labelSpan(pts, cum, at) {
+  const n = pts.length;
+  const p = pointAlong(pts, cum, at, {});
+  let i = p.i;
+  while (i < n - 2 && cum[i + 1] - cum[i] < 1e-6) i++;
+  const dirOf = (j) => Math.atan2(pts[j + 1].z - pts[j].z, pts[j + 1].x - pts[j].x);
+  const dir = dirOf(i);
+  let fwd = Math.max(0, cum[i + 1] - at);
+  for (let j = i + 1; j < n - 1 && fwd < LABEL_REACH; j++) {
+    const len = cum[j + 1] - cum[j];
+    if (len < 1e-6) continue;
+    if (angleGap(dirOf(j), dir) > LABEL_BEND) break;
+    fwd += len;
+  }
+  let back = Math.max(0, at - cum[i]);
+  for (let j = i - 1; j >= 0 && back < LABEL_REACH; j--) {
+    const len = cum[j + 1] - cum[j];
+    if (len < 1e-6) continue;
+    if (angleGap(dirOf(j), dir) > LABEL_BEND) break;
+    back += len;
+  }
+  const half = Math.min(fwd, back, LABEL_REACH);
+  let ang = dir;
+  if (half > 1) {
+    const a = pointAlong(pts, cum, at - half, {});
+    const b = pointAlong(pts, cum, at + half, {});
+    ang = Math.atan2(b.z - a.z, b.x - a.x);
+  }
+  if (ang >= Math.PI * 0.5 - 0.01) ang -= Math.PI;
+  else if (ang < -Math.PI * 0.5 - 0.01) ang += Math.PI;
+  return { x: p.x, z: p.z, ang, len: 2 * half };
+}
+
+/**
+ * Label anchors along a street ([{x, z}, ...]): one per ~`spacing` metres of its length, each the straightest of a few
+ * candidates across its share of the street (the middle one when several fit, so a straight street gets evenly spaced
+ * names). Anchors with less than LABEL_MIN_LEN of straight street are dropped. Built once at load.
+ */
+function roadLabelAnchors(pts, spacing = LABEL_SPACING) {
   const anchors = [];
-  const pts = r.pts;
-  for (let i = 0; i + 1 < pts.length;) {
-    // the straight run from pts[i]: consecutive segments within ~5° of its first one (a centreline has a vertex at
-    // every junction, so a straight street is a chain of short blocks)
-    const a = pts[i];
-    const dir = Math.atan2(pts[i + 1].z - a.z, pts[i + 1].x - a.x);
-    let j = i + 1;
-    while (j + 1 < pts.length) {
-      const d = Math.atan2(pts[j + 1].z - pts[j].z, pts[j + 1].x - pts[j].x);
-      let turn = Math.abs(d - dir);
-      if (turn > Math.PI) turn = 2 * Math.PI - turn;
-      if (turn > 0.09) break;
-      j++;
+  const n = pts ? pts.length : 0;
+  if (n < 2) return anchors;
+  const cum = new Float64Array(n);
+  for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z);
+  const total = cum[n - 1];
+  if (total < LABEL_MIN_LEN) return anchors;
+  const k = Math.max(1, Math.round(total / spacing));
+  const share = total / k;
+  // an odd number of candidates, ~spacing / 4 apart, so the middle of the share is one of them
+  const per = 2 * Math.floor(share / (spacing * 0.25) / 2) + 1;
+  for (let b = 0; b < k; b++) {
+    const mid = (b + 0.5) * share;
+    let best = null;
+    let bestScore = -Infinity;
+    for (let c = 0; c < per; c++) {
+      const at = (b + (c + 0.5) / per) * share;
+      const a = labelSpan(pts, cum, at);
+      const score = Math.min(a.len, share) - 0.01 * Math.abs(at - mid);
+      if (score > bestScore) {
+        bestScore = score;
+        best = a;
+      }
     }
-    const c = pts[j];
-    i = j;
-    const len = Math.hypot(c.x - a.x, c.z - a.z);
-    if (len < 20) continue;
-    let ang = Math.atan2(c.z - a.z, c.x - a.x);
-    if (ang >= Math.PI * 0.5 - 0.01) ang -= Math.PI;
-    else if (ang < -Math.PI * 0.5 - 0.01) ang += Math.PI;
-    const k = Math.max(1, Math.round(len / 260));
-    for (let m = 0; m < k; m++) {
-      const t = (m + 0.5) / k;
-      anchors.push({ x: a.x + (c.x - a.x) * t, z: a.z + (c.z - a.z) * t, ang, len: len / k });
+    if (best && best.len >= LABEL_MIN_LEN) anchors.push(best);
+  }
+  return anchors;
+}
+
+/**
+ * Joins pieces of one street ([[{x, z}, ...], ...]) into longer polylines: OSM splits a street wherever its width,
+ * lanes or direction change (Głogowska is 20 pieces, many of 2-3 points), and a name placed per piece would get only the
+ * piece's few metres. Two pieces join where an end of each meets (within 0.5 m) and no third piece ends there, so the
+ * carriageways of a dual street and its side branches stay separate. Returns [{ pts, pieces: [indices] }].
+ */
+function chainRoadPieces(list) {
+  const key = (p) => `${Math.round(p.x * 2)},${Math.round(p.z * 2)}`;
+  const ends = new Map(); // endpoint -> [piece index, ...] (a closed piece counts twice)
+  list.forEach((pts, i) => {
+    for (const p of [pts[0], pts[pts.length - 1]]) {
+      const k = key(p);
+      if (!ends.has(k)) ends.set(k, []);
+      ends.get(k).push(i);
+    }
+  });
+  const used = new Uint8Array(list.length);
+  // the other piece ending at point p, when exactly two do
+  const partner = (p, i) => {
+    const at = ends.get(key(p));
+    if (!at || at.length !== 2 || at[0] === at[1]) return -1;
+    const j = at[0] === i ? at[1] : at[0];
+    return used[j] ? -1 : j;
+  };
+  const chains = [];
+  for (let i = 0; i < list.length; i++) {
+    if (used[i] || list[i].length < 2) continue;
+    used[i] = 1;
+    let pts = list[i].slice();
+    const pieces = [i];
+    for (let grew = true; grew;) {
+      grew = false;
+      const tail = pts[pts.length - 1];
+      let j = partner(tail, pieces[pieces.length - 1]);
+      if (j >= 0) {
+        const q = list[j];
+        const along = key(q[0]) === key(tail) ? q : q.slice().reverse();
+        pts = pts.concat(along.slice(1));
+        used[j] = 1;
+        pieces.push(j);
+        grew = true;
+      }
+      const head = pts[0];
+      j = partner(head, pieces[0]);
+      if (j >= 0) {
+        const q = list[j];
+        const along = key(q[q.length - 1]) === key(head) ? q : q.slice().reverse();
+        pts = along.slice(0, -1).concat(pts);
+        used[j] = 1;
+        pieces.unshift(j);
+        grew = true;
+      }
+    }
+    chains.push({ pts, pieces });
+  }
+  return chains;
+}
+
+// One label entry per chained stretch of a named street (searchable even where no name fits)
+const ROAD_LABELS = [];
+{
+  const byName = new Map();
+  for (const r of ROADS) {
+    const text = LABEL_ALIAS[r.name] || r.name;
+    if (!text || /^Unnamed/.test(text) || !r.pts || r.pts.length < 2) continue;
+    if (!byName.has(r.name)) byName.set(r.name, []);
+    byName.get(r.name).push(r);
+  }
+  for (const [name, roads] of byName) {
+    const text = LABEL_ALIAS[name] || name;
+    for (const { pts, pieces } of chainRoadPieces(roads.map((r) => r.pts))) {
+      const highway = pieces.some((i) => roads[i].highway);
+      ROAD_LABELS.push({
+        text,
+        lower: foldText(text),
+        raw: foldText(name),
+        pts,
+        major: highway || pieces.some((i) => roads[i].w >= 15),
+        highway,
+        anchors: roadLabelAnchors(pts),
+        ...boundsOf(pts)
+      });
     }
   }
-  if (!anchors.length) continue;
-  ROAD_LABELS.push({
-    text,
-    lower: foldText(text),
-    raw: foldText(r.name),
-    road: r,
-    major: r.highway || r.w >= 15,
-    highway: r.highway,
-    anchors,
-    ...boundsOf(r.pts)
-  });
 }
 const ROAD_NAME_COUNT = new Set(ROAD_LABELS.map((l) => l.text)).size;
+
+// The city out to its boundary (the outskirts and the detailed core): what the full map fits when zoomed out all the way
+const CITY_EXTENT = (() => {
+  const b = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
+  for (const ring of [...(OUTSKIRTS || []), ...(LAND_RINGS || [])]) {
+    const r = boundsOf(ring);
+    b.minX = Math.min(b.minX, r.minX);
+    b.maxX = Math.max(b.maxX, r.maxX);
+    b.minZ = Math.min(b.minZ, r.minZ);
+    b.maxZ = Math.max(b.maxZ, r.maxZ);
+  }
+  return b.maxX > b.minX && b.maxZ > b.minZ ? b : null;
+})();
 
 /** A map viewport: centre (cx, cz) in world metres, s pixels per metre, w x h CSS pixels on a canvas of pixel ratio dpr */
 class MapView {
@@ -505,7 +678,7 @@ function routePath(tree, start, out) {
   return out;
 }
 
-// GPS route from the player to the waypoint through the route's graph nodes (straight across without any): taxi yellow
+// GPS route from the player to the waypoint through the route's graph nodes (straight across without any): yellow
 // on a dark casing
 function drawRoute(ctx, v, px, pz, wx, wz, graph, nodes, width) {
   ctx.lineJoin = 'round';
@@ -522,7 +695,7 @@ function drawRoute(ctx, v, px, pz, wx, wz, graph, nodes, width) {
   ctx.stroke();
 }
 
-// Waypoint: a taxi-yellow target
+// Waypoint: a yellow target
 function drawWaypoint(ctx, x, y, r) {
   ctx.fillStyle = MAP.halo;
   ctx.beginPath();
@@ -575,7 +748,7 @@ class CityMapSystem {
     this.elHoverInfo = document.getElementById('fullmap-hover-info');
     this.elPlayerInfo = document.getElementById('fullmap-player-info');
     this.elSearchInput = document.getElementById('fullmap-search');
-    if (this.elSearchInput) this.elSearchInput.placeholder = `Search ${ROAD_NAME_COUNT} streets & landmarks…`;
+    if (this.elSearchInput) this.elSearchInput.placeholder = 'Św. Marcin, Głogowska, Stary Rynek…';
 
     this.isFullMapOpen = false;
     // Full map viewport state (world metres; zoom in CSS pixels per metre)
@@ -591,7 +764,7 @@ class CityMapSystem {
     this.searchHighlight = '';
     this.searchPath = null;
     this.textWidths = new Map();
-    // Default GTA 6-style active GPS waypoint: the Ratusz on Stary Rynek
+    // Default GPS waypoint: the Ratusz on Stary Rynek (the world origin)
     const ratusz = CITY_LANDMARKS.find((l) => l.id === 'ratusz') || { x: 0, z: 0, name: 'Ratusz & Stary Rynek' };
     this.waypoint = { x: ratusz.x, z: ratusz.z, name: ratusz.name };
     // GPS route state (updateRoute): the graph (built on first use), the shortest-path tree towards the waypoint's
@@ -621,7 +794,7 @@ class CityMapSystem {
     const zoomInBtn = document.getElementById('map-zoom-in');
     const zoomOutBtn = document.getElementById('map-zoom-out');
     const centerPlayerBtn = document.getElementById('map-center-player');
-    const fullIslandBtn = document.getElementById('map-view-all');
+    const viewAllBtn = document.getElementById('map-view-all');
 
     if (miniCard) {
       miniCard.addEventListener('click', () => this.toggleFullMap(true));
@@ -638,7 +811,7 @@ class CityMapSystem {
     }
     if (zoomOutBtn) {
       zoomOutBtn.addEventListener('click', () => {
-        this.viewZoom = Math.max(MIN_ZOOM, this.viewZoom / 1.45);
+        this.viewZoom = Math.max(this.minZoom(), this.viewZoom / 1.45);
         this.renderFullMap();
       });
     }
@@ -651,14 +824,14 @@ class CityMapSystem {
         this.renderFullMap();
       });
     }
-    if (fullIslandBtn) {
-      fullIslandBtn.addEventListener('click', () => {
-        // Fits the detailed core, Jeżyce to Malta (the outskirts stay in view around it)
+    if (viewAllBtn) {
+      viewAllBtn.addEventListener('click', () => {
+        // Fits the detail box (GEO.frame.detailBox), Jeżyce to Malta; the outskirts stay in view around it
         const b = CITY_BOUNDS;
         const { w, h } = this.fullSize();
         this.viewCenterX = (b.minX + b.maxX) * 0.5;
         this.viewCenterZ = (b.minZ + b.maxZ) * 0.5;
-        this.viewZoom = Math.max(MIN_ZOOM, Math.min(w / ((b.maxX - b.minX) * 1.15), h / ((b.maxZ - b.minZ) * 1.06)));
+        this.viewZoom = Math.max(this.minZoom(), Math.min(w / ((b.maxX - b.minX) * 1.15), h / ((b.maxZ - b.minZ) * 1.06)));
         this.renderFullMap();
       });
     }
@@ -760,7 +933,7 @@ class CityMapSystem {
         const my = e.clientY - rect.top;
         const before = this.screenToWorld(mx, my, rect.width, rect.height);
         const factor = e.deltaY < 0 ? 1.18 : 1 / 1.18;
-        this.viewZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, this.viewZoom * factor));
+        this.viewZoom = Math.max(this.minZoom(), Math.min(MAX_ZOOM, this.viewZoom * factor));
         this.viewCenterX = before.x - (mx - rect.width * 0.5) / this.viewZoom;
         this.viewCenterZ = before.z - (my - rect.height * 0.5) / this.viewZoom;
         this.renderFullMap();
@@ -783,7 +956,7 @@ class CityMapSystem {
         this.searchPath = new Path2D();
         const b = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
         for (const l of roads) {
-          addLine(this.searchPath, l.road.pts);
+          addLine(this.searchPath, l.pts);
           b.minX = Math.min(b.minX, l.minX);
           b.maxX = Math.max(b.maxX, l.maxX);
           b.minZ = Math.min(b.minZ, l.minZ);
@@ -850,6 +1023,15 @@ class CityMapSystem {
     const dpr = this.fullDpr || 1;
     if (!this.fullCanvas) return { w: 1200, h: 800 };
     return { w: this.fullCanvas.width / dpr, h: this.fullCanvas.height / dpr };
+  }
+
+  /** The farthest the full map zooms out: the whole city out to its boundary, with a small margin */
+  minZoom() {
+    const b = CITY_EXTENT;
+    if (!b) return MIN_ZOOM;
+    const { w, h } = this.fullSize();
+    const fit = Math.min(w / ((b.maxX - b.minX) * 1.04), h / ((b.maxZ - b.minZ) * 1.04));
+    return Number.isFinite(fit) && fit > 0 ? Math.min(fit, MAX_ZOOM) : MIN_ZOOM;
   }
 
   screenToWorld(sx, sy, width, height) {
@@ -954,7 +1136,16 @@ class CityMapSystem {
       L.mainRoads.each(v, (p) => ctx.stroke(p));
     }
 
-    // 6. Expressways
+    // 6. Railways (dashed grey) and expressways
+    if (s >= 0.035) {
+      ctx.strokeStyle = MAP.rail;
+      ctx.lineWidth = px(s < 0.1 ? 1 : 1.4);
+      ctx.lineCap = 'butt';
+      ctx.setLineDash([px(6), px(4)]);
+      L.rail.each(v, (p) => ctx.stroke(p));
+      ctx.setLineDash([]);
+      ctx.lineCap = 'round';
+    }
     ctx.strokeStyle = MAP.highway;
     ctx.lineWidth = Math.max(px(isMinimap ? 2.4 : 1.6), 14);
     ctx.stroke(L.highways);
@@ -968,7 +1159,12 @@ class CityMapSystem {
     }
     ctx.lineCap = 'round';
 
-    // 8. Search highlight: every stretch of the matching streets
+    // 8. Tram lines: thin red, over the streets and the bridges they cross (a track pair reads as one line)
+    ctx.strokeStyle = MAP.tram;
+    ctx.lineWidth = px(Math.min(2.4, Math.max(isMinimap ? 1.4 : 0.9, 1.2 * s)));
+    L.trams.each(v, (p) => ctx.stroke(p));
+
+    // 9. Search highlight: every stretch of the matching streets
     if (this.searchPath && !isMinimap) {
       ctx.strokeStyle = MAP.search;
       ctx.lineWidth = Math.max(px(3), 9);
@@ -1325,34 +1521,24 @@ class CityMapSystem {
       pins.push({ lm, lx, ly, showLabel });
     }
 
-    // 4. District, water & neighbourhood watermark titles (wherever they fit), letter-spaced like a printed atlas
+    // 4. District, quarter, neighbourhood & water watermark titles (wherever they fit, larger kinds first),
+    // letter-spaced like a printed atlas
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const tracking = 'letterSpacing' in ctx;
-    for (const [label, x, z, kind] of AREA_TITLES) {
-      if (kind === 0 && s > 0.07) continue;
-      if (kind === 2 && (s < 0.035 || s > 1.2)) continue;
+    for (const { text, style, x, z } of AREA_TITLES) {
+      if (s < style.minS || s > style.maxS) continue;
       const dx = toX(x);
       const dy = toY(z);
       if (Math.abs(dx) > w * 0.47 || Math.abs(dy) > h * 0.47) continue;
-      if (kind === 0) {
-        ctx.font = `700 15px ${FONT}`;
-        ctx.fillStyle = 'rgba(168, 178, 192, 0.5)';
-        if (tracking) ctx.letterSpacing = '3px';
-      } else if (kind === 1) {
-        ctx.font = `italic 500 12px ${FONT}`;
-        ctx.fillStyle = 'rgba(112, 168, 214, 0.55)';
-        if (tracking) ctx.letterSpacing = '1.5px';
-      } else {
-        ctx.font = `700 10.5px ${FONT}`;
-        ctx.fillStyle = 'rgba(168, 178, 192, 0.46)';
-        if (tracking) ctx.letterSpacing = '1.8px';
-      }
-      const half = this.textWidth(ctx, label) * 0.5 + 4;
+      ctx.font = `${style.font} ${FONT}`;
+      ctx.fillStyle = style.color;
+      if (tracking) ctx.letterSpacing = style.tracking;
+      const half = this.textWidth(ctx, text) * 0.5 + 4;
       const box = [dx - half, dy - 8, dx + half, dy + 8];
       if (overlaps(placed, box)) continue;
       placed.push(box);
-      ctx.fillText(label, dx, dy);
+      ctx.fillText(text, dx, dy);
     }
     if (tracking) ctx.letterSpacing = '0px';
     ctx.textBaseline = 'alphabetic';
@@ -1417,4 +1603,4 @@ class CityMapSystem {
   }
 }
 
-export { CityMapSystem, buildRouteGraph, nearestNode, routeTree, routePath, compassTitle };
+export { CityMapSystem, buildRouteGraph, nearestNode, routeTree, routePath, compassTitle, roadLabelAnchors, chainRoadPieces };

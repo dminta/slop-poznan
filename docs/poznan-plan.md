@@ -1,6 +1,6 @@
 # Implementation plan: replacing New York with Poznań
 
-Status: **Phases 1–5 done** (each phase heading carries its own status note); Phases 6–12 are not started.
+Status: **Phases 1–6 done** (each phase heading carries its own status note); Phases 7–12 are not started.
 Line references are as of commit `46ec12b` and will drift; grep for the named symbol if a line no longer matches. Read `AGENTS.md` and the topic docs (`geodata.md`, `world.md`, `rendering.md`,
 `actors.md`, `audio.md`, `architecture.md`, `testing.md`) before starting any phase. They hold the repo-wide rules
 (modulepreload + boot count, module syntax, source-sliced tests, generated geodata, CSS `?v=` bump).
@@ -556,6 +556,19 @@ at link time on any leftover.
    Also run `node --test tests/`.
 
 ### Phase 6: Map, HUD, branding
+
+**Status: done** (not yet checked in a browser). D12 is resolved: the repo is `dminta/slop-poznan`, live at
+https://dminta.github.io/slop-poznan/. Deviations and open points:
+- `city-map.js`: most layers, the north-up frame and the Ratusz default waypoint already came with Phase 5. New: the
+  tram (red) and rail (dashed grey) layer from `RAIL`, the fit-to-city `minZoom()`, area labels straight from
+  `GEO.labels` (`AREA_LABELS` is gone from `city-config.js`), arc-length road labels over same-name chains
+  (`chainRoadPieces`, `roadLabelAnchors`). CHWALISZEWO, CENTRUM, CYTADELA, MALTA and ŚRÓDMIEŚCIE are not in `GEO.labels`,
+  so they don't show; add them in `tools/` if wanted. No map legend for trams yet.
+- The accent stays yellow (`--accent` #ffc21a). The street plate is a blue (#1d4f9c) plate with a white inner border; the
+  prefix comes from `splitStreetKind` in `main.js` (Aleja → al., Plac → pl., Osiedle → os., Rondo, Most; names starting
+  Rynek/Stary/Zaułek/Pasaż/Wzgórze/Bulwar get none; the rest ul.). The design was not checked against street imagery.
+- The gauge labels live in `controllers.js` (`ent.label`): "Poznań Taxi", "Bike Lane Cyclist".
+- Camera popover labels name the Poznań views; the preset ids stay NYC until Phase 12.
 
 1. **`city-map.js`**:
    - layers: `land` (outskirts), `water` polygons (the model flips from "land on water background" to "water on land

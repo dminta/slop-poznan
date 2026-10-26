@@ -32,7 +32,7 @@ test('native module entry and imports share canonical preloaded URLs on GitHub P
   assert.equal(entries[0][1], './js/main.js');
   assert.ok(links.includes(entries[0][1]));
   assert.equal([...html.matchAll(/<script\b/g)].length, 2, 'only the import map and native entry are needed');
-  const base = 'https://example.test/slop-newyork/';
+  const base = 'https://dminta.github.io/slop-poznan/';
   const urls = new Set(links.map((src) => new URL(src, base).href));
   for (const src of links) {
     assert.match(src, /^\.\/js\/[\w-]+\.js$/, 'preloads use the same unversioned paths as native imports');

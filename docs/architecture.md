@@ -7,7 +7,7 @@
 - `js/controllers.js` owns the four player entities (`entities.person|car|cyclist|helicopter`), `activeMode`, the merged input
   `keys`, ground height, building collisions and teleport placement. `js/cameras.js` owns the render camera, `CAMERA_PRESETS` and
   the orbit/zoom state. The scenic preset ids (`centralPark`, `fifthAve`, …) are still the Manhattan ones, because the
-  `index.html` buttons (labels still NYC until Phase 6), a `main.js` shortcut and `tests/cameras.test.cjs` name them; their views are rough Poznań stand-ins until Phase 12. `js/city-config.js` holds static world data and helpers (`TELEPORT_LOCATIONS`, `SPAWN`, `getLocationLabel`,
+  `index.html` buttons (whose labels already name the Poznań views), a `main.js` shortcut and `tests/cameras.test.cjs` name them; their views are rough Poznań stand-ins until Phase 12. `js/city-config.js` holds static world data and helpers (`TELEPORT_LOCATIONS`, `SPAWN`, `getLocationLabel`,
   `isTypingInField`, `isLand`, `clampToLand`, ...).
 
 ## Module graph and registering a new module
@@ -173,8 +173,15 @@ Physics notes:
 - Wrap every storage access in `try { } catch { /* reason */ }`. Storage may be unavailable, and that must never block play.
 
 ## HUD, CSS and cache busting
-- `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently `20261022-repo-link`). When you change
+- `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently `20261026-poznan-hud`). When you change
   `style.css`, bump that query in `index.html` in the same commit; GitHub Pages caches it.
+- Colours are tokens on `:root`: `--accent`/`--accent-ink` (yellow, also the map's GPS route in `city-map.js`) mark
+  whatever is active, `--sign-blue` is the street plate. The loading screen, brand and map title share the `.badge` roundel.
+- The location HUD draws each street as a blue plate: `renderLocation` in `main.js` splits the kind off the OSM name
+  (`splitStreetKind`: "Aleja"/"Plac"/"Osiedle"/"Rondo"/"Most" become "al."/"pl."/"os."/"rondo"/"most", squares named by
+  their kind get none, everything else "ul.") into `.street-sign-kind` over `.street-sign-name`.
+- Fonts: Inter (UI) and Overpass (plates) from Google Fonts; the css2 API serves their latin-ext subset by `unicode-range`,
+  which covers Ą Ć Ę Ł Ń Ó Ś Ź Ż. A replacement family must have latin-ext.
 - JS modules carry no version query. The boot test requires plain `./js/x.js` paths so that preloads and imports share one URL.
 - UI code uses only safe DOM APIs: `textContent`, `classList`, `replaceChildren` and `createElement`. Never `innerHTML`.
 - Popovers are native `[popover]` elements that `main.js` positions from `data-anchor`, `data-align` and `data-side`.
@@ -182,9 +189,15 @@ Physics notes:
 - The map (`city-map.js`) draws up = `GEO.frame.bearingDeg` (0 for Poznań: true north up) in world metres. The compass
   needle and its tooltip (`#map-compass`) are set from that bearing at runtime. It caches static layers (`miniCache`,
   `fullStaticKey`) and must invalidate them when fonts load.
-- Map names come from `city-config.js`: `AREA_LABELS` (district, water and neighbourhood names from `GEO.labels`,
-  upper-cased with `mapCaps`) and `LABEL_ALIAS` (short street names; empty for now). Road names are used as OSM signs
-  them. Street search compares `foldText` keys (lower case, no diacritics, ł → l); `compareNames` (Polish collation) is
+- Layers, bottom up: outskirts land, the core, water (with island holes), parks, blocks, plazas, rail (dashed grey),
+  bridges, trams (thin red, above the decks), landmarks. The furthest zoom-out (`minZoom()`) fits the whole city outline
+  to the canvas; "fit all" (`#map-view-all`) fits the detail box (`CITY_BOUNDS`).
+- Area names are read from `GEO.labels` by `kind`: each kind (suburb, quarter, neighbourhood, water) has its own zoom
+  range; water is italic mixed case, the rest spaced caps via `mapCaps`. `LABEL_ALIAS` (`city-config.js`) holds short
+  street names (empty for now). Road names are used as OSM signs them.
+- Road labels: `chainRoadPieces` joins same-named OSM pieces end to end (not through forks), then `roadLabelAnchors`
+  places about one label per 260 m of arc length where the street runs straight (turns under 0.2 rad) for longer than
+  the text. Both run once at load (~18 ms). Street search compares `foldText` keys (lower case, no diacritics, ł → l); `compareNames` (Polish collation) is
   for any alphabetical list, and `formatCount` formats counts with Polish digit grouping.
 - The GPS route (`updateRoute`, `drawRoute`) is the shortest path on `trafficSystem.network`, which `main.js` passes in as
   `network`. One-way streets count both ways. The map builds the graph on first use, then runs Dijkstra from the
