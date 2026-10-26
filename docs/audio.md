@@ -71,7 +71,8 @@ mix -> DynamicsCompressor -> master(gain, ramps to 0.65) -> destination
   golden-ratio offset so identical loops do not phase-lock.
 - Per-source distance fade: emitter gain uses a smoothstep over the last 30 % of `source.range`. `emit()` drops
   an event outright if it is beyond its kind's range (crash range scales with severity).
-- Police cars get two records: a normal motor and a `siren` (in `sources.sirens`, its own pool and range).
+- Emergency vehicles (`isPolice`: Policja, ambulances, fire service) get two records: a normal motor and a `siren`
+  (in `sources.sirens`, its own pool and range).
 - Trams are their own category (`sources.trams`, pool `this.trams`, range 220 m, ref distance 7), never mixed into
   the motors. The `tram` voice: a baked traction loop (`resources.traction`, 250 Hz reference) pitched 0.55–2.45× over
   0–18 m/s and loud with `load` (|acc|: regenerative braking whines too), rail rumble (low-passed noise rising with
