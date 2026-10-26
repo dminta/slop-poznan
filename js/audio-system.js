@@ -503,10 +503,12 @@ class CityAudioSystem {
     for (const source of sources.motors) {
       if (source.player || source.kind === 'helicopter' || source.kind === 'cyclist') continue;
       const state = this.state(source, now);
+      // Polish drivers honk far less than New York's: only after 8 s stuck behind a stalled car, and a driver who has
+      // honked waits 30-50 s before the next one
       state.stopped = source.blocked ? state.stopped + dt : 0;
-      if (state.stopped > 4 && now > state.horn && now - this.lastHorn > 3) {
+      if (state.stopped > 8 && now > state.horn && now - this.lastHorn > 3) {
         if (this.emit('horn', source, { intensity: 0.55 })) {
-          state.horn = now + 18 + state.variation * 15;
+          state.horn = now + 30 + state.variation * 20;
           this.lastHorn = now;
         }
       }

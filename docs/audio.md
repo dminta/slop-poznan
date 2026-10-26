@@ -117,8 +117,9 @@ freezes. If you rename or remove any of these, update `audio-sources.js` in the 
   `atStop` goes false (departure, doors closed), and every 4–6 s while its `waitReason` is `'player'`. Per-tram state
   (`tramStopped`, `bell`) is in `this.states`. Bells follow the tram (`follow`), ref 9, range 160, and are never
   evicted for a crash, like horns.
-- Horns: automatic horns go off when an NPC is `blocked` for more than 4 s, with a 3 s global gap and an 18-33 s
-  per-car gap. `honk()` handles the player's KeyB and works for `type === 'car'` only.
+- Horns: automatic horns go off when an NPC is `blocked` for more than 8 s (Polish drivers honk less than New York's),
+  with a 3 s global gap and a 30-50 s per-car gap. `honk()` handles the player's KeyB and works for `type === 'car'`
+  only.
 - Conversations: only the pair's `a` member drives turns, and only while both peds are nearly still. The next turn
   starts at `voice.endTime` plus a pause, so the speakers never overlap.
 - Signals: tick and walk patterns are scheduled ahead with `when`. A phase change removes the pending events for
