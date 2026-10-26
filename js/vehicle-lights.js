@@ -15,6 +15,21 @@ const HEADLIGHTS = {
   noseOffset: 0.08
 };
 
+// Tram lamps (trams.js, painted by createTramMaterial in actor-models.js), in the front cab section's object space
+// (+z forward, centred on the section): headlight = [centre |x|, y] of each lamp, taillight = [centre |x|, y,
+// half-width, half-height] on the rear cab. The cab's lamp face sits cabInset behind its section's end, as with
+// BUS_SPEC.zFront; tramLightSpec(cabLength) gives the spec placeVehicleHeadlight takes.
+const TRAM_LIGHTS = {
+  headlight: [0.82, 0.9],
+  taillight: [0.92, 1.0, 0.06, 0.16],
+  cabInset: 0.14
+};
+
+function tramLightSpec(cabLength) {
+  const zFront = cabLength / 2 - TRAM_LIGHTS.cabInset;
+  return { headlight: TRAM_LIGHTS.headlight, taillight: TRAM_LIGHTS.taillight, zFront, zRear: -zFront };
+}
+
 function createVehicleHeadlight() {
   return new THREE.SpotLight(HEADLIGHTS.color, 0, HEADLIGHTS.distance, HEADLIGHTS.angle, HEADLIGHTS.penumbra, HEADLIGHTS.decay);
 }
@@ -34,4 +49,4 @@ function placeVehicleHeadlight(spot, spec, side, matrix = null) {
   }
 }
 
-export { HEADLIGHTS, createVehicleHeadlight, placeVehicleHeadlight };
+export { HEADLIGHTS, TRAM_LIGHTS, tramLightSpec, createVehicleHeadlight, placeVehicleHeadlight };

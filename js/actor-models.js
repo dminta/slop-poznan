@@ -2032,6 +2032,218 @@ function createLoftedHelicopterMaterial() {
   return mat;
 }
 
+// ============================================================================
+// 6. POZNAŃ TRAMS (trams.js): ARTICULATED LOW-FLOOR SECTIONS, BELLOWS & TSL MATERIAL
+// ============================================================================
+// One lofted body per section kind (trams.js TRAM_MODELS: { len, cab, doors, bogies, pantograph }), +z forward and
+// centred on the section, so trams.js poses every section with one matrix. Cab sections taper into a raked, rounded
+// nose at +z (cab 1, the front) or -z (cab -1, the rear end). Roof equipment fairings, the bogies under the skirt, a
+// coupler cover and the single-arm pantograph are separate pieces of the same mesh (partId). Windows, doors, livery
+// and lamps are painted by createTramMaterial() from object-space position and normal plus a constant per-vertex
+// `tramInfo` (half length, cab, two door centres) and the per-instance `tramState` (brake, livery, doors open, -).
+const TRAM_PARTS = {
+  BODY: 0,
+  TRIM: 1,
+  POD: 2,
+  PANTO: 3,
+  BELLOWS: 4
+};
+// Right half of the cross-section (x, y), skirt to roof, and the roof centre: 2.4 m wide, low floor
+const TRAM_PROFILE = [[1.1, 0.3], [1.19, 0.38], [1.2, 0.6], [1.2, 2.3], [1.18, 2.7], [1.1, 2.96], [0.86, 3.1], [0.42, 3.16]];
+const TRAM_ROOF = 3.18;
+// The nose over its last `len` metres: plan taper, windscreen rake (top back), rounded corners, chin
+const TRAM_NOSE = { len: 1.6, taper: 0.14, rake: 0.42, round: 0.45, chin: 0.12, u: [0, 0.3, 0.55, 0.75, 0.9, 1] };
+// Contact wire height the pantograph head is raised to (street catenary ~5.5-6 m)
+const TRAM_PANTOGRAPH_HEAD = 5.5;
+
+function tramRing(z, u, cab) {
+  const ring = mirrorSection(TRAM_PROFILE, [0, TRAM_ROOF], z);
+  if (u <= 0) return ring;
+  const n = TRAM_NOSE;
+  for (const p of ring) {
+    const up = Math.min(1, Math.max(0, (p.y - 1.1) / 2.0));
+    const low = Math.min(1, Math.max(0, (0.75 - p.y) / 0.45));
+    const across = Math.abs(p.x) / 1.2;
+    p.x *= 1 - n.taper * u * u;
+    p.z -= cab * u * (n.rake * up * up + n.round * across ** 3 * u + n.chin * low);
+  }
+  return ring;
+}
+
+// A thin box from a to b (pantograph arms)
+function tramBeam(a, b, t) {
+  const d = b.distanceTo(a);
+  const g = new THREE.BoxGeometry(t, t, d);
+  const m = new THREE.Matrix4().lookAt(b, a, new THREE.Vector3(1, 0, 0));
+  m.setPosition((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+  return g.applyMatrix4(m);
+}
+
+function buildTramPantograph() {
+  const v = (x, y, z) => new THREE.Vector3(x, y, z);
+  const base = TRAM_ROOF + 0.3;
+  const head = TRAM_PANTOGRAPH_HEAD;
+  const knee = v(0, base + (head - base) * 0.48, 0.7);
+  const parts = [roundedBox(0.5, 0.05, 1.3, 0.03).translate(0, base, 0)];
+  for (const x of [-0.4, 0.4]) parts.push(new THREE.CylinderGeometry(0.05, 0.06, 0.16, 6).translate(x, base - 0.1, -0.5));
+  for (const x of [-0.16, 0.16]) parts.push(tramBeam(v(x, base + 0.05, -0.55), v(x * 0.4, knee.y, knee.z), 0.05));
+  parts.push(tramBeam(v(0, knee.y, knee.z), v(0, head - 0.06, -0.3), 0.045));
+  parts.push(tramBeam(v(0, base + 0.08, -0.35), v(0, knee.y - 0.1, knee.z - 0.1), 0.025)); // the guide rod
+  parts.push(new THREE.BoxGeometry(1.3, 0.05, 0.1).translate(0, head, -0.3)); // collector strip
+  for (const s of [-1, 1]) {
+    parts.push(new THREE.BoxGeometry(0.3, 0.04, 0.08).rotateZ(s * 0.5).translate(s * 0.78, head - 0.07, -0.3)); // horns
+  }
+  return mergeGeometries(parts.map((g) => part(g, TRAM_PARTS.PANTO)));
+}
+
+function buildTramSectionGeometry(section) {
+  const { len, cab, doors, bogies, pantograph } = section;
+  const h = len / 2;
+  const stations = [[h, 0], [-h, 0]];
+  if (cab) {
+    stations.length = 0;
+    stations.push([-cab * h, 0]);
+    for (const u of TRAM_NOSE.u) stations.push([cab * (h - TRAM_NOSE.len * (1 - u)), u]);
+  }
+  stations.sort((a, b) => b[0] - a[0]);
+  const body = new LoftGeometry(stations.map(([z, u]) => tramRing(z, u, cab || 1)), { capStart: true, capEnd: true });
+  const parts = [part(body, TRAM_PARTS.BODY)];
+
+  // Roof equipment fairing (kept off the nose), bogie frames under the skirt
+  const podLen = len * (cab ? 0.5 : 0.62);
+  parts.push(part(roundedBox(0.74, 0.14, podLen, 0.08, 0.03).translate(0, TRAM_ROOF + 0.12, -cab * len * 0.12), TRAM_PARTS.POD));
+  for (const z of bogies) parts.push(part(roundedBox(0.98, 0.17, 2.3, 0.05, 0.02).translate(0, 0.21, z), TRAM_PARTS.TRIM));
+  if (pantograph) parts.push(buildTramPantograph());
+  if (cab) {
+    // Coupler cover and the camera/mirror arms at the cab's top corners
+    const zEnd = cab * (h - 0.32);
+    parts.push(part(roundedBox(0.7, 0.1, 0.3, 0.05, 0.02).translate(0, 0.42, zEnd), TRAM_PARTS.TRIM));
+    for (const side of [-1, 1]) {
+      parts.push(part(new THREE.BoxGeometry(0.22, 0.04, 0.04).translate(side * 1.28, 2.62, cab * (h - 0.7)), TRAM_PARTS.TRIM));
+      parts.push(part(roundedBox(0.05, 0.13, 0.08, 0.025, 0.01).translate(side * 1.4, 2.5, cab * (h - 0.7)), TRAM_PARTS.TRIM));
+    }
+  }
+  const geo = mergeGeometries(parts);
+  const info = new Float32Array(geo.attributes.position.count * 4);
+  for (let i = 0; i < info.length; i += 4) {
+    info[i] = h;
+    info[i + 1] = cab;
+    info[i + 2] = doors[0];
+    info[i + 3] = doors[1];
+  }
+  geo.setAttribute('tramInfo', new THREE.BufferAttribute(info, 4));
+  return geo;
+}
+
+// Bellows between two sections: a unit-length ribbed box (scaled along z per joint), inset from the body sides
+function buildTramBellowsGeometry() {
+  const geo = part(roundedBox(1.1, 1.3, 1.0, 0.25, 0.02).translate(0, 1.7, 0), TRAM_PARTS.BELLOWS);
+  geo.setAttribute('tramInfo', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count * 4), 4));
+  return geo;
+}
+
+let _tramMat = null;
+
+/**
+ * The TSL material shared by every tram section and the bellows:
+ * - Cab ends: a large raked windscreen with the LED destination display above it; LED headlamps (front cab) or
+ *   red tail / brake lamps (rear cab)
+ * - Continuous dark window band with thin pillars, glazed double doors on the right (-x) side, opening dark (doors
+ *   open, `tramState.z`); interiors glow at night
+ * - MPK Poznań livery (approximate): livery 0 (Gamma) green below the windows with yellow sill & cornice stripes and a
+ *   yellow cab front; livery 1 (Tramino) metallic green with thin yellow accents, yellow door frames and a yellow
+ *   front band; light grey roof & fairings, dark skirt, ribbed black bellows
+ */
+function createTramMaterial() {
+  if (_tramMat) return _tramMat;
+  const p = attribute('position', 'vec3');
+  const n = attribute('normal', 'vec3');
+  const partId = attribute('partId', 'float');
+  const info = attribute('tramInfo', 'vec4');
+  const state = attribute('tramState', 'vec4');
+  const isPart = (id) => step(abs(partId.sub(id)), 0.25);
+  const isBody = isPart(TRAM_PARTS.BODY);
+  const isTrim = isPart(TRAM_PARTS.TRIM);
+  const isPod = isPart(TRAM_PARTS.POD);
+  const isPanto = isPart(TRAM_PARTS.PANTO);
+  const isBellows = isPart(TRAM_PARTS.BELLOWS);
+  const one = float(1.0);
+  const halfLen = info.x;
+  const cab = info.y;
+  const tramino = state.y;
+  const ax = abs(p.x);
+
+  const side = smoothstep(0.55, 0.8, abs(n.x)).mul(isBody);
+  const roof = smoothstep(0.55, 0.8, n.y).mul(isBody);
+  const curb = step(p.x, 0.0);
+  // The cab's end face (cab +1: at +z, -1: at -z)
+  const cabFace = smoothstep(0.25, 0.5, n.z.mul(cab)).mul(step(halfLen.sub(1.9), p.z.mul(cab))).mul(abs(cab)).mul(isBody);
+  const isFront = step(0.5, cab);
+  const isRear = step(cab, -0.5);
+  const windscreen = roundedRect(vec2(p.x, p.y.sub(2.0)), vec2(1.0, 0.74), 0.2).mul(cabFace);
+  const display = roundedRect(vec2(p.x, p.y.sub(2.9)), vec2(0.66, 0.11), 0.03).mul(cabFace);
+  const displayText = step(0.45, fract(p.x.mul(9.0))).mul(roundedRect(vec2(p.x.add(0.1), p.y.sub(2.9)), vec2(0.46, 0.06), 0.01));
+
+  // Window band (pillars every 1.6 m), doors with glazed leaves
+  const band = smoothstep(1.1, 1.14, p.y).mul(smoothstep(2.6, 2.56, p.y)).mul(side).mul(step(abs(p.z), halfLen.sub(0.3)));
+  const pillar = smoothstep(0.035, 0.05, abs(fract(p.z.mul(0.625).add(0.5)).sub(0.5)));
+  const doorAt = (dz) => roundedRect(vec2(p.z.sub(dz), p.y.sub(1.33)), vec2(0.68, 1.03), 0.06).mul(side).mul(curb);
+  const leafAt = (dz) => roundedRect(vec2(abs(p.z.sub(dz)).sub(0.33), p.y.sub(1.45)), vec2(0.28, 0.86), 0.04).mul(side).mul(curb);
+  const door = max(doorAt(info.z), doorAt(info.w));
+  const leaf = max(leafAt(info.z), leafAt(info.w));
+  const doorsOpen = state.z;
+  const glass = clamp(max(max(band.mul(pillar).mul(one.sub(door)), windscreen), leaf.mul(one.sub(doorsOpen))), 0.0, 1.0);
+  const doorway = leaf.mul(doorsOpen);
+
+  // Livery
+  const lower = smoothstep(1.03, 0.99, p.y);
+  const sill = smoothstep(0.96, 0.99, p.y).mul(smoothstep(1.12, 1.09, p.y));
+  const cornice = smoothstep(2.6, 2.63, p.y).mul(smoothstep(2.9, 2.87, p.y));
+  const thin = smoothstep(1.0, 1.02, p.y).mul(smoothstep(1.08, 1.06, p.y));
+  const skirt = smoothstep(0.46, 0.42, p.y);
+  const yellow = color(0xf3c316);
+  const gammaCol = mix(mix(color(0x15703a), color(0x1c7d42), lower), yellow, max(max(sill, cornice), cabFace.mul(step(p.y, 1.62))));
+  const frontBand = cabFace.mul(smoothstep(0.62, 0.66, p.y)).mul(smoothstep(0.84, 0.8, p.y));
+  const traminoCol = mix(color(0x2a6a4b), yellow, max(thin, max(door.mul(one.sub(leaf)), frontBand)));
+  let body = mix(gammaCol, traminoCol, tramino);
+  body = mix(body, color(0x1f2327), door.mul(one.sub(leaf)).mul(one.sub(tramino)));
+  body = mix(body, color(0xd9dcde), roof.mul(one.sub(cabFace)));
+  body = mix(body, color(0x1a1d21), skirt);
+  body = mix(body, color(0x15191d), band.mul(one.sub(pillar)).mul(one.sub(door)));
+  body = mix(body, color(0x0c0e10), display);
+  body = mix(body, color(0x2b2622), doorway);
+
+  // Lamps on the cab faces
+  const headLamp = roundedRect(vec2(ax.sub(0.82), p.y.sub(0.9)), vec2(0.15, 0.055), 0.04).mul(cabFace).mul(isFront);
+  const tailLamp = roundedRect(vec2(ax.sub(0.92), p.y.sub(1.0)), vec2(0.06, 0.16), 0.03).mul(cabFace).mul(isRear);
+  body = mix(body, color(0xe2eef8), headLamp);
+  body = mix(body, color(0x8e0d12), tailLamp);
+  const glassTint = mix(color(0x0d1820), color(0x1a2e3e), clamp(p.y.sub(1.3).mul(0.8), 0.0, 1.0));
+  body = mix(body, glassTint, glass);
+
+  const ribs = step(0.5, fract(p.z.mul(6.0).add(0.5)));
+  const bellowsCol = mix(color(0x1a1c1f), color(0x2c3035), ribs);
+  const col = mix(mix(mix(mix(body, color(0x1b1f24), isTrim), color(0xc9ced3), isPod), color(0x34383d), isPanto), bellowsCol, isBellows);
+
+  const mat = new THREE.MeshStandardNodeMaterial();
+  mat.colorNode = col;
+  const paintRough = mix(float(0.38), float(0.3), tramino);
+  const paintMetal = mix(float(0.12), float(0.5), tramino).mul(one.sub(max(sill, cornice)));
+  mat.roughnessNode = mix(mix(mix(paintRough, float(0.12), glass), float(0.7), max(isTrim, isBellows)), float(0.45), max(isPod, isPanto));
+  mat.metalnessNode = mix(mix(paintMetal, float(0.6), glass), float(0.05), max(max(isTrim, isBellows), isPod)).add(isPanto.mul(0.5));
+
+  const brake = state.x;
+  const night = smoothstep(0.6, 1.15, cityUniforms.uInteriorGlow);
+  mat.emissiveNode = color(0xd9efff)
+    .mul(headLamp.mul(night.mul(1.3).add(0.12)))
+    .add(color(0xff0a12).mul(tailLamp.mul(brake.mul(1.5).add(0.7))))
+    .add(color(0xffa020).mul(display.mul(displayText).mul(0.9)))
+    .add(color(0xffe2b8).mul(max(band.mul(pillar).mul(one.sub(door)), max(leaf, doorway)).mul(night).mul(0.32)));
+
+  _tramMat = mat;
+  return mat;
+}
+
 export {
   CAR_PARTS,
   BODY_SPECS,
@@ -2053,5 +2265,10 @@ export {
   buildHelicopterBodyGeometry,
   buildHelicopterMainRotorGeometry,
   buildHelicopterTailRotorGeometry,
-  createLoftedHelicopterMaterial
+  createLoftedHelicopterMaterial,
+  TRAM_PARTS,
+  TRAM_PANTOGRAPH_HEAD,
+  buildTramSectionGeometry,
+  buildTramBellowsGeometry,
+  createTramMaterial
 };

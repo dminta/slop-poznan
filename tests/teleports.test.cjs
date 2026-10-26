@@ -54,6 +54,7 @@ test('preset and map teleports share arrival resets and mark the resolved landin
     getLocationLabel: (x, z) => `${x}, ${z}`,
     cityBlocks: { allBlocks: [] },
     trafficSystem: {},
+    tramSystem: { trams: [] },
     CityMapSystem: class {
       constructor(options) { this.onTeleport = options.onTeleport; map = this; }
     },

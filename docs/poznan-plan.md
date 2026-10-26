@@ -754,7 +754,12 @@ Deviations and open points:
 
    **Obstacle rule:** platforms and poles must sit on curb islands or medians, never within 1.2 m of a car lane, or the
    SCC filter removes streets.
-2. **Actor system** (`js/trams.js`: modulepreload + boot count +1). Template: `createHighwayTraffic` (`traffic.js:2128-2160`;
+2. **Actor system** (`js/trams.js`: modulepreload + boot count +1). **Status: core done** (docs/actors.md "Trams"): the
+   track graph with switches, right-hand running on unmarked double track, single-track blocks, clearance points and
+   uncut crossings; stops from `tram-infra.js` with a 20–30 s dwell and doors; signals; IDM following;
+   Gamma and Tramino articulated bodies with bellows and a pantograph; headlights; the map radar (`trams` array).
+   Random branches at switches; no GTFS routes. **Still open:** cars yielding on shared edges, pedestrians, player
+   collisions and audio (the hooks are listed in actors.md). Template: `createHighwayTraffic` (`traffic.js:2128-2160`;
    lane polylines, IDM per lane, no lane changes, cyclic leaders, LOD). Add:
    - track polylines from `GEO.rail`, with junction/switch topology and line routes. Optionally take the routes from the
      ZTM GTFS (`ztm.poznan.pl/otwarte-dane`, free; credit the source, the last-update date and "processed");
@@ -770,7 +775,7 @@ Deviations and open points:
      - cars on shared edges must yield to trams. Insert the tram as an `occ` leader on overlapping car lanes;
      - pedestrians must not walk through trams;
      - player collisions use SAT extents per section.
-3. `vehicle-lights.js` spec (`headlight`, `zFront`) for trams. Audio: a tram motor kind and the bell (§12). The map radar
+3. `vehicle-lights.js` spec (`headlight`, `zFront`) for trams (**done**: `tramLightSpec`; the radar draws `tramSystem.trams`). Audio: a tram motor kind and the bell (§12). The map radar
    and audio read a separate `trams` array; don't mix trams into `cars`/`buses`.
 4. **PST (Pestka)**: the grade-separated fast tram north of the centre, partly in a cutting. Mostly outside D3. Skip it, or
    render it as an off-street track only.

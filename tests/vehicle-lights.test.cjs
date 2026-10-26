@@ -24,14 +24,15 @@ class SpotLight {
     this.castShadow = false;
   }
 }
-const { HEADLIGHTS, createVehicleHeadlight, placeVehicleHeadlight } = loadModule(
+const { HEADLIGHTS, tramLightSpec, createVehicleHeadlight, placeVehicleHeadlight } = loadModule(
   readFileSync(join(__dirname, '../js/vehicle-lights.js'), 'utf8'),
   { imports: { 'three/webgpu': { SpotLight } } }
 );
 const specs = {
   sedan: { headlight: [0.56, 0.705], zFront: 2.25 },
   suv: { headlight: [0.6, 0.9], zFront: 2.3 },
-  bus: { headlight: [0.79, 0.8], zFront: 5.78 }
+  bus: { headlight: [0.79, 0.8], zFront: 5.78 },
+  tram: { headlight: [0.82, 0.9], zFront: 5.76 } // Moderus Gamma front cab, 11.8 m
 };
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-12, `${a} should equal ${b}`);
 
@@ -89,4 +90,12 @@ test('lamp and target follow both yaw and slope at elevated road height', () => 
   placeVehicleHeadlight(world, specs.suv, -1);
   assert.deepEqual(world.position, local.position);
   assert.deepEqual(world.target.position, local.target.position);
+});
+
+test('the tram light spec puts the lamps on the front cab face', () => {
+  const spec = tramLightSpec(11.8);
+  close(spec.zFront, specs.tram.zFront);
+  close(spec.zRear, -spec.zFront);
+  assert.equal(spec.headlight[0], specs.tram.headlight[0]);
+  assert.equal(spec.headlight[1], specs.tram.headlight[1]);
 });

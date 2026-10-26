@@ -11,6 +11,7 @@ import { buildLandmarks } from './landmarks.js';
 import { buildCityBlocks } from './buildings.js';
 import { buildStreetDetails } from './street-details.js';
 import { createTrafficSystem, createHighwayTraffic } from './traffic.js';
+import { createTramSystem } from './trams.js';
 import { buildRoadPaint } from './road-paint.js';
 import { ThirdPersonControllerManager } from './controllers.js';
 import { TouchControls } from './touch-controls.js';
@@ -104,6 +105,9 @@ async function initApp() {
   const highwayTraffic = createHighwayTraffic(scene, cityGrid.highwayLanes);
   buildRoadPaint(scene, trafficSystem.network);
   markInit('roadPaint');
+  // Trams on the GEO.rail track graph, held at the road network's signals (trams.js)
+  const tramSystem = createTramSystem(scene, { network: trafficSystem.network });
+  markInit('trams');
 
   // 4. Initialize Third-Person Controllers (Person, Car, Cyclist, Helicopter) & Multi-Camera System
   const controllerManager = new ThirdPersonControllerManager(scene, allColliders);
@@ -482,6 +486,7 @@ async function initApp() {
     controllerManager,
     cameraSystem,
     trafficSystem,
+    trams: tramSystem.trams,
     network: trafficSystem.network,
     allBlocks: cityBlocks.allBlocks,
     onToggle: (open) => {
@@ -705,6 +710,7 @@ async function initApp() {
       cameraSystem.camera
     );
     highwayTraffic.update(dt, cameraSystem.camera, controllerManager.getActiveEntity(), controllerManager.activeMode);
+    tramSystem.update(dt, elapsed, cameraSystem.currentPos, cameraSystem.camera);
     if (!document.hidden && now >= nextPlayerSave) {
       savePlayerState();
       nextPlayerSave = now + 5000;

@@ -714,10 +714,11 @@ function drawWaypoint(ctx, x, y, r) {
 const overlaps = (boxes, b) => boxes.some((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]);
 
 class CityMapSystem {
-  constructor({ controllerManager, cameraSystem, trafficSystem, network = null, allBlocks = [], onTeleport, onToggle }) {
+  constructor({ controllerManager, cameraSystem, trafficSystem, trams = null, network = null, allBlocks = [], onTeleport, onToggle }) {
     this.controllerManager = controllerManager;
     this.cameraSystem = cameraSystem;
     this.trafficSystem = trafficSystem;
+    this.trams = trams; // trams.js active trams (kept apart from the cars & buses)
     this.network = network; // road-network.js graph, for the GPS route
     this.allBlocks = allBlocks;
     this.onTeleport = onTeleport;
@@ -1366,6 +1367,24 @@ class CityMapSystem {
           ctx.fillRect(cx - 1, cy - 1, 2, 2);
         }
       }
+    }
+
+    // Trams: each section as a short yellow bar, so a tram reads as a 32 m bendy line
+    if (this.trams && this.trams.length) {
+      ctx.strokeStyle = 'rgba(243, 195, 22, 0.9)';
+      ctx.lineWidth = Math.max(2, 2.4 * scale);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (const tram of this.trams) {
+        const tx = toX(tram.x);
+        const ty = toY(tram.z);
+        if (Math.abs(tx) > w * 0.5 + 30 || Math.abs(ty) > h * 0.5 + 30) continue;
+        for (const s of tram.sections) {
+          ctx.moveTo(toX(s.fx), toY(s.fz));
+          ctx.lineTo(toX(s.rx), toY(s.rz));
+        }
+      }
+      ctx.stroke();
     }
 
     // GPS route to the active waypoint
