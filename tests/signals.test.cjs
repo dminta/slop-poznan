@@ -4,15 +4,21 @@ const { join } = require('node:path');
 const test = require('node:test');
 
 const read = (path) => readFileSync(join(__dirname, '..', path), 'utf8');
-let SIGNAL_SITES, AVENUES, STREETS;
+let SIGNAL_SITES, GEO;
 test.before(async () => {
-  ({ SIGNAL_SITES, AVENUES, STREETS } = await import('../js/city-config.js'));
+  ({ SIGNAL_SITES } = await import('../js/city-config.js'));
+  ({ GEO } = await import('../js/geodata.js'));
 });
 
-test('Manhattan signals sit at the 63 core avenue x street corners, avenue-major', () => {
-  assert.equal(SIGNAL_SITES.length, 63);
-  const expected = AVENUES.flatMap((a) => STREETS.map((s) => ({ x: a.x, z: s.z, nsWidth: a.width, ewWidth: s.width })));
-  assert.deepEqual(SIGNAL_SITES, expected);
+test('signal sites are the road graph\'s signalled junctions, with an arm width per axis', () => {
+  const { nodes, signals } = GEO.roadGraph;
+  assert.ok(signals.length > 100);
+  assert.equal(SIGNAL_SITES.length, signals.length);
+  signals.forEach((n, i) => {
+    const site = SIGNAL_SITES[i];
+    assert.deepEqual([site.x, site.z], [nodes[n * 2], nodes[n * 2 + 1]]);
+    assert.ok(site.nsWidth > 0 || site.ewWidth > 0, 'every junction has at least one arm');
+  });
 });
 
 test('the road network and the signal heads both read the signal sites', () => {

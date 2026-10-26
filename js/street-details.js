@@ -1,31 +1,16 @@
 import * as THREE from 'three/webgpu';
 import { Fn, float, color, positionWorld, uniform, mod, fract, step, smoothstep, mix } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import {
-  AVENUES,
-  STREETS,
-  SIGNAL_SITES,
-  streetZ,
-  SIGNAL_TIMING,
-  blockAt,
-  fromOldFrame,
-  CENTRAL_PARK_BOUNDS as CPB,
-  BLOCKS,
-  LANDMARK_SITES
-} from './city-config.js';
-import { cityUniforms, createSteamMaterial, createTreeGrateMaterial, createGodRayMaterial } from './tsl-materials.js';
+import { SIGNAL_SITES, SIGNAL_TIMING, blockAt, BLOCKS } from './city-config.js';
+import { cityUniforms, createTreeGrateMaterial } from './tsl-materials.js';
 import { createTreeField } from './trees.js';
-import { pavedPlazaRects, centralParkClearings, parkTreeSites, sidewalkBlocks, parkLampSites } from './city-grid.js';
-import { bryantParkLawn } from './landmarks.js';
+import { pavedPlazaRects, parkTreeSites, parkLampSites } from './city-grid.js';
 
 // js/street-details.js
-// Populates Manhattan streets with authentic NYC street furniture using InstancedMesh:
-// - Cantilevered NYC Yellow Traffic Signals at all 63 intersections
-// - NYC DOT Cobra-head LED Streetlights
-// - Con Edison Orange/White Steam Stacks + Volumetric TSL Rising Steam Plumes
-// - MTA Subway Stair Entrances with Glowing Green Globe Lamps
-// - NYC Hot Dog / Halal Street Carts with Blue & Yellow Umbrellas
-// - Fire Hydrants, USPS Mailboxes, Litter Baskets, and Park/Street Trees
+// Street furniture, instanced (a generic set until the Poznań furniture of a later phase):
+// - cantilevered traffic signal masts with walk signals at the signalised junctions (city-config.js SIGNAL_SITES)
+// - cobra-head LED streetlights along every curb, post-top globe lanterns in Stare Miasto
+// - fire hydrants, park and street trees, and the pooled street lights that follow the camera
 
 function createStreetSignBladeTexture(label) {
   const c = document.createElement('canvas');
@@ -125,7 +110,7 @@ function buildStreetDetails(scene) {
     metalness: 0.78
   });
   const signalHousingMat = new THREE.MeshStandardNodeMaterial({
-    color: 0xe6a817, // Authentic NYC DOT school-bus/marigold yellow housing
+    color: 0xe6a817, // marigold yellow housing
     roughness: 0.38,
     metalness: 0.35,
     side: THREE.DoubleSide // the tunnel visors are open half-tubes
@@ -139,7 +124,7 @@ function buildStreetDetails(scene) {
   const pedGlobeGlow = new THREE.MeshBasicNodeMaterial();
   pedGlobeGlow.colorNode = mix(color(0xd4d2c8), color(0xffe4b0).mul(1.95), smoothstep(0.4, 1.1, cityUniforms.uInteriorGlow));
   const streetBladeMat = new THREE.MeshStandardNodeMaterial({
-    map: createStreetSignBladeTexture('5TH AVE · 42 ST'),
+    map: createStreetSignBladeTexture('ŚW. MARCIN'),
     roughness: 0.32
   });
 
@@ -167,7 +152,7 @@ function buildStreetDetails(scene) {
   // Cobra-head luminaire on the end of the arm: flattened grey housing, flat lens underneath
   const lampHousingGeo = new THREE.SphereGeometry(1, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2).scale(0.7, 0.2, 0.3);
   const lampLensGeo = new THREE.CircleGeometry(1, 16).rotateX(Math.PI / 2).scale(0.6, 1, 0.24).translate(0, -0.005, 0);
-  // Classic NYC cast-iron pedestrian post-top globe lightpole (fluted base + shaft + decorative capital + opal globe)
+  // Cast-iron pedestrian post-top globe lightpole (fluted base + shaft + decorative capital + opal globe)
   const pedLampPostGeo = mergeGeometries([
     new THREE.CylinderGeometry(0.11, 0.16, 0.85, 10).translate(0, 0.425, 0),
     new THREE.CylinderGeometry(0.065, 0.085, 2.75, 10).translate(0, 2.22, 0),
@@ -176,7 +161,10 @@ function buildStreetDetails(scene) {
   const pedGlobeGeo = new THREE.SphereGeometry(0.23, 12, 10).translate(0, 3.84, 0);
 
   // =========================================================================
-  // 1. NYC CANTILEVERED TRAFFIC SIGNALS, STREET BLADES & WALK SIGNALS
+  // 1. CANTILEVERED TRAFFIC SIGNALS, STREET BLADES & WALK SIGNALS
+  //    At each signal site, on the NE and SW corners, the arm reaching along x over the north-south road (the
+  //    "avenue" phase of SIGNAL_TIMING). Junctions off the axes keep the same layout: a mast is skipped unless it
+  //    stands on a curb island (blockAt) with its arm over open roadway, so none stands in a road
   // =========================================================================
   const poleMatrices = [];
   const armMatrices = [];
@@ -261,7 +249,7 @@ function buildStreetDetails(scene) {
       dummy.updateMatrix();
       poleMatrices.push(dummy.matrix.clone());
 
-      // NYC DOT Green Street Name Sign Blade mounted on pole (y = 4.65m)
+      // Street name sign blade mounted on the pole (y = 4.65m)
       dummy.position.set(px + c.armDir * 0.68, 4.65, pz);
       dummy.scale.set(1.38, 0.34, 0.08);
       dummy.updateMatrix();
@@ -296,7 +284,7 @@ function buildStreetDetails(scene) {
         tz: pz - c.sz * 1.4
       });
 
-      // Two NYC yellow signal heads hanging from the mast arm: the avenue's (3.1 m out, facing up & down the avenue)
+      // Two yellow signal heads hanging from the mast arm: the avenue's (3.1 m out, facing up & down the avenue)
       // and the cross street's (5.5 m out, turned to face along the street)
       for (const armDist of [3.1, 5.5]) {
         dummy.position.set(px + c.armDir * armDist, 5.42, pz);
@@ -311,18 +299,15 @@ function buildStreetDetails(scene) {
   }
 
   // =========================================================================
-  // 2. MID-BLOCK AVENUE & STREET ORNAMENTAL ACORN & COBRA STREETLIGHTS
-  //    Placed directly along the true curb edges of every city block (BLOCKS)
-  //    and verified with blockAt(x, z) so no pole ever stands in any roadway.
+  // 2. STREETLIGHTS ALONG EVERY CURB
+  //    Walked along the true curb edges of every city block (BLOCKS poly), whatever their bearing, and verified with
+  //    blockAt(x, z) so no pole ever stands in a roadway: cobra-heads every ~36 m, cast-iron post-top globes between
+  //    them in Stare Miasto. Poles stand >= 1 m inside the curb, their footprints clear of the lanes (LANE_CLEAR).
   // =========================================================================
-  const allBlocks = BLOCKS || [];
-  const detailZMin = streetZ(61);
-  const detailZMax = streetZ(14);
-
-  for (const b of allBlocks) {
+  // Curb edges >= 24 m long that front an open roadway: { b, p0, dx, dz, len, inx, inz, outX, outZ }
+  const curbEdges = [];
+  for (const b of BLOCKS) {
     if (!b || !b.poly || b.poly.length < 3 || b.median || b.park > 0.6) continue;
-    if (b.cz < detailZMin || b.cz > detailZMax || b.cx < -920 || b.cx > 920) continue;
-
     const poly = b.poly;
     for (let i = 0; i < poly.length; i++) {
       const p0 = poly[i];
@@ -331,142 +316,109 @@ function buildStreetDetails(scene) {
       const dz = p1.z - p0.z;
       const len = Math.hypot(dx, dz);
       if (len < 24) continue;
-
-      const ux = dx / len;
-      const uz = dz / len;
       const mx = (p0.x + p1.x) * 0.5;
       const mz = (p0.z + p1.z) * 0.5;
-
-      // Determine inward normal (into the sidewalk block) and outward normal (into the street roadway)
-      let inx = -uz;
-      let inz = ux;
+      // Inward normal (into the sidewalk block) and outward normal (into the roadway)
+      let inx = -dz / len;
+      let inz = dx / len;
       if (blockAt(mx + inx * 1.6, mz + inz * 1.6) !== b) {
-        inx = uz;
-        inz = -ux;
+        inx = -inx;
+        inz = -inz;
       }
       if (blockAt(mx + inx * 1.6, mz + inz * 1.6) !== b) continue;
-      const outX = -inx;
-      const outZ = -inz;
       // Confirm this curb edge fronts an open roadway
-      if (blockAt(mx + outX * 2.5, mz + outZ * 2.5)) continue;
+      if (blockAt(mx - inx * 2.5, mz - inz * 2.5)) continue;
+      curbEdges.push({ b, p0, dx, dz, len, inx, inz, outX: -inx, outZ: -inz });
+    }
+  }
 
-      const isAvenueEdge = Math.abs(uz) > 0.65;
-      if (isAvenueEdge) {
-        const armYaw = Math.atan2(-outZ, outX);
-        const cobraFracs = inx > 0 ? [0.26, 0.72] : [0.32, 0.78];
-        for (const f of cobraFracs) {
-          const cx = p0.x + dx * f;
-          const cz = p0.z + dz * f;
-          const lx = cx + inx * 1.08;
-          const lz = cz + inz * 1.08;
-          const headX = lx + outX * 2.6;
-          const headZ = lz + outZ * 2.6;
-          if (
-            !isOnSidewalk(lx, lz, 0.55) ||
-            blockAt(cx + outX * 2.5, cz + outZ * 2.5) ||
-            blockAt(headX, headZ) ||
-            !isClearOfPoles(lx, lz, 6.5)
-          ) {
-            continue;
-          }
-          placedPoles.push({ x: lx, z: lz });
-          addFootprint(lx, lz, 0.45, 0.45);
-
-          // Tall ornamental streetlight pole
-          dummy.position.set(lx, 4.3, lz);
-          dummy.rotation.set(0, 0, 0);
-          dummy.scale.set(0.12, 8.4, 0.12);
-          dummy.updateMatrix();
-          poleMatrices.push(dummy.matrix.clone());
-
-          // Upper luminaire bracket arm overhanging the street
-          dummy.position.set(lx + outX * 1.15, 8.2, lz + outZ * 1.15);
-          dummy.rotation.set(0, armYaw, 0);
-          dummy.scale.set(2.3, 0.09, 0.09);
-          dummy.updateMatrix();
-          armMatrices.push(dummy.matrix.clone());
-
-          // NYC DOT cobra-head LED luminaire on the end of the arm, lens facing the street
-          dummy.position.set(headX, 8.08, headZ);
-          dummy.rotation.set(0, armYaw, 0);
-          dummy.scale.set(1, 1, 1);
-          dummy.updateMatrix();
-          lampHeadMatrices.push(dummy.matrix.clone());
-          dummy.rotation.set(0, 0, 0);
-
-          cobraLampSites.push({
-            x: headX,
-            y: 8.02,
-            z: headZ,
-            tx: lx + outX * 3.4,
-            tz: lz + outZ * 3.4
-          });
-        }
-
-        // Historic NYC cast-iron pedestrian post-top globe lightpoles along avenue sidewalks (with PointLights)
-        const pedFracs = len >= 48 ? [0.16, 0.50, 0.84] : [0.24, 0.76];
-        for (const f of pedFracs) {
-          const cx = p0.x + dx * f;
-          const cz = p0.z + dz * f;
-          const px = cx + inx * 1.42;
-          const pz = cz + inz * 1.42;
-          if (
-            !isOnSidewalk(px, pz, 0.55) ||
-            blockAt(cx + outX * 2.2, cz + outZ * 2.2) ||
-            !isClearOfPoles(px, pz, 5.2)
-          ) {
-            continue;
-          }
-          placedPoles.push({ x: px, z: pz });
-          addFootprint(px, pz, 0.4, 0.4);
-
-          dummy.position.set(px, 0.18, pz);
-          dummy.rotation.set(0, 0, 0);
-          dummy.scale.set(1, 1, 1);
-          dummy.updateMatrix();
-          pedPostMatrices.push(dummy.matrix.clone());
-          streetPointSites.push({
-            x: px,
-            y: 4.02,
-            z: pz,
-            color: 0xffe0aa,
-            intensity: 30,
-            dist: 14.5
-          });
-        }
-      } else if (len >= 36) {
-        // Cross-street cast-iron pedestrian post-top globe lightpoles along north and south block curbs
-        const crossFracs = len >= 115 ? [0.20, 0.40, 0.60, 0.80] : [0.24, 0.50, 0.76];
-        for (const f of crossFracs) {
-          const cx = p0.x + dx * f;
-          const cz = p0.z + dz * f;
-          const px = cx + inx * 1.22;
-          const pz = cz + inz * 1.22;
-          if (
-            !isOnSidewalk(px, pz, 0.55) ||
-            blockAt(cx + outX * 2.2, cz + outZ * 2.2) ||
-            !isClearOfPoles(px, pz, 5.5)
-          ) {
-            continue;
-          }
-          placedPoles.push({ x: px, z: pz });
-          addFootprint(px, pz, 0.4, 0.4);
-
-          dummy.position.set(px, 0.18, pz);
-          dummy.rotation.set(0, 0, 0);
-          dummy.scale.set(1, 1, 1);
-          dummy.updateMatrix();
-          pedPostMatrices.push(dummy.matrix.clone());
-          streetPointSites.push({
-            x: px,
-            y: 4.02,
-            z: pz,
-            color: 0xffe0aa,
-            intensity: 28,
-            dist: 14.0
-          });
-        }
+  const COBRA_SP = 36;
+  const GLOBE_SP = 24;
+  for (const { b, p0, dx, dz, len, inx, inz, outX, outZ } of curbEdges) {
+    const armYaw = Math.atan2(-outZ, outX);
+    const n = Math.max(1, Math.floor(len / COBRA_SP));
+    for (let i = 0; i < n; i++) {
+      const f = (i + 0.5) / n;
+      const cx = p0.x + dx * f;
+      const cz = p0.z + dz * f;
+      const lx = cx + inx * 1.08;
+      const lz = cz + inz * 1.08;
+      const headX = lx + outX * 2.6;
+      const headZ = lz + outZ * 2.6;
+      if (
+        !isOnSidewalk(lx, lz, 0.55) ||
+        blockAt(cx + outX * 2.5, cz + outZ * 2.5) ||
+        blockAt(headX, headZ) ||
+        !isClearOfPoles(lx, lz, 6.5)
+      ) {
+        continue;
       }
+      placedPoles.push({ x: lx, z: lz });
+      addFootprint(lx, lz, 0.45, 0.45);
+
+      // Tall streetlight pole
+      dummy.position.set(lx, 4.3, lz);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(0.12, 8.4, 0.12);
+      dummy.updateMatrix();
+      poleMatrices.push(dummy.matrix.clone());
+
+      // Upper luminaire bracket arm overhanging the street
+      dummy.position.set(lx + outX * 1.15, 8.2, lz + outZ * 1.15);
+      dummy.rotation.set(0, armYaw, 0);
+      dummy.scale.set(2.3, 0.09, 0.09);
+      dummy.updateMatrix();
+      armMatrices.push(dummy.matrix.clone());
+
+      // Cobra-head LED luminaire on the end of the arm, lens facing the street
+      dummy.position.set(headX, 8.08, headZ);
+      dummy.rotation.set(0, armYaw, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      lampHeadMatrices.push(dummy.matrix.clone());
+      dummy.rotation.set(0, 0, 0);
+
+      cobraLampSites.push({
+        x: headX,
+        y: 8.02,
+        z: headZ,
+        tx: lx + outX * 3.4,
+        tz: lz + outZ * 3.4
+      });
+    }
+
+    // Post-top globe lanterns on the old-town sidewalks (with PointLights)
+    if (b.district !== 'Stare Miasto' || len < 36) continue;
+    const m = Math.max(2, Math.floor(len / GLOBE_SP));
+    for (let j = 0; j < m; j++) {
+      const f = (j + 0.5) / m;
+      const cx = p0.x + dx * f;
+      const cz = p0.z + dz * f;
+      const px = cx + inx * 1.3;
+      const pz = cz + inz * 1.3;
+      if (
+        !isOnSidewalk(px, pz, 0.55) ||
+        blockAt(cx + outX * 2.2, cz + outZ * 2.2) ||
+        !isClearOfPoles(px, pz, 5.2)
+      ) {
+        continue;
+      }
+      placedPoles.push({ x: px, z: pz });
+      addFootprint(px, pz, 0.4, 0.4);
+
+      dummy.position.set(px, 0.18, pz);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      pedPostMatrices.push(dummy.matrix.clone());
+      streetPointSites.push({
+        x: px,
+        y: 4.02,
+        z: pz,
+        color: 0xffe0aa,
+        intensity: 29,
+        dist: 14.2
+      });
     }
   }
 
@@ -498,305 +450,15 @@ function buildStreetDetails(scene) {
   addMatrixArrayInstanced(pedGlobeGeo, pedGlobeGlow, pedPostMatrices, false);
 
   // =========================================================================
-  // 2B. VOLUMETRIC GOLDEN-HOUR CANYON SUN SHAFTS (GOD RAYS)
-  // =========================================================================
-  const godRayMat = createGodRayMaterial();
-  const godRayGeo = new THREE.PlaneGeometry(54, 92);
-  const canyonShafts = [
-    { x: 0,    y: 42, z: 180,  rotY: 0.32,  rotZ: -0.46 }, // 34th St & 5th Ave (Empire State Canyon)
-    { x: 0,    y: 44, z: 0,    rotY: 0.28,  rotZ: -0.44 }, // 42nd St & 5th Ave (NYPL / Bryant Park)
-    { x: 165,  y: 46, z: 0,    rotY: 0.25,  rotZ: -0.45 }, // 42nd St & Park/Lexington (Grand Central & Chrysler)
-    { x: -110, y: 42, z: -90,  rotY: 0.30,  rotZ: -0.44 }, // 47th St & 6th Ave (Rockefeller Center)
-    { x: -215, y: 40, z: -45,  rotY: 0.35,  rotZ: -0.42 }, // Times Square / Broadway Canyon
-    { x: -55,  y: 48, z: -360, rotY: 0.28,  rotZ: -0.46 }  // 59th St / Central Park South Canyon
-  ];
-  for (const cs of canyonShafts) {
-    const shaft = new THREE.Mesh(godRayGeo, godRayMat);
-    const at = fromOldFrame(cs.x, cs.z); // (authored on the former compressed grid)
-    shaft.position.set(at.x, cs.y, at.z);
-    shaft.rotation.set(0.12, cs.rotY, cs.rotZ);
-    group.add(shaft);
-  }
-
-  // =========================================================================
-  // 3. CON EDISON ORANGE/WHITE STRIPED STEAM STACKS, NYCDOT SAWHORSE BARRICADES
-  //    & BILLOWING WIND-DRIFTED VOLUMETRIC STEAM CLOUD TRAILS (REFERENCE PHOTO!)
-  // =========================================================================
-  const steamLocations = [
-    { x: 6.4,   z: 96,   windX: -1.0, windZ: -0.18 }, // 5th Ave & 37th St (Buffer zone clear of green bike lane!)
-    { x: -7.5,  z: 148,  windX: 0.95, windZ: -0.22 }, // 5th Ave near 34th St (Empire State Building)
-    { x: 6.4,   z: 48,   windX: -1.0, windZ: 0.15  }, // 5th Ave & 40th St (NYPL / Bryant Park)
-    { x: -8.0,  z: -18,  windX: 0.92, windZ: -0.20 }, // 5th Ave & 43rd St
-    { x: -206,  z: -32,  windX: 0.95, windZ: 0.22  }, // Broadway / Times Square
-    { x: -228,  z: -98,  windX: 1.0,  windZ: -0.15 }, // 7th Ave & 45th St
-    { x: -102,  z: 22,   windX: -0.9, windZ: 0.20  }, // 6th Ave & Bryant Park
-    { x: 118,   z: -12,  windX: -1.0, windZ: -0.15 }, // Park Ave & 42nd St (Grand Central)
-    { x: 212,   z: -26,  windX: 0.92, windZ: 0.18  }, // Lexington Ave & 42nd St (Chrysler Building)
-    { x: 228,   z: -195, windX: -0.9, windZ: 0.16  }, // Lexington Ave & 51st St
-    { x: -118,  z: -148, windX: 0.95, windZ: -0.18 }, // 6th Ave & 48th St (Rockefeller Center)
-    { x: 6.4,   z: 285,  windX: -0.9, windZ: -0.22 }, // 5th Ave & 26th St (Flatiron)
-    { x: 6.4,   z: 615,  windX: -0.9, windZ: 0.18  }, // 5th Ave & Washington Square
-    { x: -212,  z: 1255, windX: 0.95, windZ: -0.20 }  // One WTC / Financial District
-  ];
-  // (authored on the former compressed grid: carried onto the real streets; the Financial District one by One WTC)
-  for (const st of steamLocations) {
-    const wtc = LANDMARK_SITES['One World Trade Center'];
-    const at = st.z > 1000 && wtc ? { x: wtc.x + 48, z: wtc.z - 40 } : fromOldFrame(st.x, st.z);
-    st.x = at.x;
-    st.z = at.z;
-  }
-
-  const steamOrangeMat = new THREE.MeshStandardNodeMaterial({
-    color: 0xff5518, // High-visibility ConEd safety orange
-    roughness: 0.42
-  });
-  const steamWhiteMat = new THREE.MeshStandardNodeMaterial({
-    color: 0xf4f6f8,
-    roughness: 0.45
-  });
-  const steamMat = createSteamMaterial();
-  const puffsPerStack = 36;
-  const totalSteamSprites = steamLocations.length * puffsPerStack;
-  const smokeOriginArr = new Float32Array(totalSteamSprites * 3);
-  const smokeWindArr = new Float32Array(totalSteamSprites * 3);
-  const smokeParamsArr = new Float32Array(totalSteamSprites * 4);
-  let spriteCursor = 0;
-
-  const orangeMatrices = [];
-  const whiteMatrices = [];
-  const barricadeOrangeMatrices = [];
-  const barricadeWhiteMatrices = [];
-
-  for (let sIdx = 0; sIdx < steamLocations.length; sIdx++) {
-    const { x: sx, z: sz, windX, windZ } = steamLocations[sIdx];
-    addFootprint(sx, sz, 2, 2); // stack + sawhorse barricades
-
-    // 5-Band Alternating Orange & White Candy-Cane ConEd Steam Stack (height = 2.85m)
-    for (let b = 0; b < 5; b++) {
-      const bandH = 0.56;
-      const by = 0.28 + b * bandH;
-      const rScale = 0.36 - b * 0.025;
-      dummy.position.set(sx, by, sz);
-      dummy.rotation.set(0, 0, 0);
-      dummy.scale.set(rScale, bandH, rScale);
-      dummy.updateMatrix();
-      if (b % 2 === 0) {
-        orangeMatrices.push(dummy.matrix.clone());
-      } else {
-        whiteMatrices.push(dummy.matrix.clone());
-      }
-    }
-
-    // 4-Sided NYCDOT Orange-and-White Striped Wooden Sawhorse Barricades around base of stack
-    const bHalf = 0.92;
-    const sides = [
-      { ox: 0, oz: bHalf, rotY: 0 },
-      { ox: 0, oz: -bHalf, rotY: 0 },
-      { ox: bHalf, oz: 0, rotY: Math.PI * 0.5 },
-      { ox: -bHalf, oz: 0, rotY: Math.PI * 0.5 }
-    ];
-    for (const side of sides) {
-      // Barricade vertical legs
-      for (const legOff of [-0.72, 0.72]) {
-        const lx = sx + side.ox + (side.rotY === 0 ? legOff : 0);
-        const lz = sz + side.oz + (side.rotY !== 0 ? legOff : 0);
-        dummy.position.set(lx, 0.48, lz);
-        dummy.rotation.set(0, side.rotY, 0);
-        dummy.scale.set(0.08, 0.96, 0.08);
-        dummy.updateMatrix();
-        barricadeWhiteMatrices.push(dummy.matrix.clone());
-      }
-      // Top & middle striped horizontal rails
-      for (const railY of [0.82, 0.46]) {
-        for (let seg = -2; seg <= 2; seg++) {
-          const segOff = seg * 0.34;
-          const rx = sx + side.ox + (side.rotY === 0 ? segOff : 0);
-          const rz = sz + side.oz + (side.rotY !== 0 ? segOff : 0);
-          dummy.position.set(rx, railY, rz);
-          dummy.rotation.set(0, side.rotY, 0);
-          dummy.scale.set(0.34, 0.16, 0.06);
-          dummy.updateMatrix();
-          if (Math.abs(seg) % 2 === 0) {
-            barricadeOrangeMatrices.push(dummy.matrix.clone());
-          } else {
-            barricadeWhiteMatrices.push(dummy.matrix.clone());
-          }
-        }
-      }
-    }
-
-    // 36 Camera-Facing Volumetric Smoke Sprites per ConEd Steam Stack (SpriteNodeMaterial)
-    for (let p = 0; p < puffsPerStack; p++) {
-      const idx3 = spriteCursor * 3;
-      const idx4 = spriteCursor * 4;
-      const phaseOffset = (p + ((sIdx * 0.37) % 1.0)) / puffsPerStack;
-      const spinDir = p % 2 === 0 ? 1.0 : -1.0;
-      const spinSpeed = spinDir * (0.28 + ((p * 0.19 + sIdx * 0.13) % 0.45));
-      const curlSeed = (p * 1.73 + sIdx * 2.41) % (Math.PI * 2);
-      const scaleMul = 0.86 + ((p * 0.31 + sIdx * 0.17) % 0.36);
-
-      smokeOriginArr[idx3] = sx;
-      smokeOriginArr[idx3 + 1] = 2.75;
-      smokeOriginArr[idx3 + 2] = sz;
-
-      smokeWindArr[idx3] = windX;
-      smokeWindArr[idx3 + 1] = 7.4;
-      smokeWindArr[idx3 + 2] = windZ;
-
-      smokeParamsArr[idx4] = phaseOffset;
-      smokeParamsArr[idx4 + 1] = spinSpeed;
-      smokeParamsArr[idx4 + 2] = curlSeed;
-      smokeParamsArr[idx4 + 3] = scaleMul;
-      spriteCursor++;
-    }
-  }
-
-  addMatrixArrayInstanced(unitCyl, steamOrangeMat, orangeMatrices);
-  addMatrixArrayInstanced(unitCyl, steamWhiteMat, whiteMatrices);
-  addMatrixArrayInstanced(unitBox, steamOrangeMat, barricadeOrangeMatrices);
-  addMatrixArrayInstanced(unitBox, steamWhiteMat, barricadeWhiteMatrices);
-
-  const steamSpriteGeo = new THREE.PlaneGeometry(1, 1);
-  steamSpriteGeo.setAttribute('aSmokeOrigin', new THREE.InstancedBufferAttribute(smokeOriginArr, 3));
-  steamSpriteGeo.setAttribute('aSmokeWind', new THREE.InstancedBufferAttribute(smokeWindArr, 3));
-  steamSpriteGeo.setAttribute('aSmokeParams', new THREE.InstancedBufferAttribute(smokeParamsArr, 4));
-  const steamInstancedSprites = new THREE.Mesh(steamSpriteGeo, steamMat);
-  steamInstancedSprites.count = totalSteamSprites;
-  steamInstancedSprites.frustumCulled = false;
-  steamInstancedSprites.renderOrder = 2;
-  group.add(steamInstancedSprites);
-
-  // =========================================================================
-  // 4. MTA SUBWAY ENTRANCES WITH GLOWING GREEN GLOBE LAMPS
-  // =========================================================================
-  const subwayRailingMat = new THREE.MeshStandardNodeMaterial({
-    color: 0x1a3826, // Classic MTA Subway forest green ironwork
-    roughness: 0.5,
-    metalness: 0.65
-  });
-  const subwayGlobeMat = new THREE.MeshBasicNodeMaterial({ color: 0x55ff88 });
-
-  const subwayLocations = [
-    [-16.5, 162],  // 34th St - Herald Sq / 5th Ave
-    [16.5, 162],
-    [-16.5, 16],   // 42nd St - Bryant Park / 5th Ave
-    [-126.5, 16],  // 42nd St - 6th Ave
-    [-203.5, -16], // Times Sq - 42nd St
-    [-236.5, -74], // Times Sq - 45th St
-    [126.5, -16],  // Grand Central - 42nd St
-    [203.5, -16],  // Lexington Ave / Chrysler
-    [203.5, -252], // 53rd St - Lex Ave (Citigroup)
-    [-16.5, -162], // 47th-50th Sts Rockefeller Ctr
-    [-16.5, 342]   // 23rd St - Flatiron
-  ];
-
-  const subwayRailMatrices = [];
-  const subwayPostMatrices = [];
-  const subwayGlobeMatrices = [];
-
-  const snapToCurbIsland = (x, z, pad = 1.1) => {
-    if (isOnCurbIsland(x, z, pad)) return { x, z };
-    for (let r = 2; r <= 18; r += 2) {
-      for (let k = 0; k < 16; k++) {
-        const ang = (k / 16) * Math.PI * 2;
-        const nx = x + Math.cos(ang) * r;
-        const nz = z + Math.sin(ang) * r;
-        if (isOnCurbIsland(nx, nz, pad)) return { x: nx, z: nz };
-      }
-    }
-    return { x, z };
-  };
-
-  for (const [oldX, oldZ] of subwayLocations) {
-    const raw = fromOldFrame(oldX, oldZ); // (authored on the former compressed grid)
-    const { x: subX, z: subZ } = snapToCurbIsland(raw.x, raw.z, 1.2);
-    // Iron railing enclosure around sidewalk stairs
-    dummy.position.set(subX, 0.8, subZ);
-    dummy.rotation.set(0, 0, 0);
-    dummy.scale.set(2.1, 1.15, 6.2);
-    dummy.updateMatrix();
-    subwayRailMatrices.push(dummy.matrix.clone());
-    addFootprint(subX, subZ, 2.1, 6.2);
-
-    // Twin MTA Green Globe Post Lamps at stair entrance
-    for (const ox of [-0.85, 0.85]) {
-      dummy.position.set(subX + ox, 1.9, subZ + 2.9);
-      dummy.scale.set(0.09, 1.4, 0.09);
-      dummy.updateMatrix();
-      subwayPostMatrices.push(dummy.matrix.clone());
-
-      dummy.position.set(subX + ox, 2.7, subZ + 2.9);
-      dummy.scale.set(0.26, 0.26, 0.26);
-      dummy.updateMatrix();
-      subwayGlobeMatrices.push(dummy.matrix.clone());
-    }
-    streetPointSites.push({ x: subX, y: 2.75, z: subZ + 2.9, color: 0x48ff80, intensity: 18, dist: 8.5 });
-  }
-  addMatrixArrayInstanced(unitBox, subwayRailingMat, subwayRailMatrices);
-  addMatrixArrayInstanced(unitCyl, subwayRailingMat, subwayPostMatrices);
-  addMatrixArrayInstanced(new THREE.SphereGeometry(1, 10, 10), subwayGlobeMat, subwayGlobeMatrices, false);
-
-  // =========================================================================
-  // 5. NYC HOT DOG / HALAL FOOD CARTS WITH UMBRELLAS & SIDEWALK PROPS
-  // =========================================================================
-  const cartSteelMat = new THREE.MeshStandardNodeMaterial({
-    color: 0xd0d8e0,
-    roughness: 0.25,
-    metalness: 0.88
-  });
-  const umbrellaMat = new THREE.MeshStandardNodeMaterial({
-    color: 0x1e64d8, // Classic NYC blue & yellow umbrella
-    roughness: 0.6
-  });
-
-  const cartLocations = [
-    [-17, 152],   // Empire State corner
-    [-17, 25],    // NYPL / Bryant Park
-    [-127, 25],   // 6th Ave & 42nd
-    [-202, -28],  // Times Square
-    [-202, -108], // Duffy Square
-    [127, -25],   // Grand Central
-    [237, -25],   // Chrysler Building corner
-    [-17, -148],  // Rockefeller Center
-    [127, -205],  // Seagram Plaza corner
-    [-17, 325]    // Flatiron Plaza
-  ];
-
-  const cartBoxMatrices = [];
-  const umbrellaMatrices = [];
-  for (const [ox, oz] of cartLocations) {
-    const raw = fromOldFrame(ox, oz); // (authored on the former compressed grid)
-    const { x: cx, z: cz } = snapToCurbIsland(raw.x, raw.z, 1.1);
-    dummy.position.set(cx, 0.85, cz);
-    dummy.rotation.set(0, 0, 0);
-    dummy.scale.set(1.5, 1.25, 2.2);
-    dummy.updateMatrix();
-    cartBoxMatrices.push(dummy.matrix.clone());
-
-    dummy.position.set(cx, 2.55, cz);
-    dummy.scale.set(1.7, 0.75, 1.7);
-    dummy.updateMatrix();
-    umbrellaMatrices.push(dummy.matrix.clone());
-    streetPointSites.push({ x: cx, y: 2.15, z: cz, color: 0xffdf9e, intensity: 28, dist: 9.5 });
-  }
-  addMatrixArrayInstanced(unitBox, cartSteelMat, cartBoxMatrices);
-  addMatrixArrayInstanced(new THREE.ConeGeometry(1, 1, 8), umbrellaMat, umbrellaMatrices);
-
-  // =========================================================================
-  // 6. FIRE HYDRANTS & USPS BLUE MAILBOXES ALONG CURBS (INSTANCED)
+  // 3. FIRE HYDRANTS ALONG CURBS (INSTANCED)
+  //    One near the end of about every other curb edge, 0.8 m inside the curb
   // =========================================================================
   const hydrantPositions = [];
-  const mailboxPositions = [];
-  for (const ave of AVENUES) {
-    for (let row = 0; row < STREETS.length - 1; row++) {
-      const zMid = (STREETS[row].z + STREETS[row + 1].z) * 0.5;
-      const h1 = [ave.x - ave.width * 0.5 - 0.8, zMid - 16];
-      const h2 = [ave.x + ave.width * 0.5 + 0.8, zMid + 16];
-      const mb = [ave.x + ave.width * 0.5 + 1.2, zMid - 22];
-      if (isOnSidewalk(h1[0], h1[1], 0.45)) hydrantPositions.push(h1);
-      if (isOnSidewalk(h2[0], h2[1], 0.45)) hydrantPositions.push(h2);
-      if (isOnSidewalk(mb[0], mb[1], 0.45)) mailboxPositions.push(mb);
-    }
+  for (const { p0, dx, dz, len, inx, inz } of curbEdges) {
+    if (len < 30 || hashPos(p0.x, 5.3, p0.z) < 0.45) continue;
+    const hx = p0.x + dx * 0.14 + inx * 0.8;
+    const hz = p0.z + dz * 0.14 + inz * 0.8;
+    if (isOnSidewalk(hx, hz, 0.45) && isClearOfPoles(hx, hz, 1.5)) hydrantPositions.push([hx, hz]);
   }
 
   const hydrantMat = new THREE.MeshStandardNodeMaterial({ color: 0xb8241e, roughness: 0.5, metalness: 0.4 });
@@ -811,142 +473,21 @@ function buildStreetDetails(scene) {
   hydrantInst.instanceMatrix.needsUpdate = true;
   group.add(hydrantInst);
 
-  const uspsMat = new THREE.MeshStandardNodeMaterial({ color: 0x183c7a, roughness: 0.45, metalness: 0.35 });
-  const mailboxInst = new THREE.InstancedMesh(new THREE.BoxGeometry(0.65, 1.25, 0.65), uspsMat, mailboxPositions.length);
-  mailboxPositions.forEach(([mx, mz], i) => {
-    dummy.position.set(mx, 0.84, mz);
-    dummy.scale.set(1, 1, 1);
-    dummy.updateMatrix();
-    mailboxInst.setMatrixAt(i, dummy.matrix);
-  });
-  mailboxInst.instanceMatrix.needsUpdate = true;
-  group.add(mailboxInst);
-
   // =========================================================================
-  // 7. LUSH TREES: PARKS & PLAZAS, CENTRAL PARK WOODLANDS, AVENUE & CROSS-STREET TREES
-  //    London planes, honey locusts & American elms (one unified trunk + crown instanced mesh per species & band)
+  // 4. TREES: PARKS, SQUARES & PLAZAS, AND STREET TREES ALONG THE CURBS
+  //    (one unified trunk + crown instanced mesh per species & band, js/trees.js)
   // =========================================================================
   const treePositions = []; // { x, y, z, scale, species (0 plane, 1 honey locust, 2 elm / oak) }
-  const CP_LAWN_Y = 1.19;
   const mixSpecies = (r, plane, locust) => (r < plane ? 0 : (r < plane + locust ? 1 : 2));
 
-
-  // A. Bryant Park: double allées of London planes on the raised terraces along the Great Lawn's north & south sides
-  //    and its west end, framing the lawn the library's terrace looks out over (the lawn as fitted by landmarks.js)
-  const bpl = bryantParkLawn;
-  if (bpl) {
-    const ty = bpl.top - 0.2;
-    for (let tx = bpl.minX - 6; tx <= bpl.maxX + 6; tx += 6.5) {
-      for (const tz of [bpl.minZ - 5, bpl.minZ - 11.5, bpl.maxZ + 5, bpl.maxZ + 11.5]) {
-        treePositions.push({ x: tx, y: ty, z: tz, scale: 0.8, species: 0 });
-      }
-    }
-    for (let tz = bpl.minZ; tz <= bpl.maxZ; tz += 6.5) {
-      treePositions.push({ x: bpl.minX - 6, y: ty, z: tz, scale: 0.82, species: 0 });
-      treePositions.push({ x: bpl.minX - 12.5, y: ty, z: tz, scale: 0.76, species: 0 });
-    }
-  }
-
-  // B. Central Park (59th to 110th St, 5th Ave to Central Park West; city-config.js CENTRAL_PARK_BOUNDS), on the lawn
-  const cp = CPB;
-  // B1. Central Park South (59th St) dense woodland border
-  for (let tx = cp.minX + 8; tx <= cp.maxX - 8; tx += 9.5) {
-    treePositions.push({ x: tx, y: CP_LAWN_Y, z: cp.maxZ - 5, scale: 0.95, species: 0 });
-    treePositions.push({ x: tx + 3.5, y: CP_LAWN_Y, z: cp.maxZ - 16, scale: 1.0, species: mixSpecies(hashPos(tx, 1, 2), 0.5, 0.1) });
-    if (hashPos(tx, 7, 3) > 0.35) {
-      treePositions.push({ x: tx - 2.5, y: CP_LAWN_Y, z: cp.maxZ - 31, scale: 1.05, species: mixSpecies(hashPos(tx, 3, 4), 0.4, 0.15) });
-    }
-  }
-
-  // B2. 5th Avenue & Central Park West perimeter rows inside the park wall
-  for (let tz = cp.maxZ - 10; tz >= cp.minZ + 10; tz -= 14) {
-    treePositions.push({ x: cp.maxX - 5, y: CP_LAWN_Y, z: tz, scale: 0.92, species: mixSpecies(hashPos(tz, 1, 1), 0.55, 0.1) });
-    treePositions.push({ x: cp.maxX - 15, y: CP_LAWN_Y, z: tz - 6, scale: 0.98, species: mixSpecies(hashPos(tz, 2, 1), 0.3, 0.1) });
-    treePositions.push({ x: cp.minX + 5, y: CP_LAWN_Y, z: tz, scale: 0.92, species: mixSpecies(hashPos(tz, 3, 1), 0.55, 0.1) });
-    treePositions.push({ x: cp.minX + 15, y: CP_LAWN_Y, z: tz - 6, scale: 0.98, species: mixSpecies(hashPos(tz, 4, 1), 0.3, 0.1) });
-  }
-
-  // B3. The Mall & Literary Walk quadruple row of towering American Elms (66th to 72nd St)
-  const cpClear = centralParkClearings;
-  const mall = cpClear && cpClear.mall;
-  if (mall) {
-    for (let tz = mall.z0 + 4; tz <= mall.z1 - 4; tz += 9.5) {
-      for (const [dx, sc] of [[-16, 1.08], [-9, 1.0], [9, 1.0], [16, 1.08]]) treePositions.push({ x: mall.x + dx, y: CP_LAWN_Y, z: tz, scale: sc, species: 2 });
-    }
-  }
-
-  // B4. Woodlands: a jittered grid over the park kept clear of the meadows, water, drives, transverses, rock outcrops
-  //     & terraces (laid out by city-grid.js), densest in the Ramble (between the Lake & the 79th St transverse) & the
-  //     North Woods (north of 102nd St), with glades
-  if (cpClear) {
-    const withBox = (pts) => {
-      let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
-      for (const p of pts) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
-      return { pts, x0: x0 - 4, x1: x1 + 4, z0: z0 - 4, z1: z1 + 4 };
-    };
-    const polys = cpClear.polygons.map(withBox);
-    const drives = cpClear.drives.map((wp) => {
-      const b = withBox(wp.map(([x, z]) => ({ x, z })));
-      return { wp, x0: b.x0 - 4, x1: b.x1 + 4, z0: b.z0 - 4, z1: b.z1 + 4 };
-    });
-    const inPoly = (x, z, pts) => {
-      let inside = false;
-      for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-        const a = pts[i];
-        const b = pts[j];
-        if ((a.z > z) !== (b.z > z) && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
-      }
-      return inside;
-    };
-    const segDist = (px, pz, [ax, az], [bx, bz]) => {
-      const dx = bx - ax;
-      const dz = bz - az;
-      const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / (dx * dx + dz * dz || 1)));
-      return Math.hypot(px - ax - dx * t, pz - az - dz * t);
-    };
-    const blocked = (x, z) => {
-      for (const P of polys) {
-        if (x < P.x0 || x > P.x1 || z < P.z0 || z > P.z1) continue;
-        for (const [ox, oz] of [[0, 0], [3.5, 0], [-3.5, 0], [0, 3.5], [0, -3.5]]) if (inPoly(x + ox, z + oz, P.pts)) return true;
-      }
-      for (const D of drives) {
-        if (x < D.x0 || x > D.x1 || z < D.z0 || z > D.z1) continue;
-        for (let i = 0; i < D.wp.length - 1; i++) if (segDist(x, z, D.wp[i], D.wp[i + 1]) < 7.5) return true;
-      }
-      for (const r of cpClear.rects) if (x > r.minX - 2.5 && x < r.maxX + 2.5 && z > r.minZ - 2.5 && z < r.maxZ + 2.5) return true;
-      for (const c of cpClear.circles) if (Math.hypot(x - c.x, z - c.z) < c.r) return true;
-      return false;
-    };
-    const SP = 13;
-    const z79 = streetZ(79);
-    const z102 = streetZ(102);
-    for (let gz = cp.maxZ - 24; gz >= cp.minZ + 12; gz -= SP) {
-      for (let gx = cp.minX + 22; gx <= cp.maxX - 22; gx += SP) {
-        const tx = gx + (hashPos(gx, 2.1, gz) - 0.5) * SP * 0.95;
-        const tz = gz + (hashPos(gz, 5.7, gx) - 0.5) * SP * 0.95;
-        const woods = (tz > z79 && tz < z79 + 300 && tx > cp.minX + 120 && tx < cp.minX + 480) || (tz < z102 && tx < cp.minX + 520);
-        const glade = Math.sin(tx * 0.019 + 1.3) * Math.sin(tz * 0.016 + 0.4) > 0.6;
-        const grove = Math.sin(tx * 0.009 + tz * 0.004) + Math.sin(tz * 0.011 - tx * 0.006 + 2.0); // dense groves vs open scatter
-        const skip = grove > 0.6 ? 0.05 : (grove < -0.8 ? 0.55 : 0.2);
-        if (!woods && (glade || hashPos(tx, 9.1, tz) < skip)) continue;
-        if (blocked(tx, tz)) continue;
-        const r = hashPos(tz, 6.6, tx);
-        const scale = r < 0.18 ? 0.55 + r * 0.8 : 0.72 + Math.pow(r, 0.8) * 0.72; // some young understory trees
-        treePositions.push({ x: tx, y: CP_LAWN_Y, z: tz, scale, species: mixSpecies(hashPos(tx, 4.4, tz), 0.4, 0.15) });
-      }
-    }
-  }
-
-  // B5. The squares, the other parks & the plazas (sites laid out by city-grid.js)
+  // A. The parks, squares & plazas (sites laid out by city-grid.js, plus buildings.js's leftover slabs)
   for (const s of parkTreeSites || []) treePositions.push(s);
 
-  // C & D. Street trees on the raised sidewalks of every real block (city-config.js BLOCKS via the slabs city-grid.js
-  //        laid): along the avenue fronts (w / e edges) and, in the residential neighbourhoods, both curbs of the side
-  //        streets (n / s edges) — honey locusts on the narrow streets, planes, locusts & elms on the wider ones, with
-  //        random missing trees & the odd unplanted block. Never in plazas or parks.
+  // B. Street trees on the raised sidewalks of every real block, along each curb edge: small trees close to the curb
+  //    on the narrow streets (a block across within ~14 m), planes, locusts & elms on the wider ones, with random
+  //    missing trees and the odd unplanted edge; sparse in Stare Miasto's narrow lanes. Never in plazas or parks.
   const sidewalkTreePositions = [];
   const SIDEWALK_Y = 0.22;
-  const swBlocks = sidewalkBlocks || [];
   const onSidewalk = (x, z) => {
     const b = blockAt(x, z);
     return !!b && !(b.park > 0.6) && !b.median;
@@ -955,55 +496,33 @@ function buildStreetDetails(scene) {
   function addStreetTree(x, z, scale, species, acrossX, extra = {}) {
     if (!onSidewalk(x, z) || inPlaza(x, z, 1.5) || !isClearOfPoles(x, z, 2.2)) return;
     const q = Math.floor(hashPos(x, 8.8, z) * 3.999);
-    const t = { x, y: SIDEWALK_Y, z, scale, species, yaw: q * Math.PI * 0.5, tier: acrossX ? 1 : 2, ...extra };
+    const t = { x, y: SIDEWALK_Y, z, scale, species, yaw: q * Math.PI * 0.5, tier: 1, ...extra };
     if (acrossX === (q % 2 === 0)) t.sx = extra.squeeze || 0.82;
     else t.sz = extra.squeeze || 0.82;
     treePositions.push(t);
     sidewalkTreePositions.push(t);
   }
-  const RESIDENTIAL = new Set(['uws', 'ues', 'harlem', 'morningside', 'east_harlem', 'chelsea', 'west_chelsea', 'gramercy', 'murray_hill',
-    'west_village', 'village', 'east_village', 'lower_east_side', 'turtle_bay', 'hells_kitchen', 'stuy_town', 'tribeca', 'battery_park_city',
-    'little_italy', 'chinatown', 'soho', 'hudson_square']);
-  const COMMERCIAL = new Set(['midtown', 'billionaires_row', 'garment', 'fidi', 'civic_center', 'hudson_yards', 'flatiron', 'nomad']);
-  const AVE_SP = 17;
-  const CROSS_SP = 14;
-  for (const s of swBlocks) {
-    const b = s.block;
-    if (!b || b.median || b.park > 0.6) continue;
-    const res = RESIDENTIAL.has(b.district);
-    const x0 = s.cx - s.w * 0.5;
-    const x1 = s.cx + s.w * 0.5;
-    const z0 = s.cz - s.d * 0.5;
-    const z1 = s.cz + s.d * 0.5;
-    // C. avenue fronts (the slab's short w / e edges on a grid block)
-    if (s.d >= 20) {
-      const thin = COMMERCIAL.has(b.district) ? 0.55 : 0.3;
-      for (const [x, side] of [[x0 + 1.3, -1], [x1 - 1.3, 1]]) {
-        const n = Math.floor((s.d - 10) / AVE_SP) + 1;
-        const zs = z0 + (s.d - (n - 1) * AVE_SP) * 0.5;
-        for (let i = 0; i < n; i++) {
-          const tz = zs + i * AVE_SP;
-          if (hashPos(x, 3.1, tz) < thin) continue;
-          addStreetTree(x, tz, 0.66 + hashPos(tz, 3.1, x) * 0.14, mixSpecies(hashPos(x, side, tz), 0.4, 0.35), true);
-        }
-      }
-    }
-    // D. side-street curbs (residential neighbourhoods)
-    if (!res || s.w < 24 || hashPos(s.cx, 4.2, s.cz) < 0.22) continue;
-    for (const side of [-1, 1]) {
-      const edge = side < 0 ? z0 : z1;
-      const narrow = !!blockAt(s.cx, edge + side * 14); // a block across within ~14 m: a narrow side street
-      const z = edge - side * (narrow ? 0.9 : 1.25);
-      const n = Math.floor((s.w - 7) / CROSS_SP) + 1;
-      const xs = s.cx - ((n - 1) * CROSS_SP) * 0.5;
-      for (let i = 0; i < n; i++) {
-        const x = xs + i * CROSS_SP + (hashPos(i, s.cz, side) - 0.5) * 1.6;
-        const r = hashPos(x, 6.1, z);
-        if (r < 0.32) continue;
-        const species = narrow ? 1 : mixSpecies(hashPos(z, 2.9, x), 0.4, 0.35);
-        const scale = narrow ? 0.54 + r * 0.1 : 0.6 + r * 0.24;
-        addStreetTree(x, z, scale, species, false, { pitRot: Math.PI / 2, grate: false, pitS: narrow ? 0.7 : 1, squeeze: narrow ? 0.7 : 0.82 });
-      }
+  const TREE_SP = 15;
+  for (const { b, p0, dx, dz, len, inx, inz, outX, outZ } of curbEdges) {
+    if (hashPos(p0.x, 4.2, p0.z) < 0.22) continue;
+    const thin = b.district === 'Stare Miasto' ? 0.6 : 0.32;
+    const mx = p0.x + dx * 0.5;
+    const mz = p0.z + dz * 0.5;
+    const narrow = !!blockAt(mx + outX * 14, mz + outZ * 14);
+    const inset = narrow ? 0.9 : 1.25;
+    const acrossX = Math.abs(dz) > Math.abs(dx); // the edge runs along z: squeeze the crown across x
+    const pitRot = Math.atan2(dx, dz); // pits run along the curb
+    const n = Math.floor((len - 7) / TREE_SP) + 1;
+    const t0 = (len - (n - 1) * TREE_SP) * 0.5;
+    for (let i = 0; i < n; i++) {
+      const u = (t0 + i * TREE_SP + (hashPos(i, p0.z, p0.x) - 0.5) * 1.6) / len;
+      const x = p0.x + dx * u + inx * inset;
+      const z = p0.z + dz * u + inz * inset;
+      const r = hashPos(x, 6.1, z);
+      if (r < thin) continue;
+      const species = narrow ? 1 : mixSpecies(hashPos(z, 2.9, x), 0.4, 0.35);
+      const scale = narrow ? 0.54 + r * 0.1 : 0.6 + r * 0.24;
+      addStreetTree(x, z, scale, species, acrossX, { tier: narrow ? 2 : 1, pitRot, grate: !narrow, pitS: narrow ? 0.7 : 1, squeeze: narrow ? 0.7 : 0.82 });
     }
   }
   console.info(`[streetDetails] ${treePositions.length} trees (${sidewalkTreePositions.length} street trees)`);
@@ -1012,7 +531,7 @@ function buildStreetDetails(scene) {
   const pitCurbMat = new THREE.MeshStandardNodeMaterial({ color: 0x484642, roughness: 0.88 });
   const pitSoilMat = new THREE.MeshStandardNodeMaterial({ color: 0x241c14, roughness: 0.96 });
 
-  // Curbside tree pit surrounds & dark soil beds, with concentric cast-iron grates on the Midtown avenues
+  // Curbside tree pit surrounds & dark soil beds, with concentric cast-iron grates on the wider streets
   // (pits run along the curb: t.pitRot = PI/2 on cross streets)
   const pitCurbGeo = new THREE.BoxGeometry(1.7, 0.22, 2.6);
   const pitSoilGeo = new THREE.BoxGeometry(1.35, 0.23, 2.25);
@@ -1061,7 +580,7 @@ function buildStreetDetails(scene) {
   group.add(treeField.group);
 
   // =========================================================================
-  // 8. CLUSTERED STREETLIGHTS & STREET FURNITURE LIGHT POOLS
+  // 5. CLUSTERED STREETLIGHTS & STREET FURNITURE LIGHT POOLS
   // =========================================================================
   for (const s of parkLampSites || []) {
     streetPointSites.push({ x: s.x, y: s.y, z: s.z, color: 0xffe4b4, intensity: 32, dist: 14.0 });

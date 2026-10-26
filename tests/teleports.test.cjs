@@ -23,12 +23,13 @@ test('every teleport button has a destination on a real roadway on land', () => 
   }
 });
 
-test('One World Trade Center arrives on Vesey Street facing the tower', () => {
-  const point = TELEPORT_LOCATIONS.owtc;
-  const tower = LANDMARK_SITES['One World Trade Center'];
-  assert.ok(nearestRoads(point.x, point.z, 20).some(({ road, dist }) => road.name === 'Vesey St' && dist < 1));
+test('Ratusz arrives near Stary Rynek facing the tower', () => {
+  const point = TELEPORT_LOCATIONS.rynek;
+  const tower = LANDMARK_SITES['Ratusz'];
+  assert.ok(nearestRoads(point.x, point.z, 20).some(({ road, dist }) => road.name === 'Zamkowa' && dist < 1));
+  // measured 142 m: from Zamkowa's mouth on the square's north-west corner, across the square to the Ratusz
   const distance = Math.hypot(tower.x - point.x, tower.z - point.z);
-  assert.ok(distance > 100 && distance < 220, 'leave space for the tower view');
+  assert.ok(distance > 100 && distance < 180, 'leave space for the tower view');
   const alignment = ((tower.x - point.x) * Math.sin(point.heading) + (tower.z - point.z) * Math.cos(point.heading)) / distance;
   assert.ok(alignment > 0.999, 'face the tower rather than the neighboring buildings');
 });

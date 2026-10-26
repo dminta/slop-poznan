@@ -6,7 +6,7 @@ import {
   isLand,
   isTypingInField,
   blockAt,
-  streetZ
+  SPAWN
 } from './city-config.js';
 import { cityUniforms, createCarPaintMaterial, createContactShadowMaterial } from './tsl-materials.js';
 import {
@@ -31,8 +31,47 @@ import { HEADLIGHTS, createVehicleHeadlight, placeVehicleHeadlight } from './veh
 // 3. Cyclist (Sculpted Road Cyclist with Drop-Bar Frame & Aero Helmet)
 // 4. Helicopter (Manhattan Sightseeing Twin-Turbine Chopper)
 
-// Spawn on 5th Ave at 37th St, facing south down the avenue toward the Empire State Building (34th St)
-const SPAWN_Z = streetZ(37);
+// Where the four modes start, in SPAWN's frame (city-config.js): `fwd` metres along its heading and `left` metres to its
+// left. The car and the bicycle stand in its roadway right of the centreline, the pedestrian on the sidewalk to its right
+// (Św. Marcin: in front of CK Zamek, inside the curb at 8.2 m and short of the property line at ~12 m), and the
+// helicopter hovers behind and to the left, turned past the street.
+function spawnPoint(left, fwd, y) {
+  const s = Math.sin(SPAWN.heading), c = Math.cos(SPAWN.heading);
+  return new THREE.Vector3(SPAWN.x + s * fwd + c * left, y, SPAWN.z + c * fwd - s * left);
+}
+// Ground modes keep to the detailed land; the helicopter may roam this far past it, out over the outskirts
+const HELI_RANGE = 6000;
+// Ground modes stay this far in from the water (city-config.js: bridge decks never narrow it)
+const SHORE_MARGIN = 8;
+
+// The nearest point at least `margin` from the water, for a body pushed back to land: clampToLand's answer (the
+// centre of a 2 m cell) or the point reached on the way to it along one axis only, whichever is nearer, pulled back
+// towards (x, z) as far as the margin allows. Keeping one coordinate lets a body pushing along the shore slide instead
+// of being drawn from cell centre to cell centre.
+function shorePoint(x, z, margin) {
+  const p = clampToLand(x, z, margin);
+  let bestX = p.x, bestZ = p.z, bestD = Infinity;
+  for (let k = 0; k < 3; k++) {
+    const tx = k === 1 ? x : p.x, tz = k === 0 ? z : p.z;
+    if (!isLand(tx, tz, margin)) continue;
+    let lo = 0, hi = 1; // fractions of the way from (x, z) to (tx, tz): lo short of the margin, hi past it
+    for (let i = 0; i < 6; i++) {
+      const t = (lo + hi) * 0.5;
+      if (isLand(x + (tx - x) * t, z + (tz - z) * t, margin)) hi = t;
+      else lo = t;
+    }
+    const qx = x + (tx - x) * hi, qz = z + (tz - z) * hi;
+    const d = (qx - x) * (qx - x) + (qz - z) * (qz - z);
+    if (d < bestD) {
+      bestD = d;
+      bestX = qx;
+      bestZ = qz;
+    }
+  }
+  p.x = bestX;
+  p.z = bestZ;
+  return p;
+}
 const groundCollider = { type: 'ground' };
 
 const CAR_DRIVE = {
@@ -373,7 +412,7 @@ class ThirdPersonControllerManager {
     const sinH = Math.sin(heading), cosH = Math.cos(heading);
     const shape = collisionBody(this.activeMode, radius, heading, 0.1);
     const reach = Math.max(shape.extX, shape.extZ);
-    const margin = heli ? 6000 : 0;
+    const margin = heli ? HELI_RANGE : 0;
     const entity = this.getActiveEntity();
     // Conservative body cylinders, including the taxi's corners, bicycle wheels and helicopter tail/rotor.
     const body = { person: [0.48, 1.9], car: [2.4, 1.9], cyclist: [1.0, 1.9], helicopter: [6.2, 3.2] };
@@ -384,12 +423,14 @@ class ThirdPersonControllerManager {
     const cameraBack = Math.cos(0.09) * entity.chaseDistance;
     const cameraUp = entity.chaseHeight + Math.sin(0.09) * entity.chaseDistance * 0.85;
     const clampPoint = (px, pz) => {
-      pz = Math.max(CITY_BOUNDS.minZ + (heli ? -6000 : 30), Math.min(CITY_BOUNDS.maxZ + margin, pz));
+      pz = Math.max(CITY_BOUNDS.minZ - margin, Math.min(CITY_BOUNDS.maxZ + margin, pz));
       px = Math.max(CITY_BOUNDS.minX - margin, Math.min(CITY_BOUNDS.maxX + margin, px));
-      if (!heli && clampToLand) {
-        // Ground arrivals stay 8 m in from the shore; where the land is narrower than that there is no valid spot.
-        px = clampToLand(px, pz, 8).x;
-        if (!isLand(px, pz, 8)) return null;
+      if (!heli) {
+        // Ground arrivals stay SHORE_MARGIN in from the water, at the nearest land that does; none nearby, no spot.
+        const p = clampToLand(px, pz, SHORE_MARGIN);
+        px = p.x;
+        pz = p.z;
+        if (!isLand(px, pz, SHORE_MARGIN)) return null;
       }
       return { x: px, z: pz };
     };
@@ -414,7 +455,7 @@ class ThirdPersonControllerManager {
     if (clear(origin)) return origin;
     // Four-metre rings cover nearby streets and courtyards, with bounded work even for a click inside a large block.
     const cx = origin ? origin.x : Math.max(CITY_BOUNDS.minX, Math.min(CITY_BOUNDS.maxX, x));
-    const cz = origin ? origin.z : Math.max(CITY_BOUNDS.minZ + 30, Math.min(CITY_BOUNDS.maxZ, z));
+    const cz = origin ? origin.z : Math.max(CITY_BOUNDS.minZ, Math.min(CITY_BOUNDS.maxZ, z));
     for (let distance = 4; distance <= 256; distance += 4) {
       for (let i = 0; i < 32; i++) {
         const angle = i * Math.PI / 16;
@@ -453,8 +494,8 @@ class ThirdPersonControllerManager {
       mesh: root,
       crowd,
       rig,
-      position: new THREE.Vector3(-11.6, CITY_BOUNDS.sidewalkHeight, SPAWN_Z + 12),
-      heading: 0,
+      position: spawnPoint(-10.4, 12, CITY_BOUNDS.sidewalkHeight),
+      heading: SPAWN.heading,
       speed: 0,
       verticalVel: 0,
       cameraTargetOffset: new THREE.Vector3(0, 1.55, 0),
@@ -561,8 +602,8 @@ class ThirdPersonControllerManager {
       carState,
       headLights,
       wheels,
-      position: new THREE.Vector3(3.6, 0.0, SPAWN_Z + 12),
-      heading: 0,
+      position: spawnPoint(-3.6, 12, 0),
+      heading: SPAWN.heading,
       speed: 0,
       vx: 0,
       vz: 0,
@@ -728,8 +769,8 @@ class ThirdPersonControllerManager {
       riderRig,
       helmet,
       headLight,
-      position: new THREE.Vector3(5.2, 0.0, SPAWN_Z - 8),
-      heading: 0,
+      position: spawnPoint(-5.2, -8, 0),
+      heading: SPAWN.heading,
       speed: 0,
       leanAngle: 0,
       pedalPhase: 0,
@@ -812,8 +853,8 @@ class ThirdPersonControllerManager {
       tiltPivot,
       mainRotorPivot,
       tailRotorPivot,
-      position: new THREE.Vector3(-110, 96, SPAWN_Z - 60),
-      heading: 0.62,
+      position: spawnPoint(110, -60, 96),
+      heading: SPAWN.heading - 0.62,
       speed: 0,
       verticalSpeed: 0,
       pitchAngle: 0,
@@ -831,8 +872,8 @@ class ThirdPersonControllerManager {
   }
 
   getGroundHeight(x, z, mode = 'person') {
-    // Raised lawns and plazas (Manhattan: Central Park, then Bryant Park's Great Lawn once landmarks.js builds it);
-    // the first rectangle that contains the point wins, so list order is precedence.
+    // Raised lawns and plazas (city-config.js RAISED_GROUND, which landmarks may add to); the first rectangle that
+    // contains the point wins, so list order is precedence.
     for (let i = 0; i < RAISED_GROUND.length; i++) {
       const r = RAISED_GROUND[i];
       if (x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ) return r.top;
@@ -883,17 +924,17 @@ class ThirdPersonControllerManager {
   }
 
   resolveHorizontalCollision(pos, radius, carEntity = null, entity = carEntity) {
-    // The detailed land (the helicopter may roam out over the water & the surrounding districts)
+    // The detailed land (the helicopter may roam out over the water & the outskirts)
     const heli = this.activeMode === 'helicopter';
-    const m = heli ? 6000 : 0;
+    const m = heli ? HELI_RANGE : 0;
     pos.x = Math.max(CITY_BOUNDS.minX - m, Math.min(CITY_BOUNDS.maxX + m, pos.x));
-    pos.z = Math.max(CITY_BOUNDS.minZ + (heli ? -6000 : 30), Math.min(CITY_BOUNDS.maxZ + m, pos.z));
-    if (this.activeMode !== 'helicopter' && clampToLand) {
-      const x = clampToLand(pos.x, pos.z, 8.0).x;
-      if (x !== pos.x) {
-        pos.x = x;
-        if (carEntity && carEntity.speed) carEntity.speed *= 0.4;
-      }
+    pos.z = Math.max(CITY_BOUNDS.minZ - m, Math.min(CITY_BOUNDS.maxZ + m, pos.z));
+    // (isLand first: clampToLand allocates its answer, and on land there is nothing to clamp)
+    if (!heli && !isLand(pos.x, pos.z, SHORE_MARGIN)) {
+      const p = shorePoint(pos.x, pos.z, SHORE_MARGIN);
+      pos.x = p.x;
+      pos.z = p.z;
+      if (carEntity && carEntity.speed) carEntity.speed *= 0.4;
     }
 
     const body = collisionBody(this.activeMode, radius, carEntity ? carEntity.heading : 0);

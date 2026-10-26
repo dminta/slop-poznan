@@ -1,67 +1,51 @@
 # Geodata pipeline (tools/ → js/geodata.js)
 
 ## Map
-- `tools/build-geodata.mjs`: entry point. It assembles and writes the `GEO` object, and builds Broadway, the merged `roads` polylines, the Central Park features and the landmark footprints itself.
-- `tools/geo-base.mjs`: the frame (`toWorld`) and the shorelines. Importing it runs the frame calibration and loads CSCL, so every other `geo-*.mjs` module except `geo-util.mjs` depends on it.
-- `tools/geo-util.mjs`: the pure geometry and raster helpers (`ringArea`, `bbox`, `rdp`/`rdpRing`, `pointInRing`, `centroid`, the `Raster` class, `elemRing`/`elemRings` for Overpass elements, `chainCoastline`). It has no inputs, no frame and no import-time work: helpers that project lon/lat take a `project(lon, lat)` function (`toWorld`). Keep NYC constants and file reads out of it, so a second city's pipeline can import it.
-- `geo-streets.mjs` (CSCL → `pieces`, `STREETS`, `AVENUES`), `geo-blocks.mjs` (curb islands rasterised at 1 m, lot rects, frontage frames, `CUT_Z`/`STRIP`/`SIDEWALK`), `geo-extra.mjs` (parks onto blocks, piers, East River bridges, NJ, islands, the Manhattan split), `geo-roadgraph.mjs` (`GEO.roadGraph`).
-- The modules do their work at import time, as top-level side effects. Import order is the dependency order, and `node tools/geo-streets.mjs` on its own prints a street and avenue table for debugging.
+- `tools/build-poznan.mjs`: entry point. It assembles and writes the `GEO` object (the contract in `docs/poznan-plan.md` §2), and places the water labels itself.
+- `tools/poz-base.mjs`: the frame (`toWorld`, `llAffine`, `DETAIL_BOX`) and the snapshot loader. Side-effect free apart from reading `GEO_DATA`.
+- `tools/geo-util.mjs`: the pure geometry and raster helpers (`ringArea`, `bbox`, `rdp`/`rdpRing`, `pointInRing`, `centroid`, the `Raster` class, `elemRing`/`elemRings` for Overpass elements, `chainCoastline`). It has no inputs, no frame and no import-time work: helpers that project lon/lat take a `project(lon, lat)` function (`toWorld`). Keep city constants and file reads out of it.
+- `poz-roads.mjs`, `poz-water.mjs`, `poz-extra.mjs`, `poz-blocks.mjs` do their work at import time, as top-level side effects, in that dependency order; `poz-roadgraph.mjs` exports `buildRoadGraph`, which the entry point calls. What each decides is under [Pipeline](#pipeline-toolsbuild-poznanmjs).
+- The Manhattan pipeline (`build-geodata.mjs`, `geo-*.mjs` other than `geo-util.mjs`, the CSCL/DCP/NYC Parks inputs) was deleted at the Phase 5 cutover; it lives in git history (commit `fc38ef6` and earlier).
 
 ## Regenerate
 ```
-node --max-old-space-size=8192 tools/build-geodata.mjs            # writes js/geodata.js
-node --max-old-space-size=8192 tools/build-geodata.mjs /tmp/x.js  # writes elsewhere (diff before replacing)
-GEO_DATA=/some/dir node ... tools/build-geodata.mjs                # read inputs from another directory (default tools/data/)
+node --max-old-space-size=8192 tools/build-poznan.mjs            # writes js/geodata.js
+node --max-old-space-size=8192 tools/build-poznan.mjs /tmp/x.js  # writes elsewhere (diff before replacing)
+GEO_DATA=/some/dir node ... tools/build-poznan.mjs                # read inputs from another directory (default tools/data/)
 ```
-- The run takes about 11 s. The 8 GB heap flag is what the header usage line and `tests/geodata.test.mjs` pass. A default 4 GB heap also worked on Node 26, but keep the flag, because the 1 m rasters and the EDTs are large.
+- The run takes about 11 s, with a peak RSS of ≈ 0.76 GB. Keep the 8 GB heap flag that the header usage line and `tests/geodata.test.mjs` pass, because the 1 m rasters and the EDTs are large.
 - The output is deterministic. A rebuild from the committed `tools/data` reproduces the committed `js/geodata.js` byte for byte (verified). After any change to tools/, build to a temporary path and `cmp` it against the committed file: an unexpected diff means a behaviour change.
-- `js/geodata.js` is GENERATED: its header says "do not edit by hand", and its single JSON line is about 1.1 MB. To change any geodata value, change the tools or the inputs and rebuild. Commit the regenerated file together with the tool change.
-- Read the build's `[geodata]` log lines (counts, the derived bearing and origin, the per-key KB at the end). They are the quickest sanity check after a change.
+- `js/geodata.js` is GENERATED: its header says "do not edit by hand", and its single JSON line is about 1.26 MB. To change any geodata value, change the tools or the inputs and rebuild. Commit the regenerated file together with the tool change.
+- Read the build's `[geodata]` log lines (counts, the frame, the per-key KB at the end). They are the quickest sanity check after a change.
 - Inspect the output with `head -c 1500 js/geodata.js`, or `import('./js/geodata.js')` in node. Never read the whole file.
 
 ## World frame (the whole sim uses it)
-- 1 unit = 1 m. y is up. **x = Manhattan-grid east, z = grid south (north = −z)**. Heading 0 faces +z (south).
-- The origin is the CSCL centreline node shared by `5 AVE` and `E/W  42 ST`. The axes are turned by the grid bearing, about 29.02° east of true north. Both values are **re-derived from CSCL on every build**: the bearing is the length-weighted median of the long avenue segments, and the origin is that node. `GEO.frame.bearingDeg` records the bearing.
-- The projection is an ellipsoidal local tangent plane at LAT0/LON0 = 40.75318, −73.98185 (`geo-base.mjs`). The 5th & 42nd node sits at (−54.35, 69.42) in that plane.
-- `GEO.frame.ll` is `toWorld` as affine coefficients `[a, b, c, d, e, f]`: **x = a·lon + b·lat + c, z = d·lon + e·lat + f** (`geo-base.mjs` `llAffine`, emitted unrounded because c and f are about 5·10⁶). `js/boroughs.js` `LL(lon, lat)` reads it, so hand-placed lon/lat follows the frame on every rebuild. It reproduces the former hand constants to within 0.6 mm over lon −74.30…−73.65, lat 40.48…41.00 (verified). Many world coordinates are hard-coded and depend on this frame:
-  - `geo-extra.mjs`: the island seed points, the Ellis Island point (−1460, 7780), the Hudson River Park z range and the NJ cut.
-  - `geo-blocks.mjs`: the Times and Herald Square z values.
-  - `js/city-config.js`: `HOUSTON_Z` and the other district constants, and the teleports.
-  - The street details, landmarks and other placements.
-
-  If a CSCL refresh moves the logged bearing or origin, `LL()` follows by itself, but recheck those constants. Otherwise boroughs, labels and placements drift away from the Manhattan geometry.
-- Rings and polylines are flat `[x0, z0, x1, z1, ...]` arrays, rounded to 0.1 m. Rings are reversed to a negative shoelace area in (x, z), to match the winding the runtime has always used for `MANHATTAN_COASTLINE`.
-- `CUT_Z = −7090` (about 129th St) splits the detailed island (`GEO.manhattan`, south of the cut) from low-detail Upper Manhattan (`GEO.upperManhattan`, built by boroughs.js). Streets, blocks, roads and the road graph exist only south of about `CUT_Z − 250`.
+- 1 unit = 1 m. y is up. **x = east, z = south (north = −z)**. Heading 0 faces +z (south). The axes are not turned (`GEO.frame.bearingDeg` = 0, D2): Poznań has no single street grid, so almost every block carries frontage frames.
+- The origin is fixed at the Ratusz on Stary Rynek, **52.40856 N, 16.93401 E** (D1), not derived from a data node.
+- The projection is a local tangent plane at that point (`poz-base.mjs`): KX ≈ 67.9 km/°, KY ≈ 111.25 km/° at 52.4°.
+- `GEO.frame.ll` is `toWorld` as affine coefficients `[a, b, c, d, e, f]`: **x = a·lon + b·lat + c, z = d·lon + e·lat + f** (emitted unrounded). `city-config.js` `LL(lon, lat)` reads it, so hand-placed lon/lat (outskirts zones, camera targets) follows the frame on every rebuild.
+- `GEO.frame.detailBox` = `[x0, x1, z0, z1]` is the detailed core (D3: 52.392–52.425 N, 16.895–16.985 E). Blocks, roads, the road graph and `land` exist only inside it; `outskirts` covers the rest of the city out to the admin boundary. The runtime's `CITY_BOUNDS` is this box.
+- Rings and polylines are flat `[x0, z0, x1, z1, ...]` arrays, rounded to 0.1 m. Outer rings have a negative shoelace area in (x, z); hole rings are positive.
 
 ## Output shape and consumers
-- `GEO` has these keys: `version, frame{bearingDeg, origin, units, cutZ, strip, sidewalk, ll}, manhattan, upperManhattan, innerShore, islands, boroughs, streets, avenues, broadway, plazas, roads, roadGraph, blocks, parks, centralPark, piers, bridges, landmarks, points`. The positional tuple layouts of `roads`, `roadGraph.links` and `blocks` are documented in comments next to the `GEO` literal in `build-geodata.mjs`. Keep those comments in sync when you change a layout.
-- `js/city-config.js` is the main consumer. It turns `GEO` into `{x, z}` objects and named exports (`BLOCKS`, `ALL_STREETS`, `ALL_AVENUES`, `ROADS`, `LANDMARK_SITES`, the polygons and so on). Prefer those exports in runtime code. A few modules read `GEO` directly:
+- `GEO` has these keys: `version` (2), `frame{bearingDeg, origin, lat0, lon0, units, strip, sidewalk, detailBox, ll}`, `land`, `landHoles`, `water`, `outskirts`, `outskirtsHoles`, `districts`, `labels`, `streets` and `avenues` (both empty, deleted in Phase 12), `roads`, `roadGraph`, `rail`, `plazas`, `blocks`, `parks`, `landmarks`. The positional tuple layouts of `roads`, `roadGraph.links` and `blocks` are documented in comments next to the `GEO` literal in `build-poznan.mjs`. Keep those comments in sync when you change a layout.
+- `js/city-config.js` is the main consumer. It turns `GEO` into `{x, z}` rings and named exports: `LAND_RINGS`/`LAND_HOLES`, `WATER`, `OUTSKIRTS`/`OUTSKIRTS_HOLES`, `RAIL`, `PLAZAS`, `DISTRICTS` (`districtAt`), `BRIDGES` (the bridge-flagged graph links chained per name), `SIGNAL_SITES` (from `roadGraph.signals`), `ROADS`, `AREA_LABELS`, `BLOCKS`, `LANDMARK_SITES`, and the land raster behind `isLand`/`isWater`/`distToWater`/`clampToLand` (2 m cells; bridge decks count as land). Prefer those exports in runtime code. A few modules read `GEO` directly:
   - `road-network.js`: `roadGraph`
-  - `city-grid.js`: `plazas`, `centralPark`, `points`, `parks`
-  - `buildings.js`: `plazas`
-  - `city-map.js`: `frame`, `parks`, `centralPark`
+  - `city-grid.js`, `buildings.js`, `city-map.js`: `parks`, `plazas`, `frame`
 - When you add, rename or re-layout a `GEO` key, update every consumer of it, plus the `GEO` stubs in `tests/city-map.test.cjs` if `city-map.js` reads it.
-- `GEO.landmarks` is keyed by the exact OSM `name` tag. If a name has several outlines, the largest one wins. Each entry holds a grid-aligned bbox centre and size (`x, z, w, d`), the OSM `height` or null, and the outline ring. An entry may also carry `ang` (radians, the turn of a frontage frame's θ and three.js `rotation.y`): `w` and `d` are then the extents along the turned axes, and `fitToSite` turns the model and its colliders by it (see [`world.md`](world.md)). The NYC pipeline never emits `ang`, because the Manhattan models are built for grid-aligned sites. Runtime code looks entries up by name (`LANDMARK_SITES['Empire State Building']`), so an OSM rename silently drops the landmark: `fitToSite` returns early on a missing site.
+- `GEO.landmarks` is keyed by a curated name (`Ratusz`, `Katedra`, `Bałtyk`, …; `poz-extra.mjs`), each `{x, z, w, d, h, area, ring, ang}`. `ang` (radians, the turn of a frontage frame's θ and three.js `rotation.y`) is the outline's principal axis: `w` and `d` are the extents along the turned axes, and `fitToSite` turns the model and its colliders by it (see [`world.md`](world.md)). `h` is curated, else `building:levels` × 3.4; OSM `height` is not trusted. Runtime code looks entries up by name (`LANDMARK_SITES['Ratusz']`), so a dropped match silently drops the landmark: `fitToSite` returns early on a missing site.
 
 ## Data sources and licensing (tools/data/)
-| file | source | notes |
-|---|---|---|
-| `dcp_boroughs.json` | NYC DCP Borough Boundaries, water areas excluded (NYC Open Data `gthc-hcne`) | GeoJSON FeatureCollection. Reads `properties.boroname` (`Manhattan`, `Brooklyn`, `Queens`, `Bronx`, `Staten Island`). |
-| `cscl_manhattan.json` | NYC Street Centerline, CSCL (`inkn-q76z`), Manhattan only | Socrata JSON row array. Fields read: `the_geom, full_street_name, rw_type, trafdir, streetwidth` (ft), `number_travel_lanes, from_level_code, to_level_code`. |
-| `nycparks_manhattan.json` | NYC Parks Properties (`enfh-gkve`), Manhattan | Row array. Reads `multipolygon, signname, name311, typecategory, acres`. |
-| `osm_*.json` | OpenStreetMap via Overpass, © OpenStreetMap contributors, **ODbL** | Each file comes from the matching `q_*.overpassql` (coast→coastline, cp→centralpark, landmarks, piers). |
-
-- The output header and README.md carry the attribution. Keep it whenever you add a source, and add the new source's licence there too.
-- No script in the repo records the Socrata queries for the three NYC Open Data files. To refresh one, download the same dataset filtered to Manhattan with at least the fields listed above. The code relies on CSCL's raw formatting: names with double spaces (`'E  42 ST'`, `'W  END AVE'`, `'FDR DR  VIADUCT'`), the `rw_type` codes kept in `geo-streets.mjs` (1 street, 2 highway, …), level code `'13'` for at grade, and `trafdir` values `FT`, `TF` and `TW`.
+- Every input is OpenStreetMap via Overpass, © OpenStreetMap contributors, **ODbL**: `poz_*.json`, each from the matching `q_poz_*.overpassql`. Extents, dates and schemas are in the next section.
+- The output header and README.md carry the attribution. Keep it whenever you add a source, and add the new source's licence there too (GUGiK and ZTM terms if their data is used; `docs/poznan-plan.md` §4.4, §9.3).
 
 ## Refreshing an OSM source
 ```
-tools/overpass.sh tools/data/osm_landmarks.json tools/data/q_landmarks.overpassql [tries=12]
+tools/overpass.sh tools/data/poz_landmarks.json tools/data/q_poz_landmarks.overpassql [tries=12]
 ```
 - The script tries three Overpass endpoints per round and sleeps `i*4` s between attempts. It writes to an adjacent temp file and renames it over the output **only** when the response is HTTP 200, curl succeeded, the JSON parses, `elements` is an array and there is no `remark`. Overpass reports timeouts as a 200 response with a `remark`. Any failure leaves the old data untouched and exits 1.
-- After a refresh, rebuild and review the diff of `js/geodata.js` and the build log counts (landmark footprints, piers, CP water/lawns).
-- To add a landmark footprint, add its exact OSM name to the `name~"^(...)$"` regex in `q_landmarks.overpassql`. Add it to the `relation` clause too if OSM maps it as a multipolygon. Then refetch and rebuild. For the runtime side, see [`world.md`](world.md).
-- To add a Central Park water body, lawn or site, add its name to `WATER_NAMES`, `LAWN_NAMES` or `SITE_NAMES` in `build-geodata.mjs`. `q_cp.overpassql` may also need a matching clause.
+- After a refresh, rebuild and review the diff of `js/geodata.js` and the build log counts (landmarks, blocks, graph links, signals).
+- To add a landmark footprint, add its exact OSM name to `q_poz_landmarks.overpassql` (ways and relations) and its curated entry to `poz-extra.mjs`, then refetch and rebuild. For the runtime side, see [`world.md`](world.md).
 
 ## Poznań snapshots (tools/data/poz_*.json)
 Inputs for the Poznań pipeline (`docs/poznan-plan.md` §4.1), OSM via Overpass, **ODbL**. All fetched 2026-10-25 ~20:25 CET
@@ -104,15 +88,8 @@ Inputs for the Poznań pipeline (`docs/poznan-plan.md` §4.1), OSM via Overpass,
 - Admin: relation 165941 (level 8), 42 level-9 and 81 level-10 relations, plus `place=suburb|quarter|neighbourhood`
   nodes, ways and relations.
 
-## Poznań pipeline (tools/build-poznan.mjs)
-The Poznań build (`docs/poznan-plan.md` §2, §4) runs next to the NYC one until the Phase 5 cutover. It reads only the
-`poz_*.json` snapshots and never imports a `geo-*.mjs` module other than `geo-util.mjs`.
-```
-node --max-old-space-size=8192 tools/build-poznan.mjs            # writes $TMPDIR/geodata-poznan.js (path is logged)
-node --max-old-space-size=8192 tools/build-poznan.mjs /tmp/p.js  # writes elsewhere
-```
-- The default output is `os.tmpdir()/geodata-poznan.js`, so the build cannot overwrite the NYC `js/geodata.js` before
-  the cutover. A run takes ≈ 11 s, with a peak RSS of ≈ 0.76 GB. Two builds compare equal with `cmp` (verified).
+## Pipeline (tools/build-poznan.mjs)
+The build (`docs/poznan-plan.md` §2, §4) reads only the `poz_*.json` snapshots.
 - Modules, in import order. Each one does its work at import time:
   - `poz-base.mjs`: the frame (origin at the Ratusz, 52.40856 N 16.93401 E; bearing 0, so x is east and z is south),
     `toWorld`, `llAffine`, `DETAIL_BOX` and the snapshot loader.
@@ -122,7 +99,7 @@ node --max-old-space-size=8192 tools/build-poznan.mjs /tmp/p.js  # writes elsewh
     with `outskirtsHoles`; `isLandAt`.
   - `poz-extra.mjs`: parks and the park-coverage pass, landmarks (with `ang`), districts and labels.
   - `poz-blocks.mjs`: curb islands on a 1 m raster over the detail box (6,126 × 3,674 cells). It ports
-    `geo-blocks.mjs` and adds a bbox prefilter to the nearest-edge loop of `blockFrames`.
+    the former Manhattan `geo-blocks.mjs` and adds a bbox prefilter to the nearest-edge loop of `blockFrames`.
   - `poz-roadgraph.mjs`: `buildRoadGraph(pieces, signalNodes, { service })`, called by the build script.
 - Output (1.26 MB): `roads` 246 KB, `roadGraph` 201 KB (3,903 links), `blocks` 412 KB (822), `parks` 193 KB, `rail` 69 KB,
   `plazas` 42 KB, `water` 22 KB, `outskirts` 17 KB plus 10 KB of holes, `districts` 17 KB. The rest is under 10 KB each.
@@ -142,6 +119,6 @@ node --max-old-space-size=8192 tools/build-poznan.mjs /tmp/p.js  # writes elsewh
   `labels`. Each sits at the point of its water body farthest from the shore inside the detail box.
 
 ## Tests
-- `tests/geodata.test.mjs` runs the NYC build and the Poznań build (the latter into a `'Poznań Zażółć 東京 '` temp dir, with an explicit output path, checking land, Warta, bridge links, signals, Ratusz, block count, version and `frame.ll`). The NYC test copies `tools/*.mjs` into a temporary directory whose path contains spaces and CJK characters, symlinks `tools/data` into it, runs the build with GEO_DATA unset and `--max-old-space-size=8192`, then imports the output. It guards path handling: resolve paths with `fileURLToPath(new URL(..., import.meta.url))`, never `URL.pathname`. New tool modules must be `.mjs` files directly in `tools/`, or the test will not copy them. Each test may take up to 180 s; together they take about 22 s.
+- `tests/geodata.test.mjs` copies `tools/*.mjs` into a temporary directory whose path contains spaces and non-ASCII characters (`'Poznań Zażółć 東京 '`), symlinks `tools/data` into it, runs the build with GEO_DATA unset, the default output path and `--max-old-space-size=8192`, then imports the output and checks the version, ≥ 3 land rings, the Warta, a bridge link, > 100 signals, the Ratusz, > 500 blocks and that `frame.ll` puts the Ratusz at the origin. It guards path handling: resolve paths with `fileURLToPath(new URL(..., import.meta.url))`, never `URL.pathname`. New tool modules must be `.mjs` files directly in `tools/`, or the test will not copy them. It takes about 11 s (timeout 180 s).
 - `tests/overpass.test.mjs` replaces `curl` and `sleep` with stubs on PATH and checks the keep-old-data-on-failure guarantees above, including that all 3 endpoints are tried and no temp files are left behind. If you change the retry or endpoint logic, update the expected call counts.
 - Run both with `node --test tests/geodata.test.mjs tests/overpass.test.mjs`. Neither needs network access.

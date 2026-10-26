@@ -1,10 +1,10 @@
-# Slop New York
+# Slop Poznań
 
-A no-build three.js Manhattan simulation (WebGPURenderer + TSL). `index.html` loads native ES modules from `js/`; three.js is
+A no-build three.js Poznań simulation (WebGPURenderer + TSL). `index.html` loads native ES modules from `js/`; three.js is
 `three@dev` from jsDelivr via the import map, so APIs can drift between visits. Served as static files (GitHub Pages).
 
 ## Commands
-- Tests: `node --test tests/` (~22 s, mostly the NYC and Poznań geodata rebuilds); quick loop: `node --test tests/*.cjs` (<1 s). Node 22+.
+- Tests: `node --test tests/` (~11 s, mostly the Poznań geodata rebuild); quick loop: `node --test tests/*.cjs` (<1 s). Node 22+.
 - Serve: `python3 -m http.server 8000` from the repo root, then open `http://localhost:8000/` in a WebGPU browser (needs network
   for three.js).
 - Rendering, shaders, lighting, culling and audio have no automated coverage: verify them in the browser and watch the console.
@@ -26,7 +26,7 @@ A no-build three.js Manhattan simulation (WebGPURenderer + TSL). `index.html` lo
 
 ## Style
 - 2-space indent, single quotes, semicolons, no trailing commas; comments wrap near 120 columns and explain *why*, often with
-  measured numbers. SI units; heading 0 faces +z (grid south).
+  measured numbers. SI units; heading 0 faces +z (south).
 - `PascalCase` classes, `camelCase` functions, `UPPER_SNAKE` constants and data tables, `_` prefix for private/scratch/cached
   fields; `build*` for scene builders, `create*` for factories and materials. UI writes DOM through `textContent` /
   `createElement` / `replaceChildren`.
@@ -38,11 +38,13 @@ A no-build three.js Manhattan simulation (WebGPURenderer + TSL). `index.html` lo
   (keyboard/touch/gamepad), cameras, teleports, persistence, the map UI or HUD/CSS.
 - `docs/rendering.md` — read before touching TSL materials, lighting or time of day, post-processing/SSR, scene culling,
   instanced meshes or the WebGPU/WebGL2 renderer setup.
-- `docs/world.md` — read before changing city-grid, boroughs, buildings, fire escapes, landmarks, street details, trees, the
-  road network or road paint, or adding props, landmarks or colliders.
+- `docs/world.md` — read before changing city-grid, outskirts, bridges, buildings, fire escapes, landmarks, street details,
+  trees, the road network or road paint, or adding props, landmarks or colliders.
 - `docs/geodata.md` — read before touching `tools/`, `tools/data/`, `js/geodata.js` or the world coordinate frame.
 - `docs/actors.md` — read before changing traffic, pedestrians, vehicle/person models, vehicle lights, spawning, player–traffic
   collisions or car/bicycle coasting.
 - `docs/audio.md` — read before changing `js/audio-*.js`, adding a sound, or renaming fields on cars, peds, controller entities
   or `streetDetails.audioSignals` (audio reads them directly and breaks silently).
 - `docs/testing.md` — read before writing or debugging tests, or running the pedestrian benchmark.
+- `docs/poznan-plan.md` — the New York → Poznań port plan with per-phase status; read before starting a remaining phase
+  (6–12) or replacing leftover NYC content.

@@ -6,13 +6,9 @@ const { loadModule } = require('./helpers/module.cjs');
 
 const source = readFileSync(join(__dirname, '../js/road-network.js'), 'utf8');
 
-// A city with no Manhattan grid (no avenues or streets): the network comes from GEO.roadGraph alone
+// The network comes from GEO.roadGraph alone
 function buildPureGraph(roadGraph) {
-  const config = {
-    ALL_AVENUES: [], ALL_STREETS: [], AVENUES: [], STREETS: [], BLOCKS: [], SIGNAL_SITES: [],
-    CITY_BOUNDS: { minX: -200, maxX: 600, minZ: -200, maxZ: 400 },
-    isLand: () => true
-  };
+  const config = { BLOCKS: [], SIGNAL_SITES: [], isLand: () => true };
   const { buildRoadNetwork } = loadModule(source, {
     imports: { './city-config.js': config, './geodata.js': { GEO: { roadGraph } } },
     globals: { console: { info() {} } },
@@ -42,12 +38,12 @@ function syntheticGraph() {
 const near = (a, b) => Math.abs(a - b) < 1e-6;
 const along = (net, z) => net.edges.filter((e) => near(e.dz, 0) && near(e.z0, z));
 
-test('the road network builds from the centreline graph alone when there is no grid', () => {
+test('the road network builds from the centreline graph', () => {
   const net = buildPureGraph(syntheticGraph());
   assert.equal(net.nodes.length, 12);
   assert.equal(net.edges.length, 34); // 17 two-way links
-  assert.ok(net.nodes.every((n) => n.general && n.sideCount >= 4 && n.groupCount >= 2));
-  assert.ok(net.edges.every((e) => e.general && e.lanes.length && e.inArm && e.outArm));
+  assert.ok(net.nodes.every((n) => n.sideCount === n.arms.length && n.sideCount >= 2 && n.groupCount >= 2));
+  assert.ok(net.edges.every((e) => e.lanes.length && e.inArm && e.outArm));
 });
 
 test('major roads come from width and lanes, over most of a named road', () => {
@@ -70,4 +66,78 @@ test('three travel lanes make a narrow road major', () => {
   const graph = syntheticGraph();
   for (const l of graph.links) if (l[2] === 1) l[4] = 3;
   assert.ok(along(buildPureGraph(graph), 120).every((e) => e.major));
+});
+
+test('lanes follow the OSM lane count and direction within the roadway', () => {
+  const graph = syntheticGraph();
+  for (const l of graph.links) {
+    if (l[2] === 0) l[4] = 4; // MAIN ST: four lanes, two each way
+    if (l[2] === 3) { l[3] = 3.4; l[4] = 1; } // CROSS ST: a two-way lane 3.4 m wide
+  }
+  const net = buildPureGraph(graph);
+  const main = along(net, 0).filter((e) => e.half > 8);
+  assert.ok(main.length && main.every((e) => e.lanes.length === 2 && near(e.lanes[0], 1.8) && near(e.lanes[1], 5.4)));
+  const cross = net.edges.filter((e) => near(e.dx, 0));
+  assert.equal(cross.length, 16);
+  assert.ok(cross.every((e) => e.lanes.length === 1 && near(e.lanes[0], e.half / 2)), 'each way keeps to its half of a narrow road');
+});
+
+// The real Poznań graph on the real land, bare and with the street furniture street-details.js stands along the curbs
+// (lamps, globe lanterns, signal masts: built here with inert three.js stubs, since only its footprints matter). An
+// obstacle within LANE_CLEAR of a lane closes the lane over its whole edge, and a lost one-way edge can take whole
+// loops out of the largest strongly connected set, so a big drop with the furniture means a placement or lane geometry
+// rule broke (docs/world.md). Measured 2026-10: bare 6925 edges long enough, 4300 (193.8 km) in the set; with the
+// furniture (7471 footprints) 4068 (184.3 km). The rest of the bare graph is mostly cul-de-sacs and roads cut at the
+// detail box.
+function inert() {
+  const store = {};
+  return new Proxy(function () {}, {
+    get(_target, key) {
+      if (key === Symbol.iterator) return function* () {};
+      if (key === Symbol.toPrimitive) return () => 0;
+      if (key === 'then') return undefined;
+      if (key === 'length') return 0;
+      return key in store ? store[key] : (store[key] = inert());
+    },
+    set(_target, key, value) { store[key] = value; return true; },
+    apply: () => inert(),
+    construct: () => inert()
+  });
+}
+
+test('most of the Poznań road graph survives the largest strongly connected set, street furniture included', async () => {
+  const config = await import('../js/city-config.js');
+  const { GEO } = await import('../js/geodata.js');
+  const logs = [];
+  const { buildRoadNetwork } = loadModule(source, {
+    imports: { './city-config.js': config, './geodata.js': { GEO } },
+    globals: { console: { info: (line) => logs.push(line) } },
+    filename: 'road-network.js'
+  });
+  const { buildStreetDetails } = loadModule(readFileSync(join(__dirname, '../js/street-details.js'), 'utf8'), {
+    imports: {
+      'three/webgpu': inert(), 'three/tsl': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert(),
+      './city-config.js': config, './tsl-materials.js': inert(),
+      './trees.js': { createTreeField: () => ({ group: inert() }) },
+      './city-grid.js': { pavedPlazaRects: [], parkTreeSites: [], parkLampSites: [] }
+    },
+    globals: { console: { info() {}, log() {}, warn() {} }, Math, Object, Array, Set, Map, Number, Infinity, JSON, Symbol,
+      Float32Array, Uint8Array, Uint16Array, Uint32Array, Int32Array, Float64Array, Promise, String, Error,
+      document: inert() },
+    filename: 'street-details.js'
+  });
+  const km = (net) => net.edges.reduce((sum, e) => sum + e.span, 0) / 1000;
+
+  const bare = buildRoadNetwork([], []);
+  const counts = /(\d+) long enough, (\d+) in the largest strongly connected set/.exec(logs.join('\n'));
+  assert.ok(counts, 'the edge counts are logged');
+  assert.equal(Number(counts[2]), bare.edges.length);
+  assert.ok(Number(counts[1]) > 6200, `${counts[1]} edges long enough`);
+  assert.ok(bare.edges.length > 3850 && km(bare) > 175, `${bare.edges.length} edges, ${km(bare).toFixed(1)} km in the set`);
+  assert.ok(bare.nodes.filter((n) => n.signal).length > 150, 'signal sites mark their junctions');
+
+  const { footprints } = buildStreetDetails(inert());
+  assert.ok(footprints.length > 5000, `${footprints.length} street furniture footprints`);
+  const furnished = buildRoadNetwork([], footprints);
+  assert.ok(km(furnished) > 0.9 * km(bare), `${km(furnished).toFixed(1)} of ${km(bare).toFixed(1)} km survive the furniture`);
 });

@@ -94,11 +94,19 @@ function mapHarness() {
     captured.delete(id);
     canvas.dispatch('lostpointercapture', { pointerId: id });
   };
+  const clamps = [];
   const config = {
-    ROADS: [], BLOCKS: [], NYC_LANDMARKS: [],
+    ROADS: [], BLOCKS: [],
+    CITY_LANDMARKS: [{ id: 'fara', name: 'Fara Poznańska', short: 'Fara', x: 5, z: 6 },
+      { id: 'ratusz', name: 'Ratusz & Stary Rynek', short: 'Ratusz', x: 1, z: 2 }],
+    LANDMARK_SITES: {},
     CITY_BOUNDS: { minX: -10000, maxX: 10000, minZ: -10000, maxZ: 10000 },
-    clampToLand: (x, z) => ({ x, z }),
-    LAND_RINGS: [],
+    // snaps every tap 12 m east, so the tests see that teleports go through it with both coordinates
+    clampToLand: (x, z, margin) => {
+      clamps.push([x, z, margin]);
+      return { x: x + 12, z };
+    },
+    LAND_RINGS: [], LAND_HOLES: [], WATER: [], OUTSKIRTS: [], OUTSKIRTS_HOLES: [], PLAZAS: [], BRIDGES: [],
     AREA_LABELS: [['Stare Miasto', 0, 0, 2]],
     LABEL_ALIAS: {},
     foldText: (text) => String(text).toLowerCase(),
@@ -122,7 +130,7 @@ function mapHarness() {
   map.viewZoom = 1;
   map.toggleFullMap(true);
   return {
-    map, canvas, controls, wrapper, window, document, captured, teleports, toggles, zoomIn, zoomOut,
+    map, canvas, controls, wrapper, window, document, captured, teleports, toggles, clamps, zoomIn, zoomOut,
     pointer(target, type, id, x = 110, y = 120, pointerType = 'touch', button = 0) {
       const event = { pointerId: id, clientX: x, clientY: y, pointerType, button, preventDefault() {} };
       (captured.has(id) ? canvas : target).dispatch(type, event);
@@ -153,12 +161,19 @@ test('unrelated touches cannot move or release the map pan', () => {
   assert.equal(h.teleports.length, 0);
 });
 
-test('a normal map tap teleports once and releases capture', () => {
+test('the default waypoint is the Ratusz', () => {
+  const h = mapHarness();
+  assert.deepEqual({ ...h.map.waypoint }, { x: 1, z: 2, name: 'Ratusz & Stary Rynek' });
+});
+
+test('a normal map tap teleports once, onto land clear of the water, and releases capture', () => {
   const h = mapHarness();
   h.pointer(h.canvas, 'pointerdown', 1);
   h.pointer(h.canvas, 'pointerup', 1);
-  assert.deepEqual(h.teleports, [[1000, 2000]]);
-  assert.equal(h.map.waypoint.name, '1000, 2000');
+  assert.deepEqual(h.clamps, [[1000, 2000, 12]], 'the tapped point is clamped 12 m clear of the water');
+  assert.deepEqual(h.teleports, [[1012, 2000]]);
+  assert.equal(h.map.waypoint.x, 1012);
+  assert.equal(h.map.waypoint.name, '1012, 2000');
   assert.equal(h.captured.size, 0);
   assert.equal(h.map.isPanning, false);
 });

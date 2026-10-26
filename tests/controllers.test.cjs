@@ -23,7 +23,7 @@ function keyboardHarness(nyc = {}) {
   const window = eventTarget();
   const document = { ...eventTarget(), hidden: false };
   const config = {
-    streetZ: () => 0,
+    SPAWN: { x: 0, z: 0, heading: 0 },
     isTypingInField: (event) => ['INPUT', 'SELECT'].includes(event.target?.tagName),
     RAISED_GROUND: [],
     ...nyc
@@ -416,7 +416,7 @@ test('ground arrivals share movement shoreline limits while helicopters may rema
   const shore = z => ({ westX: -40 + z * 0.05, eastX: 40 + z * 0.05 });
   const { controller, ent } = teleportHarness('person', [], shore);
   const result = controller.teleportActiveTo(1000, -1000);
-  assert.deepEqual({ ...result }, { x: 8.5, z: -470 });
+  assert.deepEqual({ ...result }, { x: 7, z: -500 }, 'clamped to the city bounds, then 8 m in from the shore');
   controller.resolveHorizontalCollision(ent.position, 0.48);
   assert.deepEqual([ent.position.x, ent.position.z], [result.x, result.z]);
 
@@ -424,6 +424,29 @@ test('ground arrivals share movement shoreline limits while helicopters may rema
   heli.ent.position.y = 10;
   assert.deepEqual({ ...heli.controller.teleportActiveTo(0, 0) }, { x: 0, z: 0 });
   assert.equal(heli.ent.position.y, 92);
+});
+
+test('ground modes are pushed back to land in both coordinates, sliding to the shore margin', () => {
+  const { controller, ent } = teleportHarness('car');
+  // the water lies south of z = 100; clampToLand answers the centre of the nearest qualifying cell, as city-config does
+  controller.activeMode = 'car';
+  const harness = keyboardHarness({
+    CITY_BOUNDS: { minX: -500, maxX: 500, minZ: -500, maxZ: 500, sidewalkHeight: 0.22 },
+    clampToLand: (x, z, margin = 0) => ({ x: Math.round(x / 2) * 2 + 1, z: Math.min(z, 100 - margin - 1) }),
+    isLand: (x, z, margin = 0) => z <= 100 - margin,
+    blockAt: () => null
+  });
+  Object.setPrototypeOf(controller, Object.getPrototypeOf(harness.controller));
+  Object.assign(ent.position, { x: 10.3, z: 96 });
+  ent.speed = 10;
+  controller.resolveHorizontalCollision(ent.position, 0.65, ent);
+  assert.ok(Math.abs(ent.position.z - 92) < 0.1, `z ${ent.position.z} back to the margin, not past it`);
+  assert.ok(Math.abs(ent.position.x - 10.3) < 0.1, `x ${ent.position.x} slides along the shore`);
+  assert.ok(ent.speed < 10, 'scraping the shore slows the car');
+  const heli = teleportHarness('helicopter');
+  Object.assign(heli.ent.position, { x: -5000, z: -5000 });
+  heli.controller.resolveHorizontalCollision(heli.ent.position, 4.5);
+  assert.deepEqual([heli.ent.position.x, heli.ent.position.z], [-5000, -5000], 'the helicopter roams past the bounds alike in x and z');
 });
 
 test('a displaced pedestrian samples ground and resets its feet at the resolved destination', () => {

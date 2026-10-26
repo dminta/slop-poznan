@@ -1,11 +1,11 @@
 // tools/poz-base.mjs — the Poznań frame and the snapshot loader, for tools/build-poznan.mjs. Frame: 1 unit = 1 m,
 // x = east, z = south (north = -z), origin at the Ratusz on Stary Rynek, bearing 0° (true north). Poznań has no single
 // street grid, so the frame is not turned (docs/poznan-plan.md D1, D2). Side-effect free apart from reading
-// GEO_DATA: every poz-*.mjs imports it, and nothing here touches the NYC pipeline (geo-base.mjs reads CSCL on import).
+// GEO_DATA: every poz-*.mjs imports it.
 //
 // Inputs (tools/data/poz_*.json; OpenStreetMap via Overpass, ODbL; queries, extents and dates in docs/geodata.md)
 //
-// usage: GEO_DATA=tools/data node --max-old-space-size=8192 tools/build-poznan.mjs [out.js]
+// usage: node --max-old-space-size=8192 tools/build-poznan.mjs [out.js]
 
 import fs from 'node:fs';
 import path from 'node:path';

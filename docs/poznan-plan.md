@@ -1,6 +1,6 @@
 # Implementation plan: replacing New York with Poznań
 
-Status: **Phases 1–4 done** (each phase heading carries its own status note); Phases 5–12 are not started.
+Status: **Phases 1–5 done** (each phase heading carries its own status note); Phases 6–12 are not started.
 Line references are as of commit `46ec12b` and will drift; grep for the named symbol if a line no longer matches. Read `AGENTS.md` and the topic docs (`geodata.md`, `world.md`, `rendering.md`,
 `actors.md`, `audio.md`, `architecture.md`, `testing.md`) before starting any phase. They hold the repo-wide rules
 (modulepreload + boot count, module syntax, source-sliced tests, generated geodata, CSS `?v=` bump).
@@ -417,6 +417,39 @@ Also:
 ## 5. Stage C: cutover and content
 
 ### Phase 5: Cutover (Poznań boots, NYC content deleted)
+
+**Status: done.** Poznań boots from `build-poznan.mjs`'s `js/geodata.js`; the NYC tools, data, models and exports are
+gone, boot preloads are 32 and `node --test tests/` passes (129 tests, ≈ 11 s). The code is described in `world.md`,
+`architecture.md` and `rendering.md`. Deviations and open points:
+- `city-config.js`: `LAND_RINGS`/`LAND_HOLES` (not `LAND`), plus `OUTSKIRTS`, `BRIDGES` and `SPAWN`. A 2 m land raster
+  backs `isLand` (bridge decks count as land and are never narrowed by a shore margin), `isWater`, `distToWater` and
+  `clampToLand`, which now returns the nearest point in 2-D. `prettyName` and its test went with the v1 names.
+- `landmarks.js`: the NYC models are deleted now rather than in Phase 7; it returns an empty `Landmarks` group and keeps
+  `fitToSite` and the facade-box pass. `bryantParkLawn` is gone and `RAISED_GROUND` is empty.
+- `cameras.js`: the scenic preset ids stay the Manhattan ones (the `index.html` buttons, a `main.js` shortcut and the
+  tests name them); the views are rough Poznań stand-ins until Phase 12.
+- `street-details.js`: the steam stacks, subway entrances, food carts, god rays, mailboxes and the Central Park and
+  Bryant Park plantings are deleted now rather than in Phase 11. Signals, cobra-heads (post-top globes in Stare Miasto)
+  and hydrants stay; lamps and street trees follow the real curb edges of every block (`curbEdges`).
+- `city-grid.js`: one battered stone embankment everywhere (no levee/quay/promenade variants yet). Squares are every
+  `PLAZAS` ring (deduplicated, minus outlines carrying > 30 m of road centreline), not a hand list. `parkClearings` holds
+  the ponds (no reader yet) and `keepClearBoxes` is empty. The road network gets the **ungrown** lot rects of irregular
+  islands as curbs: the 4.4 m-grown rect cover reaches into the roadway on turned blocks and halved the largest SCC
+  (~3150 → ~1660 edges).
+- `road-network.js`: the SCC is logged as `[road-network] edges: … long enough, … in the largest strongly connected set`;
+  `tests/road-network.test.cjs` floors the bare graph at > 3850 edges / 175 km in the set (measured 4300 / 193.8 km) and requires street furniture to keep ≥ 90% of it (measured 184.3 km; it was 126.9 km until runs got shape nodes on gentle arcs, which kept the outer lanes off the curbside lamps).
+  `major` comes from width and lanes (the graph has no road class).
+- `outskirts.js` has no towers (the tall ones stand inside the detail box, Phase 7) and no colliders. `bridges.js`
+  builds the 13 `BRIDGES` names as arch/girder/overpass structures with the deck at y ≈ −0.01 running 15 m onto each bank; only the
+  parapets collide, `sidewalks` is accepted but unused, and Most Jordana (not a road-graph link) is not built.
+- Spawn: `SPAWN` is on the westbound Św. Marcin carriageway by CK Zamek, facing west (13° north of due west); the four
+  modes start at offsets in its frame. Teleports were measured on the real streets (Stary Rynek from Zamkowa's mouth,
+  142 m from the Ratusz; Poznań Główny on Most Dworcowy).
+- Persistence: `player-state` is version 2; version 1 is ignored and `nyc-player-state` removed on load.
+- `tsl-materials.js`: the water's night skyline marches the reflected ray over a land-mask texture; `canyonSkyAONode`
+  opens over 0–22 m and reads a park-mask texture. NYC-only materials (Chrysler crown, TKTS steps, god rays, …) are gone.
+- `city-map.js` already draws the Poznań layers (outskirts, water with its islands, plazas, bridges) north up; branding
+  and HUD text stay for Phase 6. `cityGrid.highwayLanes` is `[]`, so `createHighwayTraffic` builds no cars.
 
 This is one large commit, or a short series on a branch, because NYC-only exports disappear and the browser import fails
 at link time on any leftover.

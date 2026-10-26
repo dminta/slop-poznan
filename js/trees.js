@@ -812,7 +812,7 @@ const TREE_CELL_SIZE = 200;
 const LOD_NEAR = 105; // full detail within (m)
 const LOD_MID = 420; // coarse cards & branches within; whole-crown cards beyond
 const LOD_HYSTERESIS = 6;
-// Draw distance per tier (0 park & plaza, 1 avenue & esplanade, 2 cross-street); at street level everything beyond
+// Draw distance per tier (0 park & plaza, 1 wide street & leftover slab, 2 narrow street); at street level everything beyond
 // LOW_CUTOFF is behind the buildings anyway
 const MAX_DIST = [3000, 1600, 950];
 const LOW_CUTOFF = 1150;

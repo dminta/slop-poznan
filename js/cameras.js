@@ -1,21 +1,22 @@
 import * as THREE from 'three/webgpu';
-import { bryantParkLawn } from './landmarks.js';
 
 // js/cameras.js
 // Multi-camera system supporting Third-Person Chase (with mouse/touch orbit + zoom),
-// Low-Angle Action Cam, POV/Cockpit Cam, 7 Iconic NYC Architectural Cameras, and Auto-Director Drone.
+// Low-Angle Action Cam, POV/Cockpit Cam, 7 fixed scenic cameras and the Auto-Director Drone.
 
+// The scenic ids are the Manhattan ones (index.html's camera buttons and the HUD key bindings name them); the views are
+// rough Poznań stand-ins until Phase 12 re-authors them.
 const CAMERA_PRESETS = [
   { id: 'chase',       name: '3rd-Person Chase',         short: 'Chase',       category: 'follow', fov: 56 },
   { id: 'action',      name: 'Low-Angle Action',         short: 'Action',      category: 'follow', fov: 60 },
   { id: 'pov',         name: 'First-Person / Cockpit',   short: 'POV / Dash',  category: 'follow', fov: 68 },
-  { id: 'centralPark', name: 'Central Park Oasis',       short: 'Central Pk',  category: 'scenic', fov: 52 },
-  { id: 'fifthAve',    name: '5th Ave & Empire State',   short: '5th Ave',     category: 'scenic', fov: 48 },
-  { id: 'timesSquare', name: 'Times Square Crossroads',  short: 'Times Sq',    category: 'scenic', fov: 58 },
-  { id: 'chryslerGCT', name: '42nd St · Chrysler & GCT', short: 'Chrysler',    category: 'scenic', fov: 50 },
-  { id: 'observatory', name: 'Empire State 86th Deck',   short: '86th Deck',   category: 'scenic', fov: 52 },
-  { id: 'bryantPark',  name: 'Bryant Park & NYPL',       short: 'Bryant Pk',   category: 'scenic', fov: 52 },
-  { id: 'waterfront',  name: 'East River & Skyline',     short: 'Skyline',     category: 'scenic', fov: 46 },
+  { id: 'centralPark', name: 'Park Cytadela',            short: 'Cytadela',    category: 'scenic', fov: 52 },
+  { id: 'fifthAve',    name: 'Św. Marcin & Zamek',       short: 'Św. Marcin',  category: 'scenic', fov: 48 },
+  { id: 'timesSquare', name: 'Stary Rynek & Ratusz',     short: 'Stary Rynek', category: 'scenic', fov: 58 },
+  { id: 'chryslerGCT', name: 'Ostrów Tumski & Katedra',  short: 'Katedra',     category: 'scenic', fov: 50 },
+  { id: 'observatory', name: 'AND2 Rooftop',             short: 'AND2 Roof',   category: 'scenic', fov: 52 },
+  { id: 'bryantPark',  name: 'Plac Wolności',            short: 'Pl. Wolności', category: 'scenic', fov: 52 },
+  { id: 'waterfront',  name: 'Warta & Old Town',         short: 'Warta',       category: 'scenic', fov: 46 },
   { id: 'drone',       name: 'Auto-Director Aerial',     short: 'Director',    category: 'scenic', fov: 50 }
 ];
 
@@ -28,7 +29,7 @@ class CameraSystem {
       56,
       window.innerWidth / window.innerHeight,
       0.35,
-      60000 // at 1:1 the boroughs & harbor run out ~20-40 km to the fogged horizon (reversed float depth keeps precision)
+      60000 // at 1:1 the outskirts run out ~20-40 km to the fogged horizon (reversed float depth keeps precision)
     );
 
     this.activePresetId = 'chase';
@@ -255,74 +256,75 @@ class CameraSystem {
         break;
       }
 
+      // Fixed views placed from LANDMARK_SITES (Ratusz ≈ (0, 0), Zamek Cesarski (-1041, 60), Katedra (1001, -337), AND2
+      // (-607, 810), 116 m and the tallest building), with eye heights scaled to Poznań's ≈ 18-25 m roofline.
       case 'centralPark': {
-        // Inside Central Park South looking across The Pond, Gapstow Bridge, The Mall, Sheep Meadow & UWS/UES Skylines
+        // The south edge of Park Cytadela looking north across its lawns
         const sway = Math.sin(elapsed * 0.22) * 3.5;
-        desiredPos.set(-70.0 + sway, 14.0, -1425.0);
-        desiredLook.set(-250.0, 6.5, -1690.0);
+        desiredPos.set(100.0 + sway, 14.0, -1450.0);
+        desiredLook.set(104.0, 6.5, -1616.0);
         break;
       }
 
       case 'fifthAve': {
-        // 5th Avenue & 42nd St looking South down the 5th Ave canyon toward the Empire State Building
+        // Święty Marcin looking west along the street toward the Zamek Cesarski
         const sway = Math.sin(elapsed * 0.25) * 1.8;
-        desiredPos.set(0.0 + sway, 6.5, -20.0);
-        desiredLook.set(-60.0, 150.0, 686.0);
+        desiredPos.set(-880.0, 6.5, 125.0 + sway);
+        desiredLook.set(-1041.0, 30.0, 70.0);
         break;
       }
 
       case 'timesSquare': {
-        // Times Square & Broadway looking across Duffy Square red steps and One Times Square billboards
+        // The south-west corner of the Stary Rynek looking up at the Ratusz tower
         const sway = Math.sin(elapsed * 0.3) * 3.0;
-        desiredPos.set(-603.0 + sway, 5.5, -290.0);
-        desiredLook.set(-566.0, 40.0, -40.0);
+        desiredPos.set(-55.0 + sway, 5.5, 45.0);
+        desiredLook.set(0.0, 32.0, 0.0);
         break;
       }
 
       case 'chryslerGCT': {
-        // Park Ave & 42nd St intersection looking straight at Grand Central, MetLife, and Chrysler Building Crown
+        // The Ostrów Tumski bank of the Warta looking east at the cathedral towers
         const sway = Math.cos(elapsed * 0.22) * 2.5;
-        desiredPos.set(300.0 + sway, 9.5, 95.0);
-        desiredLook.set(470.0, 120.0, -50.0);
+        desiredPos.set(800.0 + sway, 9.5, -260.0);
+        desiredLook.set(1000.0, 40.0, -337.0);
         break;
       }
 
       case 'observatory': {
-        // Empire State Building 86th Floor Deck looking North-East across Midtown skyline
+        // The AND2 roof looking north-east across the centre to the Old Town
         const pan = Math.sin(elapsed * 0.18) * 80.0;
-        desiredPos.set(-58.0, 322.0, 660.0);
-        desiredLook.set(420.0 + pan, 150.0, -200.0);
+        desiredPos.set(-607.0, 120.0, 810.0);
+        desiredLook.set(-200.0 + pan, 20.0, 0.0);
         break;
       }
 
       case 'bryantPark': {
-        // Inside Bryant Park Great Lawn looking East toward NYPL portico, One Vanderbilt & Chrysler Building
+        // The west end of Plac Wolności looking east along the square
         const sway = Math.sin(elapsed * 0.25) * 1.5;
-        const lawn = bryantParkLawn || { minX: -260, maxX: -150, minZ: 40, maxZ: 120, top: 1.3 };
-        const lz = (lawn.minZ + lawn.maxZ) * 0.5;
-        desiredPos.set(lawn.minX + 18.0, lawn.top + 1.7, lz + sway);
-        desiredLook.set(lawn.maxX + 260.0, 70.0, lz - 60.0);
+        desiredPos.set(-505.0, 1.9, 52.0 + sway);
+        desiredLook.set(-340.0, 12.0, 50.0);
         break;
       }
 
       case 'waterfront': {
-        // Over the shimmering East River looking across the FDR Drive, Queensboro Bridge & Midtown Skyline
+        // Over the Warta by Most Chrobrego looking west across the river to the Old Town
         const drift = Math.sin(elapsed * 0.15) * 40.0;
-        desiredPos.set(1640.0, 60.0, 60.0 + drift);
-        desiredLook.set(150.0, 150.0, -150.0);
+        desiredPos.set(745.0, 35.0, -150.0 + drift);
+        desiredLook.set(0.0, 25.0, 0.0);
         break;
       }
 
       case 'drone': {
+        // Circles the centre between the Old Town and the AND2/Andersia cluster, just above the 116 m skyline top
         const angle = elapsed * 0.07 + 0.65;
         const radius = 720.0 + Math.sin(elapsed * 0.23) * 140.0;
-        const alt = 330.0 + Math.cos(elapsed * 0.19) * 90.0;
+        const alt = 190.0 + Math.cos(elapsed * 0.19) * 50.0;
         desiredPos.set(
-          Math.cos(angle) * radius + 60.0,
+          Math.cos(angle) * radius - 450.0,
           alt,
-          Math.sin(angle) * radius + 250.0
+          Math.sin(angle) * radius + 350.0
         );
-        desiredLook.set(60.0, 160.0, 250.0);
+        desiredLook.set(-450.0, 40.0, 350.0);
         break;
       }
     }

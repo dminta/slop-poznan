@@ -22,10 +22,10 @@ import {
 import { PersonCrowd, PersonRig } from './pedestrians.js';
 
 // js/traffic.js
-// Manhattan traffic and pedestrians on the road graph road-network.js derives from the city as built:
+// City traffic and pedestrians on the road graph road-network.js derives from the city as built:
 // - 200 cars (taxis, sedans, SUVs, NYPD cruisers) and 12 MTA buses keep to their lanes and follow the vehicle
 //   ahead (Intelligent Driver Model), change lanes to overtake or to reach a turn lane, turn into other streets,
-//   stop for the signals street-details.js shows, give way to oncoming traffic when turning left, to the avenue at
+//   stop for the signals street-details.js shows, give way to oncoming traffic when turning left, to the widest road at
 //   unsignalized corners and to pedestrians on crosswalks, and never enter an intersection they can't clear.
 // - 340 pedestrians follow connected sidewalks, meet to talk, and cross signalized crosswalks on WALK.
 // - Fixed-size local populations replenish distant roads and sidewalks in every direction, protecting the near view.
@@ -105,18 +105,18 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   const network = buildRoadNetwork(sidewalks, obstacles);
   const { nodes, edges, connector, curvePoint } = network;
 
-  // Sides of an intersection (road-network.js step 9): a grid intersection's are 0 east, 1 west, 2 south, 3 north;
-  // centreline junctions number their arms from 4. Where lane i of edge e meets the crosswalk of `arm` (e.inArm at
-  // e.to or e.outArm at e.from), measured along the crosswalk: along the lateral axis of the arm's road, taken from
-  // its edge in, else out, as pedestrian-routes.js lays the crosswalk (x across north-south roads, z across east-west
-  // ones). One axis per arm keeps the two roadways of a divided road, up to 20 degrees apart, on the walkers' scale.
+  // Sides of an intersection (road-network.js step 7) are its arms, numbered from 0. Where lane i of edge e meets the
+  // crosswalk of `arm` (e.inArm at e.to or e.outArm at e.from), measured along the crosswalk: along the lateral axis
+  // of the arm's road, taken from its edge in, else out, as pedestrian-routes.js lays the crosswalk (x across
+  // north-south roads, z across east-west ones). One axis per arm keeps the two roadways of a divided road, up to 20
+  // degrees apart, on the walkers' scale.
   const laneCoord = (e, i, arm) => {
     const c = arm.in || arm.out, s = arm === e.inArm ? e.len : 0;
     return (e.sx + e.dx * s + e.rx * e.lanes[i]) * c.clx + (e.sz + e.dz * s + e.rz * e.lanes[i]) * c.clz;
   };
 
   for (const n of nodes) {
-    n.box = new Array(n.groupCount).fill(0); // vehicles crossing it from each road (group: on the grid avenue 0, street 1)
+    n.box = new Array(n.groupCount).fill(0); // vehicles crossing it from each road (group 0: the widest)
     n.crossing = new Array(n.sideCount).fill(0); // vehicles crossing (or about to cross) the crosswalk on each side
     n.approach = new Array(n.sideCount).fill(null); // the edge arriving over each side's crosswalk
     n.walkers = []; // pedestrians on its crosswalks
@@ -418,7 +418,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // 4. WHO IS WHERE: LANE OCCUPANCY, INTERSECTIONS, VIEW, PLAYER
   // =========================================================================
   let clock = 0;
-  // Signal phases of group 0 (ave*: the avenue on the grid, the widest road at other junctions) and of every other
+  // Signal phases of group 0 (ave*: the widest road at the junction) and of every other
   // group (st*), from sidesAndGroups in road-network.js
   let avePhase = 'green';
   let stPhase = 'red';
@@ -1470,7 +1470,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     return false;
   }
 
-  // Does p, on a crosswalk, have the WALK? Over group 0's road (the avenue on the grid, the widest road elsewhere)
+  // Does p, on a crosswalk, have the WALK? Over group 0's road (the widest road at the junction)
   // with the other roads' traffic, over the others with group 0's. Without a signal always: people waiting at the curb
   // have priority, and vehicles yield to them through pedestrianOn as on the WALK.
   const walkOn = (p) => !p.node.signal || (p.group === 0 ? stWalk : aveWalk);
@@ -2117,11 +2117,11 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
 // ============================================================================
 // AMBIENT SHORE-HIGHWAY TRAFFIC (West Side Highway, Henry Hudson Parkway, FDR Drive)
 // ============================================================================
-// The shore highways city-grid.js lays along both rivers are not part of the road graph, so a lighter model fills
-// them: cars follow each lane's centre line and keep their distance with the IDM. Nobody changes lanes, so the order
-// in a lane never changes and every car's leader is simply the next one (cyclically: cars dip below the deck at the
-// end of a lane as if into an underpass and come back up at its start; West St and the FDR's lanes are joined through
-// the Battery Park Underpass, lane points well below ground). Cars queue behind the player standing or
+// Highway lanes city-grid.js may lay outside the road graph (cityGrid.highwayLanes, none in Poznań yet: an empty list
+// builds no cars) get a lighter model: cars follow each lane's centre line and keep their distance with the IDM.
+// Nobody changes lanes, so the order in a lane never changes and every car's leader is simply the next one
+// (cyclically: cars dip below the deck at the end of a lane as if into an underpass and come back up at its start;
+// lanes can be joined through an underpass by lane points well below ground). Cars queue behind the player standing or
 // driving in their lane. Within HWY_NEAR_LOD m of the camera they use the full model with wheels and cast shadows,
 // up to HWY_MID_LOD m a wheel-less body, further out a coarse ~250-triangle lofted proxy; beyond HWY_FAR_CULL m (or well behind
 // the camera) they aren't drawn.

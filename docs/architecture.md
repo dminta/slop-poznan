@@ -6,8 +6,9 @@
   `build*`/`create*` factory that returns an object with `update()` and data such as `colliders` and `footprints`.
 - `js/controllers.js` owns the four player entities (`entities.person|car|cyclist|helicopter`), `activeMode`, the merged input
   `keys`, ground height, building collisions and teleport placement. `js/cameras.js` owns the render camera, `CAMERA_PRESETS` and
-  the orbit/zoom state. `js/city-config.js` holds static world data and helpers (`TELEPORT_LOCATIONS`, `getLocationLabel`,
-  `isTypingInField`, `streetZ`, `ISLAND_BOUNDS`, ...).
+  the orbit/zoom state. The scenic preset ids (`centralPark`, `fifthAve`, …) are still the Manhattan ones, because the
+  `index.html` buttons (labels still NYC until Phase 6), a `main.js` shortcut and `tests/cameras.test.cjs` name them; their views are rough Poznań stand-ins until Phase 12. `js/city-config.js` holds static world data and helpers (`TELEPORT_LOCATIONS`, `SPAWN`, `getLocationLabel`,
+  `isTypingInField`, `isLand`, `clampToLand`, ...).
 
 ## Module graph and registering a new module
 - The project has no build step. The import map in `index.html` maps `three`, `three/webgpu` (same URL, so there is one Three.js
@@ -18,8 +19,9 @@
 
 ## Boot order (inside `initApp`)
 1. `renderer.init()`, then `LightingSystem`.
-2. City builders, in this order: `buildCityGrid`, `buildBoroughs`, `buildLandmarks`, `buildCityBlocks`, `buildStreetDetails`,
-   `createTrafficSystem`, `createHighwayTraffic`, `buildRoadPaint`. The order matters because of the live `let` exports below.
+2. City builders, in this order: `buildCityGrid`, `buildOutskirts`, `buildBridges`, `buildLandmarks`, `buildCityBlocks`,
+   `buildStreetDetails`, `createTrafficSystem`, `createHighwayTraffic`, `buildRoadPaint`. The order matters because of the
+   live `let` exports below ([`world.md`](world.md#build-order-mainjs-initapp-and-why-it-is-fixed)).
 3. `ThirdPersonControllerManager(scene, allColliders)`. Saved player state is restored right after it is constructed.
 4. Then `CameraSystem`, `TouchControls`, `CityAudioSystem`, `setupSceneCulling`, the WebGPU-only instanced-matrix swap, the
    SSR/post-processing pipeline, `GamepadControls`, UI wiring and `CityMapSystem`.
@@ -36,8 +38,8 @@
   3. **Mutable exported singletons:**
      - `cityUniforms` in `tsl-materials.js`. `lighting.js` writes it; `controllers.js` and the materials read it, for example
        `uInteriorGlow` drives headlight intensity.
-     - Exported `let` bindings that a builder fills in: `bryantParkLawn` (`landmarks.js`) and `sidewalkBlocks`,
-       `pavedPlazaRects`, `fdrViaduct`, ... (`city-grid.js`). These stay `undefined` until their builder runs, so read them at
+     - Exported `let` bindings that a builder fills in: `sidewalkBlocks`, `pavedPlazaRects`, `keepClearBoxes`, ...
+       (`city-grid.js`). These stay `undefined` until their builder runs, so read them at
        call time, never at module top level.
      - The test harness snapshots imports as plain values, so tests pass these as stub values.
 - The HUD reflects state through body attributes and classes that CSS keys off: `body[data-mode]` (for example, the altitude
@@ -52,7 +54,7 @@ The loop runs these in order:
 5. `trafficSystem.update` (receives the camera position, active entity, mode and camera)
 6. `highwayTraffic.update`
 7. a throttled save
-8. the borough, building, street-detail and lighting updates (these use `cameraSystem.currentPos`)
+8. the building, street-detail and lighting updates (these use `cameraSystem.currentPos`)
 9. `mapSystem.update`
 10. `audioSystem.update`
 11. `updateSceneCulling` (skipped on the warm-up frame)
@@ -129,13 +131,15 @@ Physics notes:
 - Car and cyclist speed/coasting tuning (`driveSpeed()`, `CAR_DRIVE`/`BICYCLE_DRIVE`) is documented in
   [`actors.md`](actors.md#physics-and-coasting-parameters-player-vehicles-controllersjs).
 - Colliders have the shape `{ minX, maxX, minZ, maxZ, minY?, maxY, obb?: { cx, cz, hx, hz, cs, sn } }`, gathered in `main.js`
-  from landmarks, blocks, boroughs and the grid.
+  from landmarks, blocks, outskirts, bridges and the grid.
   - They must be static. `nearColliders` buckets them once into 48 m cells, and it writes `_order` and `_seen` onto each
     collider.
   - `minY` matters. Every building part gets its own collider (commit `49b2ef2` removed a blanket block collider that caused
     invisible walls), and raised parts let ground players pass underneath.
   - The car uses an oriented rectangle (SAT); the other modes use circles.
-  - Only the helicopter may leave the island; it gets a 6000 m margin. Ground modes are clamped to `getIslandBoundsAtZ` ± 8 m.
+  - Only the helicopter may leave the detail box (`HELI_RANGE`, 6000 m past `CITY_BOUNDS`). Ground modes stay
+    `SHORE_MARGIN` 8 m from water: `shorePoint` pushes a body back along `clampToLand`'s 2-D answer, keeping one coordinate
+    where it can so the body slides along the shore. Bridge decks never narrow the margin (`isLand`).
 
 ## Teleports
 - Every teleport goes through `teleportTo(x, z, heading)` in `main.js`: the HUD presets, map clicks (`CityMapSystem.onTeleport`)
@@ -153,13 +157,13 @@ Physics notes:
 - Adding a preset destination:
   1. Add an entry to `TELEPORT_LOCATIONS` (`city-config.js`, heading 0 = south/+z, π = north).
   2. Add a matching `button[data-teleport=key]` in `#teleport-popover`.
-  3. The test requires the keys to match the buttons exactly and the point to lie on a roadway inside the island, outside any
-     `blockAt`.
+  3. The test requires the keys to match the buttons exactly and the point to lie within a street's width of a road,
+     8 m from water (`isLand`) and outside any `blockAt`.
 
 ## Persistence (localStorage)
-- `player-state` (`main.js`) stores `{ version: 1, activeMode, entities: { [mode]: { x, y, z, heading } } }`.
-  - It was `nyc-player-state`: on load the old key is copied to the new one and removed. At the Phase 5 (Poznań) cutover
-    `version` bumps to 2 and the migration goes, so a Manhattan position is never restored into Poznań.
+- `player-state` (`main.js`) stores `{ version: 2, activeMode, entities: { [mode]: { x, y, z, heading } } }`.
+  - Version 2 is Poznań. A version 1 state holds a Manhattan position and is ignored; the old `nyc-player-state` key is
+    removed on load.
   - It is saved every 5 s while the page is visible, on `pagehide` and when the page becomes hidden.
   - On restore, each entity goes through `setMode` + `teleportActiveTo`, so saved players come back at rest and clear of
     obstacles.
@@ -175,14 +179,13 @@ Physics notes:
 - UI code uses only safe DOM APIs: `textContent`, `classList`, `replaceChildren` and `createElement`. Never `innerHTML`.
 - Popovers are native `[popover]` elements that `main.js` positions from `data-anchor`, `data-align` and `data-side`.
 - After a mouse click, `main.js` blurs the button so Space and Enter don't re-press it.
-- The map (`city-map.js`) draws grid-north-up (`GEO.frame.bearingDeg`, 29° for Manhattan) in world metres. The compass
+- The map (`city-map.js`) draws up = `GEO.frame.bearingDeg` (0 for Poznań: true north up) in world metres. The compass
   needle and its tooltip (`#map-compass`) are set from that bearing at runtime. It caches static layers (`miniCache`,
   `fullStaticKey`) and must invalidate them when fonts load.
-- Map names come from `city-config.js`: `AREA_LABELS` (borough, waterway and neighbourhood titles, upper-cased with
-  `mapCaps`) and `LABEL_ALIAS` (short street names) read `GEO.labels.areas` / `GEO.labels.alias` and fall back to the
-  New York tables. Street search compares `foldText` keys (lower case, no diacritics, ł → l); `compareNames` (Polish
-  collation) is for any alphabetical list, and `formatCount` formats counts for the data's locale. `prettyName` dresses
-  up v1's upper-case CSCL names and passes v2 names through as they are.
+- Map names come from `city-config.js`: `AREA_LABELS` (district, water and neighbourhood names from `GEO.labels`,
+  upper-cased with `mapCaps`) and `LABEL_ALIAS` (short street names; empty for now). Road names are used as OSM signs
+  them. Street search compares `foldText` keys (lower case, no diacritics, ł → l); `compareNames` (Polish collation) is
+  for any alphabetical list, and `formatCount` formats counts with Polish digit grouping.
 - The GPS route (`updateRoute`, `drawRoute`) is the shortest path on `trafficSystem.network`, which `main.js` passes in as
   `network`. One-way streets count both ways. The map builds the graph on first use, then runs Dijkstra from the
   waypoint's nearest node once per destination. It re-snaps the player only after 8 m of movement. If either end is more

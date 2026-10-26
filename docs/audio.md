@@ -73,7 +73,7 @@ mix -> DynamicsCompressor -> master(gain, ramps to 0.65) -> destination
   an event outright if it is beyond its kind's range (crash range scales with severity).
 - Police cars get two records: a normal motor and a `siren` (in `sources.sirens`, its own pool and range).
 - Inactive player bicycles are skipped (their stored speed is stale). Inactive player vehicles sound at reduced
-  gain with zero speed/load. Highway cars with `y < -0.05` (lane-end dips, Battery tunnel) are silent.
+  gain with zero speed/load. Highway cars with `y < -0.05` (lane-end dips, underpasses) are silent.
 
 ## Simulation couplings (silent breakage risk)
 

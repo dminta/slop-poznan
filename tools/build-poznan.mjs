@@ -1,10 +1,8 @@
-// tools/build-poznan.mjs — writes the Poznań GEO (docs/poznan-plan.md §2, §4; frame and inputs in poz-base.mjs, geometry
-// and raster helpers in geo-util.mjs). Until the Phase 5 cutover the NYC build owns js/geodata.js, so the default output
-// is a temp file; pass a path to write elsewhere.
-// usage: GEO_DATA=tools/data node --max-old-space-size=8192 tools/build-poznan.mjs [out.js]
+// tools/build-poznan.mjs — writes js/geodata.js, the Poznań GEO (docs/poznan-plan.md §2, §4; frame and inputs in
+// poz-base.mjs, geometry and raster helpers in geo-util.mjs). Pass a path to write elsewhere (diff before replacing).
+// usage: node --max-old-space-size=8192 tools/build-poznan.mjs [out.js]
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { log, llAffine, LAT0, LON0, BEARING_DEG, DETAIL_BOX } from './poz-base.mjs';
 import { r1, Raster } from './geo-util.mjs';
 import { pieces, plazas, rail, roads, signalNodes } from './poz-roads.mjs';
@@ -13,7 +11,7 @@ import { parks, landmarks, districts, labels } from './poz-extra.mjs';
 import { blocks, STRIP, SIDEWALK } from './poz-blocks.mjs';
 import { buildRoadGraph } from './poz-roadgraph.mjs';
 
-const OUT = process.argv[2] || path.join(os.tmpdir(), 'geodata-poznan.js');
+const OUT = process.argv[2] || fileURLToPath(new URL('../js/geodata.js', import.meta.url));
 const q = r1;
 const flat = (pts) => pts.flatMap(([x, z]) => [q(x), q(z)]);
 const [BX0, BX1, BZ0, BZ1] = DETAIL_BOX;

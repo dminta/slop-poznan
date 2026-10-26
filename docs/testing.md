@@ -4,8 +4,8 @@ No package.json, no npm, no dependencies. The tests use only Node built-ins (`no
 
 ## Commands (verified)
 
-- Full suite: `node --test tests/`. 129 tests, about 22 s. Nearly all of that is `tests/geodata.test.mjs`, which runs the full `tools/build-geodata.mjs` and `tools/build-poznan.mjs` in temp copies of the repo with `--max-old-space-size=8192`.
-- Quick loop that skips the geodata rebuild: `node --test tests/*.cjs` (about 0.2 s).
+- Full suite: `node --test tests/`. 129 tests, about 11 s. Nearly all of that is `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`.
+- Quick loop that skips the geodata rebuild: `node --test tests/*.cjs` (about 0.6 s, most of it `road-network.test.cjs` building the network on the real Poznań graph).
 - One file: `node --test tests/cameras.test.cjs`. Running `node tests/cameras.test.cjs` directly also works.
 - By test name: `node --test --test-name-pattern="police" tests/`
 - Serve the app: `python3 -m http.server 8000` from the repo root, then open `http://localhost:8000/`. Any static server works. There is no build step, and `.js` is served as `text/javascript`. Three.js loads from jsDelivr (`three@dev`) through the import map in `index.html`, so the page needs network access. `localhost` counts as a secure context, which WebGPU requires.
@@ -19,16 +19,14 @@ No test runs a browser, WebGPU, TSL shader compilation or a screenshot compariso
 
 Know which one covers the code you are editing. Two of them are coupled to the exact source text.
 
-1. **`loadModule(source, { imports, globals, filename })`** from `tests/helpers/module.cjs`. It reads a whole `js/*.js` file, rewrites its static `import`/`export` declarations, and runs it in a `vm` context. Used by cameras, controllers, city-map, touch-controls and vehicle-lights tests, and by the benchmark.
+1. **`loadModule(source, { imports, globals, filename })`** from `tests/helpers/module.cjs`. It reads a whole `js/*.js` file, rewrites its static `import`/`export` declarations, and runs it in a `vm` context. Used by cameras, controllers, city-map, road-network, pedestrian-routes, touch-controls and vehicle-lights tests, and by the benchmark.
 2. **Slicing source text.** The test cuts out a function or block with a regex or `indexOf` and runs it in `vm.runInNewContext` with hand-built context variables:
    - `traffic*.test.cjs` match `^  function NAME(` through `\n  }` (two-space indent) in `js/traffic.js`, plus a block that starts at `    const pl = entity` and ends at `    } : null;`.
    - `teleports.test.cjs` runs the part of `js/main.js` from `  function teleportTo(` to `  const openMapBtn`.
-   - `city-text.test.cjs` cuts `function ordinal(`, `const PRETTY = {` and `function prettyName(` out of `js/city-config.js`
-     (each up to its column-0 closing brace) and runs `prettyName` against a stub `GEO` with `version` 1 or 2.
    - `facade-projection` and `smoke-texture` slice `js/tsl-materials.js` between markers: `const facadeNormalVertex =`, `function facadeCell(`, `let bayWidth`, `const evaluateApartmentInterior`, `const rayWorld =`, `// Slab intersection`, `let _smokeCloudTexture =`, the next `/**`, and the literal text of the `hash` arrow function.
 
    If you rename, re-indent, reorder or reformat around these markers, the tests break. So do new free variables in a sliced block that the test context does not provide. When that happens, update the test's markers and context in the same change. Keep the tested behaviour as it is.
-3. **Real ESM import.** `teleports.test.cjs` runs `await import('../js/city-config.js')`, and `geodata.test.mjs` imports a freshly built `geodata.js`. **`js/city-config.js` and `js/geodata.js` must import nothing beyond each other or other Node-loadable relative files.** A bare specifier such as `'three/webgpu'` cannot be resolved in Node, so adding one breaks these tests.
+3. **Real ESM import.** `teleports`, `signals`, `city-text` and `road-network` tests run `await import('../js/city-config.js')` (signals and road-network also import `geodata.js`; road-network feeds both into a `loadModule`d `road-network.js`), and `geodata.test.mjs` imports a freshly built `geodata.js`. **`js/city-config.js` and `js/geodata.js` must import nothing beyond each other or other Node-loadable relative files.** A bare specifier such as `'three/webgpu'` cannot be resolved in Node, so adding one breaks these tests.
 
 ## loadModule: supported module syntax (hard constraint for js/ authors)
 
@@ -71,7 +69,7 @@ Behaviour to know when writing a test:
 
 ## Coupled checks in tests/boot.test.cjs
 
-- **To add a new `js/*.js` module**, also add `<link rel="modulepreload" href="./js/NAME.js" />` to `index.html`. Keep that exact attribute order and the self-closing ` />`, and place it after the import map and before the stylesheet. Then bump the expected preload count in `boot.test.cjs`, which is currently 31, one per file in `js/`. Commit `dee83c2` is the template.
+- **To add a new `js/*.js` module**, also add `<link rel="modulepreload" href="./js/NAME.js" />` to `index.html`. Keep that exact attribute order and the self-closing ` />`, and place it after the import map and before the stylesheet. Then bump the expected preload count in `boot.test.cjs`, which is currently 32, one per file in `js/`. Commit `dee83c2` is the template.
 - Relative imports must be `./name.js` paths that resolve to a preloaded URL.
 - `index.html` must contain exactly two `<script>` tags (the import map and `./js/main.js`).
 - `three` and `three/webgpu` must map to the same URL.

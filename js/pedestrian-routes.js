@@ -2,7 +2,7 @@ import { CROSSWALK } from './road-network.js';
 
 // Small, lazily connected sidewalk tracks. Junctions only connect points on the same curb island;
 // crossing the roadway is a separate, signal-controlled track owned by traffic.js.
-function createPedestrianRoutes({ walkable, onSidewalk }, blockAt) {
+function createPedestrianRoutes({ walkable }, blockAt) {
   const sidewalks = new Map(), crossings = new Map(), junctions = new Map(), connections = new WeakMap();
   const point = (track, end) => ({ x: track.ax + track.ux * track.len * end, z: track.az + track.uz * track.len * end });
   const segment = (a, b, extra = {}) => {
@@ -35,26 +35,23 @@ function createPedestrianRoutes({ walkable, onSidewalk }, blockAt) {
         const b = { x: a.x + e.dx * e.len, z: a.z + e.dz * e.len };
         const block = blockAt(a.x, a.z);
         if (!block || blockAt(b.x, b.z) !== block || !clear(a, b, block)) continue;
-        if (!e.general && (!onSidewalk(a.x, a.z) || !onSidewalk(b.x, b.z))) continue;
         result.push(segment(a, b, { edge: e, from: e.from, to: e.to, block }));
       }
     }
     return result;
   }
 
-  // One crosswalk per junction arm (road-network.js step 9), over the painted one (road-paint.js: CROSSWALK deep, just
+  // One crosswalk per junction arm (road-network.js step 7), over the painted one (road-paint.js: CROSSWALK deep, just
   // short of the stop lines) and along the lateral axis of the arm's road (clx/clz of its edge in, else out, the axis
-  // traffic.js measures lanes and walkers on). The arms of a grid intersection (sides 0-3) keep their crosswalks at
-  // the box's edge, where they were before junctions had arms, even where a centreline road joins and pushes the stop
-  // lines back. Signals aside, only centreline junctions get crosswalks: there people cross with priority over
-  // turning and arriving traffic, while the grid's unsignalised corners keep to the sidewalks as they always have.
+  // traffic.js measures lanes and walkers on). People cross there with priority over turning and arriving traffic.
+  // A bend (shape node) has no corner and no crosswalk.
   function across(n) {
     if (crossings.has(n)) return crossings.get(n);
     const result = [];
     crossings.set(n, result);
-    if (n.shape || !(n.signal || n.general)) return result;
+    if (n.shape) return result;
     for (const arm of n.arms) {
-      const road = arm.in || arm.out, grid = !n.general && arm.side < 4;
+      const road = arm.in || arm.out;
       const cx = road.clx, cz = road.clz, k = road.dx * arm.ux + road.dz * arm.uz > 0 ? 1 : -1;
       const ux = road.dx * k, uz = road.dz * k; // out of the junction, square to the crosswalk
       // depth of its centre line from n, and its span curb to curb (both roadways of a divided road)
@@ -68,13 +65,13 @@ function createPedestrianRoutes({ walkable, onSidewalk }, blockAt) {
         lo = Math.min(lo, c - e.half);
         hi = Math.max(hi, c + e.half);
       }
-      depth = grid ? (arm.side >= 2 ? n.hz : n.hx) + CROSSWALK / 2 : depth / count;
+      depth /= count;
       const along = n.x * ux + n.z * uz, len = hi - lo + 4;
-      // one line over the widest road (group 0: the avenue on the grid), set back from the box; two over the others
+      // one line over the widest road (group 0), set back from the box; two over the others
       for (const line of arm.group === 0 ? [0.75] : [-0.75, 0.75]) {
         const a = { x: cx * (lo - 2) + ux * (along + depth + line), z: cz * (lo - 2) + uz * (along + depth + line) };
         const b = { x: a.x + cx * len, z: a.z + cz * len };
-        if (grid ? !onSidewalk(a.x, a.z) || !onSidewalk(b.x, b.z) : !blockAt(a.x, a.z) || !blockAt(b.x, b.z)) continue;
+        if (!blockAt(a.x, a.z) || !blockAt(b.x, b.z)) continue;
         if (!clear(a, b)) continue;
         result.push(segment(a, b, { node: n, side: arm.side, group: arm.group, line, from: n, to: n }));
       }
