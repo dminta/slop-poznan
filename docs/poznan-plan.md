@@ -685,8 +685,8 @@ Deviations and open points:
   Ostrów/Śródka within 650 m of the Katedra. Only 4 buildings qualify as `monumental`.
 - Rynek houses are facade boxes with a gable roof spec, not `buildArcadedHouseRow` (keeps them in the batched boxes).
 - Materials: `createRoofMaterial` (tile/slate/metal/copper share one pipeline), `createPanelBlockMaterial` (+1 pipeline),
-  `masonry: 'brick'|'ashlar'|'plaster'` on `createPreWarBuildingMaterial`. The pre-war shader still draws window
-  air-conditioners (NYC leftover).
+  `masonry: 'brick'|'ashlar'|'plaster'` on `createPreWarBuildingMaterial`. The NYC window air-conditioners are gone
+  from the pre-war shader.
 - Roofs: `js/roofs.js` (boot preloads 39), 9,240 roofs / 21k instances; chimneys and skylights replace water towers;
   scaffold sheds became renovation scaffolding with building-wrap adverts. There was no billboard machinery to convert.
 - Balconies: `fire-escapes.js` → `balconies.js`, street fronts only, `BALCONY_P` 0.5.
