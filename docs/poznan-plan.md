@@ -856,6 +856,13 @@ All in `traffic.js`, `actor-models.js`, `controllers.js` and `vehicle-lights.js`
 real OSM tree positions). Checked headless only (tests, the furnished network on the real land); the per-item notes below
 carry the measured numbers.
 
+**Open: no crosswalks where medians and tram strips aren't blocks.** Zebras need a curb island within `CROSSWALK_REACH`
+(4 m) at both ends (`pedestrian-routes.js`), so junction complexes whose refuges are only road-network gaps get none.
+The Dworzec complex (Roosevelta / Most Dworcowy, junction nodes around −1567, 560) went from 18 broken zebras to 0: the
+station side is open and the nearest island, a 2 m strip 6 m east of Roosevelta's western roadway, is out of reach. Fix
+by modelling tram strips and central medians as walkable blocks in the geodata pipeline (`tools/`), then re-measure
+crosswalks (1887 of 1928 tracks) and the connected set.
+
 1. **`road-paint.js`**:
    - **All markings white** (`YELLOW` stops being used for centre lines, `:89-93`): P-1 dashed, P-4 solid/double solid
      between opposing lanes;
