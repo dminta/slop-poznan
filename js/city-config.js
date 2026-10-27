@@ -539,7 +539,8 @@ for (const b of BLOCKS) b.district = districtAt(b.cx, b.cz);
 // Landmarks (real footprints from OpenStreetMap, keyed by the curated name: { x, z, w, d, h, area, ring, ang })
 // ---------------------------------------------------------------------------------------------------------------------
 const LANDMARK_SITES = GEO.landmarks;
-// The places the map and the location label name: [{ id, name, short, x, z, district }]
+// The places the map pins and the location label names: [{ id, name, short, x, z, district }], one per LANDMARK_SITES
+// entry (tests/city-text.test.cjs). The map gives labels out in this order, so the better-known names come first.
 const site = (name, fallback) => LANDMARK_SITES[name] || fallback;
 const CITY_LANDMARKS = [
   ['ratusz', 'Ratusz & Stary Rynek', 'Ratusz', 'Ratusz', 'Stare Miasto'],
@@ -556,7 +557,17 @@ const CITY_LANDMARKS = [
   ['browar', 'Stary Browar', 'Stary Browar', 'Stary Browar', 'Centrum'],
   ['iglica', 'Iglica MTP', 'Iglica', 'Iglica', 'Łazarz'],
   ['altum', 'Collegium Altum', 'Collegium Altum', 'Collegium Altum', 'Centrum'],
-  ['andersia', 'Andersia Tower', 'Andersia', 'Andersia', 'Centrum']
+  ['andersia', 'Andersia Tower', 'Andersia', 'Andersia', 'Centrum'],
+  ['and2', 'AND2', 'AND2', 'AND2', 'Centrum'],
+  ['minus', 'Collegium Minus UAM', 'Collegium Minus', 'Collegium Minus', 'Centrum'],
+  ['domki', 'Domki Budnicze', 'Domki Budnicze', 'Domki Budnicze', 'Stare Miasto'],
+  ['wieza', 'Wieża Wójtowska', 'Wieża Wójtowska', 'Wieża Wójtowska', 'Stare Miasto'],
+  ['pfc', 'Poznań Financial Centre', 'PFC', 'Poznań Financial Centre', 'Centrum'],
+  ['novotel', 'Novotel Poznań Centrum', 'Novotel', 'Novotel', 'Centrum'],
+  ['nowyrynek', 'Nowy Rynek', 'Nowy Rynek', 'Nowy Rynek', 'Wilda'],
+  ['avenida', 'Avenida Poznań', 'Avenida', 'Avenida', 'Łazarz'],
+  ['starydworzec', 'Stary Dworzec', 'Stary Dworzec', 'Stary Dworzec', 'Łazarz'],
+  ['delta', 'Biurowiec Delta', 'Delta', 'Delta', 'Centrum']
 ].filter((r) => LANDMARK_SITES[r[3]]).map(([id, name, short, osm, district]) => {
   const s = site(osm, { x: 0, z: 0 });
   return { id, name, short, x: s.x, z: s.z, district };
@@ -607,11 +618,19 @@ function getLocationLabel(x, z) {
     });
     return b ? `${a.road.name} & ${b.road.name}` : null;
   };
-  for (const lm of CITY_LANDMARKS) {
-    if (Math.hypot(x - lm.x, z - lm.z) < 80) {
-      const c = crossing(named(120), 120);
-      return `${lm.name}${c ? ` · ${c}` : ''}`;
+  // the nearest landmark within 80 m (the Rynek's Ratusz, Domki Budnicze and Wieża Wójtowska stand 45–90 m apart)
+  let lm = null;
+  let best = 80;
+  for (const l of CITY_LANDMARKS) {
+    const d = Math.hypot(x - l.x, z - l.z);
+    if (d < best) {
+      best = d;
+      lm = l;
     }
+  }
+  if (lm) {
+    const c = crossing(named(120), 120);
+    return `${lm.name}${c ? ` · ${c}` : ''}`;
   }
   const near = named(160);
   if (isWater(x, z) || (!isLand(x, z) && waterAt(x, z))) {
