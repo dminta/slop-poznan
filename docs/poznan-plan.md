@@ -564,8 +564,10 @@ https://dminta.github.io/slop-poznan/. Deviations and open points:
 - `city-map.js`: most layers, the north-up frame and the Ratusz default waypoint already came with Phase 5. New: the
   tram (red) and rail (dashed grey) layer from `RAIL`, the fit-to-city `minZoom()`, area labels straight from
   `GEO.labels` (`AREA_LABELS` is gone from `city-config.js`), arc-length road labels over same-name chains
-  (`chainRoadPieces`, `roadLabelAnchors`). CHWALISZEWO, CENTRUM, CYTADELA, MALTA and ŚRÓDMIEŚCIE are not in `GEO.labels`,
-  so they don't show; add them in `tools/` if wanted. No map legend for trams yet.
+  (`chainRoadPieces`, `roadLabelAnchors`). OSM has no place elements for ŚRÓDMIEŚCIE, CHWALISZEWO, CYTADELA and MALTA,
+  so they are hand-placed in `tools/data/poz_places.json` and appended to `GEO.labels` (`docs/geodata.md`). CENTRUM is
+  dropped: it names the same centre as ŚRÓDMIEŚCIE and would overlap it and STARE MIASTO. The map legend
+  (`#fullmap-legend`) has Tram and Rail swatches, coloured from `MAP` in `city-map.js`.
 - The accent stays yellow (`--accent` #ffc21a). The street plate is a blue (#1d4f9c) plate with a white inner border; the
   prefix comes from `splitStreetKind` in `main.js` (Aleja → al., Plac → pl., Osiedle → os., Rondo, Most; names starting
   Rynek/Stary/Zaułek/Pasaż/Wzgórze/Bulwar get none; the rest ul.). The design was not checked against street imagery.

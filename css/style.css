@@ -1225,6 +1225,11 @@ body.is-boosting #hud-speed-meter {
   font-weight: 500;
   color: var(--text-2);
   white-space: nowrap;
+  /* wrap onto a second row rather than run under the centred status pill (560 px at most) */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 6px;
+  max-width: calc(50% - 280px - var(--edge) - 12px);
 }
 
 .fullmap-modal:not(.hidden) .fullmap-legend {
@@ -1266,6 +1271,16 @@ body.is-boosting #hud-speed-meter {
 
 .gps-swatch { background: var(--accent); }
 .bridge-swatch { background: var(--highway); }
+
+/* --map-tram / --map-rail are set from city-map.js's MAP palette on #fullmap-legend; the fallbacks match it */
+.tram-swatch,
+.rail-swatch {
+  width: 16px;
+  height: 2px;
+}
+
+.tram-swatch { background: var(--map-tram, #b8434d); }
+.rail-swatch { background: repeating-linear-gradient(90deg, var(--map-rail, #5f6875) 0 6px, transparent 6px 10px); }
 
 .legend-counts {
   padding-left: 14px;
