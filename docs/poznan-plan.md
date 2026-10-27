@@ -438,7 +438,7 @@ gone, boot preloads are 32 and `node --test tests/` passes (129 tests, ≈ 11 s)
   islands as curbs: the 4.4 m-grown rect cover reaches into the roadway on turned blocks and halved the largest SCC
   (~3150 → ~1660 edges).
 - `road-network.js`: the SCC is logged as `[road-network] edges: … long enough, … in the largest strongly connected set`;
-  `tests/road-network.test.cjs` floors the bare graph at > 3850 edges / 175 km in the set (measured 4300 / 193.8 km) and requires street furniture to keep ≥ 90% of it (measured 184.3 km; it was 126.9 km until runs got shape nodes on gentle arcs, which kept the outer lanes off the curbside lamps).
+  `tests/road-network.test.cjs` floors the bare graph at > 3850 edges / 175 km in the set (measured 4300 / 193.8 km) and requires street furniture to keep ≥ 90% of it (measured 184.6 km after Phase 11.2; it was 126.9 km until runs got shape nodes on gentle arcs, which kept the outer lanes off the curbside lamps).
   `major` comes from width and lanes (the graph has no road class).
 - `outskirts.js` has no towers (the tall ones stand inside the detail box, Phase 7) and no colliders. `bridges.js`
   builds the 13 `BRIDGES` names as arch/girder/overpass structures with the deck at y ≈ −0.01 running 15 m onto each bank; only the
@@ -862,6 +862,15 @@ All in `traffic.js`, `actor-models.js`, `controllers.js` and `vehicle-lights.js`
    `cycleway=lane`/`opposite_lane`, 15.2 km of curb tagged), painted only where the outer lane leaves ≥ 1 m (4.1 km).
    No "BUS" text: the graph carries no bus-lane data. Browser rendering unverified at the time of writing.
 2. **`street-details.js`**:
+
+   **Status: done** ([`world.md`](world.md#street-furniture-street-detailsjs)), not yet checked in a browser. Signal
+   heads go per junction from `SIGNAL_SITES` (now with `junction` and `arms`), not from `node.signal` (street details
+   still run before the network); groups are re-derived from the arms, as `sidesAndGroups` ranks them. No S-2 arrows
+   or countdowns. Name plates go on building walls found through the colliders main.js now passes in; the pole blades
+   are gone. Steam stacks, subway entrances, god rays, the `streetZ` window and `fromOldFrame` were already gone in
+   Phase 5; `createSteamMaterial` stays. New: `roadClearance`/`LANE_GUIDE` in city-config, because curb outlines
+   alone left furniture in lanes near merged junctions. Furnished network 184.6 of 193.8 km (95.3%; it was 182.5 km
+   with the NYC set).
    - **§1 signals.** Pole-mounted S-1 three-aspect heads (black/grey housing; some with a yellow backplate) at each
      signalised corner, an S-2 arrow where configured, and pedestrian red/green figure heads with countdowns. They are
      driven from `node.signal` (Phase 2). Street names move from pole blades to wall plates on corner buildings.
