@@ -28,7 +28,7 @@ class MeshStandardNodeMaterial {
   constructor(params) { Object.assign(this, params); }
 }
 const THREE = { BufferGeometry, Float32BufferAttribute, InstancedBufferAttribute, InstancedMesh, MeshStandardNodeMaterial };
-const { createRoofs, createRoofGeometries } = loadModule(readFileSync(join(__dirname, '../js/roofs.js'), 'utf8'), {
+const { createRoofs, createRoofGeometries, createDormerGeometries, planDormers, slopeHeight, DORMER_ROOF } = loadModule(readFileSync(join(__dirname, '../js/roofs.js'), 'utf8'), {
   imports: { 'three/webgpu': THREE },
   globals: { Math, Float32Array, Int32Array }
 });
@@ -125,5 +125,82 @@ test('turned frames move their roofs, and the pool and finish keep exact counts'
   for (const m of roofs.meshes) {
     assert.equal(m.instanceMatrix.count, Math.max(1, m.count));
     assert.equal(m.visible, m.count > 0);
+  }
+});
+
+// Seeded generator for the dormer tests (the same mulberry32 buildings.js uses)
+function mulberry32(seed) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+test('dormer pieces are low-poly with outward normals', () => {
+  const { dormer, window: pane } = createDormerGeometries();
+  assert.equal(triangles(dormer).length, 11);
+  assert.equal(triangles(pane).length, 2);
+  for (const { v, n } of triangles(dormer)) {
+    const g = cross(sub(v[1], v[0]), sub(v[2], v[0]));
+    const len = Math.hypot(...g);
+    for (let a = 0; a < 3; a++) close(g[a] / len, n[a]);
+    const c = [0, 1, 2].map((a) => (v[0][a] + v[1][a] + v[2][a]) / 3);
+    // away from the inside of the dormer (x 0, z -0.5): front faces +z, cheeks ±x, the roof up
+    assert.ok(n[0] * c[0] + n[2] * (c[2] + 0.5) + n[1] * Math.max(0, c[1] - 1) > 0, 'faces out');
+    for (const p of v) assert.ok(p[1] >= 0 && p[1] <= 1 + DORMER_ROOF + 1e-6 && p[2] <= 1e-6 && p[2] >= -1 - 1e-6);
+  }
+  for (const { n } of triangles(pane)) close(n[2], 1);
+});
+
+test('dormer rows are deterministic, fit under the ridge and inside the ridge length, and skip short roofs', () => {
+  const a = planDormers('gable', 16, 13.6, 5, mulberry32(42));
+  const b = planDormers('gable', 16, 13.6, 5, mulberry32(42));
+  assert.deepEqual({ ...a, us: a.us.slice() }, { ...b, us: b.us.slice() });
+  for (const [shape, w, d, h] of [['gable', 16, 13.6, 5], ['gable', 20, 14, 4], ['mansard', 18, 14, 3.4], ['gambrel', 14, 12, 3.4], ['hip', 22, 13, 4.4]]) {
+    for (let seed = 1; seed <= 40; seed++) {
+      const p = planDormers(shape, w, d, h, mulberry32(seed));
+      if (!p) continue;
+      const hd = d / 2;
+      close(p.base, slopeHeight(shape, hd, h, p.s0)); // the front wall stands on the slope
+      const top = p.base + p.dh * (1 + DORMER_ROOF);
+      assert.ok(top <= h - 0.35 + 1e-9, `${shape}: under the ridge`);
+      // its ridge meets the slope at the back (buried 0.15 m), no deeper than 3.6 m
+      assert.ok(slopeHeight(shape, hd, h, p.s0 + p.depth - 0.15) >= top - 1e-6);
+      assert.ok(p.depth <= 3.6 + 1e-6 && p.depth > 0.5);
+      assert.ok(p.us.length >= 1 && p.us.length <= 3);
+      const reach = Math.max(...p.us.map(Math.abs)) + p.dw / 2;
+      assert.ok(reach <= w / 2 - (shape === 'hip' || shape === 'mansard' ? p.s0 + p.depth - 0.15 : 1) + 1e-6, `${shape}: inside the ridge length`);
+      if (shape === 'mansard' || shape === 'gambrel') assert.ok(top <= 0.72 * h + 0.2 + 1e-9, 'inside the steep band');
+    }
+  }
+  assert.equal(planDormers('gable', 16, 13, 1.8, mulberry32(1)), null, 'too low a rise');
+  assert.equal(planDormers('gable', 4, 13, 5, mulberry32(1)), null, 'too short a ridge');
+  assert.equal(planDormers('gable', 16, 5, 5, mulberry32(1)), null, 'too shallow a slope');
+});
+
+test('addDormers stands each dormer on its slope, facing down it, with its window on the front', () => {
+  const roofs = createRoofs();
+  assert.equal(roofs.addDormers('gable', 'copper', 0, 10, 0, 16, 13.6, 5, 0, { rand: mulberry32(3) }), 0, 'no copper dormers');
+  // only the slope facing world +x (a ridge along z: ry = π/2) is wanted
+  const added = roofs.addDormers('gable', 'tile', 100, 10, 50, 16, 13.6, 5, Math.PI / 2, { rand: mulberry32(3), facing: (dx) => (dx > 0.5 ? 1 : 0) });
+  assert.ok(added >= 1);
+  roofs.finish();
+  const byName = Object.fromEntries(roofs.meshes.map((m) => [m.name, m]));
+  const body = byName['Roof-dormer-tile'];
+  const pane = byName['Roof-dormerWindow'];
+  assert.equal(body.count, added);
+  assert.equal(pane.count, added);
+  for (let k = 0; k < added; k++) {
+    const e = body.instanceMatrix.array.subarray(k * 16, k * 16 + 16);
+    // the front wall faces +x (local +z → world +x) and stands 6.8 - 0.8 m out from the ridge line x = 100
+    close(e[8] / Math.hypot(e[8], e[10]), 1);
+    close(e[12], 106);
+    close(e[13], 10 + slopeHeight('gable', 6.8, 5, 0.8));
+    assert.ok(Math.abs(e[14] - 50) <= 8 - 1);
+    const w = pane.instanceMatrix.array.subarray(k * 16, k * 16 + 16);
+    assert.ok(w[12] > e[12] && w[12] - e[12] < 0.1, 'the pane sits just proud of the front wall');
+    close(w[14], e[14]);
   }
 });

@@ -27,6 +27,7 @@ import {
   createCurtainWallMaterial,
   createPanelBlockMaterial,
   createRoofMaterial,
+  createDormerWindowMaterial,
   createFacadeBoxes,
   WALL_KINDS
 } from './tsl-materials.js';
@@ -386,7 +387,8 @@ function buildCityBlocks(scene) {
     materials: {
       tile: createRoofMaterial({ kind: 'tile' }),
       slate: createRoofMaterial({ kind: 'slate' }),
-      copper: createRoofMaterial({ kind: 'copper' })
+      copper: createRoofMaterial({ kind: 'copper' }),
+      window: createDormerWindowMaterial()
     },
     parent: group
   });
@@ -683,7 +685,8 @@ function buildCityBlocks(scene) {
    * modern roofs), balcony stacks and street-front awnings.
    * o: { cornice, corniceH, chimneys, skylights, hvac (true | 'small'), hvacH, fireEscapes (balcony stacks), awnings,
    *      shops: 'all' | 'none' | probability of 'all' (street fronts with storefronts on the ground floor, the others
-   *      get a residential entrance), freestanding, walls (see wallKinds) }
+   *      get a residential entrance), freestanding, walls (see wallKinds), dormers (share of such buildings with
+ *      roofs.js dormers on their pitched tile or slate roofs) }
    * Pitched roofs ride on the parts they cover (set by `pitch`) and become roofs.js instances here:
    *   part.roof = { shape: 'gable' | 'hip' | 'mansard', mat: 'tile' | 'slate' | 'copper', ridge: 'x' | 'z', rise }
    * ridge: the ridge's axis in the lot frame (the gable ends face the other axis); rise: metres from the eave (the
@@ -693,6 +696,11 @@ function buildCityBlocks(scene) {
    */
   const EAVE = 0.3;
   const HVAC_MAX = 12;
+  // Dormers (roofs.js addDormers) on the kamienice and corner houses that have them (DORMER_P): every slope over a
+  // street front, a share of the courtyard slopes
+  const DORMER_P = 0.45;
+  const DORMER_STREET_P = 1;
+  const DORMER_YARD_P = 0.25;
   function commit(blk, b, o = {}) {
     const parts = b.parts;
     if (!parts.length) return;
@@ -721,6 +729,9 @@ function buildCityBlocks(scene) {
       if (p.y1 > top.y1 + EPS || (p.y1 > top.y1 - EPS && w * d > rectW(top) * rectD(top))) top = p;
     }
 
+    // o.dormers is the share of these buildings with dormers, decided off the tone (not a new draw from the block's
+    // generator, which would reshuffle everything after it)
+    const hasDormers = (tone * 9973.17) % 1 < (o.dormers || 0);
     // 0. Pitched roofs. roofs.js runs a gable's ridge along its w, so a ridge on the frame's z axis is the roof turned
     //    a quarter turn. The eaves overhang the walls by EAVE: the plan grows across the ridge (and along it for hips,
     //    mansards and free-standing houses; a gable end on a party wall stays flush, or neighbours' roofs would
@@ -742,7 +753,16 @@ function buildCityBlocks(scene) {
       d += 2 * EAVE;
       h += drop;
       const ry = alongX ? 0 : Math.PI * 0.5;
-      roofs.add(r.shape, r.mat, (p.x0 + p.x1) * 0.5, p.y1 - drop, (p.z0 + p.z1) * 0.5, w, d, h, ry);
+      const cx = (p.x0 + p.x1) * 0.5;
+      const cz = (p.z0 + p.z1) * 0.5;
+      if (!roofs.add(r.shape, r.mat, cx, p.y1 - drop, cz, w, d, h, ry) || !hasDormers) continue;
+      // Dormers from their own generator, seeded by the building's tone and the part, so the block's draws stay put;
+      // a slope over a street front always gets its row, one over the courtyard now and then
+      const seed = (Math.floor(tone * 4294967296) ^ Math.imul(parts.indexOf(p) + 1, 2654435761)) >>> 0;
+      roofs.addDormers(r.shape, r.mat, cx, p.y1 - drop, cz, w, d, h, ry, {
+        rand: mulberry32(seed),
+        facing: (dx, dz) => (b.street[dx > 0.5 ? 'e' : dx < -0.5 ? 'w' : dz > 0 ? 's' : 'n'] ? DORMER_STREET_P : DORMER_YARD_P)
+      });
     }
 
     // 1. Stone cornices & setback ledges (pitched roofs sit on them too: the eave line)
@@ -889,7 +909,7 @@ function buildCityBlocks(scene) {
       mass(b, wings, 0, wf);
     }
     pitch(house, pickW(cfg.roofs), pickW(cfg.roofMats), alongRidge(side), range(32, 42));
-    commit(blk, b, { chimneys: true, skylights: true, shops: cfg.shops, fireEscapes: chance(BALCONY_P) });
+    commit(blk, b, { chimneys: true, skylights: true, shops: cfg.shops, fireEscapes: chance(BALCONY_P), dormers: DORMER_P });
   }
 
   // Stary Rynek house: a narrow lot (6-9 m) with its steep gable turned to the square, 3-4 storeys of polychrome
@@ -1060,7 +1080,10 @@ function buildCityBlocks(scene) {
         }
       }
     }
-    commit(blk, b, { chimneys: true, skylights: true, shops: chance(cfg.cornerShops) ? 'all' : 'none', fireEscapes: chance(BALCONY_P) });
+    commit(blk, b, {
+      chimneys: true, skylights: true, shops: chance(cfg.cornerShops) ? 'all' : 'none', fireEscapes: chance(BALCONY_P),
+      dormers: rynek ? 0 : DORMER_P
+    });
   }
 
   // A lot rect off every street (the middle of a big block, behind a landmark reserve, a deep-lot split): 20% of the

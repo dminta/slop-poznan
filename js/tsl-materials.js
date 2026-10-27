@@ -8,6 +8,7 @@ import {
   color,
   uniform,
   attribute,
+  instanceIndex,
   varying,
   positionGeometry,
   positionLocal,
@@ -1406,6 +1407,37 @@ function createRoofMaterial(opts = {}) {
   })();
 
   _roofCache.set(cacheKey, mat);
+  return mat;
+}
+
+let _dormerWindowMat = null;
+
+/**
+ * Dormer window (roofs.js dormer family): a unit quad with uvs across it, one instance per dormer. A white painted
+ * casement frame with a mullion and a transom round dark panes; at night a share of the panes glow warm (an attic
+ * flat with the light on), picked by a hash of the instance index. The index changes when scene culling chunks the
+ * mesh, which only reshuffles which windows are lit, never mid-frame. One pipeline.
+ */
+function createDormerWindowMaterial() {
+  if (_dormerWindowMat) return _dormerWindowMat;
+  const mat = new THREE.MeshStandardNodeMaterial({ metalness: 0.0, roughness: 0.3 });
+  const cFrame = color(0xebe5d8);
+  const cGlass = color(0x18232e);
+  const cWarm = color(0xffbf78);
+  const p = uv();
+  const fw = fwidth(p);
+  // pane coverage: everything but the frame (8% / 7% of the width / height), the mullion and the transom
+  const paneU = float(1.0).sub(filteredPulse(p.x, 0.0, 0.08, fw.x)).sub(filteredPulse(p.x, 0.92, 1.0, fw.x))
+    .sub(filteredPulse(p.x, 0.47, 0.53, fw.x)).clamp(0.0, 1.0);
+  const paneV = float(1.0).sub(filteredPulse(p.y, 0.0, 0.07, fw.y)).sub(filteredPulse(p.y, 0.93, 1.0, fw.y))
+    .sub(filteredPulse(p.y, 0.6, 0.65, fw.y)).clamp(0.0, 1.0);
+  const pane = paneU.mul(paneV);
+  const lit = step(hash2D(vec2(float(instanceIndex).mul(0.137), 7.31)), 0.38);
+  const night = smoothstep(0.5, 1.2, cityUniforms.uInteriorGlow);
+  mat.colorNode = mix(cFrame, cGlass, pane);
+  mat.roughnessNode = mix(float(0.7), float(0.08), pane);
+  mat.emissiveNode = cWarm.mul(pane).mul(lit).mul(night).mul(cityUniforms.uInteriorGlow).mul(0.8);
+  _dormerWindowMat = mat;
   return mat;
 }
 
@@ -3040,6 +3072,7 @@ export {
   createPreWarBuildingMaterial,
   createPanelBlockMaterial,
   createRoofMaterial,
+  createDormerWindowMaterial,
   createFacadeBoxes,
   createCarPaintMaterial,
   createTreeMaterial,
