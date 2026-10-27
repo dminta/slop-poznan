@@ -21,7 +21,7 @@ import {
   mx_noise_float,
   mx_worley_noise_float
 } from 'three/tsl';
-import { CITY_BOUNDS, BLOCKS, BRIDGES, LANDMARK_SITES, PLAZAS, SPAWN } from './city-config.js';
+import { CITY_BOUNDS, BLOCKS, BRIDGES, LANDMARK_SITES, PLAZAS, SPAWN, blockAt } from './city-config.js';
 import {
   createPreWarBuildingMaterial,
   createCurtainWallMaterial,
@@ -692,6 +692,7 @@ function buildCityBlocks(scene) {
    * turned block added (roofs.transform) where placeInFrame turns the rest.
    */
   const EAVE = 0.3;
+  const HVAC_MAX = 12;
   function commit(blk, b, o = {}) {
     const parts = b.parts;
     if (!parts.length) return;
@@ -765,8 +766,10 @@ function buildCityBlocks(scene) {
       const ad = rectD(top);
       // 'small': a lift motor room (panel slabs, post-war infill) rather than a plant floor
       const big = o.hvac !== 'small';
-      const hw = Math.min(aw - 1.2, big ? Math.max(3, aw * range(0.4, 0.65)) : range(2.4, 4.2));
-      const hd = Math.min(ad - 1.2, big ? Math.max(3, ad * range(0.4, 0.65)) : range(2.4, 4.2));
+      // A plant room is at most HVAC_MAX across: scaled with the roof alone, the Targi halls (up to 95 m) got 50 m
+      // boxes
+      const hw = Math.min(aw - 1.2, big ? Math.min(HVAC_MAX, Math.max(3, aw * range(0.4, 0.65))) : range(2.4, 4.2));
+      const hd = Math.min(ad - 1.2, big ? Math.min(HVAC_MAX, Math.max(3, ad * range(0.4, 0.65))) : range(2.4, 4.2));
       if (hw >= 1.8 && hd >= 1.8) {
         const jx = (aw - hw) * 0.5 - 0.6;
         const jz = (ad - hd) * 0.5 - 0.6;
@@ -870,8 +873,10 @@ function buildCityBlocks(scene) {
     const rear = D - front;
     if (rear >= 6 && L >= 9) {
       const wing = Math.min(L * 0.45, range(6, 8.5));
-      const wd = rear * range(0.75, 1);
-      const plan = pickW([['L', 4], ['U', L >= 16 ? 2.5 : 0], ['ring', wd >= 16 && L >= 15 ? 1 : 0], ['none', 1.2]]);
+      const wd = cfg.dense ? rear : rear * range(0.75, 1);
+      const plan = cfg.dense
+        ? pickW([['L', 2], ['U', L >= 16 ? 4 : 0], ['ring', wd >= 16 && L >= 15 ? 2.5 : 0]])
+        : pickW([['L', 4], ['U', L >= 16 ? 2.5 : 0], ['ring', wd >= 16 && L >= 15 ? 1 : 0], ['none', 1.2]]);
       const wf = Math.max(2, k.floors - (chance(0.5) ? 0 : 1));
       const wings = [];
       if (plan === 'L') {
@@ -1058,13 +1063,84 @@ function buildCityBlocks(scene) {
     commit(blk, b, { chimneys: true, skylights: true, shops: chance(cfg.cornerShops) ? 'all' : 'none', fireEscapes: chance(BALCONY_P) });
   }
 
-  // A lot rect off every street (the middle of a big block, behind a landmark reserve): courtyard, now and then with
-  // a one- or two-storey outbuilding (workshop, garages) along one side
-  function courtyardLot(blk, R) {
-    if (Math.min(rectW(R), rectD(R)) < 18 || !chance(0.35)) return;
+  // A lot rect off every street (the middle of a big block, behind a landmark reserve, a deep-lot split): 20% of the
+  // lot area in the core districts and up to 30-40% in Wilda, Główna and Chartowo. Poznań's blocks are built up
+  // inside too, so it gets the profile's `inner` buildings kept off its edges, where the front houses' oficyny need
+  // their light: INNER_YARD on big lots, down to 2 m on the 12-30 m pieces the frontage frames leave between their
+  // rects. Left as bare yard (one in eight a shed) these lots were most of what made the centre look empty
+  const INNER_YARD = 6;
+  function innerLot(blk, R, cfg) {
+    const yard = Math.max(2, Math.min(cfg.dense ? 3 : INNER_YARD, (Math.min(rectW(R), rectD(R)) - 12) * 0.5));
+    innerBuildings(blk, insetAll(R, yard), cfg.inner || INNER_RES, cfg);
+  }
+
+  // Buildings inside a block's core rect C (already clear of its neighbours), by `kinds` weights:
+  // - 'rear': tylne kamienice, 3-5-storey houses across the lot in rows 11-14 m deep, a light court at least as wide
+  //   as they are tall between them, split by an 8 m passage when longer than 70 m
+  // - 'works': a one- or two-storey brick workshop or garage hall over most of the core
+  // - 'pavilion': a free-standing school, clinic or office block of the 1960s-2000s, 3-5 storeys, a bar or an L
+  // - 'yard': the yard itself, now and then with a one- or two-storey outbuilding along one side
+  const INNER_RES = [['rear', 5], ['works', 2], ['pavilion', 2], ['yard', 1.5]];
+  function innerBuildings(blk, C, kinds, cfg) {
+    const W = rectW(C);
+    const D = rectD(C);
+    if (Math.min(W, D) < 8) return;
+    const kind = pickW(kinds);
+    const alongX = W >= D;
+    const len = alongX ? W : D;
+    const wid = alongX ? D : W;
+    // Rect in C's long-axis frame: u along the long side, v across it
+    const at = (u0, u1, v0, v1) => (alongX ? rect(C.x0 + u0, C.x0 + u1, C.z0 + v0, C.z0 + v1) : rect(C.x0 + v0, C.x0 + v1, C.z0 + u0, C.z0 + u1));
+    if (kind === 'rear' && wid >= 9) {
+      const kf = (cfg.kf && cfg.kf.kamienica) || [4, 5];
+      const floors = Math.max(3, irange(kf[0], kf[1]) - (chance(0.5) ? 1 : 0));
+      const mat = pickW(cfg.mats || RES_BASE.mats);
+      const dep = Math.min(wid, range(11, 14));
+      const court = cfg.dense ? Math.max(9, floors * storeys[mat] * 0.6) : Math.max(14, floors * storeys[mat]);
+      const rows = Math.max(1, Math.floor((wid + court) / (dep + court)));
+      const v0 = (wid - rows * dep - (rows - 1) * court) * 0.5;
+      const runs = len > 70 ? [[0, len * 0.5 - 4], [len * 0.5 + 4, len]] : [[0, len]];
+      for (let k = 0; k < rows; k++) {
+        const v = v0 + k * (dep + court);
+        for (const [u0, u1] of runs) {
+          const r = at(u0, u1, v, v + dep);
+          const b = building(blk, mat, r);
+          const house = mass(b, [r], 0, floors);
+          if (chance(0.5)) pitch(house, 'gable', 'tile', alongX ? 'x' : 'z', range(30, 38));
+          commit(blk, b, { chimneys: true, skylights: true, shops: 'none', awnings: false, walls: WALL_KINDS.rear });
+        }
+      }
+      return;
+    }
+    if (kind === 'works' && wid >= 8) {
+      const r = at(0, len * range(0.6, 1), 0, wid * range(0.6, 1));
+      const b = building(blk, pickW([[F.brick, 3], [F.yellowBrick, 2], [F.cream, 1]]), r);
+      mass(b, [r], 0, irange(1, 2));
+      commit(blk, b, { corniceH: 0.5, skylights: true, shops: 'none', awnings: false, walls: WALL_KINDS.rear });
+      return;
+    }
+    if (kind === 'pavilion' && wid >= 12) {
+      const bl = Math.min(len, range(30, 64));
+      const bd = Math.min(wid, range(12, 16));
+      const u = (len - bl) * range(0.2, 0.8);
+      const v = (wid - bd) * range(0.2, 0.8);
+      const r = at(u, u + bl, v, v + bd);
+      const parts = [r];
+      // An L: a wing off one end, back across the core
+      if (wid - bd >= 16 && chance(0.45)) {
+        const ww = range(11, 14);
+        const end = chance(0.5) ? u : u + bl - ww;
+        parts.push(v + bd + 14 <= wid ? at(end, end + ww, v + bd, Math.min(wid, v + bd + range(14, 28))) : at(end, end + ww, Math.max(0, v - range(14, 28)), v));
+      }
+      const b = building(blk, pickW([[F.cream, 3], [F.greyGreen, 1], [F.salmon, 1], [F.glassSilver, 1], [F.glassTeal, 1]]), r);
+      mass(b, parts, 0, irange(3, 5));
+      commit(blk, b, { cornice: false, hvac: 'small', hvacH: range(2.4, 3), skylights: true, shops: 'none', awnings: false, freestanding: true });
+      return;
+    }
+    if (Math.min(W, D) < 18 || !chance(0.35)) return;
     const s = pick(SIDES);
-    const b = building(blk, pickW([[F.brick, 3], [F.cream, 1]]), R);
-    mass(b, [sideRect(R, s, 0, sideLen(R, s), 0, Math.min(sideDepth(R, s) * 0.5, range(6, 9)))], 0, irange(1, 2));
+    const b = building(blk, pickW([[F.brick, 3], [F.cream, 1]]), C);
+    mass(b, [sideRect(C, s, 0, sideLen(C, s), 0, Math.min(sideDepth(C, s) * 0.5, range(6, 9)))], 0, irange(1, 2));
     commit(blk, b, { corniceH: 0.4, skylights: true, shops: 'none', awnings: false, walls: WALL_KINDS.rear });
   }
 
@@ -1147,7 +1223,7 @@ function buildCityBlocks(scene) {
     const f = blk.front;
     blk.yards.push(insetAll(R, 1.5));
     if (!f.n && !f.s && !f.w && !f.e) {
-      courtyardLot(blk, R);
+      innerLot(blk, R, cfg);
       return;
     }
     const cs = range(cfg.corner[0], cfg.corner[1]);
@@ -1173,6 +1249,7 @@ function buildCityBlocks(scene) {
     // Strips along the rect's shorter sides stop at the corner squares' depth when a perpendicular strip shares the
     // rect, so the long frontages keep their deep lots (oficyny) and no two rows overlap
     const longX = W >= D;
+    const reach = { n: 0, s: 0, w: 0, e: 0 }; // how deep each side's rows can reach into the rect
     for (const s of SIDES) {
       if (!open(s)) continue;
       const alongX = s === 'n' || s === 's';
@@ -1182,10 +1259,18 @@ function buildCityBlocks(scene) {
         else if (s === 's' || s === 'e') continue;
       }
       if (alongX !== longX && (alongX ? ['w', 'e'] : ['n', 's']).some(open)) depth = Math.min(depth, alongX ? csZ : csX);
+      reach[s] = depth;
       const rows = blk.rynekSides && blk.rynekSides[s] ? cfg.rynekRows : cfg.rows;
       fillFrontage(blk, s, strip[s][0], strip[s][1], depth, rows, cfg);
     }
+    // The core the rows leave in a big rect (at most ROW_REACH deep from each frontage, the corner houses less) is
+    // built up like a frontless lot; sides without a frontage face the block's other lot rects
+    const inset = (s) => (reach[s] ? Math.min(reach[s], ROW_REACH) : 0) + (cfg.dense ? 3 : INNER_YARD);
+    const core = rect(R.x0 + inset('w'), R.x1 - inset('e'), R.z0 + inset('n'), R.z1 - inset('s'));
+    if (!cfg.noCore && Math.min(rectW(core), rectD(core)) >= 16) innerBuildings(blk, core, cfg.inner || INNER_RES, cfg);
   }
+  // Deepest a row lot builds: kamienica depth 34 m × the ±5% run jitter (fillFrontage), rounded up
+  const ROW_REACH = 36;
 
   // Dzielnica Cesarska: a monumental public building on a big lot rect with two or more frontages, grand sandstone
   // kamienice elsewhere
@@ -1207,7 +1292,7 @@ function buildCityBlocks(scene) {
     blk.yards.push(insetAll(R, 1.5));
     const main = mainFront(blk);
     if (!main) {
-      courtyardLot(blk, R);
+      innerLot(blk, R, cfg);
       return;
     }
     const L = sideLen(R, main);
@@ -1308,11 +1393,45 @@ function buildCityBlocks(scene) {
       mass(b, [r], 0, floors);
       commit(blk, b, { cornice: false, hvac: 'small', hvacH: 2.6, awnings: false, shops: 'none', freestanding: true });
     };
+    // Between the slab rows and past the last one: the estate's school or przedszkole (3 storeys, rendered), a
+    // pavilion of shops (pawilon handlowy, 1-2 storeys) or a row of lock-up garages, kept 6 m off the slabs, two along
+    // a band over 120 m long
+    const SERVICES = [['school', 2], ['pavilion', 3], ['garages', 2], ['none', 2]];
+    const service = (v0, v1, a0 = set, a1 = len - set) => {
+      if (a1 - a0 > 120 && a0 === set) {
+        const mid = (a0 + a1) * 0.5;
+        service(v0, v1, a0, mid - 6);
+        service(v0, v1, mid + 6, a1);
+        return;
+      }
+      const usable = v1 - v0 - 12;
+      if (usable < 6) return;
+      const kind = pickW(usable >= 12 ? SERVICES : [['garages', 1], ['none', 1]]);
+      if (kind === 'none') return;
+      const span = a1 - a0;
+      const [l, d, floors, mat, opts] = kind === 'school'
+        ? [range(50, 80), range(14, 18), 3, pickW([[F.cream, 3], [F.salmon, 1], [F.greyGreen, 1]]), { cornice: false, skylights: true, shops: 'none', awnings: false, freestanding: true }]
+        : kind === 'pavilion'
+          ? [range(20, 40), range(12, 16), irange(1, 2), pickW([[F.glassSilver, 1], [F.cream, 2], [F.greyGreen, 1]]), { cornice: false, hvac: 'small', hvacH: 2.4, shops: 'all', freestanding: true }]
+          : [range(30, 70), 6, 1, pickW([[F.brick, 2], [F.cream, 1]]), { cornice: false, shops: 'none', awnings: false, walls: WALL_KINDS.lotLine }];
+      const bl = Math.min(span, l);
+      const bd = Math.min(usable, d);
+      if (bl < 12) return;
+      const u0 = a0 + (span - bl) * range(0.15, 0.85);
+      const c = (v0 + v1) * 0.5;
+      const r = alongX ? rect(R.x0 + u0, R.x0 + u0 + bl, R.z0 + c - bd * 0.5, R.z0 + c + bd * 0.5) : rect(R.x0 + c - bd * 0.5, R.x0 + c + bd * 0.5, R.z0 + u0, R.z0 + u0 + bl);
+      const b = building(blk, mat, r);
+      mass(b, [r], 0, floors);
+      commit(blk, b, opts);
+    };
     let v = set;
+    let lastEnd = -1;
     for (let row = 0; row < 8; row++) {
       const floors = pickW(cfg.types);
       const dep = floors >= 16 ? range(18, 22) : range(10.5, 12.5);
       if (v + dep > wid - set) break;
+      if (lastEnd >= 0) service(lastEnd, v);
+      lastEnd = v + dep;
       if (floors >= 16) {
         const gap = range(24, 36);
         const n = Math.floor((len - 2 * set + gap) / (dep + gap));
@@ -1328,6 +1447,7 @@ function buildCityBlocks(scene) {
       }
       v += dep + Math.max(18, floors * storeys[F.panel] * 0.9);
     }
+    if (lastEnd >= 0) service(lastEnd, wid - set + 6);
   }
 
   // Low-rise blocks: warehouses, garages, sheds and small works
@@ -1352,6 +1472,53 @@ function buildCityBlocks(scene) {
     }
   }
 
+  // Exhibition halls (FAIRGROUND) over the lot rect, forecourts along its streets: rows of halls across its short side,
+  // each a blank-walled box in render or brick, or a glass hall; a third of the box halls front an alley with a
+  // two-storey glass foyer
+  function fairBlock(blk, cfg) {
+    const R = blockRect(blk);
+    blk.yards.push(insetAll(R, 1.5));
+    const f = blk.front;
+    const C = rect(R.x0 + (f.w ? cfg.forecourt : 3), R.x1 - (f.e ? cfg.forecourt : 3), R.z0 + (f.n ? cfg.forecourt : 3), R.z1 - (f.s ? cfg.forecourt : 3));
+    const W = rectW(C);
+    const D = rectD(C);
+    if (Math.min(W, D) < 20) return;
+    const alongX = W >= D;
+    const len = alongX ? W : D;
+    const wid = alongX ? D : W;
+    const at = (u0, u1, v0, v1) => (alongX ? rect(C.x0 + u0, C.x0 + u1, C.z0 + v0, C.z0 + v1) : rect(C.x0 + v0, C.x0 + v1, C.z0 + u0, C.z0 + u1));
+    const hall = (r) => {
+      const glass = chance(0.35);
+      const mat = glass ? pickW(GLASS) : pickW([[F.cream, 3], [F.greyGreen, 2], [F.brick, 1]]);
+      const floors = Math.max(2, Math.round(range(cfg.h[0], cfg.h[1]) / storeys[mat]));
+      let body = r;
+      if (!glass && chance(0.35)) {
+        const s = pick(alongX ? ['n', 's'] : ['w', 'e']);
+        const foyer = sideRect(r, s, 0, sideLen(r, s), 0, 8);
+        body = sideRect(r, s, 0, sideLen(r, s), 8, sideDepth(r, s));
+        const fb = building(blk, pickW(GLASS), foyer);
+        mass(fb, [foyer], 0, 2);
+        commit(blk, fb, { cornice: false, shops: 'none', awnings: false, walls: WALL_KINDS.rear });
+      }
+      const b = building(blk, mat, body);
+      mass(b, [body], 0, floors);
+      commit(blk, b, { cornice: false, hvac: true, skylights: true, shops: 'none', awnings: false, walls: glass ? WALL_KINDS.rear : WALL_KINDS.blankStone });
+    };
+    let v = 0;
+    while (wid - v >= 20) {
+      let span = Math.min(range(cfg.span[0], cfg.span[1]), wid - v);
+      if (wid - v - span < 20 + cfg.alley[0]) span = wid - v;
+      let u = 0;
+      while (len - u >= 20) {
+        let hl = Math.min(range(cfg.hall[0], cfg.hall[1]), len - u);
+        if (len - u - hl < 20 + cfg.alley[0]) hl = len - u;
+        hall(at(u, u + hl, v, v + span));
+        u += hl + range(cfg.alley[0], cfg.alley[1]);
+      }
+      v += span + range(cfg.alley[0], cfg.alley[1]);
+    }
+  }
+
   const LAYOUTS = {
     res: residentialBlock,
     rynek: residentialBlock, // with cfg.rynekRows on the frontages facing the square
@@ -1359,7 +1526,8 @@ function buildCityBlocks(scene) {
     offices: officeBlock,
     loft: loftBlock,
     projects: projectsBlock,
-    lowrise: lowriseBlock
+    lowrise: lowriseBlock,
+    fair: fairBlock
   };
 
   // ============================================================================
@@ -1420,7 +1588,8 @@ function buildCityBlocks(scene) {
     shops: 0.6,
     roofMats: [['slate', 3], ['copper', 1], ['tile', 1]],
     rows: [['kamienica', 1]],
-    kf: { kamienica: [4, 6] }
+    kf: { kamienica: [4, 6] },
+    inner: [['rear', 2], ['pavilion', 2], ['yard', 1]]
   });
   // Ostrów Tumski, Śródka: two- and three-storey houses among gardens and churches
   const RES_OSTROW = res({
@@ -1432,7 +1601,8 @@ function buildCityBlocks(scene) {
     roofs: [['gable', 3], ['hip', 2], ['mansard', 1]],
     roofMats: [['tile', 1]],
     rows: [['kamienica', 3], ['villa', 3], ['low', 1], ['gap', 2.5]],
-    kf: { kamienica: [2, 3], villa: [2, 3] }
+    kf: { kamienica: [2, 3], villa: [2, 3] },
+    inner: [['yard', 4], ['rear', 1], ['works', 1]] // the canons' gardens and church yards stay green
   });
   // Sołacz, Winiary and the garden suburbs: villas in big gardens, the odd 1930s house
   const RES_VILLAS = res({
@@ -1440,19 +1610,28 @@ function buildCityBlocks(scene) {
     cornerShops: 0.1,
     shops: 0.1,
     rows: [['villa', 6], ['modernist1930s', 0.8], ['gap', 1.5]],
-    kf: { villa: [2, 3], modernist1930s: [3, 4] }
+    kf: { villa: [2, 3], modernist1930s: [3, 4] },
+    inner: [['yard', 1]] // the villas' back gardens
   });
   // Round Rondo Kaponiera, Plac Andersa and Collegium Altum: offices of 6-20 storeys (podium 2-4 + shaft 4-16)
-  const OFFICES = { kind: 'offices', tower: [4, 16], mid: [6, 9], towerP: 0.45 };
+  const OFFICES = { kind: 'offices', tower: [4, 16], mid: [6, 9], towerP: 0.45, inner: [['pavilion', 3], ['works', 1], ['yard', 1]] };
   // Rataje, Chartowo, Winogrady (where they reach the detail box): osiedla of panel slabs, by storeys and weight
   const PROJECTS = { kind: 'projects', types: [[5, 5], [11, 2.5], [16, 1]], setback: [8, 12] };
   // Garbary's warehouses, the breweries and works: brick lofts
   const LOFT_BASE = { kind: 'loft', lotW: [10, 24], throughP: 0.5, floors: [3, 6], mats: [[F.brick, 5], [F.yellowBrick, 3], [F.cream, 1]], setbackAt: 99, feP: 0 };
   // Główna and the rail-side quarters: brick warehouses, sheds and works
   const LOWRISE = { kind: 'lowrise', floors: [1, 4] };
+  // Międzynarodowe Targi Poznańskie: exhibition halls 11-18 m tall in a grid of 12-18 m alleys, glass foyers on some,
+  // 8 m forecourts along the streets. The fairground is one 29 ha curb island (the block under the Iglica)
+  const FAIRGROUND = { kind: 'fair', hall: [45, 95], span: [35, 70], alley: [12, 18], h: [11, 18], forecourt: 8 };
 
   // Areas inside the osiedla, anchored on landmark sites (world metres)
   const siteAt = (name) => LANDMARK_SITES[name] || null;
+  const FAIR_BLOCK = (() => {
+    const s = siteAt('Iglica');
+    const b = s && blockAt(s.x, s.z);
+    return b && b.area > 100000 ? b : null;
+  })();
   function growBox(sites, m) {
     if (!sites.length) return null;
     const xs = sites.map((t) => t.x);
@@ -1472,10 +1651,65 @@ function buildCityBlocks(scene) {
   const KATEDRA = siteAt('Katedra');
   const inBox = (o, x, z) => !!o && x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1;
 
+  // REAL DENSITY (GEO.blockStats through BLOCKS[i].built / .levels: the share of each curb island under OSM building
+  // footprints and their median storeys). Each profile builds a typical share of its block (KIND_SHARE, measured with a
+  // headless footprint raster over the detail box); a block whose real share is lower gets bare yards, and frontage
+  // gaps only when far lower (kamienice), or empty lots (the rest); one that is higher keeps no gaps or yards, and
+  // panel estates whose block is denser or lower than a slab estate take the kamienica profile. Before this, the generator built Główna at 2.5x
+  // its real share and Rataje at 0.6x
+  const KIND_SHARE = { res: 0.28, rynek: 0.4, cesarska: 0.4, offices: 0.29, loft: 0.57, projects: 0.1, lowrise: 0.48, fair: 0.45 };
+  const RES_KINDS = new Set(['res', 'rynek', 'cesarska']);
+  function steerProfile(cfg, b) {
+    if (!b) return cfg;
+    // Big blocks with no mapped building may be under-mapped: aim at half the profile's share there
+    const T = b.buildings ? b.built : b.area > 8000 ? KIND_SHARE[cfg.kind] * 0.5 : 0;
+    const L = b.levels >= 2 ? Math.round(b.levels) : 0;
+    let base = cfg;
+    if (cfg.kind === 'projects' && ((L && L < 7) || T > KIND_SHARE.projects * 1.4)) base = RES_KAMIENICE;
+    const q = T / KIND_SHARE[base.kind];
+    const out = { ...base };
+    if (RES_KINDS.has(base.kind)) {
+      // Storeys follow the block's median but drop at most one below the profile's: OSM's area-weighted median
+      // counts the oficyny and outbuildings too (3 storeys on the Kaponiera blocks of 4-5-storey kamienice)
+      if (L) {
+        const [k0, k1] = (base.kf && base.kf.kamienica) || [4, 5];
+        const f = Math.min(L, 7);
+        out.kf = { ...base.kf, kamienica: [Math.max(k0 - 1, Math.min(f - 1, 6)), Math.max(k1 - 1, f)] };
+        out.cornerFloors = [Math.max(base.cornerFloors[0] - 1, f), Math.max(base.cornerFloors[1] - 1, Math.min(8, f + 1))];
+      }
+      const others = base.rows.filter(([k]) => k !== 'gap');
+      if (q >= 1) {
+        out.rows = others;
+        out.inner = (base.inner || INNER_RES).filter(([k]) => k !== 'yard');
+        // Well above the typical share (the centre's 50-85% blocks): oficyny round every courtyard, rear houses on
+        // tighter light courts, yards 3 m wide
+        if (q >= 1.3) out.dense = true;
+      } else {
+        // Thinned from the inside out, so the streets keep their frontages: bare yards and no core buildings first;
+        // war gaps and vacant lots on the frontage only below 0.6 of the typical share (gaps first, the measured
+        // shares came out the same but Św. Marcin and Kaponiera read as empty from the street)
+        out.inner = q < 0.8 ? [['yard', 1]] : [['yard', 3], ...(base.inner || INNER_RES).filter(([k]) => k !== 'yard')];
+        out.noCore = q < 0.8;
+        if (q < 0.6) {
+          const f = Math.min(0.6, 0.6 - q);
+          const w = others.reduce((t, [, x]) => t + x, 0);
+          out.rows = [...others, ['gap', (w * f) / (1 - f)]];
+          out.skipP = Math.max(0, 0.3 - q);
+        }
+      }
+    } else {
+      out.skipP = Math.min(0.9, Math.max(0, 1 - q));
+      if (base.kind === 'projects' && L) out.types = L >= 9 ? [[11, 2], [16, 1]] : [[5, 3], [11, 1]];
+      if (base.kind === 'lowrise' && L) out.floors = [1, Math.max(1, Math.min(4, L))];
+    }
+    return out;
+  }
+
   // Profile of a lot rect by where it stands (world centre) and its osiedle (city-config.js districtAt: `b.district`,
   // null outside every named one)
   function blockProfile(blk, district) {
     const [wx, wz] = toWorld(blk.cx, blk.cz);
+    if (FAIR_BLOCK && srcBlock === FAIR_BLOCK) return FAIRGROUND;
     if (OFFICE_SITES.some((t) => Math.hypot(t.x - wx, t.z - wz) < OFFICE_REACH)) return OFFICES;
     if (inBox(CESARSKA_BOX, wx, wz)) return CESARSKA;
     if (blk.rynekSides) return RYNEK;
@@ -1684,8 +1918,8 @@ function buildCityBlocks(scene) {
     const roofMark = roofs.mark();
     rand = mulberry32((Math.imul(Math.round(minX * 4), 73856093) ^ Math.imul(Math.round(minZ * 4), 19349663) ^ 10019) >>> 0);
 
-    const profile = blockProfile(blockDetail, district);
-    LAYOUTS[profile.kind](blockDetail, profile, minX, maxX);
+    const profile = steerProfile(blockProfile(blockDetail, district), srcBlock);
+    if (!(profile.skipP && chance(profile.skipP))) LAYOUTS[profile.kind](blockDetail, profile, minX, maxX);
     openOntoVoidLots(blockDetail);
 
     // Renovation scaffolding with green netting up one stretch of street facade, on the longest ground-floor street
@@ -1865,6 +2099,32 @@ function buildCityBlocks(scene) {
     for (let k = 0; k < n; k++) out.push([x0, x1, z0 + k * (s + gap), z0 + k * (s + gap) + s]);
     return out;
   }
+  // Blocks that are partly park (up to 60%; the rest are park blocks, city-grid.js lays them out as parks): the lot
+  // rects ignore the park outline, so a piece touching a park is cut into cells of about PARK_CELL and only the cells
+  // clear of every park ring are built. Without it 0.42 km² of buildings stood in parks (Park Mazowieckiego, the
+  // osiedle parks of Rataje)
+  // A cell counts as park when its centre or two of its four corner probes (2 m in) are: with any one probe, 40 m
+  // cells threw away 42.6 k m² of non-park land round Królowej Jadwigi alone
+  const PARK_CELL = 20;
+  function pieceInPark(x0, x1, z0, z1) {
+    const inPark = ([x, z]) => PARK_RINGS.some((p) => x > p.x0 && x < p.x1 && z > p.z0 && z < p.z1 && inRing(p.r, x, z));
+    if (inPark(toWorld((x0 + x1) * 0.5, (z0 + z1) * 0.5))) return true;
+    const corners = [[x0 + 2, z0 + 2], [x1 - 2, z0 + 2], [x1 - 2, z1 - 2], [x0 + 2, z1 - 2]];
+    return corners.filter(([x, z]) => inPark(toWorld(x, z))).length >= 2;
+  }
+  function parkFreeCells(x0, x1, z0, z1) {
+    if (!pieceInPark(x0, x1, z0, z1)) return [[x0, x1, z0, z1]];
+    const nx = Math.ceil((x1 - x0) / PARK_CELL);
+    const nz = Math.ceil((z1 - z0) / PARK_CELL);
+    const out = [];
+    for (let i = 0; i < nx; i++) {
+      for (let j = 0; j < nz; j++) {
+        const c = [x0 + (x1 - x0) * i / nx, x0 + (x1 - x0) * (i + 1) / nx, z0 + (z1 - z0) * j / nz, z0 + (z1 - z0) * (j + 1) / nz];
+        if (!pieceInPark(...c)) out.push(c);
+      }
+    }
+    return out;
+  }
   for (const b of BLOCKS) {
     if (b.park > 0.6 || b.median) continue;
     minLot = b.frames ? 12 : 15;
@@ -1875,9 +2135,11 @@ function buildCityBlocks(scene) {
       xf = th ? { th, cs: Math.cos(th), sn: Math.sin(th), px, pz } : null;
       for (const r of rects) {
         for (const part of minusReserves(r)) {
-          for (const [x0, x1, z0, z1] of splitDeep(part)) {
-            if (x1 - x0 < minLot || z1 - z0 < minLot) continue;
-            populateBlock(x0, x1, z0, z1, b.district);
+          for (const piece of splitDeep(part)) {
+            for (const [x0, x1, z0, z1] of b.park > 0 ? parkFreeCells(...piece) : [piece]) {
+              if (x1 - x0 < minLot || z1 - z0 < minLot) continue;
+              populateBlock(x0, x1, z0, z1, b.district);
+            }
           }
         }
       }
@@ -2284,7 +2546,9 @@ function buildCityBlocks(scene) {
         awningInst.setMatrixAt(awningCount, dummy.matrix);
         awningInst.setColorAt(awningCount, awningPalette[a.colorIdx % awningPalette.length]);
 
-        const themeIdx = awningCount % signInsts.length;
+        // Theme hashed from the shop's position, not its slot in the pool: the slot shifts on every re-query, so the
+        // signs used to change as the player moved
+        const themeIdx = ((Math.imul(Math.round(a.x * 4), 73856093) ^ Math.imul(Math.round(a.z * 4), 19349663)) >>> 0) % signInsts.length;
         if (signCounts[themeIdx] < MAX_SIGNS_PER_THEME) {
           dummy.position.set(a.x - a.nx * 0.75, 4.68, a.z - a.nz * 0.75);
           if (a.nx !== 0) dummy.scale.set(0.28, 0.86, a.d * 0.92);

@@ -1,11 +1,93 @@
 # Implementation plan: replacing New York with Poznań
 
-Status: **Phases 1–11 done** (each phase heading carries its own status note; Phase 9 skips PST and the Kaponiera
-portals, Phase 10 the articulated bus and the S-2 arrow, Phase 11 the S-2 arrow, signal countdowns, "BUS" lane text, a
-4th tree species and real OSM tree positions); Phase 12 is not started.
+Status: **Phases 1–11 done, with open items** (each phase heading carries its own status note; Phase 9 skips PST, the
+Kaponiera portals, line routes and the Combino; Phase 10 the articulated bus, the S-2 arrow and the taxi crest; Phase 11
+the S-2 arrow, signal countdowns, "BUS" lane text, a 4th tree species and real OSM tree positions). The 2026-10-27 audit
+found further gaps: see **Open items from the 2026-10-27 audit** below. Phase 12 is partly done (teleports, tram sounds,
+the `nyc-sound` key); the rest is not started.
 Line references are as of commit `46ec12b` and will drift; grep for the named symbol if a line no longer matches. Read `AGENTS.md` and the topic docs (`geodata.md`, `world.md`, `rendering.md`,
 `actors.md`, `audio.md`, `architecture.md`, `testing.md`) before starting any phase. They hold the repo-wide rules
 (modulepreload + boot count, module syntax, source-sliced tests, generated geodata, CSS `?v=` bump).
+
+## Open items from the 2026-10-27 audit
+
+A read-only audit compared every Phase 1–11 deliverable with the code at `a37d2d8`; `node --test tests/` passed (168/168).
+About 300 items checked out. The items below are what is left. None of them has been fixed yet.
+
+**Functional gaps** (highest first):
+1. **Tram tracks missing from `GEO.rail`** (Phases 4, 9, 11). There is no track on Most Chrobrego or Most Mieszka I, nor
+   at the stops Katedra, Fredry, Rondo Śródka, Pl. Wielkopolski and Stare Zoo (`docs/world.md`). `poz_rail.json` has no
+   `railway=tram` way near those links: the nearest element is `landuse=railway` about 50 m away. So the tram-on-street
+   flag is behaving correctly, and the Phase 4 deviation note that blames it is wrong. `q_poz_rail.overpassql` looks
+   correct (`tram|rail|light_rail` in the padded box), and `poz-roads.mjs` drops only tunnels and `layer<0`. Suspects:
+   a stale snapshot, or other tags on the Ostrów Tumski / Śródka line in OSM (`construction`, `disused`, a layer).
+   Check this against live Overpass, then refetch and rebuild. A second, smaller case: one Most Teatralny link lies
+   1.5 m from a tram track but has no tram bit.
+2. **No tram line routes** (Phase 9, step 2). Trams take a random branch at every switch (`js/trams.js:16`) and carry no
+   line number or destination. Only the GTFS source was marked optional; the routes themselves were not.
+3. **No zebras where a median or tram strip is not a block** (Phase 11). The Dworzec complex has 0 zebras.
+4. **Pedestrians start a crossing only at signalised junctions** (Phase 2, "Left open"). `nearSignals`
+   (`js/traffic.js:632`) holds only signal nodes, and crossers spawn only from it (`:1691`). With 235 signals and 1374
+   zebras, most unsignalised zebras never get a fresh crosser.
+5. **Missing Phase 8 features.** There are no dormers, and the Rynek gables are plain 48–55° gables with no steps or
+   volutes (`rynekHouse`, `js/buildings.js:890`). Śródka's mural square is absent too. None of these is in the
+   deviations list.
+6. **The map still has a highways layer** with no data behind it. `js/city-map.js` builds it, draws it and ranks its
+   labels (`:67`, `:228`, `:451`, `:1205`), and the legend still says "Bridge / Hwy". `#minimap-street-label`
+   (`:729`, `:1317`) has never existed in `index.html`.
+
+**Skips not recorded in the phase bodies until now:**
+- Phase 9: there is no Combino (only Gamma and Tramino) and no white-bar tram signal heads. Trams obey S-1 groups that
+  nobody can see.
+- Phase 10: the taxi side stripe has no city crest (code comments say "licensing").
+- Phase 4:
+  - §4.4 (real heights and footprints) is not done.
+  - There is no `poz-parks.mjs`; parks live in `poz-extra.mjs`.
+  - Półwiejska is not in `plazas`; it is a linear way.
+  - There are no footbridges (Jordana, Berdychowskie) in any snapshot.
+  - Road pieces have no `level` field.
+  - Rail `tracks` is always 1.
+  - No test checks determinism against the committed file.
+- Phase 2: `major` ignores the OSM class (width and lanes only).
+- Phase 1: `RAISED_GROUND` (planned as `RAISED_LAWNS`) takes rectangles only and is always empty.
+- Phase 6:
+  - The outskirts labels "GRUNWALD" and "WINOGRADY" exist only as "Stary Grunwald" and "Stare Winogrady".
+  - 10 of the 25 landmarks have no map pin, among them AND2, PFC, Novotel, Collegium Minus and Domki Budnicze.
+- Phase 3: the altitude readout uses `toLocaleString()` with no locale (`js/main.js:786`), unlike `formatCount('pl')`.
+
+**NYC leftovers that no phase covers** (add them to Phase 12.5):
+- Visible:
+  - Sidewalk, curb and manhole materials (`js/tsl-materials.js:1633–2003`): "5 ft NYC concrete flags", the NYC granite
+    curb, NYC Parks hex pavers, the ConEd manhole and the NYC Parks globe lamp. Phase 11 never mentions surfaces.
+  - The helicopter's Manhattan Sightseeing livery (`js/actor-models.js:1704`, `:1955`, `:2014`).
+  - The NYC bus body (`:1389`).
+- Dead code:
+  - The Times Square billboard canvas and material (`js/tsl-materials.js:2046–2360`, still exported).
+  - `createHighwayTraffic` with its FDR / West Side Highway comments (`js/traffic.js:2443`, `:2696`). `highwayLanes` is
+    `[]`.
+  - `chainCoastline`, `elemRing`, `Raster.keepLargest` and `Raster.traceOuter` in `tools/geo-util.mjs`.
+  - The `0xffbe14` taxi yellow on the wheel material (`js/traffic.js:195`).
+- Names:
+  - `blk.fireEscapes` / `fireEscapeSystem` (`js/buildings.js`, `AGENTS.md`).
+  - The `'Manhattan Night · 23:00'` preset, and the camera far plane sized for 13.6 km of Manhattan (`js/lighting.js:112`,
+    `:158`).
+  - `keyboardHarness(nyc = {})` in `tests/controllers.test.cjs`. The Phase 12.5 grep for `NYC` is case-sensitive.
+- Comments:
+  - `geo-blocks` / `geo-roadgraph` / `geo-extra` references in `tools/poz-*.mjs`.
+  - `js/scene-culling.js:4` and `js/city-grid.js:724`.
+  - "the NYC plane" in `tests/trees.test.cjs`.
+  - `js/landmarks-rynek.js:6`, `:64` (says Phase 8 reuses `buildArcadedHouseRow`; it doesn't).
+  - `css/style.css:3` ("blue" plates; they are graphite with a blue strip).
+
+**Plan text the audit corrected in place:** D12, the §6 checklist, §9.1 Stary Browar, §9.2 counts, §9.4, and the Phase 8,
+Phase 11 and Phase 12 notes. Some status notes keep their historical numbers on purpose: 32 preloads and 129 tests at
+Phase 5 (now 41 and 168), 1851 crosswalks in Phase 11 (now 1374), 1.26 MB geodata (now 1.29 MB). The §2 contract table
+is also superseded by `docs/geodata.md`. It does not list `landHoles`, `outskirtsHoles`, `tramStops`, `rail[].oneway`,
+`water[].holes` or `kind:'pond'`. `roads` names are raw OSM names with no "ul.", and `dir` is never -1 because pieces
+are reversed. The road graph is 213 KB with 3,903 links. The landmark `h` rule also accepts OSM `height` when it is at
+least max(6, levels × 3.4).
+
+**Not yet verified in a browser:** the rendering from Phases 7–11, including the WebGL2 fallback for instanced roofs.
 
 ## 0. Summary
 
@@ -46,7 +128,7 @@ Stage A is what makes the port tractable: the risky refactors land while the old
 
 ## 1. Decisions to make up front
 
-**D1–D11 are accepted as recommended (2026-10-25). D12 is still open.**
+**D1–D11 are accepted as recommended (2026-10-25). D12 is resolved (Phase 6): the repo is `dminta/slop-poznan`.**
 
 | # | Decision | Recommendation | Why |
 |---|---|---|---|
@@ -61,7 +143,7 @@ Stage A is what makes the port tractable: the risky refactors land while the old
 | D9 | UI language | **English UI, Polish place names** (with diacritics). `lang="en"` stays. A Polish UI can follow via a string table. | Smallest change. Translation is orthogonal. |
 | D10 | Units | Switch to **km/h and metres** | Poland uses metric. |
 | D11 | File naming | City-neutral names: `js/nyc-geodata.js` → `js/geodata.js`, `js/nyc-map.js` → `js/city-map.js` (`CityMapSystem`), `boroughs.js` → split into `outskirts.js` + `bridges.js`. Scene roots: `CityGrid`, `CityBlocks`, `StreetDetails`, `Landmarks`, `Outskirts`, `TrafficAndPedestrians`. | Avoids a second rename for the next city. |
-| D12 | Repo / live URL (**open**) | Decide whether the fork keeps the `slop-newyork` Pages path. Affects `index.html` links, `README.md` and `tests/boot.test.cjs:34` (cosmetic). | Unresolved |
+| D12 | Repo / live URL (**resolved**) | `dminta/slop-poznan`, live at https://dminta.github.io/slop-poznan/ (`index.html`, `README.md`, `tests/boot.test.cjs`). | Resolved in Phase 6 |
 
 ---
 
@@ -472,7 +554,7 @@ at link time on any leftover.
      River"/"New York Harbor" strings and gains "Warta", "Jezioro Maltańskie" and `nearestRoads` crossings
      ("ul. Św. Marcin & al. Niepodległości"). `main.js:390-433` `renderLocation` splits on `" · "`, `" & "` and
      `"near "`; keep that format.
-   - Replace `TELEPORT_LOCATIONS` and `NYC_LANDMARKS` (→ `CITY_LANDMARKS`) with the Poznań sets (§10).
+   - Replace `TELEPORT_LOCATIONS` and `NYC_LANDMARKS` (→ `CITY_LANDMARKS`) with the Poznań sets (Phase 12.4).
 3. **`city-grid.js`**:
    - Delete:
      - Times/Herald/Flatiron plazas (1608-1790);
@@ -602,7 +684,7 @@ https://dminta.github.io/slop-poznan/. Deviations and open points:
    - the mode button "Car · Yellow Cab" → "Car · Taxi";
    - the gauge label (overwritten by `ent.label`, `main.js:288`);
    - the units (D10);
-   - the teleport and camera popovers (§10);
+   - the teleport and camera popovers (Phase 12);
    - the GitHub link (D12).
 3. **`css/style.css`**:
    - `--taxi`/`--taxi-ink` → `--accent`/`--accent-ink`, about 12 uses. The accent colour can be MPK green/yellow, or
@@ -692,7 +774,10 @@ Deviations and open points:
   `masonry: 'brick'|'ashlar'|'plaster'` on `createPreWarBuildingMaterial`. The NYC window air-conditioners are gone
   from the pre-war shader.
 - Roofs: `js/roofs.js` (boot preloads 39), 9,240 roofs / 21k instances; chimneys and skylights replace water towers;
-  scaffold sheds became renovation scaffolding with building-wrap adverts. There was no billboard machinery to convert.
+  scaffold sheds became renovation scaffolding with building-wrap adverts. The Times Square billboard canvas and material
+  (`createBillboardCanvasTexture` / `createBillboardMaterial` in `tsl-materials.js`) survive as unused exports; delete
+  them in Phase 12.5.
+- Not done (found by the 2026-10-27 audit): dormers, stepped/volute Rynek gables (§8.5) and Śródka's mural square (§8.1).
 - Balconies: `fire-escapes.js` → `balconies.js`, street fronts only, `BALCONY_P` 0.5.
 - Outskirts osiedla use the panel material (60 extra draw calls); `place()` now rejects footprints leaving their zone.
 - Browser checks pending: roof normals/pitch and ridge alignment on turned blocks, panel shader cost and shimmer on
@@ -901,7 +986,7 @@ crosswalks (1887 of 1928 tracks) and the connected set.
    with the NYC set). Follow-up: signal poles moved behind the crosswalks (turning curves cut the corners they stood
    on), `LANE_GUIDE` gained the junction chords, narrow-lane reach and one-way pair lanes, furniture keeps off the
    crosswalk landings (`JUNCTIONS`), every prop is a player collider, and the name plates follow the Poznań SIM 2017
-   design: 193.5 km (99.8%), 1851 of 1884 crosswalks.
+   design: 193.5 km (99.8%), 1851 of 1884 crosswalks (before the crosswalk rework; now 1374 crosswalks, see above).
    - **§1 signals.** Pole-mounted S-1 three-aspect heads (black/grey housing; some with a yellow backplate) at each
      signalised corner, an S-2 arrow where configured, and pedestrian red/green figure heads with countdowns. They are
      driven from `node.signal` (Phase 2). Street names move from pole blades to wall plates on corner buildings.
@@ -930,11 +1015,16 @@ crosswalks (1887 of 1928 tracks) and the connected set.
      leaves with the odd bract, toothed five-lobed leaves, seven-leaflet palmate leaves), with per-species crowns,
      tints and bark (`createTreeMaterial`). The indices keep their callers' roles, so `street-details.js`, `city-grid.js`
      and `buildings.js` are unchanged (lime where the plane was, maple where the locust was, chestnut where the elm
-     was); the plane/locust/elm comments at `street-details.js` §4 still need renaming. The Bryant Park and Central
+     was); the `street-details.js` §4 comments are renamed too. The Bryant Park and Central
      Park plantings were already gone (Phase 5). Skipped: the 4th species, and OSM tree positions (no `natural=tree`
      in the `tools/data` snapshots; it needs a new Overpass query and a geodata key). Unverified in a browser.
 
 ### Phase 12: Audio, lighting, cameras, teleports, cleanup
+
+**Status: partly done.** Already done ahead of this phase: the teleports (12.4 table, `TELEPORT_LOCATIONS`, the Ratusz
+test; the `dworzec` sub-label reads "Most Dworcowy · Łazarz"), the tram motor hum, wheel squeal and bell (Phase 9.3),
+and the `nyc-sound` → Poznań key rename with migration. 12.5 must also cover the unlisted NYC leftovers in **Open items
+from the 2026-10-27 audit**; grep case-insensitively.
 
 1. **Audio** (`docs/audio.md`: fields are read directly and break silently; there are no tests).
    - **Siren**: replace the US wail/yelp (`audio-synthesis.js:201-215,522-555`) inside the existing `'siren'` kind with the
@@ -1000,22 +1090,68 @@ crosswalks (1887 of 1928 tracks) and the connected set.
    - Update every `docs/*.md` to describe Poznań.
    - Remove this plan's "status" note, or archive it.
 
+### Phase 13: Denser blocks, a larger detail box
+
+**Status: 13.1 done (unverified in a browser), 13.2 not started** (decided 2026-10-27).
+
+1. **Density** (`buildings.js`; done, not yet checked in a browser). The emptiness came from building generation,
+   not missing lots. Frontless lot rects (20–40% of the lot area by district) and the cores of big rects were left
+   as yard, and the Targi (one 29 ha curb island) took the kamienica profile. They now get `innerLot` /
+   `innerBuildings` and `FAIRGROUND`. The headless footprint count went from 3.80 to 4.39 km² over the detail box,
+   and the Targi from 12% to 35% built. Pieces of part-park blocks that lie in a park ring are no longer built
+   (0.42 km² of buildings had stood in parks), and the osiedla get schools, shop pavilions and garages between the slab
+   rows. Net result: 3.80 → 4.00 km². Footprint per lot area went from 49% to 57% in Stare Miasto and from 21% to 26%
+   in Rataje; that is about what real panel estates reach.
+   - The Warta banks stay green on purpose. Their emptiness is park blocks (Park Nad Wartą, Skwer Obrońców Ukrainy,
+     Malta, Polana Harcerza), which are meadows and the Wartostrada in reality too. Building on their non-park 0.61 km²
+     was tried and reverted.
+   - Still to check in a browser: the Targi, the side streets of Św. Marcin, Rataje by Zamenhofa. If the centre still
+     looks empty, look next at gaps in the frontages and at the 4.6 m lot setback with slivers up to 13 m deep.
+2. **Extent:** grow D3 by about 1 km on every side, to ≈ 8.1 × 5.7 km ≈ 46 km² (2×).
+   - Move `DETAIL_LL` in `tools/poz-base.mjs` and the padded boxes in every `q_poz_*.overpassql`, then refetch and
+     rebuild. Expect about 2.6 MB of geodata.
+   - Measure the build heap (8 GB today), the boot time and the instance pools (`MAX_ROOF_INSTANCES` 32k, the streamed
+     `MAX_*` caps).
+   - Re-check `outskirts.js` zones that the new box now swallows (Winogrady, Rataje, Grunwald), `blockProfile`
+     districts that have no profile yet, the map extents and the teleport and camera tests.
+
+### Phase 14: Real building density from OSM
+
+**Status: steps 1–2 done, not yet checked in a browser; step 3 open** (decided 2026-10-27). This replaces guessing the density from the street layout.
+- Snapshot: 13.4 MB, 14,287 footprints, 10,508 in the detail box, `building:levels` on 84%. `GEO.blockStats` adds 8 KB.
+- `poz-blocks.mjs` now emits more lot rects per frame (12/10, stopping at 2% of the mask), which shrinks the holes in big irregular blocks. Geodata 1.33 → 1.37 MB.
+- Generated vs real built share: 16.2% / 17.3% over the detail box. Still under real: Sołacz and Winiary (villas, 4.3% / 8.9%) and Św. Marcin's side streets (29% / 38%).
+- Nine large blocks under 5% built in OSM (0.69 km²) may be under-mapped. Check them against BDOT10k (step 3).
+
+1. **Data** (`tools/`): a `q_poz_buildings.overpassql` snapshot (`building=*` ways and multipolygons in the padded
+   box, tags trimmed to `building`, `building:levels`, `height`). Rasterise the footprints on the `poz-blocks.mjs` 1 m
+   block raster and emit `GEO.blockStats`: one entry per `GEO.blocks` entry, the built share of the curb island, the
+   median `building:levels` and a building count. Do not emit the footprints themselves; they would add several MB.
+   ODbL like the rest, so no new attribution.
+2. **Runtime** (`buildings.js`): steer each block toward its real built share and storeys through the frontage gaps,
+   the inner-lot kinds and the row floors, instead of fixed profile weights.
+3. **Check** against GUGiK BDOT10k `OT_BUBD_A` for Poznań, once. Use BDOT10k only where OSM is incomplete. It is free,
+   in EPSG:2180, licence wording unconfirmed. GUGiK LoD1 2024 (`measuredHeight`) is for later, for heights.
+
 ---
 
 ## 6. Test impact checklist
 
 | test | what changes | phase |
 |---|---|---|
-| `boot.test.cjs` | preload count (31 → recount after `outskirts.js` + `bridges.js` − `boroughs.js` + `trams.js`); base URL `:34` (cosmetic) | 5, 9 |
+| `boot.test.cjs` | preload count (now 41, after `outskirts.js`, `bridges.js`, `roofs.js`, `balconies.js`, the `landmarks-*.js` split, `trams.js`, `tram-infra.js`); base URL (done) | 5–9 |
 | `geodata.test.mjs` | Poznań build, new assertions, output path, temp dir name | 4 |
 | `overpass.test.mjs` | none, unless the retry logic changes | — |
-| `teleports.test.cjs` | land test, OWTC test → Ratusz test, `NYCMapSystem` stub key, slice markers | 1, 3, 12 |
+| `teleports.test.cjs` | land test, OWTC test → Ratusz test, `NYCMapSystem` stub key, slice markers (all done) | 1, 3 |
 | `controllers.test.cjs` | stubs for `ISLAND_BOUNDS`/`CENTRAL_PARK_BOUNDS`/`getIslandBoundsAtZ`/`blockAt`/`streetZ` (`:26`, `:196-201`); clamp math (`:406-418`) re-expressed | 1, 5 |
 | `nyc-map.test.cjs` → `city-map.test.cjs` | path, class, GEO stubs, config stub keys | 3 |
 | `traffic.test.cjs`, `traffic-performance.test.cjs` | stubs for new free variables in sliced functions (`major`, group helpers, tram yielding); red+amber added without changing the amber assertions | 2, 9, 10 |
 | `cameras.test.cjs` | preset id list `:185` if `observatory` is renamed | 12 |
 | `vehicle-lights.test.cjs` | bus spec copy `:34` only if the bus is resized | 10 |
 | `facade-projection.test.cjs`, `smoke-texture.test.cjs` | source-sliced from `tsl-materials.js`: update the markers if you rename or re-indent there | 5, 8 |
+| `trams.test.cjs`, `tram-infra.test.cjs` | new: track graph, stops, signals, obstacle rule | 9 |
+| `road-paint.test.cjs`, `signals.test.cjs`, `trees.test.cjs`; `road-network.test.cjs` furnished-network and crosswalk floors | new | 11 |
+| `geodata.test.mjs` | missing: all 25 landmark sites present; determinism against the committed `js/geodata.js` | 4, 7 |
 
 Rendering, shaders, lighting, culling and audio have no automated coverage. Every phase ends with a browser check
 (`python3 -m http.server 8000`, a WebGPU browser, the console clean), including the WebGL2 fallback after Phase 8 (new
@@ -1070,7 +1206,7 @@ instanced roofs; see commit 2aad875).
 | Stary Rynek (square) | 52.40826, 16.93354 | 141 m square, central block ≈ 74 × 76 m |
 | Fara | 52.4061, 16.9340 | height unknown → nDSM |
 | Zamek Królewski | 52.4092, 16.9310 | rebuilt 2016, tower |
-| Katedra (Ostrów Tumski) | 52.4114, 16.9478 | ≈ 62 m, 72 × 36 m |
+| Katedra (Ostrów Tumski) | 52.4114, 16.9478 | ≈ 62 m, 72 × 36 m; the OSM footprint centre is ≈ 66 m away |
 | Most Biskupa Jordana | 52.41158, 16.95088 | footbridge 72.3 × 14.8 m, 70 m span |
 | Brama Poznania ICHOT | 52.41232, 16.95167 | OSM `height=5` is wrong |
 | Zamek Cesarski | 52.4078, 16.9186 | tower 75 m |
@@ -1080,7 +1216,7 @@ instanced roofs; see commit 2aad875).
 | Teatr Wielki | 52.4102, 16.9177 | OSM `height=1` is wrong |
 | Pomnik Czerwca 1956 | ≈ 52.4079, 16.9170 | crosses 21 m / 19.5 m |
 | Poznań Główny | 52.4017, 16.9116 | building 52.4027, 16.9129; Avenida 52.4008, 16.9132 |
-| Stary Browar | 52.4016, 16.9277 | 6 storeys |
+| Stary Browar | 52.4024, 16.9255 | 6 storeys; the old 52.4016, 16.9277 was 177 m off the OSM site |
 | Iglica MTP | by Most Dworcowy | 64 m |
 | Park Cytadela | 52.4215, 16.9349 | ≈ 100 ha |
 | Jezioro Maltańskie | 52.4039, 16.9715 | 2.2 × 0.46 km; relation 7550595 |
@@ -1118,7 +1254,8 @@ Tall buildings:
   | `turn:lanes` | 16% |
   | `width` | 1.3% |
 
-- **Trams**: 476 `railway=tram` ways (1435 mm, 600 V).
+- **Trams**: 476 `railway=tram` ways (1435 mm, 600 V); the committed padded-box snapshot has 341 (see audit item 1).
+  **Signals** in the build: 475 nodes in the padded box, 235 snapped to junctions.
 - **Signals**: 257 nodes. **Lamps**: 1,624. **Trees**: 2,521 in Stare Miasto alone.
 
 ### 9.3 Sources
@@ -1140,4 +1277,4 @@ Tall buildings:
 - Exact MPK tram and bus livery colours; Poznań taxi marking rules (→ street imagery /
   city regulations).
 - Whether GEOPOZ offers machine-readable open data.
-- D12 (repo name and live URL).
+- Why the Ostrów Tumski / Śródka tram line is missing from `poz_rail.json` (audit item 1).

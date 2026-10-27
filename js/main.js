@@ -106,11 +106,14 @@ async function initApp() {
   markInit('traffic');
   // The street furniture's player colliders join only now: its footprints already went to the network above
   allColliders.push(...streetDetails.colliders);
+  // Likewise the square & park benches, lampposts, planters and tree trunks: none on the network's sidewalks
+  allColliders.push(...cityGrid.propColliders);
   const highwayTraffic = createHighwayTraffic(scene, cityGrid.highwayLanes);
   buildRoadPaint(scene, trafficSystem.network, trafficSystem.crosswalks);
   markInit('roadPaint');
   // Rails, overhead line and stops, placed clear of the car lanes just built (none of it is a traffic obstacle);
-  // the player collides with the poles and stop furniture
+  // the player collides with the poles and stop furniture; with the mainline railway's masts, end walls and fence too,
+  // and its corridor (tramInfra.railCorridor) is a keep-out for the ground modes
   const tramInfra = buildTramInfrastructure(scene, trafficSystem.network);
   allColliders.push(...tramInfra.colliders);
   markInit('tramInfra');
@@ -121,7 +124,7 @@ async function initApp() {
   markInit('trams');
 
   // 4. Initialize Third-Person Controllers (Person, Car, Cyclist, Helicopter) & Multi-Camera System
-  const controllerManager = new ThirdPersonControllerManager(scene, allColliders);
+  const controllerManager = new ThirdPersonControllerManager(scene, allColliders, { keepOut: tramInfra.railCorridor });
   // Reuse teleport placement so saved players return at rest, close to their last positions.
   // Version 2 is Poznań: a version 1 state (and the old 'nyc-player-state' key) holds a Manhattan position, which is
   // discarded rather than restored into Poznań.

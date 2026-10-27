@@ -508,3 +508,120 @@ test('player clearance respects altitude and permits a ground arrival under an a
   helicopter.position.y = 1;
   assert.notDeepEqual({ ...controller.teleportActiveTo(0, 0) }, { x: 0, z: 0 }, 'a helicopter parked at street level must be avoided');
 });
+
+// The square & park furniture built by city-grid.js (headless, with inert three.js stubs: only its colliders matter)
+function inert() {
+  const store = {};
+  return new Proxy(function () {}, {
+    get(_target, key) {
+      if (key === Symbol.iterator) return function* () {};
+      if (key === Symbol.toPrimitive) return () => 0;
+      if (key === 'then') return undefined;
+      if (key === 'length') return 0;
+      return key in store ? store[key] : (store[key] = inert());
+    },
+    set(_target, key, value) { store[key] = value; return true; },
+    apply: () => inert(),
+    construct: () => inert()
+  });
+}
+
+test('the player walks into the benches, lampposts, planters and tree trunks on Stary Rynek, not through them', async () => {
+  const config = await import('../js/city-config.js');
+  const { GEO } = await import('../js/geodata.js');
+  const logs = [];
+  const { buildCityGrid } = loadModule(readFileSync(join(__dirname, '../js/city-grid.js'), 'utf8'), {
+    imports: {
+      'three/webgpu': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert(), './city-config.js': config,
+      './geodata.js': { GEO }, './tsl-materials.js': inert()
+    },
+    globals: { console: { info: (line) => logs.push(line), log() {}, warn() {} } },
+    filename: 'city-grid.js'
+  });
+  const grid = buildCityGrid(inert());
+  assert.equal(grid.colliders.length, 0, 'the furniture stays out of the colliders main.js hands the road network');
+  const counts = /(\d+) benches, (\d+) lampposts, (\d+) park & plaza trees; (\d+) player colliders/.exec(logs.join('\n'));
+  assert.ok(counts, 'the furniture counts are logged');
+  const [benches, lamps, trees, total] = counts.slice(1).map(Number);
+  assert.ok(benches > 100 && lamps > 1000 && trees > 5000, counts[0]);
+  assert.equal(grid.propColliders.length, total);
+  assert.equal(grid.propColliders.filter((c) => c.obb).length <= benches, true, 'only benches turn off the grid');
+
+  // Stary Rynek: the square round the Ratusz at the origin (its edge ~70 m out)
+  const rynek = grid.propColliders.filter((c) => Math.hypot((c.minX + c.maxX) / 2, (c.minZ + c.maxZ) / 2) < 110);
+  const bench = rynek.find((c) => c.obb && Math.abs(c.obb.hx - 0.95) < 1e-9);
+  const lamp = rynek.find((c) => !c.obb && Math.abs(c.maxX - c.minX - 0.4) < 1e-9 && c.maxY > 4);
+  const planter = rynek.find((c) => !c.obb && Math.abs(c.maxX - c.minX - 2.4) < 1e-9);
+  assert.ok(bench && lamp && planter, 'Stary Rynek has benches, lampposts and planters');
+  const cases = [
+    [bench, bench.obb.cx, bench.obb.cz, bench.obb.hz],
+    [lamp, (lamp.minX + lamp.maxX) / 2, (lamp.minZ + lamp.maxZ) / 2, 0.2],
+    [planter, (planter.minX + planter.maxX) / 2, (planter.minZ + planter.maxZ) / 2, 1.2]
+  ];
+  const { controller, ent } = teleportHarness('person', grid.propColliders.map((c) => ({ ...c })));
+  for (const [c, cx, cz, half] of cases) {
+    // a walker 0.1 m from the prop's centre (across a bench: along its local z, the seat's depth)
+    const ux = c.obb ? c.obb.sn : 1, uz = c.obb ? c.obb.cs : 0;
+    ent.position.x = cx + ux * 0.1;
+    ent.position.z = cz + uz * 0.1;
+    ent.position.y = 0.24;
+    controller.resolveHorizontalCollision(ent.position, 0.48, null, ent);
+    const out = (ent.position.x - cx) * ux + (ent.position.z - cz) * uz;
+    assert.ok(out >= half + 0.48 - 1e-6, `pushed ${out.toFixed(2)} m out of a ${c.maxY.toFixed(2)} m tall prop`);
+    controller.resolveHorizontalCollision(ent.position, 0.48, null, ent);
+    assert.ok(Math.abs((ent.position.x - cx) * ux + (ent.position.z - cz) * uz - out) < 1e-9, 'and then left in peace');
+  }
+  // a trunk stands in every planter, taller than a jump off it
+  assert.ok(rynek.some((c) => c !== planter && c.minX > planter.minX && c.maxX < planter.maxX && c.minZ > planter.minZ &&
+    c.maxZ < planter.maxZ && c.maxY > planter.maxY + 2), 'a trunk in the planter');
+});
+
+// The railway corridor keep-out (tram-infra.js railCorridor, passed as keepOut): a strip 10 < x < 20 with a road
+// crossing it at |z| <= 3, where the track was cut
+const railStrip = (x, z) => x > 10 && x < 20 && Math.abs(z) > 3;
+
+test('ground modes cannot enter the railway corridor; the helicopter can', () => {
+  for (const mode of ['person', 'car', 'cyclist', 'helicopter']) {
+    const { controller, ent } = teleportHarness(mode);
+    controller.keepOut = railStrip;
+    controller.getGroundHeight = () => 0;
+    const radius = mode === 'helicopter' ? 4.5 : mode === 'person' ? 0.48 : 0.65;
+    Object.assign(ent.position, { x: 9, y: mode === 'helicopter' ? 120 : 0, z: 20 });
+    controller.resolveHorizontalCollision(ent.position, radius, mode === 'car' ? ent : null);
+    // straight in: back out; diagonally in: slides along the edge
+    ent.position.x = 11;
+    controller.resolveHorizontalCollision(ent.position, radius, mode === 'car' ? ent : null);
+    if (mode === 'helicopter') {
+      assert.equal(ent.position.x, 11, 'the helicopter flies over the corridor');
+      continue;
+    }
+    assert.deepEqual([ent.position.x, ent.position.z], [9, 20], `${mode} stays out`);
+    ent.position.x = 11;
+    ent.position.z = 21;
+    controller.resolveHorizontalCollision(ent.position, radius, mode === 'car' ? ent : null);
+    assert.deepEqual([ent.position.x, ent.position.z], [9, 21], `${mode} slides along the corridor's edge`);
+    // a body found inside (restored or carried in) is moved to the nearest free ground
+    ent.position.x = 12;
+    ent.position.z = 40;
+    controller.resolveHorizontalCollision(ent.position, radius, mode === 'car' ? ent : null);
+    assert.ok(!railStrip(ent.position.x, ent.position.z) && Math.abs(ent.position.x - 12) <= 3, `${mode} carried out`);
+    // teleports never land inside
+    const arrival = controller.teleportActiveTo(15, 30, 0);
+    assert.ok(arrival && !railStrip(arrival.x, arrival.z), `${mode} arrives outside the corridor`);
+  }
+});
+
+test('roads crossing a railway cut stay passable', () => {
+  for (const mode of ['person', 'car', 'cyclist']) {
+    const { controller, ent } = teleportHarness(mode);
+    controller.keepOut = railStrip;
+    controller.getGroundHeight = () => 0;
+    const radius = mode === 'person' ? 0.48 : 0.65;
+    Object.assign(ent.position, { x: 5, y: 0, z: 0 });
+    for (let x = 5; x <= 25; x += 0.5) {
+      ent.position.x = x;
+      controller.resolveHorizontalCollision(ent.position, radius, mode === 'car' ? ent : null);
+      assert.deepEqual([ent.position.x, ent.position.z], [x, 0], `${mode} crosses at x ${x}`);
+    }
+  }
+});

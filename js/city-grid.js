@@ -9,6 +9,7 @@ import {
   BLOCKS,
   distToWater
 } from './city-config.js';
+import { GEO } from './geodata.js';
 import {
   createRoadSurfaceMaterial,
   createSidewalkMaterial,
@@ -139,6 +140,24 @@ function createFlatPolygonMesh(pts, y, material, receiveShadow = true, holes = [
  * A simple polygon ([{x, z}], either winding, convex or not) offset inward by d with mitred corners (miters clamped
  * to 3d); null if it collapses
  */
+/** The point of ring `pts` ({x, z} list, closed implicitly) nearest to (x, z) */
+function nearestOnRing(pts, x, z) {
+  let best = null;
+  let bestD = Infinity;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[j];
+    const dx = pts[i].x - a.x;
+    const dz = pts[i].z - a.z;
+    const L2 = dx * dx + dz * dz;
+    const t = L2 > 0 ? Math.min(1, Math.max(0, ((x - a.x) * dx + (z - a.z) * dz) / L2)) : 0;
+    const px = a.x + t * dx;
+    const pz = a.z + t * dz;
+    const d = (px - x) ** 2 + (pz - z) ** 2;
+    if (d < bestD) { bestD = d; best = { x: px, z: pz }; }
+  }
+  return best;
+}
+
 function offsetPolygonInward(pts, d) {
   const n = pts.length;
   if (n < 3) return null;
@@ -521,6 +540,22 @@ function buildCityGrid(scene) {
   const treeSites = []; // { x, y, z, scale, species } park & plaza trees planted by street-details.js (section 7)
   const PLAZA_Y = 0.24;
   const pavedRects = []; // plaza & park slab bounds, exported so street trees (street-details.js) stay off them
+  // Player colliders for the square & park furniture (controllers.js: static boxes in its 48 m cells; benches turned off
+  // the grid are oriented boxes). main.js adds them only after the road network is built, so the lanes and sidewalk
+  // tracks are unchanged (the park blocks are whole footprints already), and they are not walls for street-details.js
+  // to hang name plates on.
+  const propColliders = [];
+  function addPropCollider(x, z, hx, hz, maxY, rotY = 0) {
+    if (!rotY) {
+      propColliders.push({ minX: x - hx, maxX: x + hx, minZ: z - hz, maxZ: z + hz, maxY });
+      return;
+    }
+    // local x maps to world (cos, -sin) under a three.js y rotation, local z to (sin, cos): the controllers' obb frame
+    const cs = Math.cos(rotY), sn = Math.sin(rotY);
+    const ex = Math.abs(cs) * hx + Math.abs(sn) * hz;
+    const ez = Math.abs(sn) * hx + Math.abs(cs) * hz;
+    propColliders.push({ minX: x - ex, maxX: x + ex, minZ: z - ez, maxZ: z + ez, maxY, obb: { cx: x, cz: z, hx, hz, cs, sn } });
+  }
   const prand = (x, z, k = 0) => {
     const s = Math.sin(x * 12.9898 + z * 78.233 + k * 37.719) * 43758.5453;
     return s - Math.floor(s);
@@ -546,6 +581,7 @@ function buildCityGrid(scene) {
   function addPlanter(x, z, w, d, baseY = PLAZA_Y) {
     addBox(graniteMat, x, baseY, z, w, 0.55, d);
     addBox(medianHedgeMat, x, baseY + 0.55, z, w - 0.35, 0.3, d - 0.35, 0, false);
+    addPropCollider(x, z, w * 0.5, d * 0.5, baseY + 0.85); // granite box and its clipped hedge
   }
   function addPlanterTree(x, z, species = 1, scale = 0.85) {
     addPlanter(x, z, 2.4, 2.4);
@@ -557,9 +593,11 @@ function buildCityGrid(scene) {
     dummy.scale.set(1, 1, 1);
     dummy.updateMatrix();
     benchMatrices.push(dummy.matrix.clone());
+    addPropCollider(x, z, 0.95, 0.27, y + 0.92, rotY); // 1.9 m of slats, the back's top at 0.91 m
   }
   function addLamp(x, y, z) {
     lampMatrices.push(new THREE.Matrix4().makeTranslation(x, y, z));
+    addPropCollider(x, z, 0.2, 0.2, y + 4.45); // the 0.4 m cast base up to the globe
   }
 
   for (const pl of pavedPlazas()) {
@@ -658,6 +696,47 @@ function buildCityGrid(scene) {
     }
   }
 
+  // Parks inside blocks that are only partly park (Park Wilsona, Park Dąbrowskiego behind Stary Browar, Park
+  // Mazowieckiego): buildings.js leaves their rings unbuilt, so they get a lawn over the sidewalk slab (a ring wholly
+  // inside its block; one crossing the curb keeps the paving) and trees kept PARK_TREE_EDGE inside the ring, clear of
+  // the 20 m building cells that only clip it
+  const PARK_TREE_EDGE = 10;
+  const partParkRings = (GEO.parks || []).flatMap((p) => p.rings || []).map((r) => {
+    const pts = [];
+    for (let i = 0; i + 1 < r.length; i += 2) pts.push({ x: r[i], z: r[i + 1] });
+    return pts;
+  });
+  for (const b of BLOCKS) {
+    if (!(b.park > 0) || isParkBlock(b) || b.median) continue;
+    for (const ring of partParkRings) {
+      if (!ring.some((p) => p.x > b.minX && p.x < b.maxX && p.z > b.minZ && p.z < b.maxZ)) continue;
+      // A ring mostly inside (Park Dąbrowskiego: 37 of 38 vertices) has the stray vertices pulled onto the block's
+      // outline 1 m in
+      const inside = ring.filter((p) => pointInPolygonXZ(b.poly, p.x, p.z)).length;
+      if (inside >= ring.length * 0.8) {
+        const edge = inside < ring.length ? offsetPolygonInward(b.poly, 1) : null;
+        const pts = edge ? ring.map((p) => (pointInPolygonXZ(edge, p.x, p.z) ? p : nearestOnRing(edge, p.x, p.z))) : ring;
+        const lawn = offsetPolygonInward(pts, 0.5);
+        if (lawn) parkLawnGeos.push(createExtrudedPolygonMesh(lawn, SW_TOP - 0.02, 0.06, lawnMat).geometry);
+      }
+      let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+      for (const p of ring) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
+      const SP = 12;
+      const E = PARK_TREE_EDGE;
+      for (let gx = Math.max(x0, b.minX) + SP * 0.5; gx < Math.min(x1, b.maxX); gx += SP) {
+        for (let gz = Math.max(z0, b.minZ) + SP * 0.5; gz < Math.min(z1, b.maxZ); gz += SP) {
+          const tx = gx + (prand(gx, gz) - 0.5) * SP * 0.7;
+          const tz = gz + (prand(gz, gx, 1) - 0.5) * SP * 0.7;
+          if (prand(tx, tz, 9) < 0.3) continue; // glades
+          if (!pointInPolygonXZ(b.poly, tx, tz) || distToWater(tx, tz) < 4) continue;
+          if (![[0, 0], [E, 0], [-E, 0], [0, E], [0, -E]].every(([dx, dz]) => pointInPolygonXZ(ring, tx + dx, tz + dz))) continue;
+          const r = prand(tx, tz, 2);
+          treeSites.push({ x: tx, y: SW_TOP, z: tz, scale: 0.9 + prand(tx, tz, 3) * 0.4, species: r < 0.55 ? 0 : (r < 0.75 ? 1 : 2) });
+        }
+      }
+    }
+  }
+
   // One merged lawn mesh for every park
   if (parkLawnGeos.length) {
     const parkLawnMesh = new THREE.Mesh(mergeGeometries(parkLawnGeos, false), lawnMat);
@@ -716,6 +795,10 @@ function buildCityGrid(scene) {
     group.add(poolInst);
   }
 
+  // Trunk colliders for every park & plaza tree laid out above (planters, park beds, part-park lawns): a box about the
+  // trunk's flared root (trees.js trunk radii 0.25-0.36 m, scaled), tall enough that a jump off a planter can't clear it
+  for (const s of treeSites) addPropCollider(s.x, s.z, 0.28 * s.scale, 0.28 * s.scale, s.y + 3.0);
+
   // Park & plaza tree and lamp sites, read by street-details.js after the city grid is built
   parkTreeSites = treeSites;
   parkLampSites = lampMatrices.map((m) => ({ x: m.elements[12], y: m.elements[13] + 4.17, z: m.elements[14] }));
@@ -735,7 +818,9 @@ function buildCityGrid(scene) {
   // footprints)
   const sidewalks = roadSidewalks;
   const colliders = [];
-  return { group, sidewalks, footprints, highwayLanes: [], colliders };
+  console.info(`[cityGrid] ${benchMatrices.length} benches, ${lampMatrices.length} lampposts, ` +
+    `${treeSites.length} park & plaza trees; ${propColliders.length} player colliders`);
+  return { group, sidewalks, footprints, highwayLanes: [], colliders, propColliders };
 }
 
 export {
