@@ -1,8 +1,8 @@
 import * as THREE from 'three/webgpu';
-import { Fn, attribute, color, float, vec2, mix, smoothstep, step, abs, fract, fwidth, max, clamp, normalGeometry, positionGeometry, texture, uv } from 'three/tsl';
+import { Fn, attribute, color, float, vec2, mix, smoothstep, step, abs, fract, floor, fwidth, max, clamp, normalGeometry, positionGeometry, screenCoordinate, texture, uv } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GEO } from './geodata.js';
-import { blockAt, isLand } from './city-config.js';
+import { BRIDGES, PLAZAS, blockAt, isLand, isWater, roadClearance } from './city-config.js';
 import { cityUniforms, createCurbMaterial, transparentEffectMRT } from './tsl-materials.js';
 
 // js/tram-infra.js
@@ -16,8 +16,11 @@ import { cityUniforms, createCurbMaterial, transparentEffectMRT } from './tsl-ma
 // - tram stops from GEO.tramStops: a raised platform island on the right of the track where it fits clear of the car
 //   lanes (else the stop stands on the sidewalk, as on the Poznań streets with no room for an island), a glass shelter,
 //   a stop sign with the stop's name plate and a ticket machine
-// layoutTramInfrastructure(network) is the pure placement (no three.js) that tests/tram-infra.test.cjs checks; its
-// `stops` list is the public one trams can dwell at.
+// - the mainline railway (GEO.rail kind 'rail'): ballast beds with concrete sleepers and raised rails, cut with a
+//   concrete end wall wherever a road or tram line crosses (the bridges and underpasses have no levels here), and the
+//   3 kV DC overhead line (contact and messenger wire, masts with cantilevers, portals over the yards)
+// layoutTramInfrastructure(network) and layoutRailInfrastructure(network) are the pure placements (no three.js) that
+// tests/tram-infra.test.cjs checks; the tram layout's `stops` list is the public one trams can dwell at.
 
 const GAUGE = 1.435;
 const HEAD_W = 0.07; // grooved rail head (Ri60-ish)
@@ -36,13 +39,49 @@ const PLATFORM_W = 2.6;
 const PLATFORM_L = 33; // a 32 m Moderus Gamma or Tramino
 const PLATFORM_H = 0.25;
 const OLD_TOWN_R = 900; // wall rosettes instead of poles on narrow streets this close to the Ratusz
+// Mainline railway. The world is flat: every track lies at grade, dropped over open water (rail bridges have no deck)
+// and wherever it meets a road or a tram line (see RAIL_ROAD_KEEP).
+const RAIL_PIECE = 8; // straight pieces up to 8 m: a 300 m curve is 27 mm off the chord
+const RAIL_BED_W = 5; // ballast bed at the foot; its top is 4 m (RAIL_BED_TOP_W), so 4.5 m track centres close up
+const RAIL_BED_TOP_W = 4;
+const RAIL_SLEEPER = 2.6; // PS-94 concrete sleeper length
+const RAIL_BED_TOP = 0.3;
+const RAIL_HEAD_H = 0.16; // 60E1 rail on its sleeper
+// The railway crosses streets and tram lines on bridges and in underpasses, which the flat world has no levels for: a
+// piece is cut when its centreline comes within RAIL_ROAD_KEEP of a roadway (the 2.5 m half bed + 1 m) or within
+// RAIL_TRAM_KEEP of a tram track centreline (half bed + 1 m + the tram's 1.45 m half ballast)
+const RAIL_ROAD_KEEP = 3.5;
+const RAIL_TRAM_KEEP = 5;
+const RAIL_END_H = 1.1; // concrete end wall where a bed is cut
+// Corridor boundary along the outer edge of a track bundle: a concrete plinth with a 2 m welded-mesh fence, 1.1 m
+// outside the bed's foot; a 1.2 m wall under the fence where a street, a block or open land (a car park, a plaza) lies
+// beyond, the plinth alone between parallel bundles and along the water
+const RAIL_FENCE_O = 3.6; // track centreline to the boundary
+const RAIL_FENCE_H = 2;
+const RAIL_PLINTH_H = 0.5;
+const RAIL_WALL_H = 1.2;
+const RAIL_FENCE_ROAD = 1; // the boundary keeps this far outside every roadway
+const RAIL_STUB = 8; // run ends this close to another run end or an end wall's corner are joined by a stub
+// The player's keep-out: every ground point within RAIL_KEEPOUT of a kept piece (just inside the boundary, so the fence
+// collider stops a body first), plus the ground between two tracks too close for a boundary between them, on a 1 m
+// raster
+const RAIL_KEEPOUT = 3.4;
+const KEEPOUT_TILE = 64; // raster tiles (1 m cells), stored only where there is corridor
+const RAIL_WIRE_Y = 5.6; // PKP contact wire height
+const RAIL_MESSENGER_Y = 7.0; // messenger wire at the supports
+const RAIL_STATION = 55; // support spacing
+const RAIL_KEEP = 2.6; // masts keep this far from every rail track centreline (structure gauge)
+const RAIL_MAST_ROAD = 2; // ...this far outside every roadway
+const RAIL_MAST_TRAM = 3; // ...and this far from every tram track centreline
+const RAIL_ARM_REACH = 7; // a mast this close to the track takes a cantilever, else a portal spans the yard
+const RAIL_PORTAL_REACH = 40; // per side
 
 // --- Track geometry ------------------------------------------------------------------------------------------------
 // Tram tracks of GEO.rail (railIndex = index into GEO.rail), with cumulative arc length per point
-function loadTracks() {
+function loadTracks(kind = 'tram') {
   const tracks = [];
   GEO.rail.forEach((r, railIndex) => {
-    if (r.kind !== 'tram' || r.pts.length < 4) return;
+    if (r.kind !== kind || r.pts.length < 4) return;
     const p = r.pts;
     const n = p.length / 2;
     const cum = new Float64Array(n);
@@ -74,9 +113,10 @@ function pointAt(tr, s) {
 function segmentGrid(cell = 24) {
   const cells = new Map();
   const key = (ix, iz) => ix * 100003 + iz;
+  let stamp = 0; // query counter: a segment spanning several cells is visited once per query (cheaper than a Set)
   return {
     add(ax, az, bx, bz, data) {
-      const seg = { ax, az, bx, bz, data };
+      const seg = { ax, az, bx, bz, data, _q: 0 };
       for (let ix = Math.floor(Math.min(ax, bx) / cell); ix <= Math.floor(Math.max(ax, bx) / cell); ix++) {
         for (let iz = Math.floor(Math.min(az, bz) / cell); iz <= Math.floor(Math.max(az, bz) / cell); iz++) {
           const k = key(ix, iz);
@@ -89,12 +129,12 @@ function segmentGrid(cell = 24) {
     nearest(x, z, r, accept) {
       let best = null;
       let bestD = r;
-      const seen = new Set();
+      const q = ++stamp;
       for (let ix = Math.floor((x - r) / cell); ix <= Math.floor((x + r) / cell); ix++) {
         for (let iz = Math.floor((z - r) / cell); iz <= Math.floor((z + r) / cell); iz++) {
           for (const sg of cells.get(key(ix, iz)) || []) {
-            if (seen.has(sg)) continue;
-            seen.add(sg);
+            if (sg._q === q) continue;
+            sg._q = q;
             if (accept && !accept(sg)) continue;
             const ex = sg.bx - sg.ax;
             const ez = sg.bz - sg.az;
@@ -114,12 +154,12 @@ function segmentGrid(cell = 24) {
     // Every segment crossing the segment a-b: [{ seg, x, z }]
     crossing(ax, az, bx, bz) {
       const out = [];
-      const seen = new Set();
+      const q = ++stamp;
       for (let ix = Math.floor(Math.min(ax, bx) / cell); ix <= Math.floor(Math.max(ax, bx) / cell); ix++) {
         for (let iz = Math.floor(Math.min(az, bz) / cell); iz <= Math.floor(Math.max(az, bz) / cell); iz++) {
           for (const sg of cells.get(key(ix, iz)) || []) {
-            if (seen.has(sg)) continue;
-            seen.add(sg);
+            if (sg._q === q) continue;
+            sg._q = q;
             const rx = bx - ax;
             const rz = bz - az;
             const sx = sg.bx - sg.ax;
@@ -134,6 +174,24 @@ function segmentGrid(cell = 24) {
       }
       return out;
     }
+  };
+}
+
+// Distance to the nearest car lane centreline (capped at r): every lane of every street the network paints (the drivable
+// set before its connectivity filter, so streets traffic doesn't use count as roadway too)
+function laneDistance(network) {
+  const laneGrid = segmentGrid(32);
+  for (const e of (network && (network.paintEdges || network.edges)) || []) {
+    const span = e.span ?? e.len;
+    for (const o of e.lanes) {
+      const ax = e.x0 + e.rx * o;
+      const az = e.z0 + e.rz * o;
+      laneGrid.add(ax, az, ax + e.dx * span, az + e.dz * span, null);
+    }
+  }
+  return (x, z, r = 6) => {
+    const h = laneGrid.nearest(x, z, r);
+    return h ? h.d : r;
   };
 }
 
@@ -155,21 +213,7 @@ function layoutTramInfrastructure(network) {
       trackGrid.add(tr.p[2 * k], tr.p[2 * k + 1], tr.p[2 * k + 2], tr.p[2 * k + 3], { tr, k });
     }
   }
-  // Car lanes: every lane of every street the network paints (the drivable set before its connectivity filter, so
-  // streets traffic doesn't use count as roadway too)
-  const laneGrid = segmentGrid(32);
-  for (const e of (network && (network.paintEdges || network.edges)) || []) {
-    const span = e.span ?? e.len;
-    for (const o of e.lanes) {
-      const ax = e.x0 + e.rx * o;
-      const az = e.z0 + e.rz * o;
-      laneGrid.add(ax, az, ax + e.dx * span, az + e.dz * span, null);
-    }
-  }
-  const laneDist = (x, z, r = 6) => {
-    const h = laneGrid.nearest(x, z, r);
-    return h ? h.d : r;
-  };
+  const laneDist = laneDistance(network);
   const trackDist = (x, z, r = 4, except = null) => {
     const h = trackGrid.nearest(x, z, r, except ? (sg) => sg.data.tr !== except : null);
     return h ? h.d : r;
@@ -406,6 +450,454 @@ function layoutTramInfrastructure(network) {
   return { tracks, stops, skipped, poles, spans, arms, rosettes, droppers, footprints, laneDist, trackDist };
 }
 
+/**
+ * Placement of the mainline railway (GEO.rail kind 'rail') against a built road network. The world is flat and the
+ * railway crosses the streets and tram lines on bridges and in underpasses, so a track is cut wherever its bed would
+ * touch a roadway or a tram track; each cut end gets an end wall, as at the edge of a bridge. Returns
+ * { tracks, pieces, dropped, ends, masts, arms, portals, droppers, footprints, laneDist, roadDist, tramDist }:
+ * - pieces: [{ railIndex, s0, ax, az, bx, bz, ground }] straight pieces up to RAIL_PIECE long (s0 = arc length of a)
+ * - dropped: { offLand, water, road, tram } pieces left out: outside the detail box, over open water (rail bridges have
+ *   no deck), on or within RAIL_ROAD_KEEP of a roadway (or under a road bridge), within RAIL_TRAM_KEEP of a tram track
+ * - ends: [{ x, z, dx, dz, ground, s, inward, tr }] end walls where a kept piece meets a dropped one (d: pointing into
+ *   the gap; s: arc length of the end, inward: +1 when the kept bed lies at larger s)
+ * - runs: corridor boundary runs [{ railIndex, side, pts: [{ x, z }], solid: [0|1 per segment], s0 }] RAIL_FENCE_O out
+ *   on the side (+1 right of the points' direction) facing away from the bundle; solid: the wall under the fence
+ *   (stub: true on the short runs that close a gap between two run ends or a run end and an end wall)
+ * - corridor: { has(x, z), cells, bands } the player keep-out raster (see RAIL_KEEPOUT)
+ * - masts: [{ x, z, h }], arms: cantilevers [{ ax, az, bx, bz }] (mast to 0.3 m past the track), portals: cross beams
+ *   [{ ax, az, bx, bz }] between two masts, droppers: [{ x, z }] where a portal beam carries a track's wires
+ */
+function layoutRailInfrastructure(network) {
+  const tracks = loadTracks('rail');
+  const laneDist = laneDistance(network);
+  // Road bridge decks: the BRIDGES links' corridors (half width + 1.5 m); a track under one runs beneath the flat deck
+  const deckGrid = segmentGrid(32);
+  for (const br of BRIDGES) {
+    for (const l of br.links) {
+      for (let k = 0; k + 1 < l.pts.length; k++) {
+        deckGrid.add(l.pts[k].x, l.pts[k].z, l.pts[k + 1].x, l.pts[k + 1].z, l.width / 2 + 1.5);
+      }
+    }
+  }
+  const underDeck = (x, z) => {
+    const h = deckGrid.nearest(x, z, 14); // the widest deck link is 19.5 m (half + 1.5 m = 11.25 m)
+    return !!h && h.d <= h.seg.data;
+  };
+  // Distance outside the nearest roadway: the LANE_GUIDE carriageways (junction to junction, so junction boxes too),
+  // and the network's lane centrelines less a 1.75 m half lane; RAIL_ROAD_KEEP + 1 where nothing is that near
+  const roadDist = (x, z) => {
+    if (underDeck(x, z)) return -1;
+    const g = roadClearance(x, z);
+    return Math.min(Number.isFinite(g) ? g : RAIL_ROAD_KEEP + 1, laneDist(x, z, RAIL_ROAD_KEEP + 3) - 1.75);
+  };
+  const railGrid = segmentGrid();
+  for (const tr of tracks) {
+    for (let k = 0; k + 1 < tr.n; k++) railGrid.add(tr.p[2 * k], tr.p[2 * k + 1], tr.p[2 * k + 2], tr.p[2 * k + 3], tr);
+  }
+  const tramGrid = segmentGrid();
+  for (const tr of loadTracks('tram')) {
+    for (let k = 0; k + 1 < tr.n; k++) tramGrid.add(tr.p[2 * k], tr.p[2 * k + 1], tr.p[2 * k + 2], tr.p[2 * k + 3], tr);
+  }
+  const railDist = (x, z, r = 4) => {
+    const h = railGrid.nearest(x, z, r);
+    return h ? h.d : r;
+  };
+  const tramDist = (x, z, r = RAIL_TRAM_KEEP + 1) => {
+    const h = tramGrid.nearest(x, z, r);
+    return h ? h.d : r;
+  };
+
+  // --- Track pieces -------------------------------------------------------------------------------------------------
+  const pieces = [];
+  const ends = [];
+  const dropped = { offLand: 0, water: 0, road: 0, tram: 0 };
+  const keptAt = new Map(); // railIndex -> Uint8Array: 1 for every kept piece
+  const trackGeo = new Map(); // railIndex -> { geo: [{ s0, A, B }] per piece, kept }
+  for (const tr of tracks) {
+    const count = Math.max(1, Math.ceil(tr.len / RAIL_PIECE));
+    const kept = new Uint8Array(count);
+    const why = new Array(count).fill(null);
+    const geo = [];
+    for (let i = 0; i < count; i++) {
+      const s0 = (i * tr.len) / count;
+      const A = pointAt(tr, s0);
+      const B = pointAt(tr, ((i + 1) * tr.len) / count);
+      geo.push({ s0, A, B });
+      const mx = (A.x + B.x) / 2;
+      const mz = (A.z + B.z) / 2;
+      if (!isLand(mx, mz)) {
+        why[i] = isWater(mx, mz) ? 'water' : 'offLand';
+        continue;
+      }
+      // the bed's centreline at both ends, the quarters and the middle
+      for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+        const x = A.x + (B.x - A.x) * t;
+        const z = A.z + (B.z - A.z) * t;
+        if (roadDist(x, z) < RAIL_ROAD_KEEP) why[i] = 'road';
+        else if (tramDist(x, z) < RAIL_TRAM_KEEP) why[i] = why[i] || 'tram';
+        if (why[i] === 'road') break;
+      }
+      if (why[i]) continue;
+      kept[i] = 1;
+      pieces.push({ railIndex: tr.railIndex, s0, ax: A.x, az: A.z, bx: B.x, bz: B.z, ground: blockAt(mx, mz) ? SW_TOP : 0 });
+    }
+    for (let i = 0; i < count; i++) if (why[i]) dropped[why[i]]++;
+    // End walls where the bed meets a gap (not at the edge of the detail box)
+    for (let i = 0; i < count; i++) {
+      if (!kept[i]) continue;
+      const { A, B } = geo[i];
+      const len = Math.hypot(B.x - A.x, B.z - A.z) || 1;
+      const dx = (B.x - A.x) / len;
+      const dz = (B.z - A.z) / len;
+      const ground = blockAt((A.x + B.x) / 2, (A.z + B.z) / 2) ? SW_TOP : 0;
+      if (i > 0 && why[i - 1] && why[i - 1] !== 'offLand') ends.push({ x: A.x, z: A.z, dx: -dx, dz: -dz, ground, s: geo[i].s0, inward: 1, tr });
+      if (i + 1 < count && why[i + 1] && why[i + 1] !== 'offLand') ends.push({ x: B.x, z: B.z, dx, dz, ground, s: geo[i + 1].s0, inward: -1, tr });
+    }
+    keptAt.set(tr.railIndex, kept);
+    trackGeo.set(tr.railIndex, { geo, kept });
+  }
+  const keptOn = (tr, s) => {
+    const kept = keptAt.get(tr.railIndex);
+    return !!kept[Math.min(kept.length - 1, Math.max(0, Math.floor((s / tr.len) * kept.length)))];
+  };
+
+  // --- Corridor boundary --------------------------------------------------------------------------------------------
+  // For each side of each track: a vertex RAIL_FENCE_O out at every piece joint (mitred on the averaged normal), and a
+  // segment over every kept piece whose side is an outer edge (no other track within ~6 m beyond the fence) and whose
+  // samples all keep clear: on land, RAIL_FENCE_ROAD outside every roadway (and off road decks), RAIL_MAST_TRAM from
+  // every tram track, off every rail bed (3 m from any track centreline, so 0.5 m past a bed's foot)
+  const plazaBoxes = PLAZAS.map((pl) => {
+    const xs = pl.ring.map((q) => q.x);
+    const zs = pl.ring.map((q) => q.z);
+    return { pl, x0: Math.min(...xs), x1: Math.max(...xs), z0: Math.min(...zs), z1: Math.max(...zs) };
+  });
+  const inPlaza = (x, z) => plazaBoxes.some(({ pl, x0, x1, z0, z1 }) => {
+    if (x < x0 || x > x1 || z < z0 || z > z1) return false;
+    let inside = false;
+    const r = pl.ring;
+    for (let i = 0, k = r.length - 1; i < r.length; k = i++) {
+      if ((r[i].z > z) !== (r[k].z > z) && x < r[k].x + ((z - r[k].z) * (r[i].x - r[k].x)) / (r[i].z - r[k].z)) inside = !inside;
+    }
+    return inside;
+  });
+  const fenceClear = (x, z) => isLand(x, z) && roadDist(x, z) >= RAIL_FENCE_ROAD && tramDist(x, z) >= RAIL_MAST_TRAM &&
+    railDist(x, z) >= 3;
+  const runs = []; // [{ railIndex, side, pts: [{ x, z }], solid: [0|1 per segment], s0 }]
+  for (const tr of tracks) {
+    const { geo, kept } = trackGeo.get(tr.railIndex);
+    const n = geo.length;
+    const dirs = geo.map(({ A, B }) => {
+      const L = Math.hypot(B.x - A.x, B.z - A.z) || 1;
+      return { dx: (B.x - A.x) / L, dz: (B.z - A.z) / L };
+    });
+    for (const side of [1, -1]) {
+      // vertex k is the joint before piece k (k = n: the end of the last piece)
+      const vert = (k) => {
+        const a = dirs[Math.max(0, k - 1)];
+        const b = dirs[Math.min(n - 1, k)];
+        let nx = -(a.dz + b.dz);
+        let nz = a.dx + b.dx;
+        const L = Math.hypot(nx, nz) || 1;
+        nx /= L;
+        nz /= L;
+        const mitre = Math.max(0.7, nx * -b.dz + nz * b.dx);
+        const P = k < n ? geo[k].A : geo[n - 1].B;
+        return { x: P.x + (nx * side * RAIL_FENCE_O) / mitre, z: P.z + (nz * side * RAIL_FENCE_O) / mitre };
+      };
+      let run = null;
+      for (let i = 0; i < n; i++) {
+        let ok = !!kept[i];
+        let solid = 0;
+        if (ok) {
+          const a = run ? run.pts[run.pts.length - 1] : vert(i);
+          const b = vert(i + 1);
+          const nx = -dirs[i].dz * side;
+          const nz = dirs[i].dx * side;
+          // outer edge: no track centre within 5.5 m of a point 3 m beyond the fence (tested first: it rejects most)
+          for (const t of [0.5, 0, 1]) {
+            const x = a.x + (b.x - a.x) * t + nx * 3;
+            const z = a.z + (b.z - a.z) * t + nz * 3;
+            if (railDist(x, z, 5.5) < 5.5) ok = false;
+            if (!ok) break;
+          }
+          for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+            if (!ok || !fenceClear(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t)) ok = false;
+            if (!ok) break;
+          }
+          if (ok) {
+            // a street, a block, a plaza or open land (the station car parks are unmapped ground) within 12 m beyond:
+            // the solid wall; the fence alone between parallel track bundles and along the water
+            const mx = (a.x + b.x) / 2;
+            const mz = (a.z + b.z) / 2;
+            for (const d of [3, 6, 9, 12]) {
+              const x = mx + nx * d;
+              const z = mz + nz * d;
+              if (!isLand(x, z)) continue;
+              if (roadDist(x, z) < 0 || blockAt(x, z) || inPlaza(x, z) || (d >= 6 && railDist(x, z, 6) >= 6)) solid = 1;
+              if (solid) break;
+            }
+            if (!run) {
+              run = { railIndex: tr.railIndex, side, pts: [a], solid: [], s0: geo[i].s0 };
+              runs.push(run);
+            }
+            run.pts.push(b);
+            run.solid.push(solid);
+          }
+        }
+        if (!ok) run = null;
+      }
+    }
+  }
+  // Runs meeting end to end across a switch (another track chain) are joined at the midpoint of their ends
+  const runEnds = [];
+  for (const r of runs) runEnds.push(r.pts[0], r.pts[r.pts.length - 1]);
+  const endGrid = segmentGrid(16);
+  runEnds.forEach((p, i) => endGrid.add(p.x, p.z, p.x, p.z, i));
+  for (let i = 0; i < runEnds.length; i++) {
+    const p = runEnds[i];
+    const h = endGrid.nearest(p.x, p.z, 2, (sg) => sg.data !== i && sg.data !== (i ^ 1));
+    if (!h || h.seg.data < i) continue;
+    const q = runEnds[h.seg.data];
+    const mx = (p.x + q.x) / 2;
+    const mz = (p.z + q.z) / 2;
+    p.x = q.x = mx;
+    p.z = q.z = mz;
+  }
+  // Close the visible gaps: a stub from each run end to the nearest other run end or end-wall corner within RAIL_STUB
+  // (a switch the snap above missed, a run stopping short of a cut), when the stub itself keeps the boundary's
+  // clearances
+  const targets = []; // { x, z, run }: run ends (run: the run's index) and end-wall corners (run: -1)
+  runs.forEach((r, i) => targets.push({ ...r.pts[0], run: i }, { ...r.pts[r.pts.length - 1], run: i }));
+  for (const e of ends) {
+    for (const sg of [1, -1]) targets.push({ x: e.x - e.dz * sg * (RAIL_FENCE_O + 0.15), z: e.z + e.dx * sg * (RAIL_FENCE_O + 0.15), run: -1 });
+  }
+  const targetGrid = segmentGrid(16);
+  targets.forEach((t, i) => targetGrid.add(t.x, t.z, t.x, t.z, i));
+  const stubRuns = [];
+  const stubbed = new Set();
+  for (let i = 0; i < targets.length; i++) {
+    const a = targets[i];
+    if (a.run < 0) continue;
+    const h = targetGrid.nearest(a.x, a.z, RAIL_STUB, (sg) => targets[sg.data].run !== a.run);
+    if (!h || h.d < 0.3) continue;
+    const j = h.seg.data;
+    const b = targets[j];
+    const pair = Math.min(i, j) * 1e6 + Math.max(i, j);
+    if (stubbed.has(pair)) continue;
+    let ok = true;
+    for (let t = 0; t <= 1 + 1e-9 && ok; t += 0.25 / Math.max(1, h.d)) {
+      const x = a.x + (b.x - a.x) * t;
+      const z = a.z + (b.z - a.z) * t;
+      // the stub may touch its own ends' beds only as close as the runs themselves do
+      ok = isLand(x, z) && roadDist(x, z) >= RAIL_FENCE_ROAD && tramDist(x, z) >= RAIL_MAST_TRAM && railDist(x, z) >= 3;
+    }
+    if (!ok) continue;
+    stubbed.add(pair);
+    const ra = runs[a.run];
+    stubRuns.push({ railIndex: ra.railIndex, side: ra.side, pts: [{ x: a.x, z: a.z }, { x: b.x, z: b.z }], solid: [ra.solid[0]], s0: 0, stub: true });
+  }
+  runs.push(...stubRuns);
+
+  const fenceGrid = segmentGrid(32);
+  for (const r of runs) {
+    for (let k = 0; k + 1 < r.pts.length; k++) fenceGrid.add(r.pts[k].x, r.pts[k].z, r.pts[k + 1].x, r.pts[k + 1].z, r);
+  }
+  const fenceDist = (x, z, r = 2) => {
+    const h = fenceGrid.nearest(x, z, r);
+    return h ? h.d : r;
+  };
+
+  // --- Overhead line supports ---------------------------------------------------------------------------------------
+  // Every track is taken as electrified (PKP 3 kV DC; GEO.rail has no electrified tag)
+  const masts = [];
+  const arms = [];
+  const portals = [];
+  const droppers = [];
+  const supported = segmentGrid(32);
+  const mastAt = (x, z, h) => {
+    for (const q of masts) if (Math.abs(q.x - x) < 1.5 && Math.abs(q.z - z) < 1.5) return q;
+    const q = { x, z, h };
+    masts.push(q);
+    return q;
+  };
+  // On a block only within 3.5 m of its curb: the lots (and their buildings) stand 4.6 m behind it
+  const offLots = (x, z) => !blockAt(x, z) || [0, 1, 2, 3, 4, 5, 6, 7].some((k) => {
+    const a = (k * Math.PI) / 4;
+    return !blockAt(x + Math.cos(a) * 3.5, z + Math.sin(a) * 3.5);
+  });
+  const clear = (x, z) => isLand(x, z) && roadDist(x, z) >= RAIL_MAST_ROAD && tramDist(x, z) >= RAIL_MAST_TRAM &&
+    railDist(x, z) >= RAIL_KEEP && fenceDist(x, z) >= 0.4 && offLots(x, z);
+  // A support line a-b must not reach over a roadway or a tram track
+  const spanClear = (ax, az, bx, bz) => {
+    if (tramGrid.crossing(ax, az, bx, bz).length) return false;
+    const L = Math.hypot(bx - ax, bz - az);
+    for (let d = 0; d <= L; d += 1) {
+      const t = d / (L || 1);
+      if (roadDist(ax + (bx - ax) * t, az + (bz - az) * t) < 0.5) return false;
+    }
+    return true;
+  };
+  const march = (x, z, nx, nz, maxO) => {
+    for (let o = RAIL_KEEP; o <= maxO; o += 0.25) {
+      const px = x + nx * o;
+      const pz = z + nz * o;
+      if (!isLand(px, pz)) return null;
+      if (clear(px, pz)) return { x: px, z: pz, o };
+    }
+    return null;
+  };
+  const mark = (x, z, tr) => supported.add(x - 0.1, z, x + 0.1, z, tr);
+  // A cantilever mast beside the track at P, else a portal over the yard; false when neither fits
+  const support = (tr, P) => {
+    const nx = -P.dz;
+    const nz = P.dx;
+    const sides = [march(P.x, P.z, nx, nz, RAIL_ARM_REACH), march(P.x, P.z, -nx, -nz, RAIL_ARM_REACH)]
+      .filter((sd) => sd && spanClear(sd.x, sd.z, P.x, P.z)).sort((a, b) => a.o - b.o);
+    if (sides.length) {
+      const side = sides[0];
+      const q = mastAt(side.x, side.z, 8.2);
+      const ux = (P.x - q.x) / side.o;
+      const uz = (P.z - q.z) / side.o;
+      const arm = { ax: q.x, az: q.z, bx: P.x + ux * 0.3, bz: P.z + uz * 0.3 };
+      arms.push(arm);
+      for (const c of railGrid.crossing(arm.ax, arm.az, arm.bx, arm.bz)) mark(c.x, c.z, c.seg.data);
+      mark(P.x, P.z, tr);
+      return true;
+    }
+    // In a yard: a portal from the first clear spot on each side, its beam carrying every track it crosses
+    const PR = march(P.x, P.z, nx, nz, RAIL_PORTAL_REACH);
+    const PL = march(P.x, P.z, -nx, -nz, RAIL_PORTAL_REACH);
+    if (!PR || !PL || !spanClear(PL.x, PL.z, PR.x, PR.z)) return false;
+    const a = mastAt(PL.x, PL.z, 9.6);
+    const b = mastAt(PR.x, PR.z, 9.6);
+    portals.push({ ax: a.x, az: a.z, bx: b.x, bz: b.z });
+    for (const c of railGrid.crossing(a.x, a.z, b.x, b.z)) {
+      droppers.push({ x: c.x, z: c.z });
+      mark(c.x, c.z, c.seg.data);
+    }
+    return true;
+  };
+  // The wire ends at every cut end: a support 1.5 m back from it (or further in, up to 8 m, if none fits there)
+  for (const e of ends) {
+    if (supported.nearest(e.x, e.z, 3, (sg) => sg.data === e.tr)) continue;
+    for (const inset of [1.5, 4, 8]) {
+      const s = e.s + e.inward * inset;
+      if (!keptOn(e.tr, s)) continue;
+      if (support(e.tr, pointAt(e.tr, s))) break;
+    }
+  }
+  for (const tr of tracks) {
+    if (tr.len < 30) continue;
+    const count = Math.max(1, Math.round(tr.len / RAIL_STATION));
+    for (let i = 0; i < count; i++) {
+      const s = ((i + 0.5) * tr.len) / count;
+      if (!keptOn(tr, s)) continue;
+      const P = pointAt(tr, s);
+      if (supported.nearest(P.x, P.z, RAIL_STATION * 0.4, (sg) => sg.data === tr)) continue;
+      support(tr, P);
+    }
+  }
+  // --- Player keep-out ----------------------------------------------------------------------------------------------
+  // A 1 m raster in 64 m tiles: each kept piece's rectangle RAIL_KEEPOUT either side (0.25 m past its ends, under the
+  // end walls), and on a side that is not an outer edge (so has no boundary), the ground out to the other track when
+  // the way across stays clear of roads and tram tracks (the strips between bundles that are fenced on neither side)
+  const tiles = new Map();
+  const tileKey = (tx, tz) => (tx + 512) * 1024 + (tz + 512); // small integers (±32 km): fast Map keys
+  let corridorCells = 0;
+  let lastKey = -1;
+  let lastTile = null;
+  const fillRect = (ax, az, dx, dz, len, o0, o1) => {
+    const nx = -dz;
+    const nz = dx;
+    const xs = [ax + nx * o0 - dx * 0.25, ax + nx * o1 - dx * 0.25, ax + nx * o0 + dx * (len + 0.25), ax + nx * o1 + dx * (len + 0.25)];
+    const zs = [az + nz * o0 - dz * 0.25, az + nz * o1 - dz * 0.25, az + nz * o0 + dz * (len + 0.25), az + nz * o1 + dz * (len + 0.25)];
+    for (let iz = Math.floor(Math.min(...zs)); iz <= Math.floor(Math.max(...zs)); iz++) {
+      for (let ix = Math.floor(Math.min(...xs)); ix <= Math.floor(Math.max(...xs)); ix++) {
+        const cx = ix + 0.5 - ax;
+        const cz = iz + 0.5 - az;
+        const u = cx * dx + cz * dz;
+        const o = cx * nx + cz * nz;
+        if (u < -0.25 || u > len + 0.25 || o < o0 || o > o1) continue;
+        const k = tileKey(ix >> 6, iz >> 6);
+        if (k !== lastKey) {
+          lastKey = k;
+          lastTile = tiles.get(k);
+          if (!lastTile) tiles.set(k, (lastTile = new Uint8Array(KEEPOUT_TILE * KEEPOUT_TILE)));
+        }
+        const tile = lastTile;
+        const c = (ix & 63) + ((iz & 63) << 6);
+        if (!tile[c]) corridorCells++;
+        tile[c] = 1;
+      }
+    }
+  };
+  let bands = 0;
+  for (const pc of pieces) {
+    const len = Math.hypot(pc.bx - pc.ax, pc.bz - pc.az);
+    const dx = (pc.bx - pc.ax) / len;
+    const dz = (pc.bz - pc.az) / len;
+    fillRect(pc.ax, pc.az, dx, dz, len, -RAIL_KEEPOUT, RAIL_KEEPOUT);
+    // In 2 m steps, so a band follows a neighbour that converges or diverges instead of overshooting it
+    const steps = Math.max(1, Math.round(len / 2));
+    for (const sg of [1, -1]) {
+      const nx = -dz * sg;
+      const nz = dx * sg;
+      for (let q = 0; q < steps; q++) {
+        const s0 = (q * len) / steps;
+        const s1 = ((q + 1) * len) / steps;
+        const px = pc.ax + dx * (s0 + s1) / 2;
+        const pz = pc.az + dz * (s0 + s1) / 2;
+        // The other track that keeps this side from being an outer edge (the boundary's own test: a track centre
+        // within 5.5 m of a point 3 m beyond the fence line), if any
+        const h = railGrid.nearest(px + nx * (RAIL_FENCE_O + 3), pz + nz * (RAIL_FENCE_O + 3), 5.5);
+        if (!h) continue;
+        const reach = (h.qx - px) * nx + (h.qz - pz) * nz;
+        // tracks up to 2 × RAIL_KEEPOUT apart already close up (most of a yard)
+        if (reach <= 2 * RAIL_KEEPOUT) continue;
+        let ok = true;
+        for (let o = RAIL_KEEPOUT; o <= reach && ok; o += 1) {
+          const x = px + nx * o;
+          const z = pz + nz * o;
+          ok = isLand(x, z) && roadDist(x, z) >= 3 && tramDist(x, z) >= 2.5;
+        }
+        if (!ok) continue;
+        bands++;
+        // the strip between the two rectangles (with 0.5 m of overlap)
+        const o0 = RAIL_KEEPOUT - 0.5;
+        const o1 = reach - RAIL_KEEPOUT + 0.5;
+        fillRect(pc.ax + dx * s0, pc.az + dz * s0, dx, dz, s1 - s0, sg > 0 ? o0 : -o1, sg > 0 ? o1 : -o0);
+      }
+    }
+  }
+  const corridor = {
+    cells: corridorCells,
+    bands,
+    // Is (x, z) inside the railway corridor? (allocation-free; ground players may not enter)
+    has(x, z) {
+      const ix = Math.floor(x);
+      const iz = Math.floor(z);
+      const tile = tiles.get(tileKey(ix >> 6, iz >> 6));
+      return !!tile && tile[(ix & 63) + ((iz & 63) << 6)] === 1;
+    }
+  };
+  // Ground footprints (masts, and the boundary sampled every 2 m) for tests/tram-infra.test.cjs's network check
+  const footprints = masts.map((q) => ({ minX: q.x - 0.25, maxX: q.x + 0.25, minZ: q.z - 0.25, maxZ: q.z + 0.25 }));
+  for (const r of runs) {
+    for (let k = 0; k + 1 < r.pts.length; k++) {
+      const a = r.pts[k];
+      const b = r.pts[k + 1];
+      const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 2));
+      for (let j = 0; j <= steps; j++) {
+        const x = a.x + ((b.x - a.x) * j) / steps;
+        const z = a.z + ((b.z - a.z) * j) / steps;
+        footprints.push({ minX: x - 0.15, maxX: x + 0.15, minZ: z - 0.15, maxZ: z + 0.15 });
+      }
+    }
+  }
+  return { tracks, pieces, dropped, ends, runs, corridor, masts, arms, portals, droppers, footprints, laneDist, roadDist,
+    tramDist, railDist };
+}
+
 // --- Rendering ---------------------------------------------------------------------------------------------------------
 // Name plate atlas: one 256 x 128 cell per stop name (a yellow "TRAMWAJ" band over the name in white on ZTM green)
 const PLATE_CELL = [256, 128];
@@ -462,8 +954,9 @@ function instanced(name, geo, mat, matrices, attrs = {}, shadow = true) {
 
 /**
  * Builds the rails, overhead line and stops into a `TramInfrastructure` group (a scene-culling root, main.js) and
- * returns { group, colliders, stops } (colliders: poles, shelters, signs and machines for the player only; built after
- * the road network, so nothing here closes a lane).
+ * returns { group, colliders, stops, railCorridor } (colliders: poles, masts, shelters, signs, machines, end walls and
+ * the corridor boundary, for the player only; built after the road network, so nothing here closes a lane;
+ * railCorridor(x, z): true inside the railway corridor, which ground players may not enter).
  */
 function buildTramInfrastructure(scene, network) {
   const layout = layoutTramInfrastructure(network);
@@ -497,19 +990,27 @@ function buildTramInfrastructure(scene, network) {
   railMat.metalnessNode = mix(float(0.35), float(0.9), top);
   railMat.roughnessNode = mix(float(0.8), float(0.32), top);
   const grooveMat = new THREE.MeshStandardNodeMaterial({ color: 0x141414, roughness: 0.95 });
-  // Ballast with concrete sleepers every 0.6 m (per-instance `tie` = piece length, phase along the track)
-  const ballastMat = new THREE.MeshStandardNodeMaterial({ roughness: 0.95 });
-  ballastMat.colorNode = Fn(() => {
-    const tie = attribute('tie', 'vec2');
-    const along = positionGeometry.x.add(0.5).mul(tie.x).add(tie.y).div(0.6);
-    const fw = max(fwidth(along), 0.0001);
-    // box-filtered 40% duty sleepers, fading to their mean coverage once a period is under a couple of pixels
-    const pulse = clamp(float(0.2).sub(abs(fract(along).sub(0.5))).div(fw).add(0.5), 0.0, 1.0);
-    const sleeper = mix(pulse, float(0.4), smoothstep(0.25, 0.6, fw))
-      .mul(step(abs(positionGeometry.z), 0.41)).mul(step(0.5, normalGeometry.y));
-    const stone = mix(color(0x5d5850), color(0x77706a), step(0.5, normalGeometry.y));
-    return mix(stone, color(0x9b9890), sleeper);
-  })();
+  // Ballast with concrete sleepers every 0.6 m (per-instance `tie` = piece length, phase along the track). sleeperZ: the
+  // sleeper half-length in unit-geometry z; topNy: the normal y above which a face counts as the bed's top
+  const createBallastMaterial = (sleeperZ, topNy, side, topStone, sleeperColor) => {
+    const mat = new THREE.MeshStandardNodeMaterial({ roughness: 0.95 });
+    mat.colorNode = Fn(() => {
+      const tie = attribute('tie', 'vec2');
+      const along = positionGeometry.x.add(0.5).mul(tie.x).add(tie.y).div(0.6);
+      const fw = max(fwidth(along), 0.0001);
+      // box-filtered 40% duty sleepers, fading to their mean coverage once a period is under a couple of pixels
+      const pulse = clamp(float(0.2).sub(abs(fract(along).sub(0.5))).div(fw).add(0.5), 0.0, 1.0);
+      const sleeper = mix(pulse, float(0.4), smoothstep(0.25, 0.6, fw))
+        .mul(step(abs(positionGeometry.z), sleeperZ)).mul(step(topNy, normalGeometry.y));
+      const stone = mix(color(side), color(topStone), step(topNy, normalGeometry.y));
+      return mix(stone, color(sleeperColor), sleeper);
+    })();
+    return mat;
+  };
+  const ballastMat = createBallastMaterial(0.41, 0.5, 0x5d5850, 0x77706a, 0x9b9890);
+  // Mainline bed: grey granite with the sleepers' 2.6 m on its 4 m top (RAIL_BED_W at the foot), slopes below
+  const railBallastMat = createBallastMaterial(RAIL_SLEEPER / 2 / RAIL_BED_W, 0.95, 0x605c57, 0x7a756e, 0xa3a199);
+  const endWallMat = new THREE.MeshStandardNodeMaterial({ color: 0x9a958c, roughness: 0.9 }); // concrete end walls
   const steelMat = new THREE.MeshStandardNodeMaterial({ color: 0x4f5650, roughness: 0.55, metalness: 0.7 });
   const wireMat = new THREE.MeshStandardNodeMaterial({ color: 0x3b3027, roughness: 0.5, metalness: 0.8 });
   const platformMat = createCurbMaterial();
@@ -574,11 +1075,6 @@ function buildTramInfrastructure(scene, network) {
       }
     }
   }
-  for (const mesh of [
-    instanced('TramRails', unitBox, railMat, railM, {}, false),
-    instanced('TramRailGrooves', unitBox, grooveMat, grooveM, {}, false),
-    instanced('TramBallast', unitBox, ballastMat, ballastM, { tie: { size: 2, data: ties } }, false)
-  ]) if (mesh) group.add(mesh);
 
   // --- 2. Overhead line ---------------------------------------------------------------------------------------------
   const poleM = [];
@@ -623,6 +1119,152 @@ function buildTramInfrastructure(scene, network) {
       }
     }
   }
+
+  // --- 2b. Mainline railway ----------------------------------------------------------------------------------------
+  // Rail heads, wires, masts and arms join the tram meshes above (same geometry and material, no extra draw calls);
+  // only the beds and the end walls are meshes of their own
+  const rail = layoutRailInfrastructure(network);
+  const railBedM = [];
+  const railTies = [];
+  const endWallM = [];
+  for (const pc of rail.pieces) {
+    const len = Math.hypot(pc.bx - pc.ax, pc.bz - pc.az);
+    const dx = (pc.bx - pc.ax) / len;
+    const dz = (pc.bz - pc.az) / len;
+    const mx = (pc.ax + pc.bx) / 2;
+    const mz = (pc.az + pc.bz) / 2;
+    dummy.rotation.set(0, Math.atan2(-dz, dx), 0);
+    // Beds of neighbouring tracks overlap at switches: a few mm per track keeps their tops from z-fighting
+    const bedTop = pc.ground + RAIL_BED_TOP + (pc.railIndex % 5) * 0.004;
+    dummy.position.set(mx, (pc.ground - 0.06 + bedTop) / 2, mz);
+    dummy.scale.set(len + 0.02, bedTop - pc.ground + 0.06, RAIL_BED_W);
+    railBedM.push(M());
+    railTies.push(len, pc.s0);
+    for (const sg of [1, -1]) {
+      const o = sg * (GAUGE / 2 + HEAD_W / 2);
+      dummy.position.set(mx - dz * o, bedTop + RAIL_HEAD_H / 2, mz + dx * o);
+      dummy.scale.set(len + 0.03, RAIL_HEAD_H, HEAD_W);
+      railM.push(M());
+    }
+  }
+  // End walls: a 0.5 m concrete wall across the corridor (bed and boundary) at each cut, standing just into the gap, so the cut
+  // reads as a bridge abutment or the edge of an underpass
+  for (const e of rail.ends) {
+    const cx = e.x + e.dx * 0.25;
+    const cz = e.z + e.dz * 0.25;
+    const w = 2 * (RAIL_FENCE_O + 0.15); // reaching the corridor boundary on both sides
+    dummy.position.set(cx, (e.ground + RAIL_END_H - 0.1) / 2, cz);
+    dummy.rotation.set(0, Math.atan2(-e.dz, e.dx), 0);
+    dummy.scale.set(0.5, e.ground + RAIL_END_H + 0.1, w);
+    endWallM.push(M());
+    // buildingContact's frame: lx = dx·cs - dz·sn along the track, lz across it
+    const ex = Math.abs(e.dx) * 0.25 + Math.abs(e.dz) * w / 2;
+    const ez = Math.abs(e.dz) * 0.25 + Math.abs(e.dx) * w / 2;
+    colliders.push({ minX: cx - ex, maxX: cx + ex, minZ: cz - ez, maxZ: cz + ez, maxY: e.ground + RAIL_END_H,
+      obb: { cx, cz, hx: 0.25, hz: w / 2, cs: e.dx, sn: -e.dz } });
+  }
+  // Corridor boundary: per segment a concrete plinth (or the solid wall) in the end walls' mesh and a masked fence plane
+  // on top; one oriented collider per segment up to the fence top
+  const fenceM = [];
+  const fenceAttr = [];
+  for (const r of rail.runs) {
+    let s = r.s0;
+    for (let k = 0; k + 1 < r.pts.length; k++) {
+      const a = r.pts[k];
+      const b = r.pts[k + 1];
+      const len = Math.hypot(b.x - a.x, b.z - a.z);
+      if (len < 0.01) continue;
+      const dx = (b.x - a.x) / len;
+      const dz = (b.z - a.z) / len;
+      const mx = (a.x + b.x) / 2;
+      const mz = (a.z + b.z) / 2;
+      const ground = blockAt(mx, mz) ? SW_TOP : 0;
+      const h = r.solid[k] ? RAIL_WALL_H : RAIL_PLINTH_H;
+      const t = r.solid[k] ? 0.3 : 0.22;
+      dummy.rotation.set(0, Math.atan2(-dz, dx), 0);
+      dummy.position.set(mx, ground + (h - 0.1) / 2, mz);
+      dummy.scale.set(len + 0.04, h + 0.1, t);
+      endWallM.push(M());
+      dummy.position.set(mx, ground + h + RAIL_FENCE_H / 2, mz);
+      dummy.scale.set(len, RAIL_FENCE_H, 1);
+      fenceM.push(M());
+      fenceAttr.push(len, s);
+      s += len;
+      const hx = len / 2;
+      const hz = t / 2;
+      const ex = Math.abs(dx) * hx + Math.abs(dz) * hz;
+      const ez = Math.abs(dz) * hx + Math.abs(dx) * hz;
+      colliders.push({ minX: mx - ex, maxX: mx + ex, minZ: mz - ez, maxZ: mz + ez, maxY: ground + h + RAIL_FENCE_H,
+        obb: { cx: mx, cz: mz, hx, hz, cs: dx, sn: -dz } });
+    }
+  }
+  // Welded-mesh panels (vertical wires every 5 cm, horizontal every 20 cm) between posts every 2.5 m, with a top and a
+  // bottom rail. Wires under a pixel's footprint give way to an ordered 2x2 screen-door at ~25% cover, so far fences
+  // read as a grey veil instead of shimmering or filling in solid. Per-instance `fence` = (segment length, arc length
+  // along its run) keeps the posts' rhythm across segments.
+  const fenceMat = new THREE.MeshStandardNodeMaterial({ color: 0x506157, roughness: 0.6, metalness: 0.5, side: THREE.DoubleSide });
+  fenceMat.maskNode = Fn(() => {
+    const f = attribute('fence', 'vec2');
+    const along = positionGeometry.x.add(0.5).mul(f.x).add(f.y);
+    const up = positionGeometry.y.add(0.5).mul(RAIL_FENCE_H);
+    const fa = max(fwidth(along), 0.0001);
+    const fu = max(fwidth(up), 0.0001);
+    const bar = (d, half, fw) => step(d, max(half, fw.mul(0.5)));
+    const post = bar(abs(fract(along.div(2.5).add(0.5)).sub(0.5)).mul(2.5), 0.03, fa);
+    const rails = max(bar(abs(up.sub(RAIL_FENCE_H - 0.03)), 0.025, fu), bar(abs(up.sub(0.05)), 0.02, fu));
+    const wires = max(
+      step(abs(fract(along.div(0.05).add(0.5)).sub(0.5)).mul(0.05), 0.002),
+      step(abs(fract(up.div(0.2).add(0.5)).sub(0.5)).mul(0.2), 0.0025)
+    );
+    const far = smoothstep(0.004, 0.012, fa);
+    // 2x2 ordered thresholds 0.125, 0.375, 0.625, 0.875
+    const door = fract(floor(screenCoordinate.x).mul(0.5)).add(fract(floor(screenCoordinate.y).mul(0.5)).mul(0.5)).add(0.125);
+    const cover = mix(wires, step(door, 0.25), far);
+    return max(max(post, rails), cover).greaterThan(0.5);
+  })();
+  // Contact and messenger wires: straight runs over up to three consecutive pieces of a track (supports stand ~55 m
+  // apart, so the real wire is a polygon too), broken where a piece was dropped
+  for (let i = 0; i < rail.pieces.length;) {
+    let j = i;
+    while (j + 1 < rail.pieces.length && j - i < 2 && rail.pieces[j + 1].railIndex === rail.pieces[i].railIndex &&
+      Math.hypot(rail.pieces[j + 1].ax - rail.pieces[j].bx, rail.pieces[j + 1].az - rail.pieces[j].bz) < 0.05) j++;
+    const a = rail.pieces[i];
+    const b = rail.pieces[j];
+    for (const y of [RAIL_WIRE_Y, RAIL_MESSENGER_Y]) wireM.push(beam(a.ax, a.ground + y, a.az, b.bx, b.ground + y, b.bz, 0.02, 0.02));
+    i = j + 1;
+  }
+  // Masts: 0.3 m steel box sections (0.45 m under portals), joining the tram arms' mesh
+  for (const q of rail.masts) {
+    const w = q.h > 9 ? 0.45 : 0.3;
+    dummy.position.set(q.x, q.h / 2, q.z);
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.set(w, q.h, w);
+    armM.push(M());
+    colliders.push({ minX: q.x - w / 2, maxX: q.x + w / 2, minZ: q.z - w / 2, maxZ: q.z + w / 2, maxY: q.h });
+  }
+  for (const a of rail.arms) {
+    // a sloping tube from high on the mast to the messenger over the track, a registration arm to the contact wire
+    // below it, and a dropper between the two wires
+    armM.push(beam(a.ax, RAIL_MESSENGER_Y + 0.6, a.az, a.bx, RAIL_MESSENGER_Y, a.bz, 0.06, 0.06));
+    armM.push(beam(a.ax, RAIL_WIRE_Y - 0.3, a.az, a.bx, RAIL_WIRE_Y, a.bz, 0.05, 0.05));
+    wireM.push(beam(a.bx, RAIL_WIRE_Y, a.bz, a.bx, RAIL_MESSENGER_Y, a.bz + 0.0001, 0.012, 0.012));
+  }
+  for (const p of rail.portals) {
+    armM.push(beam(p.ax, 8.9, p.az, p.bx, 8.9, p.bz, 0.35, 0.5));
+  }
+  for (const d of rail.droppers) wireM.push(beam(d.x, RAIL_WIRE_Y, d.z, d.x, 8.65, d.z + 0.0001, 0.015, 0.015));
+  const railBedGeo = unitBox.clone();
+  {
+    // trapezoid: the top face narrowed to RAIL_BED_TOP_W, flat normals per face (BoxGeometry shares no vertices)
+    const pos = railBedGeo.attributes.position;
+    for (let i = 0; i < pos.count; i++) if (pos.getY(i) > 0) pos.setZ(i, pos.getZ(i) * RAIL_BED_TOP_W / RAIL_BED_W);
+    railBedGeo.computeVertexNormals();
+  }
+  for (const mesh of [
+    instanced('TramRails', unitBox, railMat, railM, {}, false),
+    instanced('TramRailGrooves', unitBox, grooveMat, grooveM, {}, false),
+    instanced('TramBallast', unitBox, ballastMat, ballastM, { tie: { size: 2, data: ties } }, false)
+  ]) if (mesh) group.add(mesh);
   const poleGeo = mergeGeometries([
     new THREE.CylinderGeometry(0.1, 0.15, 1, 10).toNonIndexed(),
     new THREE.CylinderGeometry(0.12, 0.12, 0.06, 10).translate(0, 0.5, 0).toNonIndexed()
@@ -634,6 +1276,11 @@ function buildTramInfrastructure(scene, network) {
     instanced('CatenarySpans', unitBox, wireMat, spanM, {}, false),
     instanced('CatenaryArms', unitBox, steelMat, armM),
     instanced('CatenaryRosettes', rosetteGeo, steelMat, rosetteM, {}, false)
+  ]) if (mesh) group.add(mesh);
+  for (const mesh of [
+    instanced('RailBallast', railBedGeo, railBallastMat, railBedM, { tie: { size: 2, data: railTies } }, false),
+    instanced('RailEndWalls', unitBox, endWallMat, endWallM),
+    instanced('RailFence', new THREE.PlaneGeometry(1, 1), fenceMat, fenceM, { fence: { size: 2, data: fenceAttr } }, false)
   ]) if (mesh) group.add(mesh);
 
   // --- 3. Stops -----------------------------------------------------------------------------------------------------
@@ -763,8 +1410,10 @@ function buildTramInfrastructure(scene, network) {
   const publicStops = stops.map(({ name, x, z, heading, railIndex, s, dir, side, kind }) => ({ name, x, z, heading, railIndex, s, dir, side, kind }));
   console.info(`[tram-infra] ${tracks.length} tracks, ${poles.length} poles, ${spans.length} span wires, ${arms.length} arms, ` +
     `${rosettes.length} rosettes; ${stops.length} stops (${stops.filter((s) => s.kind === 'island').length} islands) ` +
-    `of ${GEO.tramStops.length} stop nodes`);
-  return { group, colliders, stops: publicStops };
+    `of ${GEO.tramStops.length} stop nodes; rail: ${rail.tracks.length} tracks, ${railBedM.length} bed pieces, ` +
+    `${rail.ends.length} end walls, ${fenceM.length} boundary segments, ${rail.masts.length} masts, ${rail.arms.length} cantilevers, ${rail.portals.length} portals`);
+  // railCorridor(x, z): the ground players' keep-out (controllers.js), true inside the railway corridor
+  return { group, colliders, stops: publicStops, railCorridor: rail.corridor.has };
 }
 
-export { layoutTramInfrastructure, buildTramInfrastructure };
+export { layoutTramInfrastructure, layoutRailInfrastructure, buildTramInfrastructure };

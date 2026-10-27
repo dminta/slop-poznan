@@ -283,9 +283,12 @@ function createPolishLicensePlateTexture(district, number) {
 }
 
 class ThirdPersonControllerManager {
-  constructor(scene, colliders = []) {
+  // keepOut(x, z): optional ground the ground modes may not enter (the railway corridor, tram-infra.js railCorridor)
+  constructor(scene, colliders = [], { keepOut = null } = {}) {
     this.scene = scene;
     this.colliders = colliders;
+    this.keepOut = keepOut;
+    this._lastFree = new Map(); // position Vector3 -> { x, z }: its last spot outside keepOut
     this._colliderCells = null; // built on first use, see nearColliders()
     this.activeMode = 'car'; // 'person' | 'car' | 'cyclist' | 'helicopter'
 
@@ -498,6 +501,7 @@ class ThirdPersonControllerManager {
     };
     const clear = (p) => {
       if (!p) return false;
+      if (!heli && this.keepOut && this.keepOut(p.x, p.z)) return false;
       const baseY = heli ? altitude : this.getGroundHeight(p.x, p.z, this.activeMode);
       // Keep other player models out of both the arrival and its default chase view. A corridor also prevents a
       // parked car between camera and character from hiding the character even when the camera itself is outside it.
@@ -1071,6 +1075,53 @@ class ThirdPersonControllerManager {
           i = -1;
           while (i + 1 < near.length && near[i + 1]._order <= order) i++;
         }
+      }
+    }
+    // Last, so no push above carries a body into the railway corridor
+    if (!heli && this.keepOut) this.keepOutOfCorridor(pos, carEntity);
+  }
+
+  // The ground modes' keep-out (the railway corridor): a body that moved in slides back along one axis to where it
+  // was (keeping the other, so it glides along the edge), else returns to its last free spot and a car loses speed.
+  // A body with no recent free spot (restored or dropped inside) is carried to the nearest free point instead.
+  keepOutOfCorridor(pos, carEntity) {
+    const keepOut = this.keepOut;
+    const lastFree = (this._lastFree ??= new Map());
+    let last = lastFree.get(pos);
+    if (!keepOut(pos.x, pos.z)) {
+      if (!last) lastFree.set(pos, (last = { x: 0, z: 0 }));
+      last.x = pos.x;
+      last.z = pos.z;
+      return;
+    }
+    if (last && Math.abs(last.x - pos.x) < 6 && Math.abs(last.z - pos.z) < 6 && !keepOut(last.x, last.z)) {
+      if (!keepOut(pos.x, last.z)) pos.z = last.z;
+      else if (!keepOut(last.x, pos.z)) pos.x = last.x;
+      else {
+        pos.x = last.x;
+        pos.z = last.z;
+        if (carEntity) {
+          carEntity.speed *= 0.3;
+          carEntity.vx = 0;
+          carEntity.vz = 0;
+        }
+      }
+      return;
+    }
+    // Rings 1 m apart, 32 directions, out to 80 m (a corridor is at most a few dozen metres across)
+    for (let d = 1; d <= 80; d++) {
+      for (let i = 0; i < 32; i++) {
+        const a = (i * Math.PI) / 16;
+        const x = pos.x + Math.cos(a) * d;
+        const z = pos.z + Math.sin(a) * d;
+        if (keepOut(x, z) || !isLand(x, z, SHORE_MARGIN)) continue;
+        pos.x = x;
+        pos.z = z;
+        if (!last) lastFree.set(pos, (last = { x: 0, z: 0 }));
+        last.x = x;
+        last.z = z;
+        if (carEntity) carEntity.speed = 0;
+        return;
       }
     }
   }

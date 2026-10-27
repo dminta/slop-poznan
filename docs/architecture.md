@@ -143,6 +143,13 @@ Physics notes:
   - Only the helicopter may leave the detail box (`HELI_RANGE`, 6000 m past `CITY_BOUNDS`). Ground modes stay
     `SHORE_MARGIN` 8 m from water: `shorePoint` pushes a body back along `clampToLand`'s 2-D answer, keeping one coordinate
     where it can so the body slides along the shore. Bridge decks never narrow the margin (`isLand`).
+  - Ground modes also stay out of the railway corridor: the manager takes `{ keepOut }` as its third constructor argument
+    (main.js passes `tramInfra.railCorridor`, a 1 m raster; see `world.md` Mainline railway). `resolveHorizontalCollision`
+    ends with `keepOutOfCorridor`: a body that moved in goes back along one axis to its last free spot (`_lastFree`, one
+    `{x, z}` per position vector, reused), so it slides along the edge, else all the way, and a car loses 70% of its
+    speed. A body with no free spot within 6 m (restored or carried in) moves to the nearest free land on 1 m rings.
+    `findTeleportPosition` rejects arrivals inside, so map clicks and restores land outside. The helicopter is exempt,
+    and NPC traffic, pedestrians and trams never go through this path.
 
 ## Teleports
 - Every teleport goes through `teleportTo(x, z, heading)` in `main.js`: the HUD presets, map clicks (`CityMapSystem.onTeleport`)
