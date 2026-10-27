@@ -21,7 +21,9 @@
   /* yellow, also the map's GPS route (city-map.js); ink on it is ≈ 12:1 */
   --accent: #ffc21a;
   --accent-ink: #17140a;
-  --sign-blue: #1d4f9c;
+  /* street plates (Poznań SIM 2017, as street-details.js paints them): graphite RAL 7043, RAL 5005 district strip */
+  --sign-graphite: #3b3d3f;
+  --sign-blue: #1f5bb5;
   --highway: #c08a3e;
   --ok: #5ee08f;
   --warn: #ffc857;
@@ -664,41 +666,57 @@ body.hud-minimized .icon-show {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
 }
 
-/* Blue plate, thin white inner border, white sans lettering with the street's kind ("ul.", "al.", "pl.", "os.") set
-   small over its name: the plate on a Poznań corner (main.js splits the kind off the name) */
+/* Poznań's System Informacji Miejskiej plate (2017 manual, pp. 41-51), matching the in-world ones in
+   street-details.js: graphite, no border, white medium sans set left; the kind as a small lowercase word with the
+   patron's given names ("ulica Jana Henryka") over the large name, and the district in capitals on a blue strip along
+   the bottom (main.js fills the lines from street-details.js `plateLabel`) */
 .street-sign {
   display: inline-flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 1px;
-  max-width: 210px;
-  padding: 6px 12px 7px;
+  max-width: 220px;
+  padding: 5px 0 0;
+  overflow: hidden;
   font-family: var(--font-sign);
+  font-weight: 500;
   color: #ffffff;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 55%), var(--sign-blue);
-  border-radius: 4px;
-  outline: 1.5px solid rgba(255, 255, 255, 0.92);
-  outline-offset: -4px;
+  text-align: left;
+  background: var(--sign-graphite);
+  border-radius: 2px;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35), 0 10px 22px -10px rgba(0, 0, 0, 0.75);
 }
 
-.street-sign-kind {
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  opacity: 0.92;
-}
-
-.street-sign-name {
+.street-sign-kind,
+.street-sign-name,
+.street-sign-district {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 15px;
-  font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: 0.01em;
+  padding: 0 11px;
+}
+
+.street-sign-kind {
+  font-size: 10px;
+  line-height: 1.15;
+  opacity: 0.92;
+}
+
+.street-sign-name {
+  font-size: 16px;
+  line-height: 1.15;
+  padding-bottom: 4px;
+}
+
+.street-sign-district {
+  align-self: stretch;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  font-size: 8.5px;
+  line-height: 1.2;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--sign-blue);
 }
 
 .radar {

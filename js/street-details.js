@@ -114,7 +114,9 @@ function createPlateAtlas(labels, [cw, ch]) {
 }
 
 // A street's plate lines: { kind (the small top line), name (the large one), district }. "Aleje Karola Marcinkowskiego"
-// -> "aleje Karola" over "Marcinkowskiego"; squares, roundabouts and bridges take their own word, "Stary Rynek" none.
+// -> "aleje Karola" over "Marcinkowskiego"; squares, roundabouts and bridges take their own word, places named by
+// their kind ("Stary Rynek", "Rynek Jeżycki", "Zaułek Ślepego Antka", "Wzgórze Przemysła") none. The HUD plate in
+// main.js uses it too.
 const PLATE_KINDS = { aleja: 'aleja', aleje: 'aleje', rondo: 'rondo', plac: 'plac', osiedle: 'osiedle', most: 'most',
   skwer: 'skwer', park: 'park', bulwar: 'bulwar', 'wybrzeże': 'wybrzeże' };
 // given names (genitive) and titles that go on the top line before the surname
@@ -123,6 +125,7 @@ const PATRON_WORDS = new Set(('Adama Aleksandra Andrzeja Anny Antoniego Arcybisk
   'Jakuba Jana Janusza Jarosława Jerzego Józefa Karola Kazimierza Księcia Księdza Króla Królowej Ludwika Marcina Marii ' +
   'Marszałka Michała Mikołaja Pawła Piotra Prymasa Romana Ryszarda Stanisława Stefana Świętego Świętej Tadeusza ' +
   'Władysława Wojciecha Zygmunta i').split(' '));
+const UNPLATED_KINDS = new Set(['Zaułek', 'Pasaż', 'Wzgórze']);
 function plateLabel(name, district) {
   const words = name.split(/\s+/);
   let kind = 'ulica';
@@ -130,7 +133,7 @@ function plateLabel(name, district) {
   if (PLATE_KINDS[first] && words.length > 1) {
     kind = PLATE_KINDS[first];
     words.shift();
-  } else if (/\bRynek\b/.test(name)) kind = '';
+  } else if (/\bRynek\b/.test(name) || UNPLATED_KINDS.has(words[0])) kind = '';
   // the patron's given names and titles up top, the surname (with any numeral, "Mieszka I") large
   let k = 0;
   while (k < words.length - 1 && PATRON_WORDS.has(words[k])) k++;
@@ -1333,4 +1336,4 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   return { group, footprints, colliders, signalClock, audioSignals, update };
 }
 
-export { buildStreetDetails };
+export { buildStreetDetails, plateLabel };

@@ -3,13 +3,13 @@ import { pass, mrt, output, normalView, positionView, metalness, roughness, vec2
 import { ssr } from 'three/addons/tsl/display/SSRNode.js';
 import { createPostProcessing } from './post-processing.js';
 import { ClusteredLighting } from 'three/addons/lighting/ClusteredLighting.js';
-import { getLocationLabel, isTypingInField, ROADS, CITY_LANDMARKS, TELEPORT_LOCATIONS } from './city-config.js';
+import { getLocationLabel, districtAt, isTypingInField, ROADS, CITY_LANDMARKS, TELEPORT_LOCATIONS } from './city-config.js';
 import { buildCityGrid } from './city-grid.js';
 import { buildOutskirts } from './outskirts.js';
 import { buildBridges } from './bridges.js';
 import { buildLandmarks } from './landmarks.js';
 import { buildCityBlocks } from './buildings.js';
-import { buildStreetDetails } from './street-details.js';
+import { buildStreetDetails, plateLabel } from './street-details.js';
 import { createTrafficSystem, createHighwayTraffic } from './traffic.js';
 import { createTramSystem } from './trams.js';
 import { buildRoadPaint } from './road-paint.js';
@@ -412,25 +412,16 @@ async function initApp() {
     if (btn && e.detail > 0) btn.blur();
   });
 
-  // Where you are: the place's name over its street corner, drawn as a pair of street-name plates
-  // OSM names drop "ulica", so a plate reads "ul." unless the name starts with its own kind of place: that word
-  // becomes the small abbreviation over the name ("Aleja Niepodległości" → "al." / "Niepodległości"), and squares that
-  // are named by their kind (Rynek Jeżycki, Zaułek Ślepego Antka) carry no prefix at all
-  const STREET_KINDS = { Aleja: 'al.', Aleje: 'al.', Plac: 'pl.', Osiedle: 'os.', Rondo: 'rondo', Most: 'most' };
-  const UNPREFIXED_KINDS = new Set(['Rynek', 'Stary', 'Zaułek', 'Pasaż', 'Wzgórze', 'Bulwar']);
-  function splitStreetKind(name) {
-    const space = name.indexOf(' ');
-    const first = space > 0 ? name.slice(0, space) : name;
-    if (space > 0 && STREET_KINDS[first]) return [STREET_KINDS[first], name.slice(space + 1)];
-    if (UNPREFIXED_KINDS.has(first)) return ['', name];
-    return ['ul.', name];
-  }
+  // Where you are: the place's name over its street corner, drawn as a pair of street-name plates in the style of the
+  // in-world ones (street-details.js `plateLabel`): the kind as a small lowercase word with the patron's given names
+  // ("ulica Jana Henryka" over "Dąbrowskiego"), the name large below, and the district on the blue bottom strip
   const roadNames = new Set(ROADS.map((r) => r.name));
   const placeNames = new Set(CITY_LANDMARKS.map((l) => l.name));
   let locationText = '';
-  function renderLocation(label) {
-    if (!elLocation || label === locationText) return;
-    locationText = label;
+  function renderLocation(label, district) {
+    const key = `${label}|${district || ''}`;
+    if (!elLocation || key === locationText) return;
+    locationText = key;
     let place = '';
     let streets = label;
     const split = label.indexOf(' · ');
@@ -459,19 +450,16 @@ async function initApp() {
         row.appendChild(near);
       }
       for (const name of streets.split(' & ')) {
-        const [kind, rest] = splitStreetKind(name);
+        const plate = plateLabel(name, district);
         const sign = document.createElement('span');
         sign.className = 'street-sign';
-        if (kind) {
-          const prefix = document.createElement('span');
-          prefix.className = 'street-sign-kind';
-          prefix.textContent = kind;
-          sign.appendChild(prefix);
+        for (const [cls, text] of [['kind', plate.kind], ['name', plate.name], ['district', plate.district]]) {
+          if (!text) continue;
+          const line = document.createElement('span');
+          line.className = `street-sign-${cls}`;
+          line.textContent = text;
+          sign.appendChild(line);
         }
-        const label = document.createElement('span');
-        label.className = 'street-sign-name';
-        label.textContent = rest;
-        sign.appendChild(label);
         row.appendChild(sign);
       }
       nodes.push(row);
@@ -798,7 +786,7 @@ async function initApp() {
       if (elAltitude) elAltitude.textContent = altM.toLocaleString();
       // The street corner of the player on the follow cameras, of the camera itself on the scenic ones
       const where = cameraSystem.getActivePreset().category === 'follow' ? activeEnt.position : cameraSystem.currentPos;
-      renderLocation(getLocationLabel(where.x, where.z));
+      renderLocation(getLocationLabel(where.x, where.z), districtAt(where.x, where.z));
     }
   });
 }
