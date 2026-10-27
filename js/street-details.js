@@ -359,7 +359,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   // (0.9 m clear: lanes keep LANE_CLEAR 1.2 m from their centrelines, which stand >= 1.2 m inside the curbs)
   const signalPoleSpot = (x, z) => {
     const b = blockAt(x, z);
-    if (!b || inPlaza(x, z, 0.5) || !isClearOfPoles(x, z, 1.4) || !clearOfRoads(x, z, 0.2)) return false;
+    if (!b || inPlaza(x, z, 0.5) || !isClearOfPoles(x, z, 1.4) || !clearOfRoads(x, z, 0.35)) return false;
     const pad = b.median ? 0.9 : 0.4;
     for (const [ox, oz] of [[pad, 0], [-pad, 0], [0, pad], [0, -pad]]) {
       const q = blockAt(x + ox, z + oz);
@@ -430,11 +430,13 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         }
       }
       const spot = (side) => {
-        for (const dt of [1.2, 2.4, 3.6, 4.8]) {
-          const t = corner + dt;
-          const x = a.x + a.ux * t + rx * (half + 0.75) * side;
-          const z = a.z + a.uz * t + rz * (half + 0.75) * side;
-          if (signalPoleSpot(x, z)) return { x, z };
+        for (const back of [0.75, 1.3]) {
+          for (const dt of [1.2, 2.4, 3.6, 4.8]) {
+            const t = corner + dt;
+            const x = a.x + a.ux * t + rx * (half + back) * side;
+            const z = a.z + a.uz * t + rz * (half + back) * side;
+            if (signalPoleSpot(x, z)) return { x, z };
+          }
         }
         return null;
       };
