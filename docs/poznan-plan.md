@@ -874,7 +874,10 @@ carry the measured numbers.
    (2 m / 4 m; 4 m / 8 m is P-1a, above 70 km/h). P-14 became 0.75 m rectangles 0.25 m apart, on every junction
    approach. Centre lines are dropped under 5.8 m of carriageway. P-14 then moved 2.0 m before the zebra (4.2.5):
    `STOP_SETBACK` 1.75 m between the `CROSSWALK` band and the stop line, given up first on short links, which then get
-   no P-14 (1834 of 2684 approaches have one; see [`world.md`](world.md) road-paint and Markings).
+   no P-14 (1834 of 2684 approaches had one; see [`world.md`](world.md) road-paint and Markings). That was too many, so
+   P-14 now goes on every signalised approach (7.6.2.4; on squeezed links at the edge end, closer than 2 m to the zebra)
+   and on unsignalised major-road approaches with the full setback, standing in for the priority roads where 4.2.1
+   requires it before crossings; nowhere else: 377 signalised + 117 major = 494 stop-line pieces of 2684 approaches.
 2. **`street-details.js`**:
 
    **Status: done** ([`world.md`](world.md#street-furniture-street-detailsjs)), not yet checked in a browser. Signal

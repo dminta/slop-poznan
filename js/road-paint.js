@@ -10,9 +10,8 @@ import { createRoadPaintMaterial } from './tsl-materials.js';
 // lanes going the same way; P-4 double solid between opposing lanes on roads with three lanes or more (the annex
 // requires it there); P-1b/P-1a between single opposing lanes on carriageways 5.8 m or wider outside 30 zones (no
 // centre line at 30 km/h or less is local practice, not the annex); P-14 stop lines before the P-10 zebra on every
-// junction approach (the annex requires P-14 before crossings on priority approaches and recommends it on the others;
-// P-12/P-13 go only with a STOP or give-way sign, which the geodata does not have); and red bike lanes behind a P-2b
-// line along the curbs OSM tags with cycleway=lane (road-network.js edge.bike) where the outer lane leaves room.
+// signalised approach and on unsignalised ones of major roads (see STOP_W); and red bike lanes behind a P-2b line along
+// the curbs OSM tags with cycleway=lane (road-network.js edge.bike) where the outer lane leaves room.
 
 const WHITE = new THREE.Color(0xe6e2d6);
 const RED = new THREE.Color(0xa8392c); // bike lanes "may" be red (annex 7.11.1); Poznań paints them red
@@ -26,8 +25,17 @@ const CENTRE_MIN = 5.8; // no lane lines on a two-way carriageway narrower than 
 const ZEBRA_PERIOD = 1.0; // P-10: 0.5 m stripes, 0.5 m gaps, 4.0 m deep (annex 4.2.1)
 // P-14: 0.5 m deep, 0.75 m rectangles 0.25 m apart, at least 2 m before the zebra (annex 4.2.5): 0.1 m inside the edge
 // end, which is the edge's setbackTo (STOP_SETBACK 1.75 m) before the CROSSWALK band, whose zebra keeps 0.15 m off its
-// edges. A short link squeezed between two corners gives up some or all of that setback (road-network.js place), and
-// gets no P-14: drivers stop before the zebra or the signal anyway.
+// edges, so setbackTo + 0.25 m of asphalt between them. Which approaches get one:
+// - signalised: always, P-14 on every lane before the signals (annex 7.6.2.4). A short link squeezed between two
+//   corners gives up some or all of the setback (road-network.js place); its line still goes at the edge end, where
+//   traffic stops, only closer to the zebra than the 2 m (down to 0.25 m, never on it), rather than leave a signal
+//   without one;
+// - unsignalised, on a major road (axis 'ave', road-network.js isMajorRoad), with the full setback: the annex requires
+//   P-14 before crossings at junctions "na wlotach drogi z pierwszeństwem" and only recommends it on subordinate and
+//   equal-priority approaches (4.2.1). The geodata has no D-1/A-7 signs, so the major road stands in for the priority
+//   road; the annex has no lane-count rule;
+// - every other approach: none, and no P-12/P-13 either, which go only with a STOP or give-way sign (4.2.3, 4.2.4).
+//   Drivers stop at the zebra's near edge then (4.1).
 const STOP_W = 0.5;
 const STOP_PERIOD = 1.0;
 const STOP_DUTY = 0.75;
@@ -133,9 +141,11 @@ function buildRoadPaint(scene, network) {
     }
 
     // P-14 stop lines across the lanes arriving at each junction, before its zebra, from the centre line (or median) to
-    // the curb (none where a street merely bends, a shape node of the centreline streets, nor short of the 2 m gap)
+    // the curb (none where a street merely bends, a shape node of the centreline streets): at every signal, squeezed or
+    // not, and on major roads' approaches with the full 2 m gap (see STOP_W)
     for (const f of back ? [e, back] : [e]) {
-      if (f.to.shape || f.setbackTo < STOP_SETBACK - 1e-6) continue;
+      if (f.to.shape) continue;
+      if (!f.to.signal && (f.axis !== 'ave' || f.setbackTo < STOP_SETBACK - 1e-6)) continue;
       const left = back ? Math.max(0, f.lanes[0] - 1.8) : -f.half;
       across(f, f.len - 0.35, left + 0.1, f.half - 0.1, STOP_W, WHITE, STOP_PERIOD, STOP_DUTY);
     }
