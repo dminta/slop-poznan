@@ -28,7 +28,8 @@ import { PersonCrowd, PersonRig } from './pedestrians.js';
 //   ahead (Intelligent Driver Model), change lanes to overtake or to reach a turn lane, turn into other streets,
 //   stop for the signals street-details.js shows, give way to oncoming traffic when turning left, to the widest road at
 //   unsignalized corners and to pedestrians on crosswalks, and never enter an intersection they can't clear.
-// - 340 pedestrians follow connected sidewalks, meet to talk, and cross signalized crosswalks on WALK.
+// - 340 pedestrians follow connected sidewalks, meet to talk, and cross at the zebras: on WALK where signalised, with
+//   priority over vehicles elsewhere.
 // - Fixed-size local populations replenish distant roads and sidewalks in every direction, protecting the near view.
 // - The player's vehicle or character pushes and is pushed by the traffic (SAT contact, impulses, sparks).
 // - Trams (trams.js, set through setTrams): cars yield to them in the lanes and junctions they share, pedestrians wait
@@ -611,9 +612,10 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     return hasView && Math.hypot(x - camX, camY, z - camZ) < distance && visible(x, z, radius);
   }
 
-  // Edges and signalized intersections around the focus, to place vehicles and pedestrians on
+  // Edges and the junctions with crosswalks (crossingNodes, signalised or not) around the focus, to place vehicles and
+  // pedestrians on
   const nearEdges = [];
-  const nearSignals = [];
+  const nearCrossings = [];
   let nearX = Infinity;
   let nearZ = Infinity;
   function refreshNear() {
@@ -621,15 +623,15 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     nearX = focusX;
     nearZ = focusZ;
     nearEdges.length = 0;
-    nearSignals.length = 0;
+    nearCrossings.length = 0;
     for (const e of edges) {
       const s = clamp((focusX - e.sx) * e.dx + (focusZ - e.sz) * e.dz, 0, e.len);
       const dx = e.sx + e.dx * s - focusX, dz = e.sz + e.dz * s - focusZ;
       if (dx * dx + dz * dz < NEAR_RADIUS * NEAR_RADIUS) nearEdges.push(e);
     }
-    for (const n of nodes) {
+    for (const n of crossingNodes) {
       const dx = n.x - focusX, dz = n.z - focusZ;
-      if (n.signal && dx * dx + dz * dz < NEAR_RADIUS * NEAR_RADIUS) nearSignals.push(n);
+      if (dx * dx + dz * dz < NEAR_RADIUS * NEAR_RADIUS) nearCrossings.push(n);
     }
   }
 
@@ -1650,6 +1652,9 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // =========================================================================
   const KERB = 1.6; // how far along a crosswalk track pedestrians wait to cross (the curb is 2 m along)
   const pedRoutes = createPedestrianRoutes(network, blockAt);
+  // Every junction with a crosswalk, signalised or not, where crossing pedestrians may start (refreshNear). At an
+  // unsignalised one they always have the WALK and vehicles yield to them (walkOn, mayCross, pedestrianOn).
+  const crossingNodes = nodes.filter((n) => pedRoutes.across(n).length > 0);
   const track = { ax: 0, az: 0, ux: 0, uz: 1, len: 1, node: null, side: 0, group: 0, line: 0, route: null };
 
   function sidewalkTrack(e) {
@@ -1688,9 +1693,9 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // Try crosswalks first for crossing pedestrians, then fall back to sidewalks if no suitable crossing fits.
   function spawnPed(p, rMin, rMax, protectView) {
     for (let attempt = 0; attempt < 10; attempt++) {
-      const crosswalk = p.crossesStreets && nearSignals.length > 0 && attempt < 5;
+      const crosswalk = p.crossesStreets && nearCrossings.length > 0 && attempt < 5;
       const ok = crosswalk
-        ? crosswalkTrack(nearSignals[Math.floor(Math.random() * nearSignals.length)])
+        ? crosswalkTrack(nearCrossings[Math.floor(Math.random() * nearCrossings.length)])
         : nearEdges.length > 0 && sidewalkTrack(nearEdges[Math.floor(Math.random() * nearEdges.length)]);
       if (!ok) continue;
       const along = (focusX - track.ax) * track.ux + (focusZ - track.az) * track.uz;
