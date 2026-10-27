@@ -21,12 +21,14 @@ import {
   mx_noise_float,
   mx_worley_noise_float
 } from 'three/tsl';
-import { CITY_BOUNDS, BLOCKS, BRIDGES, LANDMARK_SITES, PLAZAS, SPAWN, blockAt } from './city-config.js';
+import { CITY_BOUNDS, BLOCKS, BRIDGES, LANDMARK_SITES, PLAZAS, SPAWN, SRODKA_MURAL, blockAt } from './city-config.js';
 import {
   createPreWarBuildingMaterial,
   createCurtainWallMaterial,
   createPanelBlockMaterial,
   createRoofMaterial,
+  createDormerWindowMaterial,
+  createGableScreenMaterial,
   createFacadeBoxes,
   WALL_KINDS
 } from './tsl-materials.js';
@@ -386,7 +388,9 @@ function buildCityBlocks(scene) {
     materials: {
       tile: createRoofMaterial({ kind: 'tile' }),
       slate: createRoofMaterial({ kind: 'slate' }),
-      copper: createRoofMaterial({ kind: 'copper' })
+      copper: createRoofMaterial({ kind: 'copper' }),
+      window: createDormerWindowMaterial(),
+      gable: createGableScreenMaterial()
     },
     parent: group
   });
@@ -683,16 +687,35 @@ function buildCityBlocks(scene) {
    * modern roofs), balcony stacks and street-front awnings.
    * o: { cornice, corniceH, chimneys, skylights, hvac (true | 'small'), hvacH, fireEscapes (balcony stacks), awnings,
    *      shops: 'all' | 'none' | probability of 'all' (street fronts with storefronts on the ground floor, the others
-   *      get a residential entrance), freestanding, walls (see wallKinds) }
+   *      get a residential entrance), freestanding, walls (see wallKinds), dormers (share of such buildings with
+ *      roofs.js dormers on their pitched tile or slate roofs) }
    * Pitched roofs ride on the parts they cover (set by `pitch`) and become roofs.js instances here:
-   *   part.roof = { shape: 'gable' | 'hip' | 'mansard', mat: 'tile' | 'slate' | 'copper', ridge: 'x' | 'z', rise }
+   *   part.roof = { shape: 'gable' | 'hip' | 'mansard', mat: 'tile' | 'slate' | 'copper', ridge: 'x' | 'z', rise, front? }
    * ridge: the ridge's axis in the lot frame (the gable ends face the other axis); rise: metres from the eave (the
-   * part's y1, where its box and collider stop) to the ridge. Parts without `roof` are flat, and so is a part mostly
+   * part's y1, where its box and collider stop) to the ridge; front: the lot side ('n' | 's' | 'w' | 'e') a gable end
+ * faces the Stary Rynek on, which may get a gable screen (gableStyle). Parts without `roof` are flat, and so is a part mostly
    * covered by the parts stacked on it (roofCover). Roofs are staged in the lot frame; populateBlock moves the ones a
    * turned block added (roofs.transform) where placeInFrame turns the rest.
    */
   const EAVE = 0.3;
   const HVAC_MAX = 12;
+  // Rynek gable screens (roofs.js addGable): a share of the gables turned to the square keep their plain render
+  // triangle, the rest are split between stepped (Renaissance) and volute (Baroque) attics. Picked off the building's
+  // tone, a value it already drew, so the choice is deterministic per house and leaves the block's draws alone
+  const GABLE_STYLE_P = [['plain', 0.25], ['stepped', 0.35], ['volute', 0.4]];
+  function gableStyle(tone) {
+    let t = (tone * 7919.37) % 1;
+    for (const [style, p] of GABLE_STYLE_P) {
+      if (t < p) return style === 'plain' ? null : style;
+      t -= p;
+    }
+    return null;
+  }
+  // Dormers (roofs.js addDormers) on the kamienice and corner houses that have them (DORMER_P): every slope over a
+  // street front, a share of the courtyard slopes
+  const DORMER_P = 0.45;
+  const DORMER_STREET_P = 1;
+  const DORMER_YARD_P = 0.25;
   function commit(blk, b, o = {}) {
     const parts = b.parts;
     if (!parts.length) return;
@@ -721,6 +744,9 @@ function buildCityBlocks(scene) {
       if (p.y1 > top.y1 + EPS || (p.y1 > top.y1 - EPS && w * d > rectW(top) * rectD(top))) top = p;
     }
 
+    // o.dormers is the share of these buildings with dormers, decided off the tone (not a new draw from the block's
+    // generator, which would reshuffle everything after it)
+    const hasDormers = (tone * 9973.17) % 1 < (o.dormers || 0);
     // 0. Pitched roofs. roofs.js runs a gable's ridge along its w, so a ridge on the frame's z axis is the roof turned
     //    a quarter turn. The eaves overhang the walls by EAVE: the plan grows across the ridge (and along it for hips,
     //    mansards and free-standing houses; a gable end on a party wall stays flush, or neighbours' roofs would
@@ -742,7 +768,26 @@ function buildCityBlocks(scene) {
       d += 2 * EAVE;
       h += drop;
       const ry = alongX ? 0 : Math.PI * 0.5;
-      roofs.add(r.shape, r.mat, (p.x0 + p.x1) * 0.5, p.y1 - drop, (p.z0 + p.z1) * 0.5, w, d, h, ry);
+      const cx = (p.x0 + p.x1) * 0.5;
+      const cz = (p.z0 + p.z1) * 0.5;
+      if (!roofs.add(r.shape, r.mat, cx, p.y1 - drop, cz, w, d, h, ry)) continue;
+      // A gable turned to the square (r.front, the Rynek's houses) gets a stepped or volute screen in its facade plane
+      // in front of the roof's end, in the house's colour, unless the house keeps its plain gable (gableStyle)
+      const style = r.shape === 'gable' && r.front && gableStyle(tone);
+      if (style && Math.abs(wallAt(p, r.front) - wallAt(b.lot, r.front)) < EPS) {
+        const fx = r.front === 'e' ? 1 : r.front === 'w' ? -1 : 0;
+        const fz = r.front === 's' ? 1 : r.front === 'n' ? -1 : 0;
+        roofs.addGable(style, fx ? wallAt(p, r.front) : cx, p.y1 - 0.05, fz ? wallAt(p, r.front) : cz,
+          fx ? p.z1 - p.z0 : p.x1 - p.x0, r.rise + 0.05, Math.atan2(fx, fz), facades[mat][1].stoneColor);
+      }
+      if (!hasDormers) continue;
+      // Dormers from their own generator, seeded by the building's tone and the part, so the block's draws stay put;
+      // a slope over a street front always gets its row, one over the courtyard now and then
+      const seed = (Math.floor(tone * 4294967296) ^ Math.imul(parts.indexOf(p) + 1, 2654435761)) >>> 0;
+      roofs.addDormers(r.shape, r.mat, cx, p.y1 - drop, cz, w, d, h, ry, {
+        rand: mulberry32(seed),
+        facing: (dx, dz) => (b.street[dx > 0.5 ? 'e' : dx < -0.5 ? 'w' : dz > 0 ? 's' : 'n'] ? DORMER_STREET_P : DORMER_YARD_P)
+      });
     }
 
     // 1. Stone cornices & setback ledges (pitched roofs sit on them too: the eave line)
@@ -889,7 +934,7 @@ function buildCityBlocks(scene) {
       mass(b, wings, 0, wf);
     }
     pitch(house, pickW(cfg.roofs), pickW(cfg.roofMats), alongRidge(side), range(32, 42));
-    commit(blk, b, { chimneys: true, skylights: true, shops: cfg.shops, fireEscapes: chance(BALCONY_P) });
+    commit(blk, b, { chimneys: true, skylights: true, shops: cfg.shops, fireEscapes: chance(BALCONY_P), dormers: DORMER_P });
   }
 
   // Stary Rynek house: a narrow lot (6-9 m) with its steep gable turned to the square, 3-4 storeys of polychrome
@@ -907,6 +952,7 @@ function buildCityBlocks(scene) {
       mass(b, [sideRect(lot, side, ea, ea + ew, front, front + ext)], 0, Math.max(2, k.floors - 1));
     }
     pitch(house, 'gable', 'tile', acrossRidge(side), range(48, 55));
+    for (const p of house) p.roof.front = side; // the stepped or volute attic over the square (commit, gableStyle)
     commit(blk, b, { chimneys: true, skylights: true, shops: 0.9, corniceH: 0.5 });
   }
 
@@ -1046,6 +1092,8 @@ function buildCityBlocks(scene) {
     if (rynek) {
       pitch(wingA, 'gable', 'tile', acrossRidge(ns), 50);
       pitch(wingB, 'gable', 'tile', acrossRidge(ew), 50);
+      if (blk.rynekSides[ns]) for (const p of wingA) p.roof.front = ns;
+      if (blk.rynekSides[ew]) for (const p of wingB) p.roof.front = ew;
     } else {
       const shape = pickW(cfg.roofs);
       const mat = pickW(cfg.roofMats);
@@ -1060,7 +1108,10 @@ function buildCityBlocks(scene) {
         }
       }
     }
-    commit(blk, b, { chimneys: true, skylights: true, shops: chance(cfg.cornerShops) ? 'all' : 'none', fireEscapes: chance(BALCONY_P) });
+    commit(blk, b, {
+      chimneys: true, skylights: true, shops: chance(cfg.cornerShops) ? 'all' : 'none', fireEscapes: chance(BALCONY_P),
+      dormers: rynek ? 0 : DORMER_P
+    });
   }
 
   // A lot rect off every street (the middle of a big block, behind a landmark reserve, a deep-lot split): 20% of the
@@ -2021,6 +2072,16 @@ function buildCityBlocks(scene) {
     }
     return outlineBounds(pts);
   }).filter(Boolean);
+  // Śródka's mural square (city-config.js SRODKA_MURAL): the house with the mural, built by landmarks-heritage.js,
+  // and the square in front of its painted wall out to the curb
+  {
+    const M = SRODKA_MURAL;
+    const hx = M.len * 0.5 + 0.5;
+    LANDMARK_RESERVE.push(outlineBounds([[-hx, -M.depth], [hx, -M.depth], [hx, M.square], [-hx, M.square]].map(([x, z]) => {
+      const p = M.toWorld(x, z);
+      return [p.x, p.z];
+    })));
+  }
   function outlineBounds(pts) {
     const m = RESERVE_MARGIN;
     return {

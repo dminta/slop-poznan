@@ -196,6 +196,7 @@ function createLandmarkMaterials() {
     bronze: std(0x5a4632, 0.42, 0.75),
     glass: std(0x1c2a36, 0.08, 0.6), // plain dark window panes on non-facade parts
     wood: std(0x4e3424, 0.8),
+    hedge: std(0x3d5a2c, 0.95), // clipped box and privet in planters
     // Lit at night: clock faces and lanterns
     warmLit: std(0xfff0c8, 0.3, 0, { emissive: 0xffc870, emissiveIntensity: 1.2 })
   };
