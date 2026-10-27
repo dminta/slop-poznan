@@ -439,7 +439,7 @@ gone, boot preloads are 32 and `node --test tests/` passes (129 tests, ≈ 11 s)
   islands as curbs: the 4.4 m-grown rect cover reaches into the roadway on turned blocks and halved the largest SCC
   (~3150 → ~1660 edges).
 - `road-network.js`: the SCC is logged as `[road-network] edges: … long enough, … in the largest strongly connected set`;
-  `tests/road-network.test.cjs` floors the bare graph at > 3850 edges / 175 km in the set (measured 4300 / 193.8 km) and requires street furniture to keep ≥ 90% of it (measured 184.6 km after Phase 11.2; it was 126.9 km until runs got shape nodes on gentle arcs, which kept the outer lanes off the curbside lamps).
+  `tests/road-network.test.cjs` floors the bare graph at > 3850 edges / 175 km in the set (measured 4300 / 193.8 km) and requires street furniture to keep ≥ 99% of it (measured 193.5 km after the Phase 11 follow-up, 184.6 km after Phase 11.2; it was 126.9 km until runs got shape nodes on gentle arcs, which kept the outer lanes off the curbside lamps).
   `major` comes from width and lanes (the graph has no road class).
 - `outskirts.js` has no towers (the tall ones stand inside the detail box, Phase 7) and no colliders. `bridges.js`
   builds the 13 `BRIDGES` names as arch/girder/overpass structures with the deck at y ≈ −0.01 running 15 m onto each bank; only the
@@ -881,7 +881,10 @@ carry the measured numbers.
    are gone. Steam stacks, subway entrances, god rays, the `streetZ` window and `fromOldFrame` were already gone in
    Phase 5; `createSteamMaterial` stays. New: `roadClearance`/`LANE_GUIDE` in city-config, because curb outlines
    alone left furniture in lanes near merged junctions. Furnished network 184.6 of 193.8 km (95.3%; it was 182.5 km
-   with the NYC set).
+   with the NYC set). Follow-up: signal poles moved behind the crosswalks (turning curves cut the corners they stood
+   on), `LANE_GUIDE` gained the junction chords, narrow-lane reach and one-way pair lanes, furniture keeps off the
+   crosswalk landings (`JUNCTIONS`), every prop is a player collider, and the name plates follow the Poznań SIM 2017
+   design: 193.5 km (99.8%), 1851 of 1884 crosswalks.
    - **§1 signals.** Pole-mounted S-1 three-aspect heads (black/grey housing; some with a yellow backplate) at each
      signalised corner, an S-2 arrow where configured, and pedestrian red/green figure heads with countdowns. They are
      driven from `node.signal` (Phase 2). Street names move from pole blades to wall plates on corner buildings.
