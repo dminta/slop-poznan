@@ -13,7 +13,7 @@ function paintOf(edges) {
   class Attribute { constructor(array) { this.array = array; } }
   const THREE = { Color, BufferGeometry, Float32BufferAttribute: Attribute, BufferAttribute: Attribute, Mesh: class {} };
   const { buildRoadPaint } = loadModule(readFileSync(join(__dirname, '../js/road-paint.js'), 'utf8'), {
-    imports: { 'three/webgpu': THREE, './road-network.js': { CROSSWALK: 4.3 }, './tsl-materials.js': { createRoadPaintMaterial: () => ({}) } },
+    imports: { 'three/webgpu': THREE, './road-network.js': { CROSSWALK: 4.3, STOP_SETBACK: 1.75 }, './tsl-materials.js': { createRoadPaintMaterial: () => ({}) } },
     filename: 'road-paint.js'
   });
   buildRoadPaint({ add() {} }, { edges, paintEdges: edges });
@@ -23,6 +23,7 @@ function paintOf(edges) {
     quads.push({
       w: Math.hypot(p[v * 3 + 3] - p[v * 3], p[v * 3 + 5] - p[v * 3 + 2]),
       len: Math.hypot(p[v * 3 + 9] - p[v * 3], p[v * 3 + 11] - p[v * 3 + 2]),
+      x: (p[v * 3] + p[v * 3 + 3] + p[v * 3 + 6] + p[v * 3 + 9]) / 4,
       red: c[v * 3] > c[v * 3 + 2] + 0.2,
       white: c[v * 3] > 0.8 && c[v * 3 + 2] > 0.8,
       period: paint[v * 3 + 1],
@@ -33,12 +34,12 @@ function paintOf(edges) {
 }
 
 // A straight east-west road, 100 m between two junctions (stop lines 10 m in), as road-network.js paintEdges
-function road({ half, lanes, back = lanes, limit = 50 / 3.6, signal = false, bike = [false, false] }) {
+function road({ half, lanes, back = lanes, limit = 50 / 3.6, signal = false, bike = [false, false], setback = 1.75 }) {
   const A = { id: 0, x: 0, z: 0, shape: false, signal };
   const B = { id: 1, x: 100, z: 0, shape: false, signal };
   const edge = (from, to, dx, ln, b) => ({
     from, to, x0: from.x, z0: 0, sx: from.x + dx * 10, sz: 0, dx, dz: 0, rx: 0, rz: dx, span: 100, len: 80, half,
-    lanes: ln, limit, bike: b
+    setbackFrom: setback, setbackTo: setback, lanes: ln, limit, bike: b
   });
   const edges = [edge(A, B, 1, lanes, bike)];
   if (back) edges.push(edge(B, A, -1, back, [bike[1], bike[0]]));
@@ -73,6 +74,19 @@ test('P-14 stop lines of 0.75 m rectangles 0.25 m apart on every junction approa
   assert.equal(stops(paintOf(road({ half: 5, lanes: [1.8], signal: true }))).length, 2);
   assert.equal(stops(paintOf(road({ half: 5, lanes: [1.8] }))).length, 2);
   assert.equal(stops(paintOf(road({ half: 5, lanes: [-1.8, 1.8], back: null }))).length, 1, 'one-way: arriving end only');
+  // 2.0 m of asphalt at least between the stop line and the zebra (annex 4.2.5), the zebra on the junction side
+  const quads = paintOf(road({ half: 5, lanes: [1.8] }));
+  const zebras = quads.filter((q) => q.period === 1 && q.duty === 0.5);
+  for (const s of stops(quads)) {
+    const z = zebras.reduce((best, q) => (Math.abs(q.x - s.x) < Math.abs(best.x - s.x) ? q : best));
+    const gap = Math.abs(z.x - s.x) - z.w / 2 - s.w / 2;
+    assert.ok(gap > 2 - 1e-6 && gap < 2.2, `${gap.toFixed(2)} m between P-14 and P-10`);
+    assert.ok(Math.abs(z.x - 50) > Math.abs(s.x - 50), 'the zebra beyond the stop line, by the junction');
+  }
+  // a short link squeezed between corners, its stop lines closer to the zebras than that: zebras but no P-14
+  const squeezed = paintOf(road({ half: 5, lanes: [1.8], setback: 0.6 }));
+  assert.equal(stops(squeezed).length, 0);
+  assert.equal(squeezed.filter((q) => q.period === 1 && q.duty === 0.5).length, 2);
 });
 
 test('red bike lanes along tagged curbs where the outer lane leaves room', () => {

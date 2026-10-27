@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import { Fn, float, color, uniform, mod, fract, step, smoothstep, mix, uv, texture, attribute, vec2, floor, sin, positionWorld } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { SIGNAL_SITES, SIGNAL_TIMING, JUNCTIONS, blockAt, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES } from './city-config.js';
-import { CROSSWALK } from './road-network.js';
+import { CROSSWALK, STOP_SETBACK } from './road-network.js';
 import { cityUniforms, createTreeGrateMaterial } from './tsl-materials.js';
 import { createTreeField } from './trees.js';
 import { pavedPlazaRects, parkTreeSites, parkLampSites } from './city-grid.js';
@@ -405,10 +405,10 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   const clearOfRoads = (x, z, r) => roadClearance(x, z) >= r + 0.3;
 
   // Crosswalk landings: pedestrian-routes.js runs each arm's crosswalk 2 m onto both sidewalks (with 0.4 m to spare
-  // each side) at the crosswalk road-network.js paints just inside its stop line, and drops a crosswalk with any footprint
-  // on it. The stop line is where the arm clears the roads crossing it (road-network.js stopBack, with the arms the graph
-  // gives here) plus the CROSSWALK; signal poles 1-4 m past the corner closed 41 crosswalks, bollards 8. A bend (two
-  // arms in about one line) has none. Landings are kept free across the whole crosswalk depth and 2.6 m behind the curb.
+  // each side) at the crosswalk road-paint.js paints STOP_SETBACK beyond its stop line, and drops a crosswalk with any
+  // footprint on it. The stop line is where the arm clears the roads crossing it (road-network.js stopBack, with the arms
+  // the graph gives here) plus the CROSSWALK and STOP_SETBACK; signal poles 1-4 m past the corner closed 41 crosswalks,
+  // bollards 8. A bend (two arms in about one line) has none. Landings are kept free across the whole crosswalk depth and 2.6 m behind the curb.
   const LANDING_CELL = 64;
   const landingGrid = new Map(); // cell -> [{ x, z, ux, uz, half, mid }]
   for (const j of JUNCTIONS) {
@@ -422,7 +422,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         if (b === a || cos > 0.94 || (cos < 0 && sin < 0.26)) continue; // merging, or the same road going on
         ext = Math.max(ext, (b.w / 2 + (a.w / 2) * Math.abs(cos)) / sin);
       }
-      const mid = (ext > 0 ? Math.min(ext, 20) + CROSSWALK : 2) - CROSSWALK / 2;
+      const mid = (ext > 0 ? Math.min(ext, 20) + CROSSWALK + STOP_SETBACK : 2) - STOP_SETBACK - CROSSWALK / 2;
       const l = { x: j.x, z: j.z, ux: a.ux, uz: a.uz, half: a.w / 2, mid };
       const ix = Math.floor((j.x + a.ux * mid) / LANDING_CELL);
       const iz = Math.floor((j.z + a.uz * mid) / LANDING_CELL);
@@ -522,13 +522,14 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
           }
         }
       }
-      // Behind the crosswalk (4.3 m from the corner, road-network.js CROSSWALK), by the stop line: road-network.js runs
+      // Behind the crosswalk (CROSSWALK 4.3 m from the corner), by the stop line STOP_SETBACK further on, as Polish
+      // signals stand: first in the gap between them, then level with the line and back from it. road-network.js runs
       // its turning curves from stop line to stop line and they cut the corners, so a pole 1-4 m past the corner stood
       // within a curve's 0.8 m clearance at 58 corners and cost 4.2 km of the network; further back along the curb only
       // the lanes pass it
       const spot = (side) => {
         for (const back of [0.75, 1.0, 1.3]) {
-          for (let dt = 4.8; dt < 16; dt += 1.2) {
+          for (let dt = CROSSWALK + 0.5; dt < 16; dt += 1.2) {
             const t = corner + dt;
             const x = a.x + a.ux * t + rx * (half + back) * side;
             const z = a.z + a.uz * t + rz * (half + back) * side;

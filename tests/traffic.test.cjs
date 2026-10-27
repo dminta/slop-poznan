@@ -95,13 +95,15 @@ function trafficFunction(name, context) {
 
 function intersectionHarness() {
   const n = { signal: true, in: [] };
-  const exit = { lanes: [0], outSide: 1 };
-  const edge = { to: n, axisIndex: 0, occ: [[]], opposite: null, inSide: 0, len: 100 };
+  const exit = { lanes: [0], outSide: 1, setbackFrom: 1.75 };
+  const edge = { to: n, axisIndex: 0, occ: [[]], opposite: null, inSide: 0, len: 100, setbackTo: 1.75 };
   const car = { edge, move: { to: exit, out: [0], turn: 'S' }, lane: 0, s: 80, speed: 4,
     driver: { b: 3 }, half: 2.25, wait: 0, commit: null, isPolice: false };
   const state = { phase: 'red', occupied: false, pedestrians: false, space: true, conflict: false, tram: false };
   const context = {
     LOOKAHEAD: 70,
+    CROSSWALK: 4.3,
+    shortOfZebra: (f) => f.setbackFrom + 4.3 + 0.5,
     phaseOf: () => state.phase,
     canStopBefore: () => true,
     stopAt: () => -3,

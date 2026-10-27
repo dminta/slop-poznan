@@ -46,6 +46,38 @@ test('the road network builds from the centreline graph', () => {
   assert.ok(net.edges.every((e) => e.lanes.length && e.inArm && e.outArm));
 });
 
+// Three east-west roads over three north-south ones at x = 0, L and L + 120, 9 m roads all round
+function ladder(L) {
+  const nodes = [];
+  for (const z of [0, 120, 240]) for (const x of [0, L, L + 120]) nodes.push(x, z);
+  const links = [];
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 2; c++) links.push([r * 3 + c, r * 3 + c + 1, 0, 9, 2, 0, []]);
+  for (let c = 0; c < 3; c++) for (let r = 0; r < 2; r++) links.push([r * 3 + c, (r + 1) * 3 + c, 1, 9, 2, 0, []]);
+  return { nodes, links, names: ['EAST ST', 'NORTH ST'] };
+}
+
+test('stop lines stand STOP_SETBACK behind the crosswalk band, giving it up first on short links', () => {
+  const { STOP_SETBACK, CROSSWALK } = loadModule(source, {
+    imports: { './city-config.js': {}, './geodata.js': { GEO: {} } }, filename: 'road-network.js'
+  });
+  const link = (L) => {
+    const net = buildPureGraph(ladder(L));
+    return net.edges.find((e) => near(e.dx, 1) && near(e.x0, 0) && near(e.z0, 120));
+  };
+  const long = link(100);
+  assert.ok(near(long.setbackFrom, STOP_SETBACK) && near(long.setbackTo, STOP_SETBACK));
+  const back = (long.sx - long.x0) * long.dx; // past the crossing road's half width, the crosswalk and the setback
+  assert.ok(back > 4.5 + CROSSWALK + STOP_SETBACK - 1e-6, `${back.toFixed(2)} m from the junction centre to the stop line`);
+  // 30 m: the stop lines close up to the zebras to leave 10 m to queue on, and the zebras stay put
+  const short = link(30);
+  assert.ok(near(short.len, 10) && !short.squeezed);
+  assert.ok(short.setbackTo > 0 && short.setbackTo < STOP_SETBACK && near(short.setbackFrom, short.setbackTo));
+  assert.ok(near((short.sx - short.x0) * short.dx - short.setbackFrom, back - STOP_SETBACK), 'the zebra where it was');
+  // 22 m: no setback left, and the stop lines pull in on the crossing roads
+  const shorter = link(22);
+  assert.ok(near(shorter.len, 10) && shorter.squeezed && near(shorter.setbackTo, 0));
+});
+
 test('major roads come from width and lanes, over most of a named road', () => {
   const net = buildPureGraph(syntheticGraph());
   const main = along(net, 0);
@@ -130,7 +162,7 @@ test('most of the Poznań road graph survives the largest strongly connected set
   const config = await import('../js/city-config.js');
   const { GEO } = await import('../js/geodata.js');
   const logs = [];
-  const { buildRoadNetwork, CROSSWALK } = loadModule(source, {
+  const { buildRoadNetwork, CROSSWALK, STOP_SETBACK } = loadModule(source, {
     imports: { './city-config.js': config, './geodata.js': { GEO } },
     globals: { console: { info: (line) => logs.push(line) } },
     filename: 'road-network.js'
@@ -138,7 +170,7 @@ test('most of the Poznań road graph survives the largest strongly connected set
   const { buildStreetDetails } = loadModule(readFileSync(join(__dirname, '../js/street-details.js'), 'utf8'), {
     imports: {
       'three/webgpu': inert(), 'three/tsl': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert(),
-      './city-config.js': config, './road-network.js': { CROSSWALK }, './tsl-materials.js': inert(),
+      './city-config.js': config, './road-network.js': { CROSSWALK, STOP_SETBACK }, './tsl-materials.js': inert(),
       './trees.js': { createTreeField: () => ({ group: inert() }) },
       './city-grid.js': { pavedPlazaRects: [], parkTreeSites: [], parkLampSites: [] }
     },
