@@ -104,6 +104,8 @@ async function initApp() {
     ...allColliders.filter((c) => !c.obb && (c.minY ?? 0) < 3.5)
   ]);
   markInit('traffic');
+  // The street furniture's player colliders join only now: its footprints already went to the network above
+  allColliders.push(...streetDetails.colliders);
   const highwayTraffic = createHighwayTraffic(scene, cityGrid.highwayLanes);
   buildRoadPaint(scene, trafficSystem.network);
   markInit('roadPaint');

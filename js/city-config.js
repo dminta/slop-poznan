@@ -248,8 +248,11 @@ function waterAt(x, z) {
 // the street's own width where the link has none), lanes, name, inbound (traffic arrives at the junction over it) }.
 // LANE_GUIDE: every link as road-network.js lays its run out before any furniture (from junction centre to junction
 // centre, the mean of each junction's graph nodes, through the real bends), [ax, az, bx, bz, half] per segment; near a
-// merged junction that strays up to ~2 m from the real centreline. roadClearance reads it.
-const { SIGNAL_SITES, LANE_GUIDE } = (() => {
+// merged junction that strays up to ~2 m from the real centreline. Also the chords the runs cut near junctions and the
+// lanes of one-way pairs moved onto one centreline, which stray further. roadClearance reads it.
+// JUNCTIONS: every junction as road-network.js step 2 merges it, { x, z (the mean of its graph nodes), arms (as above) },
+// for the crosswalks street-details.js keeps its furniture off.
+const { SIGNAL_SITES, LANE_GUIDE, JUNCTIONS } = (() => {
   const g = GEO.roadGraph;
   const ns = new Map(), ew = new Map();
   const nodeCount = g.nodes.length / 2;
@@ -281,16 +284,16 @@ const { SIGNAL_SITES, LANE_GUIDE } = (() => {
     }
   }
   const arms = new Map(); // junction root -> arms
-  for (const n of g.signals) arms.set(find(n), []);
   for (const [n, m, ux, uz, [a, , ni, w, lanes, dir]] of legs) {
-    const list = arms.get(find(n));
-    if (!list || find(m) === find(n)) continue;
+    if (find(m) === find(n)) continue;
+    let list = arms.get(find(n));
+    if (!list) arms.set(find(n), (list = []));
     const name = g.names[ni];
     list.push({ x: g.nodes[n * 2], z: g.nodes[n * 2 + 1], ux, uz, w: w > 3 ? w : widthOf.get(name) || 9.1, lanes, name,
       inbound: dir === 0 || (dir > 0) === (n !== a) });
   }
   const sites = g.signals.map((n) => ({ x: g.nodes[n * 2], z: g.nodes[n * 2 + 1], nsWidth: ns.get(n) || 0, ewWidth: ew.get(n) || 0,
-    junction: find(n), arms: arms.get(find(n)) }));
+    junction: find(n), arms: arms.get(find(n)) || [] }));
   const sum = new Map();
   const counted = new Set();
   for (const [a, b] of g.links) {
@@ -309,15 +312,74 @@ const { SIGNAL_SITES, LANE_GUIDE } = (() => {
     return [s.x / s.n, s.z / s.n];
   };
   const guide = [];
-  for (const [a, b, ni, w, , , inner] of g.links) {
+  // the point `d` metres along a polyline, or null past its end
+  const along = (pts, d) => {
+    for (let k = 0; k + 1 < pts.length; k++) {
+      const L = Math.hypot(pts[k + 1][0] - pts[k][0], pts[k + 1][1] - pts[k][1]);
+      if (d <= L) return [pts[k][0] + (pts[k + 1][0] - pts[k][0]) * d / L, pts[k][1] + (pts[k + 1][1] - pts[k][1]) * d / L];
+      d -= L;
+    }
+    return null;
+  };
+  const oneWays = new Map(); // street name -> its one-way links: { pts (the way traffic goes), mid, len }
+  for (const [a, b, ni, w, , dir, inner] of g.links) {
     if (find(a) === find(b)) continue;
-    const half = (w > 3 ? w : widthOf.get(g.names[ni]) || 9.1) / 2;
+    // a lane keeps LANE_CLEAR 1.2 m free either side of it, which on the narrowest roads reaches past the curbs: one
+    // lane down the middle of a one-way, one each way at a quarter of the width on a two-way (road-network.js lanesOf)
+    const road = (w > 3 ? w : widthOf.get(g.names[ni]) || 9.1) / 2;
+    const half = Math.max(road, dir !== 0 ? 1.2 : road / 2 + 1.2);
     const pts = [centre(a)];
     for (let k = 0; k < inner.length; k += 2) pts.push([inner[k], inner[k + 1]]);
     pts.push(centre(b));
-    for (let k = 0; k + 1 < pts.length; k++) guide.push([pts[k][0], pts[k][1], pts[k + 1][0], pts[k + 1][1], half]);
+    let len = 0;
+    for (let k = 0; k + 1 < pts.length; k++) {
+      guide.push([pts[k][0], pts[k][1], pts[k + 1][0], pts[k + 1][1], half]);
+      len += Math.hypot(pts[k + 1][0] - pts[k][0], pts[k + 1][1] - pts[k][1]);
+    }
+    // road-network.js puts no shape node within 25 m of a junction (JUNCTION_END), so its runs cut straight from the
+    // junction centre across the first bends: the chords to 15 and 25 m out, and the whole link under 50 m
+    if (len < 50) guide.push([pts[0][0], pts[0][1], pts[pts.length - 1][0], pts[pts.length - 1][1], half]);
+    for (const p of [pts, pts.slice().reverse()]) {
+      for (const d of [15, 25]) {
+        const q = along(p, d);
+        if (q) guide.push([p[0][0], p[0][1], q[0], q[1], half]);
+      }
+    }
+    if (dir !== 0) {
+      const p = dir > 0 ? pts : pts.slice().reverse();
+      const name = g.names[ni];
+      if (!oneWays.has(name)) oneWays.set(name, []);
+      oneWays.get(name).push({ pts: p, mid: along(p, len / 2) || p[0], len });
+    }
   }
-  return { SIGNAL_SITES: sites, LANE_GUIDE: guide };
+  // Two one-way roadways of one street running opposite ways side by side become one divided road there, each way's
+  // lanes from 1.8 m right of its own centreline (road-network.js step 3): a lane strip 1.8 m right of each
+  for (const list of oneWays.values()) {
+    for (const L of list) {
+      const end = L.pts[L.pts.length - 1];
+      const fx = end[0] - L.pts[0][0], fz = end[1] - L.pts[0][1];
+      const paired = list.some((M) => {
+        if (M === L) return false;
+        const mEnd = M.pts[M.pts.length - 1];
+        const mx = mEnd[0] - M.pts[0][0], mz = mEnd[1] - M.pts[0][1];
+        if (fx * mx + fz * mz > -0.7 * (Math.hypot(fx, fz) * Math.hypot(mx, mz) || 1)) return false;
+        return Math.hypot(M.mid[0] - L.mid[0], M.mid[1] - L.mid[1]) < 30 + (L.len + M.len) / 2;
+      });
+      if (!paired) continue;
+      for (let k = 0; k + 1 < L.pts.length; k++) {
+        const [ax, az] = L.pts[k], [bx, bz] = L.pts[k + 1];
+        const d = Math.hypot(bx - ax, bz - az) || 1;
+        const rx = -(bz - az) / d * 1.8, rz = (bx - ax) / d * 1.8;
+        guide.push([ax + rx, az + rz, bx + rx, bz + rz, 1.2]);
+      }
+    }
+  }
+  const junctions = [];
+  for (const [root, list] of arms) {
+    const s = sum.get(root);
+    if (s) junctions.push({ x: s.x / s.n, z: s.z / s.n, arms: list });
+  }
+  return { SIGNAL_SITES: sites, LANE_GUIDE: guide, JUNCTIONS: junctions };
 })();
 const GUIDE_CELL = 32;
 const GUIDE_GRID = new Map(); // each segment in every cell within its half width + 4 m
@@ -626,6 +688,7 @@ export {
   clampToLand,
   waterAt,
   SIGNAL_SITES,
+  JUNCTIONS,
   roadClearance,
   ROADS,
   LABEL_ALIAS,

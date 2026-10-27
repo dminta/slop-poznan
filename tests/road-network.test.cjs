@@ -108,8 +108,8 @@ test('lanes follow the OSM lane count and direction within the roadway', () => {
 // obstacle within LANE_CLEAR of a lane closes the lane over its whole edge, and a lost one-way edge can take whole
 // loops out of the largest strongly connected set, so a big drop with the furniture means a placement or lane geometry
 // rule broke (docs/world.md). Measured 2026-10: bare 6925 edges long enough, 4300 (193.8 km) in the set; with the
-// furniture (15284 footprints: signal poles, lamps, hydrants, bollards, kiosks, ...) 4069 (184.6 km). The rest of the bare graph is mostly cul-de-sacs and roads cut at the
-// detail box.
+// furniture (14520 footprints: signal poles, lamps, hydrants, bollards, kiosks, ...) 4294 (193.5 km). The rest of the
+// bare graph is mostly cul-de-sacs and roads cut at the detail box.
 function inert() {
   const store = {};
   return new Proxy(function () {}, {
@@ -130,7 +130,7 @@ test('most of the Poznań road graph survives the largest strongly connected set
   const config = await import('../js/city-config.js');
   const { GEO } = await import('../js/geodata.js');
   const logs = [];
-  const { buildRoadNetwork } = loadModule(source, {
+  const { buildRoadNetwork, CROSSWALK } = loadModule(source, {
     imports: { './city-config.js': config, './geodata.js': { GEO } },
     globals: { console: { info: (line) => logs.push(line) } },
     filename: 'road-network.js'
@@ -138,7 +138,7 @@ test('most of the Poznań road graph survives the largest strongly connected set
   const { buildStreetDetails } = loadModule(readFileSync(join(__dirname, '../js/street-details.js'), 'utf8'), {
     imports: {
       'three/webgpu': inert(), 'three/tsl': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert(),
-      './city-config.js': config, './tsl-materials.js': inert(),
+      './city-config.js': config, './road-network.js': { CROSSWALK }, './tsl-materials.js': inert(),
       './trees.js': { createTreeField: () => ({ group: inert() }) },
       './city-grid.js': { pavedPlazaRects: [], parkTreeSites: [], parkLampSites: [] }
     },
@@ -162,8 +162,12 @@ test('most of the Poznań road graph survives the largest strongly connected set
   assert.ok(kmAt((v) => v <= 30) > 0.2 * km(bare), `${kmAt((v) => v <= 30).toFixed(1)} km at 30 km/h or less`);
   assert.ok(kmAt((v) => v >= 70) > 3, `${kmAt((v) => v >= 70).toFixed(1)} km at 70 km/h`);
 
-  const { footprints } = buildStreetDetails(inert());
+  const { footprints, colliders } = buildStreetDetails(inert());
   assert.ok(footprints.length > 5000, `${footprints.length} street furniture footprints`);
   const furnished = buildRoadNetwork([], footprints);
-  assert.ok(km(furnished) > 0.9 * km(bare), `${km(furnished).toFixed(1)} of ${km(bare).toFixed(1)} km survive the furniture`);
+  assert.ok(km(furnished) > 0.99 * km(bare), `${km(furnished).toFixed(1)} of ${km(bare).toFixed(1)} km survive the furniture`);
+  // every piece of it is a player collider too, as small as the thing itself
+  assert.equal(colliders.length, footprints.length);
+  assert.ok(colliders.every((c) => c.maxX - c.minX < 3 && c.maxZ - c.minZ < 3 && c.maxY > 1 && c.maxY < 10),
+    'street furniture colliders are prop-sized');
 });

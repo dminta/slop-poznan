@@ -134,7 +134,7 @@ Physics notes:
 - Car and cyclist speed/coasting tuning (`driveSpeed()`, `CAR_DRIVE`/`BICYCLE_DRIVE`) is documented in
   [`actors.md`](actors.md#physics-and-coasting-parameters-player-vehicles-controllersjs).
 - Colliders have the shape `{ minX, maxX, minZ, maxZ, minY?, maxY, obb?: { cx, cz, hx, hz, cs, sn } }`, gathered in `main.js`
-  from landmarks, blocks, outskirts, bridges and the grid.
+  from landmarks, blocks, outskirts, bridges, the grid, street furniture and tram infrastructure.
   - They must be static. `nearColliders` buckets them once into 48 m cells, and it writes `_order` and `_seen` onto each
     collider.
   - `minY` matters. Every building part gets its own collider (commit `49b2ef2` removed a blanket block collider that caused

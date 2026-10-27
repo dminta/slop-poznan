@@ -1,7 +1,8 @@
 import * as THREE from 'three/webgpu';
 import { Fn, float, color, uniform, mod, fract, step, smoothstep, mix, uv, texture, attribute, vec2, floor, sin, positionWorld } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { SIGNAL_SITES, SIGNAL_TIMING, blockAt, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES } from './city-config.js';
+import { SIGNAL_SITES, SIGNAL_TIMING, JUNCTIONS, blockAt, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES } from './city-config.js';
+import { CROSSWALK } from './road-network.js';
 import { cityUniforms, createTreeGrateMaterial } from './tsl-materials.js';
 import { createTreeField } from './trees.js';
 import { pavedPlazaRects, parkTreeSites, parkLampSites } from './city-grid.js';
@@ -16,6 +17,7 @@ import { pavedPlazaRects, parkTreeSites, parkLampSites } from './city-grid.js';
 // - tall red hydrants, Poczta Polska post boxes, parking machines and bollards along the curbs; press and flower
 //   kiosks and advertising columns (słupy ogłoszeniowe) where the sidewalk is wide
 // - park and street trees, and the pooled street lights that follow the camera
+// Every prop but the trees is an obstacle footprint (lanes and walkers keep clear) and a player collider.
 
 // Pedestrian head faces: a standing figure in the top cell, a walking one in the bottom, white on black (a mask)
 function createPedestrianFigureTexture() {
@@ -59,33 +61,51 @@ function createPedestrianFigureTexture() {
   return tex;
 }
 
-// Street name plates: one 256 x 64 cell per name, white on blue with a white rule
-const PLATE_CELL = [256, 64];
-function createPlateAtlas(labels) {
+// Street name plates after Poznań's System Informacji Miejskiej (2017 city information system manual, pp. 41-51;
+// zdm.poznan.pl "Nowe tablice ulicowe"): graphite RAL 7043 with white type set left, the street kind as a full
+// lowercase word on a small top line ("ulica", "aleja", "rondo"; a patron's given names and titles go up there too), the
+// name large below it, and a blue RAL 5005 strip along the bottom with the district in capitals. Two sizes: 0.315 x
+// 0.22 m in the Old Town and on narrow streets, 0.67 x 0.35 m elsewhere; one atlas cell per label and size.
+const PLATE_SIZES = { small: { w: 0.315, h: 0.22, cell: [180, 126] }, large: { w: 0.67, h: 0.35, cell: [256, 134] } };
+function createPlateAtlas(labels, [cw, ch]) {
   const cols = 8;
   const rows = Math.max(1, Math.ceil(labels.length / cols));
   const c = document.createElement('canvas');
-  c.width = cols * PLATE_CELL[0];
-  c.height = rows * PLATE_CELL[1];
+  c.width = cols * cw;
+  c.height = rows * ch;
   const ctx = c.getContext('2d');
-  labels.forEach((label, i) => {
-    const x0 = (i % cols) * PLATE_CELL[0];
-    const y0 = Math.floor(i / cols) * PLATE_CELL[1];
-    ctx.fillStyle = '#1b3f8c';
-    ctx.fillRect(x0, y0, PLATE_CELL[0], PLATE_CELL[1]);
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(x0 + 5, y0 + 5, PLATE_CELL[0] - 10, PLATE_CELL[1] - 10);
+  const font = (weight, size) => `${weight} ${size}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+  // the largest size up to `size` at which `text` fits `width`
+  const fit = (text, weight, size, width) => {
+    ctx.font = font(weight, size);
+    while (size > 8 && ctx.measureText(text).width > width) ctx.font = font(weight, --size);
+    return size;
+  };
+  labels.forEach(({ kind, name, district }, i) => {
+    const x0 = (i % cols) * cw;
+    const y0 = Math.floor(i / cols) * ch;
+    const pad = Math.round(cw * 0.06);
+    const strip = Math.round(ch * 0.2); // ~70 mm on the large plate, ~45 mm on the small
+    ctx.fillStyle = '#3b3d3f';
+    ctx.fillRect(x0, y0, cw, ch);
+    ctx.fillStyle = '#1f5bb5';
+    ctx.fillRect(x0, y0 + ch - strip, cw, strip);
     ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    let size = 30;
-    ctx.font = `700 ${size}px Inter, Arial, sans-serif`;
-    while (size > 12 && ctx.measureText(label).width > PLATE_CELL[0] - 24) {
-      size -= 2;
-      ctx.font = `700 ${size}px Inter, Arial, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    const top = Math.round(ch * 0.17);
+    if (kind) {
+      fit(kind, 500, top, cw - 2 * pad);
+      ctx.fillText(kind, x0 + pad, y0 + pad + top * 0.8);
     }
-    ctx.fillText(label, x0 + PLATE_CELL[0] / 2, y0 + PLATE_CELL[1] / 2 + 1);
+    const big = fit(name, 500, Math.round(ch * 0.36), cw - 2 * pad);
+    ctx.fillText(name, x0 + pad, y0 + ch - strip - Math.max(pad * 0.7, (ch - strip - pad - top - big) * 0.35));
+    if (district) {
+      const label = district.toUpperCase();
+      fit(label, 500, Math.round(strip * 0.55), cw - 2 * pad);
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, x0 + pad, y0 + ch - strip / 2 + 1);
+    }
   });
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -93,11 +113,30 @@ function createPlateAtlas(labels) {
   return { tex, cols, rows };
 }
 
-// "ul. Garbary", "al. Niepodległości"; squares, roundabouts and bridges keep their own word
-function plateLabel(name) {
-  if (/^Alej[ae]\s/i.test(name)) return `al. ${name.replace(/^\S+\s+/, '')}`;
-  if (/^(Rondo|Most|Plac|Rynek|Osiedle|Wybrzeże|Bulwar|Park|Skwer)\b/i.test(name)) return name;
-  return `ul. ${name}`;
+// A street's plate lines: { kind (the small top line), name (the large one), district }. "Aleje Karola Marcinkowskiego"
+// -> "aleje Karola" over "Marcinkowskiego"; squares, roundabouts and bridges take their own word, "Stary Rynek" none.
+const PLATE_KINDS = { aleja: 'aleja', aleje: 'aleje', rondo: 'rondo', plac: 'plac', osiedle: 'osiedle', most: 'most',
+  skwer: 'skwer', park: 'park', bulwar: 'bulwar', 'wybrzeże': 'wybrzeże' };
+// given names (genitive) and titles that go on the top line before the surname
+const PATRON_WORDS = new Set(('Adama Aleksandra Andrzeja Anny Antoniego Arcybiskupa Arnolda Augusta Biskupa Bolesława ' +
+  'Edwarda Emilii Ewarysta Feliksa Floriana Franciszka Franklina Fryderyka Generała Grzegorza Gustawa Henryka Ignacego ' +
+  'Jakuba Jana Janusza Jarosława Jerzego Józefa Karola Kazimierza Księcia Księdza Króla Królowej Ludwika Marcina Marii ' +
+  'Marszałka Michała Mikołaja Pawła Piotra Prymasa Romana Ryszarda Stanisława Stefana Świętego Świętej Tadeusza ' +
+  'Władysława Wojciecha Zygmunta i').split(' '));
+function plateLabel(name, district) {
+  const words = name.split(/\s+/);
+  let kind = 'ulica';
+  const first = words[0].toLowerCase();
+  if (PLATE_KINDS[first] && words.length > 1) {
+    kind = PLATE_KINDS[first];
+    words.shift();
+  } else if (/\bRynek\b/.test(name)) kind = '';
+  // the patron's given names and titles up top, the surname (with any numeral, "Mieszka I") large
+  let k = 0;
+  while (k < words.length - 1 && PATRON_WORDS.has(words[k])) k++;
+  if (k === words.length - 1 && /^[IVX]+$/.test(words[k])) k--;
+  const head = words.slice(0, Math.max(0, k)).join(' ');
+  return { kind: [kind, head].filter(Boolean).join(' '), name: words.slice(Math.max(0, k)).join(' '), district: district || '' };
 }
 
 // Advertising column posters: a seeded patchwork of bills (no text), wrapped round the column
@@ -205,6 +244,11 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   const footprints = [];
   const addFootprint = (x, z, w, d, kind = 'other') =>
     footprints.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2, kind });
+  // Player colliders (controllers.js: static boxes, bucketed into its 48 m cells), as tight as the visible shaft or
+  // cabinet: an upright box of half widths hx, hz up to maxY
+  const colliders = [];
+  const addCollider = (x, z, hx, hz, maxY) =>
+    colliders.push({ minX: x - hx, maxX: x + hx, minZ: z - hz, maxZ: z + hz, maxY });
 
   // Signal clock (seconds), set every frame by main.js
   const signalClock = uniform(0);
@@ -231,6 +275,8 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   const gasGlassGlow = new THREE.MeshBasicNodeMaterial();
   gasGlassGlow.colorNode = mix(color(0xc9ccc4), color(0xffdc9a).mul(1.9), smoothstep(0.4, 1.1, cityUniforms.uInteriorGlow));
   const castIronMat = new THREE.MeshStandardNodeMaterial({ color: 0x23282a, roughness: 0.6, metalness: 0.55 });
+  // the plates' aluminium tray, graphite RAL 7043 like their face
+  const plateBackMat = new THREE.MeshStandardNodeMaterial({ color: 0x3b3d3f, roughness: 0.5, metalness: 0.4 });
 
   const bothFaces = (geo) => [geo, geo.clone().rotateY(Math.PI)];
   // Lens and panel geometry carries its lamp in uv.y (see the lens materials): a constant, or the panel's own
@@ -296,8 +342,8 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
 
   // =========================================================================
   // 1. SIGNAL HEADS AT THE SIGNALISED JUNCTIONS
-  //    One pole on the right-hand curb of every arm traffic arrives over, just past the corner (by the crosswalk and
-  //    the stop line), carrying the S-1 head facing that traffic and a pedestrian head facing across the arm; one on
+  //    One pole on the right-hand curb of every arm traffic arrives over, just behind the crosswalk (by the stop
+  //    line), carrying the S-1 head facing that traffic and a pedestrian head facing across the arm; one on
   //    the left-hand curb (or median) with the pedestrian head facing back, and a repeater S-1 head on wide arms.
   //    Arms of one road (within ~35° of one line: both ways, or a divided road's two roadways) are one signal group,
   //    and the widest road is group 0, as road-network.js step 7 ranks them; people crossing an arm walk with the
@@ -355,11 +401,55 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   // outside them (city-config.js roadClearance), with 0.3 m for the runs' shape nodes straying from the real bends
   const clearOfRoads = (x, z, r) => roadClearance(x, z) >= r + 0.3;
 
+  // Crosswalk landings: pedestrian-routes.js runs each arm's crosswalk 2 m onto both sidewalks (with 0.4 m to spare
+  // each side) at the crosswalk road-network.js paints just inside its stop line, and drops a crosswalk with any footprint
+  // on it. The stop line is where the arm clears the roads crossing it (road-network.js stopBack, with the arms the graph
+  // gives here) plus the CROSSWALK; signal poles 1-4 m past the corner closed 41 crosswalks, bollards 8. A bend (two
+  // arms in about one line) has none. Landings are kept free across the whole crosswalk depth and 2.6 m behind the curb.
+  const LANDING_CELL = 64;
+  const landingGrid = new Map(); // cell -> [{ x, z, ux, uz, half, mid }]
+  for (const j of JUNCTIONS) {
+    const arms = j.arms;
+    if (arms.length === 2 && arms[0].ux * arms[1].ux + arms[0].uz * arms[1].uz < -0.82) continue;
+    for (const a of arms) {
+      let ext = 0;
+      for (const b of arms) {
+        const cos = a.ux * b.ux + a.uz * b.uz;
+        const sin = Math.abs(a.ux * b.uz - a.uz * b.ux);
+        if (b === a || cos > 0.94 || (cos < 0 && sin < 0.26)) continue; // merging, or the same road going on
+        ext = Math.max(ext, (b.w / 2 + (a.w / 2) * Math.abs(cos)) / sin);
+      }
+      const mid = (ext > 0 ? Math.min(ext, 20) + CROSSWALK : 2) - CROSSWALK / 2;
+      const l = { x: j.x, z: j.z, ux: a.ux, uz: a.uz, half: a.w / 2, mid };
+      const ix = Math.floor((j.x + a.ux * mid) / LANDING_CELL);
+      const iz = Math.floor((j.z + a.uz * mid) / LANDING_CELL);
+      const k = ix * 100000 + iz;
+      if (!landingGrid.has(k)) landingGrid.set(k, []);
+      landingGrid.get(k).push(l);
+    }
+  }
+  const clearOfCrosswalks = (x, z, r) => {
+    const ix0 = Math.floor(x / LANDING_CELL);
+    const iz0 = Math.floor(z / LANDING_CELL);
+    for (let ix = ix0 - 1; ix <= ix0 + 1; ix++) {
+      for (let iz = iz0 - 1; iz <= iz0 + 1; iz++) {
+        for (const l of landingGrid.get(ix * 100000 + iz) || []) {
+          const ox = x - l.x;
+          const oz = z - l.z;
+          const along = ox * l.ux + oz * l.uz;
+          if (Math.abs(along - l.mid) < CROSSWALK / 2 + r && Math.abs(ox * l.uz - oz * l.ux) < l.half + 2.6 + r) return false;
+        }
+      }
+    }
+    return true;
+  };
+
   // A signal pole may stand on a sidewalk 0.4 m clear of its curb, or in the middle of a median at least 1.8 m wide
-  // (0.9 m clear: lanes keep LANE_CLEAR 1.2 m from their centrelines, which stand >= 1.2 m inside the curbs)
+  // (0.9 m clear: lanes keep LANE_CLEAR 1.2 m from their centrelines, which stand >= 1.2 m inside the curbs), 0.8 m
+  // outside the nearest roadway (0.35 m left a few poles in lanes)
   const signalPoleSpot = (x, z) => {
     const b = blockAt(x, z);
-    if (!b || inPlaza(x, z, 0.5) || !isClearOfPoles(x, z, 1.4) || !clearOfRoads(x, z, 0.35)) return false;
+    if (!b || inPlaza(x, z, 0.5) || !isClearOfPoles(x, z, 1.4) || !clearOfRoads(x, z, 0.5) || !clearOfCrosswalks(x, z, 0.15)) return false;
     const pad = b.median ? 0.9 : 0.4;
     for (const [ox, oz] of [[pad, 0], [-pad, 0], [0, pad], [0, -pad]]) {
       const q = blockAt(x + ox, z + oz);
@@ -429,9 +519,13 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
           }
         }
       }
+      // Behind the crosswalk (4.3 m from the corner, road-network.js CROSSWALK), by the stop line: road-network.js runs
+      // its turning curves from stop line to stop line and they cut the corners, so a pole 1-4 m past the corner stood
+      // within a curve's 0.8 m clearance at 58 corners and cost 4.2 km of the network; further back along the curb only
+      // the lanes pass it
       const spot = (side) => {
-        for (const back of [0.75, 1.3]) {
-          for (const dt of [1.2, 2.4, 3.6, 4.8]) {
+        for (const back of [0.75, 1.0, 1.3]) {
+          for (let dt = 4.8; dt < 16; dt += 1.2) {
             const t = corner + dt;
             const x = a.x + a.ux * t + rx * (half + back) * side;
             const z = a.z + a.uz * t + rz * (half + back) * side;
@@ -446,6 +540,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         if (!p) continue;
         placedPoles.push(p);
         addFootprint(p.x, p.z, 0.3, 0.3, 'signal');
+        addCollider(p.x, p.z, 0.08, 0.08, 0.1 + SIGNAL_POLE_H);
         dummy.position.set(p.x, 0.1 + SIGNAL_POLE_H / 2, p.z);
         dummy.rotation.set(0, 0, 0);
         dummy.scale.set(0.055, SIGNAL_POLE_H, 0.055);
@@ -470,7 +565,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
       // Street name plates for the corner buildings either side of the arm (1B)
       if (a.name) {
         for (const side of [1, -1]) {
-          plateSites.push({ t: corner + 3.5, a, side, label: plateLabel(a.name) });
+          plateSites.push({ t: corner + 3.5, a, side });
         }
       }
     });
@@ -480,8 +575,9 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   // 1B. STREET NAME PLATES ON THE CORNER BUILDINGS
   //     From the curb just past each signalised corner, a ray across the sidewalk finds the first building wall
   //     (buildingColliders: the city-block and landmark colliders main.js hands over) within 14 m; the plate goes on
-  //     it at 3.3 m, facing the street it names. Nearby plates of one name are dropped; with no colliders (tests) there
-  //     are no plates.
+  //     it at 3.3 m, facing the street it names: the small Poznań SIM plate in the Old Town and on streets under 10 m,
+  //     the large one elsewhere, with the block's district on the strip. Nearby plates of one name are dropped; with no
+  //     colliders (tests) there are no plates.
   // =========================================================================
   const WALL_CELL = 24;
   const wallGrid = new Map();
@@ -554,30 +650,43 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
     }
     return best;
   }
-  const plateMatrices = [];
-  const plateCells = [];
-  const plateLabels = [];
+  // The Old Town as buildings.js draws it (OLD_TOWN_BOX: Stare Miasto east of al. Marcinkowskiego, with Garbary and
+  // Chwaliszewo), and Ostrów Tumski / Śródka within 650 m of the Katedra
+  const OLD_TOWN_BOX = { x0: -330, x1: 900, z0: -900, z1: 600 };
+  const KATEDRA = LANDMARK_SITES && LANDMARK_SITES.Katedra;
+  const inOldTown = (b, x, z) =>
+    (b.district === 'Stare Miasto' && x > OLD_TOWN_BOX.x0 && x < OLD_TOWN_BOX.x1 && z > OLD_TOWN_BOX.z0 && z < OLD_TOWN_BOX.z1) ||
+    (!!KATEDRA && Math.hypot(x - KATEDRA.x, z - KATEDRA.z) < 650);
+  const plates = { small: { matrices: [], cells: [], labels: [], keys: [] }, large: { matrices: [], cells: [], labels: [], keys: [] } };
   const placedPlates = [];
   if (wallGrid.size) {
-    for (const { t, a, side, label } of plateSites) {
+    for (const { t, a, side } of plateSites) {
       const rx = a.uz * side;
       const rz = -a.ux * side;
       const x = a.x + a.ux * t + rx * (a.w / 2 + 0.3);
       const z = a.z + a.uz * t + rz * (a.w / 2 + 0.3);
-      if (!blockAt(x + rx * 0.6, z + rz * 0.6)) continue;
+      const b = blockAt(x + rx * 0.6, z + rz * 0.6);
+      if (!b) continue;
       const hit = wallHit(x, z, rx, rz, 14);
       // only a wall facing back to the street, not a party wall seen edge-on
       if (!hit || hit.nx * -rx + hit.nz * -rz < 0.7) continue;
       const wx = x + rx * hit.t + hit.nx * 0.03;
       const wz = z + rz * hit.t + hit.nz * 0.03;
-      if (placedPlates.some((p) => p.label === label && Math.hypot(p.x - wx, p.z - wz) < 25)) continue;
-      placedPlates.push({ x: wx, z: wz, label });
-      let cell = plateLabels.indexOf(label);
-      if (cell < 0) cell = plateLabels.push(label) - 1;
-      plateCells.push(cell % 8, Math.floor(cell / 8));
-      plateMatrices.push(setFacing(wx, 3.3, wz, hit.nx, hit.nz));
+      if (placedPlates.some((p) => p.name === a.name && Math.hypot(p.x - wx, p.z - wz) < 25)) continue;
+      placedPlates.push({ x: wx, z: wz, name: a.name });
+      const set = plates[a.w < 10 || inOldTown(b, wx, wz) ? 'small' : 'large'];
+      const label = plateLabel(a.name, b.district);
+      const key = `${label.kind}|${label.name}|${label.district}`;
+      let cell = set.keys.indexOf(key);
+      if (cell < 0) {
+        cell = set.keys.push(key) - 1;
+        set.labels.push(label);
+      }
+      set.cells.push(cell % 8, Math.floor(cell / 8));
+      set.matrices.push(setFacing(wx, 3.3, wz, hit.nx, hit.nz));
     }
   }
+  const plateCount = plates.small.matrices.length + plates.large.matrices.length;
 
   // =========================================================================
   // 2. STREETLIGHTS ALONG EVERY CURB, BY STREET CLASS
@@ -588,13 +697,6 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   //    get the historic gas lanterns Poznań still lights, every ~22 m. Poles stand ~1 m inside the curb, their
   //    footprints clear of the lanes (LANE_CLEAR).
   // =========================================================================
-  // The Old Town as buildings.js draws it (OLD_TOWN_BOX: Stare Miasto east of al. Marcinkowskiego, with Garbary and
-  // Chwaliszewo), and Ostrów Tumski / Śródka within 650 m of the Katedra
-  const OLD_TOWN_BOX = { x0: -330, x1: 900, z0: -900, z1: 600 };
-  const KATEDRA = LANDMARK_SITES && LANDMARK_SITES.Katedra;
-  const inOldTown = (b, x, z) =>
-    (b.district === 'Stare Miasto' && x > OLD_TOWN_BOX.x0 && x < OLD_TOWN_BOX.x1 && z > OLD_TOWN_BOX.z0 && z < OLD_TOWN_BOX.z1) ||
-    (!!KATEDRA && Math.hypot(x - KATEDRA.x, z - KATEDRA.z) < 650);
   const streetClass = (b, mx, mz, outX, outZ) => {
     const near = nearestRoads(mx + outX * 3, mz + outZ * 3, 18);
     const r = near.length ? near[0].road : null;
@@ -646,9 +748,10 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         const px = cx + inx * 0.9;
         const pz = cz + inz * 0.9;
         if (!isOnSidewalk(px, pz, 0.5) || blockAt(cx + outX * 2.2, cz + outZ * 2.2) || !isClearOfPoles(px, pz, 5.2) ||
-          !clearOfRoads(px, pz, 0.25)) continue;
+          !clearOfRoads(px, pz, 0.25) || !clearOfCrosswalks(px, pz, 0.2)) continue;
         placedPoles.push({ x: px, z: pz });
         addFootprint(px, pz, 0.4, 0.4, 'gas');
+        addCollider(px, pz, 0.18, 0.18, 4.36);
         dummy.position.set(px, 0.18, pz);
         dummy.rotation.set(0, Math.atan2(dx, dz), 0);
         dummy.scale.set(1, 1, 1);
@@ -673,6 +776,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
       if (
         !isOnSidewalk(lx, lz, 0.55) ||
         !clearOfRoads(lx, lz, 0.3) ||
+        !clearOfCrosswalks(lx, lz, 0.225) ||
         blockAt(cx + outX * 2.5, cz + outZ * 2.5) ||
         blockAt(headX, headZ) ||
         !isClearOfPoles(lx, lz, 6.5)
@@ -681,6 +785,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
       }
       placedPoles.push({ x: lx, z: lz });
       addFootprint(lx, lz, 0.45, 0.45, 'led');
+      addCollider(lx, lz, 0.14, 0.14, 0.1 + 8.6 * scale);
       dummy.position.set(lx, 0.1, lz);
       dummy.rotation.set(0, armYaw, 0);
       dummy.scale.set(scale, scale, scale);
@@ -735,15 +840,17 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   addMatrixArrayInstanced(ledLensGeo, lampBulbGlow, ledHeadMatrices, false);
   addMatrixArrayInstanced(gasPostGeo, castIronMat, gasPostMatrices);
   addMatrixArrayInstanced(gasGlassGeo, gasGlassGlow, gasPostMatrices, false);
-  if (plateMatrices.length) {
-    const atlas = createPlateAtlas(plateLabels);
+  for (const [size, set] of Object.entries(plates)) {
+    if (!set.matrices.length) continue;
+    const { w, h, cell: px } = PLATE_SIZES[size];
+    const atlas = createPlateAtlas(set.labels, px);
     const plateMat = new THREE.MeshStandardNodeMaterial({ roughness: 0.45 });
     const cell = attribute('plateCell', 'vec2');
     // canvas row 0 is the texture's top (flipY)
     plateMat.colorNode = texture(atlas.tex, uv().add(vec2(cell.x, float(atlas.rows - 1).sub(cell.y))).div(vec2(atlas.cols, atlas.rows)));
-    addMatrixArrayInstanced(new THREE.PlaneGeometry(0.92, 0.23).translate(0, 0, 0.013), plateMat, plateMatrices, false,
-      { plateCell: { size: 2, data: plateCells } });
-    addMatrixArrayInstanced(new THREE.BoxGeometry(0.96, 0.27, 0.024), poleMetalMat, plateMatrices, false);
+    addMatrixArrayInstanced(new THREE.PlaneGeometry(w, h).translate(0, 0, 0.013), plateMat, set.matrices, false,
+      { plateCell: { size: 2, data: set.cells } });
+    addMatrixArrayInstanced(new THREE.BoxGeometry(w, h, 0.024), plateBackMat, set.matrices, false);
   }
 
   // =========================================================================
@@ -761,10 +868,12 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   const parkingMatrices = [];
   const bollardMatrices = [];
   const PARKING_ZONE = new Set(['Stare Miasto', 'Jeżyce', 'Łazarz', 'Wilda']);
+  const FURNITURE_TOP = { hydrant: [0.14, 1.46], postbox: [0.2, 1.56], parking: [0.2, 1.76], bollard: [0.07, 1.13] };
   const place = (list, p, yaw, w, kind, clear) => {
-    if (!isClearOfPoles(p.x, p.z, clear) || !clearOfRoads(p.x, p.z, w / 2 + 0.05)) return false;
+    if (!isClearOfPoles(p.x, p.z, clear) || !clearOfRoads(p.x, p.z, w / 2 + 0.05) || !clearOfCrosswalks(p.x, p.z, w / 2)) return false;
     placedPoles.push(p);
     addFootprint(p.x, p.z, w, w, kind);
+    addCollider(p.x, p.z, FURNITURE_TOP[kind][0], FURNITURE_TOP[kind][0], FURNITURE_TOP[kind][1]);
     dummy.position.set(p.x, 0.2, p.z);
     dummy.rotation.set(0, yaw, 0);
     dummy.scale.set(1, 1, 1);
@@ -900,6 +1009,18 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
       const w = Math.abs(ux) * halfW * 2 + Math.abs(inx) * halfD * 2;
       const d = Math.abs(uz) * halfW * 2 + Math.abs(inz) * halfD * 2;
       addFootprint(x, z, w, d, kind);
+      if (kind === 'column') addCollider(x, z, 0.62, 0.62, 3.4);
+      else {
+        // kiosks and flower stands face the street: an oriented box (its x axis along the curb, z out to the street)
+        const hx = kind === 'kiosk' ? 1.1 : 0.9;
+        const hz = kind === 'kiosk' ? 0.75 : 0.9;
+        const cx = x + outX * (kind === 'kiosk' ? 0 : -0.05);
+        const cz = z + outZ * (kind === 'kiosk' ? 0 : -0.05);
+        const ex = Math.abs(outZ) * hx + Math.abs(outX) * hz;
+        const ez = Math.abs(outX) * hx + Math.abs(outZ) * hz;
+        colliders.push({ minX: cx - ex, maxX: cx + ex, minZ: cz - ez, maxZ: cz + ez, maxY: kind === 'kiosk' ? 2.72 : 2.4,
+          obb: { cx, cz, hx, hz, cs: outZ, sn: outX } });
+      }
       dummy.position.set(x, 0.2, z);
       dummy.rotation.set(0, Math.atan2(outX, outZ), 0); // fronts face the street
       dummy.scale.set(1, 1, 1);
@@ -957,7 +1078,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   addMatrixArrayInstanced(columnDrumGeo, posterMat, columnMatrices);
 
   console.info(`[streetDetails] ${s1Matrices.length} signal heads and ${pedHeadMatrices.length} pedestrian heads on ` +
-    `${signalPoleMatrices.length} poles at ${builtJunctions.size} junctions, ${plateMatrices.length} name plates; lamps ` +
+    `${signalPoleMatrices.length} poles at ${builtJunctions.size} junctions, ${plateCount} name plates; lamps ` +
     `${lampCount.main} main, ${lampCount.side} side, ${lampCount.old} gas; ${hydrantMatrices.length} hydrants, ` +
     `${postBoxMatrices.length} post boxes, ${parkingMatrices.length} parking machines, ${bollardMatrices.length} bollards, ` +
     `${kioskMatrices.length} kiosks, ${flowerMatrices.length} flower stands, ${columnMatrices.length} advertising columns`);
@@ -1209,7 +1330,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   }
 
   scene.add(group);
-  return { group, footprints, signalClock, audioSignals, update };
+  return { group, footprints, colliders, signalClock, audioSignals, update };
 }
 
 export { buildStreetDetails };
