@@ -380,3 +380,14 @@ test('pieces of one street are chained end to end, but not through a fork', () =
   assert.deepEqual([...chains[0].pts.map((q) => q.x)], [0, 100, 200, 300], 'b is reversed to run on from a');
   assert.deepEqual(Array.from(chains.slice(1), (c) => [...c.pieces]), [[3], [4]]);
 });
+
+test('every element the map looks up exists in index.html, and the legend names only what the map draws', () => {
+  const html = readFileSync(join(__dirname, '../index.html'), 'utf8');
+  const ids = [...source.matchAll(/getElementById\('([^']+)'\)/g)].map((m) => m[1]);
+  assert.ok(ids.length > 10);
+  for (const id of new Set(ids)) assert.ok(html.includes(`id="${id}"`), `#${id} is missing from index.html`);
+  // Poznań's GEO.roads flags no expressway, so the map has no highway layer for the legend to name
+  const legend = html.slice(html.indexOf('id="fullmap-legend"'), html.indexOf('id="fullmap-counts"'));
+  assert.doesNotMatch(legend, /Hwy|Highway/i);
+  assert.doesNotMatch(source, /\.highways?\b/);
+});

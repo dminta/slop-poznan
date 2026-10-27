@@ -24,7 +24,6 @@
   /* street plates (Poznań SIM 2017, as street-details.js paints them): graphite RAL 7043, RAL 5005 district strip */
   --sign-graphite: #3b3d3f;
   --sign-blue: #1f5bb5;
-  --highway: #c08a3e;
   --ok: #5ee08f;
   --warn: #ffc857;
   --bad: #ff7a6b;
@@ -1288,9 +1287,10 @@ body.is-boosting #hud-speed-meter {
 }
 
 .gps-swatch { background: var(--accent); }
-.bridge-swatch { background: var(--highway); }
+.bridge-swatch { background: var(--map-bridge, #c08a3e); }
 
-/* --map-tram / --map-rail are set from city-map.js's MAP palette on #fullmap-legend; the fallbacks match it */
+/* --map-bridge / --map-tram / --map-rail are set from city-map.js's MAP palette on #fullmap-legend; the fallbacks
+   match it */
 .tram-swatch,
 .rail-swatch {
   width: 16px;

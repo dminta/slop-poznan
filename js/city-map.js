@@ -46,7 +46,7 @@ function compassTitle(bearingDeg) {
 
 // Map palette, shared by the radar & the atlas (in step with css/style.css): graphite ground with the streets a shade
 // lighter than the blocks they run between, muted parks & water; a yellow GPS route, white landmarks & player, cyan
-// search hits, amber highways, thin red tram lines and dashed grey railways
+// search hits, amber bridges, thin red tram lines and dashed grey railways
 const MAP = {
   water: '#0a1118',
   beyond: '#12161b', // the land past the city line
@@ -64,7 +64,6 @@ const MAP = {
   landmarkFill: 'rgba(255, 255, 255, 0.06)',
   landmarkEdge: 'rgba(255, 255, 255, 0.38)',
   mainRoads: '#3a434f',
-  highway: '#b27a35',
   bridge: '#c08a3e',
   tram: '#b8434d',
   rail: '#5f6875',
@@ -223,14 +222,10 @@ function mapLayers() {
   L.parkBlocks = new TiledLayer();
   for (const b of BLOCKS) (b.park > 0.6 && !b.median ? L.parkBlocks : L.blocks).ring(b.poly);
 
-  // Street network at low zoom (the wide streets, once the gaps between blocks are under a pixel) and the expressways
+  // Street network at low zoom: the wide streets, once the gaps between blocks are under a pixel (Poznań's GEO.roads
+  // flags no expressway, so there is no separate highway layer)
   L.mainRoads = new TiledLayer(1000);
-  L.highways = new Path2D();
-  for (const r of ROADS) {
-    if (r.highway) {
-      if (!/Tunel|Tunnel/.test(r.name)) addLine(L.highways, r.pts);
-    } else if (r.w >= 15) L.mainRoads.line(r.pts);
-  }
+  for (const r of ROADS) if (r.w >= 15) L.mainRoads.line(r.pts);
 
   // Tram tracks (street-running and on their own right of way) and the railways
   L.trams = new TiledLayer(1000);
@@ -448,14 +443,12 @@ const ROAD_LABELS = [];
   for (const [name, roads] of byName) {
     const text = LABEL_ALIAS[name] || name;
     for (const { pts, pieces } of chainRoadPieces(roads.map((r) => r.pts))) {
-      const highway = pieces.some((i) => roads[i].highway);
       ROAD_LABELS.push({
         text,
         lower: foldText(text),
         raw: foldText(name),
         pts,
-        major: highway || pieces.some((i) => roads[i].w >= 15),
-        highway,
+        major: pieces.some((i) => roads[i].w >= 15),
         anchors: roadLabelAnchors(pts),
         ...boundsOf(pts)
       });
@@ -726,15 +719,14 @@ class CityMapSystem {
 
     this.miniCanvas = document.getElementById('minimap-canvas');
     this.miniCtx = this.miniCanvas ? this.miniCanvas.getContext('2d') : null;
-    this.elMiniStreet = document.getElementById('minimap-street-label');
-    this.miniStreetText = '';
     this.miniScale = RADAR_SCALE;
     this.miniCache = null; // { canvas, cx, cz, s, version }: the radar's ground layers, twice the radar's size
     const elCounts = document.getElementById('fullmap-counts');
     if (elCounts) elCounts.textContent = `${ROAD_NAME_COUNT} streets · ${formatCount(BLOCKS.length)} blocks`;
-    // The legend's tram & rail swatches take their colours from the palette the map draws them with
+    // The legend's bridge, tram & rail swatches take their colours from the palette the map draws them with
     const elLegend = document.getElementById('fullmap-legend');
     if (elLegend) {
+      elLegend.style.setProperty('--map-bridge', MAP.bridge);
       elLegend.style.setProperty('--map-tram', MAP.tram);
       elLegend.style.setProperty('--map-rail', MAP.rail);
     }
@@ -1060,7 +1052,7 @@ class CityMapSystem {
 
   /**
    * The ground: land & water, parkland, squares, blocks, building footprints, landmark lots, the main streets at low
-   * zoom, expressways, bridges and the search highlight (world transform of view v)
+   * zoom, the railways, bridges, tram lines and the search highlight (world transform of view v)
    */
   drawWorld(ctx, v, isMinimap) {
     const L = mapLayers();
@@ -1143,7 +1135,7 @@ class CityMapSystem {
       L.mainRoads.each(v, (p) => ctx.stroke(p));
     }
 
-    // 6. Railways (dashed grey) and expressways
+    // 6. Railways (dashed grey)
     if (s >= 0.035) {
       ctx.strokeStyle = MAP.rail;
       ctx.lineWidth = px(s < 0.1 ? 1 : 1.4);
@@ -1153,9 +1145,6 @@ class CityMapSystem {
       ctx.setLineDash([]);
       ctx.lineCap = 'round';
     }
-    ctx.strokeStyle = MAP.highway;
-    ctx.lineWidth = Math.max(px(isMinimap ? 2.4 : 1.6), 14);
-    ctx.stroke(L.highways);
 
     // 7. Bridge decks over the water
     ctx.strokeStyle = MAP.bridge;
@@ -1202,7 +1191,7 @@ class CityMapSystem {
       for (const a of l.anchors) {
         if (a.len < need || a.x < minX || a.x > maxX || a.z < minZ || a.z > maxZ) continue;
         const d = Math.hypot(a.x - v.cx, a.z - v.cz) * s;
-        cands.push({ l, a, width, hit, score: (hit ? 1e6 : 0) + (l.highway ? 3000 : 0) + (l.major ? 2000 : 0) + Math.min(a.len * s, 400) - d * 0.5 });
+        cands.push({ l, a, width, hit, score: (hit ? 1e6 : 0) + (l.major ? 2000 : 0) + Math.min(a.len * s, 400) - d * 0.5 });
       }
     }
     cands.sort((a, b) => b.score - a.score);
@@ -1234,7 +1223,7 @@ class CityMapSystem {
       ctx.save();
       ctx.translate(X, Y);
       ctx.rotate(c.a.ang);
-      ctx.fillStyle = c.hit ? MAP.search : c.l.highway ? '#e3a857' : c.l.major ? '#e8ebf0' : '#9ba5b3';
+      ctx.fillStyle = c.hit ? MAP.search : c.l.major ? '#e8ebf0' : '#9ba5b3';
       ctx.strokeText(c.l.text, 0, 0);
       ctx.fillText(c.l.text, 0, 0);
       ctx.restore();
@@ -1313,14 +1302,6 @@ class CityMapSystem {
     const target = Math.max(0.05, RADAR_SCALE / (1 + Math.max(0, ent.position.y - 25) / 180));
     this.miniScale += (target - this.miniScale) * 0.08;
     const scale = this.miniScale;
-
-    if (this.elMiniStreet) {
-      const label = getLocationLabel(px, pz);
-      if (label !== this.miniStreetText) {
-        this.miniStreetText = label;
-        this.elMiniStreet.textContent = label;
-      }
-    }
 
     // Ground layers & street names come from a cached render twice the radar's size, redrawn when the player nears its
     // edge or the zoom drifts (or the buildings arrive)
@@ -1523,7 +1504,7 @@ class CityMapSystem {
     ctx.fillStyle = MAP.beyond;
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-    // 2. The ground: outskirts, the core's blocks, water, parks, footprints, expressways & bridges
+    // 2. The ground: outskirts, the core's blocks, water, parks, footprints, rail, bridges & trams
     this.drawWorld(ctx, v, false);
 
     v.screen(ctx);
