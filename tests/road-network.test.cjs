@@ -141,7 +141,9 @@ test('lanes follow the OSM lane count and direction within the roadway', () => {
 // loops out of the largest strongly connected set, so a big drop with the furniture means a placement or lane geometry
 // rule broke (docs/world.md). Measured 2026-10: bare 6925 edges long enough, 4300 (193.8 km) in the set; with the
 // furniture (14520 footprints: signal poles, lamps, hydrants, bollards, kiosks, ...) 4294 (193.5 km). The rest of the
-// bare graph is mostly cul-de-sacs and roads cut at the detail box.
+// bare graph is mostly cul-de-sacs and roads cut at the detail box. On the furnished network, pedestrian-routes.js lays
+// 1374 crosswalks (1887 tracks; 1399 / 1928 bare), the zebras road-paint.js paints: none overlapping (276 pairs when
+// every edge end of the paint edges had one, 3616 zebras) and none ending in the roadway (2208 did).
 function inert() {
   const store = {};
   return new Proxy(function () {}, {
@@ -162,7 +164,7 @@ test('most of the Poznań road graph survives the largest strongly connected set
   const config = await import('../js/city-config.js');
   const { GEO } = await import('../js/geodata.js');
   const logs = [];
-  const { buildRoadNetwork, CROSSWALK, STOP_SETBACK } = loadModule(source, {
+  const { buildRoadNetwork, CROSSWALK, CROSSWALK_REACH, STOP_SETBACK } = loadModule(source, {
     imports: { './city-config.js': config, './geodata.js': { GEO } },
     globals: { console: { info: (line) => logs.push(line) } },
     filename: 'road-network.js'
@@ -170,7 +172,7 @@ test('most of the Poznań road graph survives the largest strongly connected set
   const { buildStreetDetails } = loadModule(readFileSync(join(__dirname, '../js/street-details.js'), 'utf8'), {
     imports: {
       'three/webgpu': inert(), 'three/tsl': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert(),
-      './city-config.js': config, './road-network.js': { CROSSWALK, STOP_SETBACK }, './tsl-materials.js': inert(),
+      './city-config.js': config, './road-network.js': { CROSSWALK, CROSSWALK_REACH, STOP_SETBACK }, './tsl-materials.js': inert(),
       './trees.js': { createTreeField: () => ({ group: inert() }) },
       './city-grid.js': { pavedPlazaRects: [], parkTreeSites: [], parkLampSites: [] }
     },
@@ -198,6 +200,46 @@ test('most of the Poznań road graph survives the largest strongly connected set
   assert.ok(footprints.length > 5000, `${footprints.length} street furniture footprints`);
   const furnished = buildRoadNetwork([], footprints);
   assert.ok(km(furnished) > 0.99 * km(bare), `${km(furnished).toFixed(1)} of ${km(bare).toFixed(1)} km survive the furniture`);
+  // Crosswalks, and so zebras: none on top of another, both ends on a curb island, the walk 2 m onto it
+  const { createPedestrianRoutes } = loadModule(readFileSync(join(__dirname, '../js/pedestrian-routes.js'), 'utf8'), {
+    imports: { './road-network.js': { CROSSWALK, CROSSWALK_REACH } }, filename: 'pedestrian-routes.js'
+  });
+  const { crosswalks, across } = createPedestrianRoutes(furnished, config.blockAt);
+  const tracks = furnished.nodes.reduce((sum, n) => sum + across(n).length, 0);
+  assert.ok(crosswalks.length > 1250 && tracks > 1750, `${crosswalks.length} crosswalks, ${tracks} tracks`);
+  const h = (CROSSWALK - 0.3) / 2;
+  const corners = (c) => [[c.ax, c.az], [c.bx, c.bz]].flatMap(([x, z]) => [[x - c.ux * h, z - c.uz * h], [x + c.ux * h, z + c.uz * h]]);
+  const overlap = (p, q) => [[p.ux, p.uz], [-p.uz, p.ux], [q.ux, q.uz], [-q.uz, q.ux]].every(([ax, az]) => {
+    const pd = corners(p).map(([x, z]) => x * ax + z * az), qd = corners(q).map(([x, z]) => x * ax + z * az);
+    return Math.max(...pd) > Math.min(...qd) + 0.01 && Math.max(...qd) > Math.min(...pd) + 0.01;
+  });
+  const cells = new Map();
+  for (const c of crosswalks) {
+    const k = Math.floor((c.ax + c.bx) / 64) * 100000 + Math.floor((c.az + c.bz) / 64);
+    if (!cells.has(k)) cells.set(k, []);
+    cells.get(k).push(c);
+  }
+  const overlaps = [];
+  for (const c of crosswalks) {
+    const ix = Math.floor((c.ax + c.bx) / 64), iz = Math.floor((c.az + c.bz) / 64);
+    for (let x = ix - 1; x <= ix + 1; x++) {
+      for (let z = iz - 1; z <= iz + 1; z++) {
+        for (const o of cells.get(x * 100000 + z) || []) if (o !== c && overlap(c, o)) overlaps.push(`${c.ax.toFixed(0)},${c.az.toFixed(0)}`);
+      }
+    }
+  }
+  assert.deepEqual(overlaps, [], 'no two zebras overlap');
+  const offCurb = crosswalks.filter((c) => {
+    const L = Math.hypot(c.bx - c.ax, c.bz - c.az), dx = (c.bx - c.ax) / L, dz = (c.bz - c.az) / L;
+    return !config.blockAt(c.ax - dx * 0.01, c.az - dz * 0.01) || !config.blockAt(c.bx + dx * 0.01, c.bz + dz * 0.01);
+  });
+  assert.equal(offCurb.length, 0, 'every zebra ends on a curb island');
+  for (const c of crosswalks) {
+    for (const t of c.tracks) {
+      assert.ok(config.blockAt(t.ax, t.az) && config.blockAt(t.ax + t.ux * t.len, t.az + t.uz * t.len), 'and so does the walk');
+    }
+  }
+
   // every piece of it is a player collider too, as small as the thing itself
   assert.equal(colliders.length, footprints.length);
   assert.ok(colliders.every((c) => c.maxX - c.minX < 3 && c.maxZ - c.minZ < 3 && c.maxY > 1 && c.maxY < 10),

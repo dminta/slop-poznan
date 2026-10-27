@@ -107,7 +107,7 @@ async function initApp() {
   // The street furniture's player colliders join only now: its footprints already went to the network above
   allColliders.push(...streetDetails.colliders);
   const highwayTraffic = createHighwayTraffic(scene, cityGrid.highwayLanes);
-  buildRoadPaint(scene, trafficSystem.network);
+  buildRoadPaint(scene, trafficSystem.network, trafficSystem.crosswalks);
   markInit('roadPaint');
   // Rails, overhead line and stops, placed clear of the car lanes just built (none of it is a traffic obstacle);
   // the player collides with the poles and stop furniture

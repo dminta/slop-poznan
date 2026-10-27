@@ -6,19 +6,20 @@ const { loadModule } = require('./helpers/module.cjs');
 
 const CROSSWALK = 4.3;
 const STOP_SETBACK = 1.75;
+const CROSSWALK_REACH = 4;
 const { createPedestrianRoutes } = loadModule(
   readFileSync(join(__dirname, '../js/pedestrian-routes.js'), 'utf8'),
-  { imports: { './road-network.js': { CROSSWALK } } }
+  { imports: { './road-network.js': { CROSSWALK, CROSSWALK_REACH } } }
 );
 
 // A two-way road leaving node n along (ux, uz), as road-network.js leaves it: straight edges between stop lines `back`
 // metres out from n, a right normal (rx, rz) = (-dz, dx) and the lateral axis (clx, clz) flipped the same both ways.
 function edge(x0, z0, dx, dz, back, len, half) {
   const rx = -dz, rz = dx, flip = rx < -1e-6 || (Math.abs(rx) <= 1e-6 && rz < 0);
-  return { sx: x0 + dx * back, sz: z0 + dz * back, dx, dz, rx, rz, len, setbackFrom: STOP_SETBACK, setbackTo: STOP_SETBACK, half, clx: flip ? -rx : rx, clz: flip ? -rz : rz };
+  return { sx: x0 + dx * back, sz: z0 + dz * back, dx, dz, rx, rz, len, span: len + 2 * back, setbackFrom: STOP_SETBACK,
+    setbackTo: STOP_SETBACK, half, clx: flip ? -rx : rx, clz: flip ? -rz : rz };
 }
-function arm(n, ux, uz, { half, back, side, group }) {
-  const len = 80;
+function arm(n, ux, uz, { half, back, side, group, len = 80 }) {
   const out = edge(n.x, n.z, ux, uz, back, len, half);
   const far = { x: n.x + ux * (len + 2 * back), z: n.z + uz * (len + 2 * back) };
   const inn = edge(far.x, far.z, -ux, -uz, back, len, half);
@@ -28,12 +29,23 @@ function arm(n, ux, uz, { half, back, side, group }) {
   return a;
 }
 
-// Everywhere off the roads through n is one curb island
-function routesAround(n) {
-  const off = (x, z) => n.arms.every((a) => Math.abs((x - n.x) * a.uz - (z - n.z) * a.ux) > a.half
+// Everywhere off the roads through n (each `wider` metres wider than its lanes' half width says) is one curb island
+function routesAround(n, wider = 0) {
+  const off = (x, z) => n.arms.every((a) => Math.abs((x - n.x) * a.uz - (z - n.z) * a.ux) > a.half + wider - 0.01
     || (x - n.x) * a.ux + (z - n.z) * a.uz < 0);
   const block = { poly: [] };
-  return createPedestrianRoutes({ walkable: () => true }, (x, z) => (off(x, z) ? block : null));
+  const edges = n.arms.flatMap((a) => [a.in, a.out]);
+  return createPedestrianRoutes({ nodes: [n], edges, walkable: () => true }, (x, z) => (off(x, z) ? block : null));
+}
+// The zebra of a crosswalk as a rectangle: its corners
+const corners = (c, h = (CROSSWALK - 0.3) / 2) => [[c.ax, c.az], [c.bx, c.bz]].flatMap(([x, z]) => [[x - c.ux * h, z - c.uz * h], [x + c.ux * h, z + c.uz * h]]);
+function overlap(p, q) {
+  const P = corners(p), Q = corners(q);
+  for (const [ax, az] of [[p.ux, p.uz], [-p.uz, p.ux], [q.ux, q.uz], [-q.uz, q.ux]]) {
+    const pd = P.map(([x, z]) => x * ax + z * az), qd = Q.map(([x, z]) => x * ax + z * az);
+    if (Math.max(...pd) <= Math.min(...qd) + 1e-9 || Math.max(...qd) <= Math.min(...pd) + 1e-9) return false;
+  }
+  return true;
 }
 
 const near = (actual, expected, message) => assert.ok(Math.abs(actual - expected) < 1e-9, `${message}: ${actual} != ${expected}`);
@@ -70,4 +82,43 @@ test('no crosswalks where a street merely bends', () => {
   const bend = { x: 0, z: 0, shape: true, signal: false, arms: [] };
   bend.arms.push(arm(bend, 1, 0, { half: 5, back: 2, side: 4, group: 0 }), arm(bend, -0.96, 0.28, { half: 5, back: 2, side: 5, group: 0 }));
   assert.equal(routesAround(bend).across(bend).length, 0);
+});
+
+test('zebras run on to the real curb within CROSSWALK_REACH, and there is none where they would end in the roadway', () => {
+  const junction = () => {
+    const n = { x: 0, z: 0, signal: false, arms: [] };
+    for (const [ux, uz, side, group] of [[1, 0, 0, 0], [-1, 0, 1, 0], [0, 1, 2, 1], [0, -1, 3, 1]]) {
+      n.arms.push(arm(n, ux, uz, { half: 5, back: 16, side, group }));
+    }
+    return n;
+  };
+  const n = junction();
+  const near = routesAround(n, 3);
+  assert.equal(near.crosswalks.length, 4);
+  for (const c of near.crosswalks) {
+    assert.ok(Math.abs(Math.hypot(c.bx - c.ax, c.bz - c.az) - 16) < 0.26, 'curb to curb, 3 m past each modelled curb');
+    for (const t of near.across(n).filter((t) => t.side === c.side)) assert.ok(Math.abs(t.len - 20) < 0.6, '2 m onto each sidewalk');
+  }
+  const far = junction();
+  assert.equal(routesAround(far, CROSSWALK_REACH + 1).crosswalks.length, 0, 'no zebra ending in the roadway');
+  assert.equal(routesAround(far, CROSSWALK_REACH + 1).across(far).length, 0, 'and nobody crosses there');
+});
+
+test('where the zebras of a junction complex overlap, those of the longer roads stay', () => {
+  // A corridor along x with sidewalks north and south of it (|z| > 4), two junctions 10 m apart on it: each has a long
+  // outer arm and a short inner one, and the two inner zebras (2.15-6.15 and 3.85-7.85 m) overlap
+  const n1 = { x: 0, z: 0, signal: false, arms: [] };
+  const n2 = { x: 10, z: 0, signal: false, arms: [] };
+  n1.arms.push(arm(n1, -1, 0, { half: 4, back: 8, side: 0, group: 0, len: 120 }));
+  n1.arms.push(arm(n1, 1, 0, { half: 4, back: 8, side: 1, group: 0, len: 0.5 }));
+  n2.arms.push(arm(n2, -1, 0, { half: 4, back: 8, side: 0, group: 0, len: 2 }));
+  n2.arms.push(arm(n2, 1, 0, { half: 4, back: 8, side: 1, group: 0, len: 120 }));
+  const block = { poly: [] };
+  const edges = [n1, n2].flatMap((n) => n.arms.flatMap((a) => [a.in, a.out]));
+  const routes = createPedestrianRoutes({ nodes: [n1, n2], edges, walkable: () => true }, (x, z) => (Math.abs(z) > 4 ? block : null));
+  const kept = Array.from(routes.crosswalks, (c) => `${c.node === n1 ? 'n1' : 'n2'}:${c.side}`).sort();
+  assert.deepEqual(kept, ['n1:0', 'n2:0', 'n2:1'], 'both outer arms, and of the inner ones the longer link\'s');
+  for (const p of routes.crosswalks) for (const q of routes.crosswalks) assert.ok(p === q || !overlap(p, q), 'no zebras overlap');
+  assert.deepEqual(Array.from(routes.across(n1), (t) => t.side), [0], 'nobody crosses where no zebra is');
+  assert.deepEqual(Array.from(routes.across(n2), (t) => t.side).sort(), [0, 1]);
 });
