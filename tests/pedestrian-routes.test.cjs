@@ -4,7 +4,7 @@ const { join } = require('node:path');
 const test = require('node:test');
 const { loadModule } = require('./helpers/module.cjs');
 
-const CROSSWALK = 2.5;
+const CROSSWALK = 4.3;
 const { createPedestrianRoutes } = loadModule(
   readFileSync(join(__dirname, '../js/pedestrian-routes.js'), 'utf8'),
   { imports: { './road-network.js': { CROSSWALK } } }
