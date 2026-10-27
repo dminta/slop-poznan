@@ -61,6 +61,33 @@ test('Poznań geodata builds offline with default paths in a checkout containing
     const [lon, lat] = [16.93401, 52.40856];
     assert.ok(Math.abs(ll[0] * lon + ll[1] * lat + ll[2]) < 0.01);
     assert.ok(Math.abs(ll[3] * lon + ll[4] * lat + ll[5]) < 0.01);
+    // Tram track closed for rebuilding (railway=disused|razed|construction, still in its route=tram relations) is kept:
+    // the Ostrów Tumski line over Most Chrobrego and Most Mieszka I, and Most Teatralny
+    const tramPts = GEO.rail.filter((r) => r.kind === 'tram').map((r) => r.pts);
+    const tramDist = (x, z) => {
+      let best = Infinity;
+      for (const p of tramPts) {
+        for (let i = 0; i + 3 < p.length; i += 2) {
+          const dx = p[i + 2] - p[i], dz = p[i + 3] - p[i + 1];
+          const t = Math.max(0, Math.min(1, ((x - p[i]) * dx + (z - p[i + 1]) * dz) / (dx * dx + dz * dz || 1)));
+          best = Math.min(best, Math.hypot(p[i] + dx * t - x, p[i + 1] + dz * t - z));
+        }
+      }
+      return best;
+    };
+    const { nodes, names } = GEO.roadGraph;
+    for (const bridge of ['Most Bolesława Chrobrego', 'Most Mieszka I', 'Most Teatralny']) {
+      const links = GEO.roadGraph.links.filter((l) => names[l[2]] === bridge);
+      assert.ok(links.length > 0 && links.every((l) => l[7] & 2), `${bridge}: every link carries the tram`);
+      for (const l of links) {
+        const x = (nodes[2 * l[0]] + nodes[2 * l[1]]) / 2, z = (nodes[2 * l[0] + 1] + nodes[2 * l[1] + 1]) / 2;
+        assert.ok(tramDist(x, z) < 8, `${bridge}: a tram track on the deck`);
+      }
+    }
+    for (const stop of ['Katedra', 'Rondo Śródka', 'Fredry', 'Most Teatralny', 'Małe Garbary']) {
+      const at = GEO.tramStops.filter((s) => s.name === stop);
+      assert.ok(at.length > 0 && at.every((s) => tramDist(s.x, s.z) < 1), `${stop}: every stop node lies on a tram track`);
+    }
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -29,6 +29,7 @@ const PLAZA_HOLE_M2 = 100; // m²: smaller inner rings of a pedestrian area are 
 const osmRoads = load('poz_roads.json');
 const osmRail = load('poz_rail.json');
 const osmPoints = load('poz_signals.json');
+const osmTramRoutes = load('poz_tram_routes.json');
 
 const DRIVABLE = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential',
   'living_street', 'service', 'road', 'busway', 'motorway_link', 'trunk_link', 'primary_link', 'secondary_link',
@@ -203,11 +204,23 @@ for (const w of drivableWays) {
 // ---------------------------------------------------------------------------------------------------------------------
 // Rails: tram/rail track ways, landuse=railway
 // ---------------------------------------------------------------------------------------------------------------------
+// Track ways of a route=tram relation count as tram track whatever their railway tag. A line closed for rebuilding is
+// retagged railway=disused|razed|construction (no `disused:railway=tram`) but stays in its routes: in the 2026 data
+// that is the whole Ostrów Tumski line (Pl. Wielkopolski - Most Chrobrego - Katedra - Most Mieszka I - Rondo Śródka),
+// Most Teatralny and the Fredry curve. The snapshot was current; the filter on railway=tram dropped them.
+const CLOSED_TRACK = new Set(['disused', 'razed', 'construction', 'abandoned']);
+const routeWays = new Set();
+for (const r of osmTramRoutes.elements) {
+  if (r.type === 'relation' && tagOf(r).route === 'tram') for (const m of r.members) if (m.type === 'way') routeWays.add(m.ref);
+}
 const trackWays = [];
 let droppedRailTunnel = 0;
+let closedTram = 0;
 for (const e of osmRail.elements) {
   const t = tagOf(e);
-  if (e.type !== 'way' || !e.geometry || !['tram', 'rail', 'light_rail'].includes(t.railway)) continue;
+  if (e.type !== 'way' || !e.geometry) continue;
+  const closed = CLOSED_TRACK.has(t.railway) && routeWays.has(e.id);
+  if (!closed && !['tram', 'rail', 'light_rail'].includes(t.railway)) continue;
   if (underground(t)) { droppedRailTunnel++; continue; }
   const pts = e.geometry.map((g) => toWorld(g.lon, g.lat));
   if (!touchesBox(pts, PIECE_PAD)) continue;
@@ -215,7 +228,8 @@ for (const e of osmRail.elements) {
   const oneway = isOneway(t);
   const nodes = e.nodes.slice();
   if (oneway < 0) { pts.reverse(); nodes.reverse(); }
-  trackWays.push({ id: e.id, kind: t.railway === 'tram' ? 'tram' : 'rail', tracks: parseInt(t.tracks, 10) || 1,
+  if (closed) closedTram++;
+  trackWays.push({ id: e.id, kind: t.railway === 'tram' || closed ? 'tram' : 'rail', tracks: parseInt(t.tracks, 10) || 1,
     oneway: oneway ? 1 : 0, bridge: t.bridge && t.bridge !== 'no' ? 1 : 0, pts, nodes });
 }
 // Track pieces for GEO.rail: every track way cut at the nodes it shares with another track way (switches, crossings),
@@ -483,7 +497,7 @@ log(`road pieces: ${pieces.length} from ${drivableWays.length} drivable ways (${
 log(`bridges: ${pieces.filter((p) => p.bridge).length} pieces (${named((p) => p.bridge).join(', ')})`);
 log(`tram on street: ${pieces.filter((p) => p.tram).length} pieces, ${(pieces.filter((p) => p.tram).reduce((s, p) => s + lineLen(p.pts), 0) / 1000).toFixed(1)} km on ${named((p) => p.tram).length} streets`);
 log(`plazas: ${plazas.length} (${[...new Set(plazas.map((p) => p.name).filter(Boolean))].length} named), pedestrian ways: ${pedestrianWays.length}`);
-log(`rail: ${rail.length} lines (tram ${rail.filter((r) => r.kind === 'tram').length}, on street ${rail.filter((r) => r.street).length}; rail ${rail.filter((r) => r.kind === 'rail').length}); ${trackWays.length} track ways, ${droppedRailTunnel} tunnel ways dropped; corridors ${railCorridors.rings.length} rings, ${railCorridors.lines.length} lines`);
+log(`rail: ${rail.length} lines (tram ${rail.filter((r) => r.kind === 'tram').length}, on street ${rail.filter((r) => r.street).length}; rail ${rail.filter((r) => r.kind === 'rail').length}); ${trackWays.length} track ways (${closedTram} closed tram ways kept from route=tram relations), ${droppedRailTunnel} tunnel ways dropped; corridors ${railCorridors.rings.length} rings, ${railCorridors.lines.length} lines`);
 log(`roads: ${roads.length} polylines (${roads.reduce((t, r) => t + r[5].length / 2, 0)} pts); tram stops ${tramStops.length}; signal nodes ${signalNodes.length}`);
 
 export { pieces, plazas, pedestrianWays, rail, railCorridors, roads, tramStops, signalNodes, midOf, lineLen };
