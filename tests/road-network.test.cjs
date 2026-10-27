@@ -130,7 +130,7 @@ test('most of the Poznań road graph survives the largest strongly connected set
   const config = await import('../js/city-config.js');
   const { GEO } = await import('../js/geodata.js');
   const logs = [];
-  const { buildRoadNetwork } = loadModule(source, {
+  const { buildRoadNetwork, CROSSWALK } = loadModule(source, {
     imports: { './city-config.js': config, './geodata.js': { GEO } },
     globals: { console: { info: (line) => logs.push(line) } },
     filename: 'road-network.js'
@@ -138,7 +138,7 @@ test('most of the Poznań road graph survives the largest strongly connected set
   const { buildStreetDetails } = loadModule(readFileSync(join(__dirname, '../js/street-details.js'), 'utf8'), {
     imports: {
       'three/webgpu': inert(), 'three/tsl': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert(),
-      './city-config.js': config, './tsl-materials.js': inert(),
+      './city-config.js': config, './road-network.js': { CROSSWALK }, './tsl-materials.js': inert(),
       './trees.js': { createTreeField: () => ({ group: inert() }) },
       './city-grid.js': { pavedPlazaRects: [], parkTreeSites: [], parkLampSites: [] }
     },

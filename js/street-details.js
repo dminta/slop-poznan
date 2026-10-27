@@ -1,7 +1,8 @@
 import * as THREE from 'three/webgpu';
 import { Fn, float, color, uniform, mod, fract, step, smoothstep, mix, uv, texture, attribute, vec2, floor, sin, positionWorld } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { SIGNAL_SITES, SIGNAL_TIMING, blockAt, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES } from './city-config.js';
+import { SIGNAL_SITES, SIGNAL_TIMING, JUNCTIONS, blockAt, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES } from './city-config.js';
+import { CROSSWALK } from './road-network.js';
 import { cityUniforms, createTreeGrateMaterial } from './tsl-materials.js';
 import { createTreeField } from './trees.js';
 import { pavedPlazaRects, parkTreeSites, parkLampSites } from './city-grid.js';
@@ -205,6 +206,11 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   const footprints = [];
   const addFootprint = (x, z, w, d, kind = 'other') =>
     footprints.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2, kind });
+  // Player colliders (controllers.js: static boxes, bucketed into its 48 m cells), as tight as the visible shaft or
+  // cabinet: an upright box of half widths hx, hz up to maxY
+  const colliders = [];
+  const addCollider = (x, z, hx, hz, maxY) =>
+    colliders.push({ minX: x - hx, maxX: x + hx, minZ: z - hz, maxZ: z + hz, maxY });
 
   // Signal clock (seconds), set every frame by main.js
   const signalClock = uniform(0);
@@ -296,8 +302,8 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
 
   // =========================================================================
   // 1. SIGNAL HEADS AT THE SIGNALISED JUNCTIONS
-  //    One pole on the right-hand curb of every arm traffic arrives over, just past the corner (by the crosswalk and
-  //    the stop line), carrying the S-1 head facing that traffic and a pedestrian head facing across the arm; one on
+  //    One pole on the right-hand curb of every arm traffic arrives over, just behind the crosswalk (by the stop
+  //    line), carrying the S-1 head facing that traffic and a pedestrian head facing across the arm; one on
   //    the left-hand curb (or median) with the pedestrian head facing back, and a repeater S-1 head on wide arms.
   //    Arms of one road (within ~35° of one line: both ways, or a divided road's two roadways) are one signal group,
   //    and the widest road is group 0, as road-network.js step 7 ranks them; people crossing an arm walk with the
@@ -355,11 +361,55 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   // outside them (city-config.js roadClearance), with 0.3 m for the runs' shape nodes straying from the real bends
   const clearOfRoads = (x, z, r) => roadClearance(x, z) >= r + 0.3;
 
+  // Crosswalk landings: pedestrian-routes.js runs each arm's crosswalk 2 m onto both sidewalks (with 0.4 m to spare
+  // each side) at the crosswalk road-network.js paints just inside its stop line, and drops a crosswalk with any footprint
+  // on it. The stop line is where the arm clears the roads crossing it (road-network.js stopBack, with the arms the graph
+  // gives here) plus the CROSSWALK; signal poles 1-4 m past the corner closed 41 crosswalks, bollards 8. A bend (two
+  // arms in about one line) has none. Landings are kept free across the whole crosswalk depth and 2.6 m behind the curb.
+  const LANDING_CELL = 64;
+  const landingGrid = new Map(); // cell -> [{ x, z, ux, uz, half, mid }]
+  for (const j of JUNCTIONS) {
+    const arms = j.arms;
+    if (arms.length === 2 && arms[0].ux * arms[1].ux + arms[0].uz * arms[1].uz < -0.82) continue;
+    for (const a of arms) {
+      let ext = 0;
+      for (const b of arms) {
+        const cos = a.ux * b.ux + a.uz * b.uz;
+        const sin = Math.abs(a.ux * b.uz - a.uz * b.ux);
+        if (b === a || cos > 0.94 || (cos < 0 && sin < 0.26)) continue; // merging, or the same road going on
+        ext = Math.max(ext, (b.w / 2 + (a.w / 2) * Math.abs(cos)) / sin);
+      }
+      const mid = (ext > 0 ? Math.min(ext, 20) + CROSSWALK : 2) - CROSSWALK / 2;
+      const l = { x: j.x, z: j.z, ux: a.ux, uz: a.uz, half: a.w / 2, mid };
+      const ix = Math.floor((j.x + a.ux * mid) / LANDING_CELL);
+      const iz = Math.floor((j.z + a.uz * mid) / LANDING_CELL);
+      const k = ix * 100000 + iz;
+      if (!landingGrid.has(k)) landingGrid.set(k, []);
+      landingGrid.get(k).push(l);
+    }
+  }
+  const clearOfCrosswalks = (x, z, r) => {
+    const ix0 = Math.floor(x / LANDING_CELL);
+    const iz0 = Math.floor(z / LANDING_CELL);
+    for (let ix = ix0 - 1; ix <= ix0 + 1; ix++) {
+      for (let iz = iz0 - 1; iz <= iz0 + 1; iz++) {
+        for (const l of landingGrid.get(ix * 100000 + iz) || []) {
+          const ox = x - l.x;
+          const oz = z - l.z;
+          const along = ox * l.ux + oz * l.uz;
+          if (Math.abs(along - l.mid) < CROSSWALK / 2 + r && Math.abs(ox * l.uz - oz * l.ux) < l.half + 2.6 + r) return false;
+        }
+      }
+    }
+    return true;
+  };
+
   // A signal pole may stand on a sidewalk 0.4 m clear of its curb, or in the middle of a median at least 1.8 m wide
-  // (0.9 m clear: lanes keep LANE_CLEAR 1.2 m from their centrelines, which stand >= 1.2 m inside the curbs)
+  // (0.9 m clear: lanes keep LANE_CLEAR 1.2 m from their centrelines, which stand >= 1.2 m inside the curbs), 0.8 m
+  // outside the nearest roadway (0.35 m left a few poles in lanes)
   const signalPoleSpot = (x, z) => {
     const b = blockAt(x, z);
-    if (!b || inPlaza(x, z, 0.5) || !isClearOfPoles(x, z, 1.4) || !clearOfRoads(x, z, 0.35)) return false;
+    if (!b || inPlaza(x, z, 0.5) || !isClearOfPoles(x, z, 1.4) || !clearOfRoads(x, z, 0.5) || !clearOfCrosswalks(x, z, 0.15)) return false;
     const pad = b.median ? 0.9 : 0.4;
     for (const [ox, oz] of [[pad, 0], [-pad, 0], [0, pad], [0, -pad]]) {
       const q = blockAt(x + ox, z + oz);
@@ -429,9 +479,13 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
           }
         }
       }
+      // Behind the crosswalk (4.3 m from the corner, road-network.js CROSSWALK), by the stop line: road-network.js runs
+      // its turning curves from stop line to stop line and they cut the corners, so a pole 1-4 m past the corner stood
+      // within a curve's 0.8 m clearance at 58 corners and cost 4.2 km of the network; further back along the curb only
+      // the lanes pass it
       const spot = (side) => {
-        for (const back of [0.75, 1.3]) {
-          for (const dt of [1.2, 2.4, 3.6, 4.8]) {
+        for (const back of [0.75, 1.0, 1.3]) {
+          for (let dt = 4.8; dt < 16; dt += 1.2) {
             const t = corner + dt;
             const x = a.x + a.ux * t + rx * (half + back) * side;
             const z = a.z + a.uz * t + rz * (half + back) * side;
@@ -446,6 +500,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         if (!p) continue;
         placedPoles.push(p);
         addFootprint(p.x, p.z, 0.3, 0.3, 'signal');
+        addCollider(p.x, p.z, 0.08, 0.08, 0.1 + SIGNAL_POLE_H);
         dummy.position.set(p.x, 0.1 + SIGNAL_POLE_H / 2, p.z);
         dummy.rotation.set(0, 0, 0);
         dummy.scale.set(0.055, SIGNAL_POLE_H, 0.055);
@@ -646,9 +701,10 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         const px = cx + inx * 0.9;
         const pz = cz + inz * 0.9;
         if (!isOnSidewalk(px, pz, 0.5) || blockAt(cx + outX * 2.2, cz + outZ * 2.2) || !isClearOfPoles(px, pz, 5.2) ||
-          !clearOfRoads(px, pz, 0.25)) continue;
+          !clearOfRoads(px, pz, 0.25) || !clearOfCrosswalks(px, pz, 0.2)) continue;
         placedPoles.push({ x: px, z: pz });
         addFootprint(px, pz, 0.4, 0.4, 'gas');
+        addCollider(px, pz, 0.18, 0.18, 4.36);
         dummy.position.set(px, 0.18, pz);
         dummy.rotation.set(0, Math.atan2(dx, dz), 0);
         dummy.scale.set(1, 1, 1);
@@ -673,6 +729,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
       if (
         !isOnSidewalk(lx, lz, 0.55) ||
         !clearOfRoads(lx, lz, 0.3) ||
+        !clearOfCrosswalks(lx, lz, 0.225) ||
         blockAt(cx + outX * 2.5, cz + outZ * 2.5) ||
         blockAt(headX, headZ) ||
         !isClearOfPoles(lx, lz, 6.5)
@@ -681,6 +738,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
       }
       placedPoles.push({ x: lx, z: lz });
       addFootprint(lx, lz, 0.45, 0.45, 'led');
+      addCollider(lx, lz, 0.14, 0.14, 0.1 + 8.6 * scale);
       dummy.position.set(lx, 0.1, lz);
       dummy.rotation.set(0, armYaw, 0);
       dummy.scale.set(scale, scale, scale);
@@ -761,10 +819,12 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   const parkingMatrices = [];
   const bollardMatrices = [];
   const PARKING_ZONE = new Set(['Stare Miasto', 'Jeżyce', 'Łazarz', 'Wilda']);
+  const FURNITURE_TOP = { hydrant: [0.14, 1.46], postbox: [0.2, 1.56], parking: [0.2, 1.76], bollard: [0.07, 1.13] };
   const place = (list, p, yaw, w, kind, clear) => {
-    if (!isClearOfPoles(p.x, p.z, clear) || !clearOfRoads(p.x, p.z, w / 2 + 0.05)) return false;
+    if (!isClearOfPoles(p.x, p.z, clear) || !clearOfRoads(p.x, p.z, w / 2 + 0.05) || !clearOfCrosswalks(p.x, p.z, w / 2)) return false;
     placedPoles.push(p);
     addFootprint(p.x, p.z, w, w, kind);
+    addCollider(p.x, p.z, FURNITURE_TOP[kind][0], FURNITURE_TOP[kind][0], FURNITURE_TOP[kind][1]);
     dummy.position.set(p.x, 0.2, p.z);
     dummy.rotation.set(0, yaw, 0);
     dummy.scale.set(1, 1, 1);
@@ -900,6 +960,18 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
       const w = Math.abs(ux) * halfW * 2 + Math.abs(inx) * halfD * 2;
       const d = Math.abs(uz) * halfW * 2 + Math.abs(inz) * halfD * 2;
       addFootprint(x, z, w, d, kind);
+      if (kind === 'column') addCollider(x, z, 0.62, 0.62, 3.4);
+      else {
+        // kiosks and flower stands face the street: an oriented box (its x axis along the curb, z out to the street)
+        const hx = kind === 'kiosk' ? 1.1 : 0.9;
+        const hz = kind === 'kiosk' ? 0.75 : 0.9;
+        const cx = x + outX * (kind === 'kiosk' ? 0 : -0.05);
+        const cz = z + outZ * (kind === 'kiosk' ? 0 : -0.05);
+        const ex = Math.abs(outZ) * hx + Math.abs(outX) * hz;
+        const ez = Math.abs(outX) * hx + Math.abs(outZ) * hz;
+        colliders.push({ minX: cx - ex, maxX: cx + ex, minZ: cz - ez, maxZ: cz + ez, maxY: kind === 'kiosk' ? 2.72 : 2.4,
+          obb: { cx, cz, hx, hz, cs: outZ, sn: outX } });
+      }
       dummy.position.set(x, 0.2, z);
       dummy.rotation.set(0, Math.atan2(outX, outZ), 0); // fronts face the street
       dummy.scale.set(1, 1, 1);
@@ -1209,7 +1281,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   }
 
   scene.add(group);
-  return { group, footprints, signalClock, audioSignals, update };
+  return { group, footprints, colliders, signalClock, audioSignals, update };
 }
 
 export { buildStreetDetails };

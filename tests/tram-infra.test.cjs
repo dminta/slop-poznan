@@ -30,7 +30,7 @@ test('tram stops, platforms and poles keep clear of the car lanes', async () => 
   const config = await import('../js/city-config.js');
   const { GEO } = await import('../js/geodata.js');
   const logs = [];
-  const { buildRoadNetwork } = loadModule(readFileSync(join(__dirname, '../js/road-network.js'), 'utf8'), {
+  const { buildRoadNetwork, CROSSWALK } = loadModule(readFileSync(join(__dirname, '../js/road-network.js'), 'utf8'), {
     imports: { './city-config.js': config, './geodata.js': { GEO } },
     globals: { console: { info: (line) => logs.push(line) } },
     filename: 'road-network.js'
@@ -38,7 +38,7 @@ test('tram stops, platforms and poles keep clear of the car lanes', async () => 
   const { buildStreetDetails } = loadModule(readFileSync(join(__dirname, '../js/street-details.js'), 'utf8'), {
     imports: {
       'three/webgpu': inert(), 'three/tsl': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert(),
-      './city-config.js': config, './tsl-materials.js': inert(),
+      './city-config.js': config, './road-network.js': { CROSSWALK }, './tsl-materials.js': inert(),
       './trees.js': { createTreeField: () => ({ group: inert() }) },
       './city-grid.js': { pavedPlazaRects: [], parkTreeSites: [], parkLampSites: [] }
     },
