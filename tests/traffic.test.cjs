@@ -207,7 +207,7 @@ function populationContext() {
     focusX: 0, focusZ: 0, player: { active: false },
     clock: 0,
     VEHICLE_SPAWN_DISTANCE: 250, PED_SPAWN_DISTANCE: 150, NEAR_RADIUS: 350,
-    nearEdges: [], nearSignals: [], track: {}, KERB: 1.6, QUEUE_GAP: 0.62,
+    nearEdges: [], nearCrossings: [], track: {}, KERB: 1.6, QUEUE_GAP: 0.62,
     atCurb: () => {}, laneClear: () => true, nearTram: () => false,
     place: (v, e, lane, s) => Object.assign(v, { edge: e, lane, s })
   };
@@ -266,7 +266,7 @@ test('pedestrians replenish visible sidewalks ahead without appearing nearby', (
 test('long roads are available near their ends and spawn only in the local section', () => {
   const context = populationContext();
   const edge = straightEdge(100, 2000);
-  Object.assign(context, { edges: [edge, straightEdge(2000)], nodes: [], nearX: Infinity, nearZ: Infinity });
+  Object.assign(context, { edges: [edge, straightEdge(2000)], crossingNodes: [], nearX: Infinity, nearZ: Infinity });
   trafficFunction('refreshNear', context)();
   assert.deepEqual(context.nearEdges, [edge]);
   const car = { half: 2.25 };
@@ -275,9 +275,29 @@ test('long roads are available near their ends and spawn only in the local secti
   assert.ok(car.s >= car.half + 5);
 });
 
+test('crossing pedestrians start at nearby zebras whether signalised or not', () => {
+  const context = populationContext();
+  const signalised = { x: 50, z: 0, signal: true }, unsignalised = { x: 0, z: 120, signal: false };
+  const far = { x: 0, z: 900, signal: false };
+  Object.assign(context, { edges: [], crossingNodes: [signalised, unsignalised, far], nearX: Infinity, nearZ: Infinity });
+  trafficFunction('refreshNear', context)();
+  assert.deepEqual(context.nearCrossings.slice(), [signalised, unsignalised]);
+  const started = [];
+  context.crosswalkTrack = (n) => {
+    started.push(n);
+    Object.assign(context.track, { ax: n.x - 10, az: n.z, ux: 1, uz: 0, len: 20, node: { curb: [] } });
+    return true;
+  };
+  context.Math = Object.assign(Object.create(Math), { random: () => 0.75 }); // the second node, the far end's curb
+  const ped = { crossesStreets: true, speed: 1.4, rig: {} };
+  assert.equal(trafficFunction('spawnPed', context)(ped, 60, 280, false), true);
+  assert.deepEqual(started, [unsignalised]);
+  assert.equal(ped.v, 0, 'waiting at the curb');
+});
+
 test('crossing pedestrians fall back to a sidewalk when nearby crosswalks are unusable', () => {
   const context = populationContext();
-  context.nearSignals.push({});
+  context.nearCrossings.push({});
   context.nearEdges.push(straightEdge(200));
   let crossings = 0;
   context.crosswalkTrack = () => { crossings++; return false; };
