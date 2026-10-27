@@ -1546,7 +1546,7 @@ const TREE_WIND = vec2(0.86, 0.51);
  * - aTree (vec4): x = 1 on leaf cards / 0 on bark, y = crown occlusion (0 deep inside .. 1 on the outer shell),
  *   z = sway weight (0 on the trunk .. 1 at the twig tips & cards), w = per-card random (leaf flutter phase)
  * - aTreeData (instanced vec4): rgb = per-tree linear foliage tint, w = species index + per-tree random fraction
- *   (species 0 London plane: flaking camouflage bark, 1 honey locust & 2 elm: dark furrowed bark)
+ *   (species 0 lime: fissured grey-brown bark, 1 Norway maple: fine grey ridges, 2 horse chestnut: dark plates)
  * Leaf atlas texels: r = leaf brightness, g = per-leaf hue jitter, b = twig / stalk mask, a = coverage (its mipmaps
  * keep the coverage, so distant crowns stay full).
  * Shading: per-tree tint with sun-yellowed & cooler leaves, deep leaves darker and occluded from the sky, sunlight
@@ -1610,14 +1610,19 @@ function createTreeMaterial(leafAtlas) {
     const leafCol = mix(mix(base, base.mul(vec3(1.25, 1.08, 0.5)), warm), base.mul(vec3(0.8, 0.92, 1.05)), cool);
     const foliage = mix(leafCol, color(0x4a3b2c), leaf.b).mul(crownAO.mul(0.45).add(0.55));
 
-    // Bark (uv in metres): furrowed grey-brown ridges, or the London plane's olive bark flaking to cream & tan
+    // Bark (uv in metres): the lime's grey-brown net of shallow fissures, the Norway maple's close, fine grey ridges,
+    // the horse chestnut's dark bark breaking into rough plates
     const bu = uv();
     const n1 = noise2D(vec2(bu.x.mul(5.0), bu.y.mul(1.1)).add(rnd.mul(17.0)));
     const n2 = noise2D(bu.mul(vec2(3.2, 1.9)).add(rnd.mul(31.0)));
+    const n3 = noise2D(vec2(bu.x.mul(10.0), bu.y.mul(1.6)).add(rnd.mul(23.0)));
     const ridge = float(1.0).sub(abs(n1.sub(0.5).mul(2.0)));
-    const furrowed = mix(color(0x2e261f), color(0x5c5043), smoothstep(0.35, 0.9, ridge));
-    const planeBark = mix(mix(color(0x645e4b), color(0x948c73), smoothstep(0.56, 0.66, n2)), color(0x4a3f31), smoothstep(0.3, 0.22, n2));
-    const bark = mix(furrowed, planeBark, step(species, 0.5)).mul(crownAO.mul(0.4).add(0.6));
+    const fine = float(1.0).sub(abs(n3.sub(0.5).mul(2.0)));
+    const limeBark = mix(color(0x3d362e), color(0x6a6153), smoothstep(0.3, 0.85, ridge));
+    const mapleBark = mix(color(0x34312c), color(0x5f5a51), smoothstep(0.35, 0.75, fine));
+    const chestnutBark = mix(color(0x332a23), color(0x5e4f41), smoothstep(0.46, 0.58, n2)).mul(mix(float(0.75), float(1.0), ridge));
+    const bark = mix(mix(limeBark, mapleBark, step(float(0.5), species)), chestnutBark, step(float(1.5), species))
+      .mul(crownAO.mul(0.4).add(0.6));
 
     return vec4(mix(bark, foliage, isLeaf), alpha);
   })();

@@ -879,6 +879,13 @@ All in `traffic.js`, `actor-models.js`, `controllers.js` and `vehicle-lights.js`
    - OSM has 2,521 `natural=tree` nodes in the Stare Miasto core alone. Optionally plant real tree positions there
      instead of procedural rows (keep `mulberry32` determinism for the rest).
    - §7 A/B (Bryant Park allées, Central Park CPB) are deleted. C/D (street trees from `sidewalkBlocks`) stay.
+   - **Status: done** (bar the options). `SPECIES` is lime / Norway maple / horse chestnut on tiles 0–2 (heart-shaped
+     leaves with the odd bract, toothed five-lobed leaves, seven-leaflet palmate leaves), with per-species crowns,
+     tints and bark (`createTreeMaterial`). The indices keep their callers' roles, so `street-details.js`, `city-grid.js`
+     and `buildings.js` are unchanged (lime where the plane was, maple where the locust was, chestnut where the elm
+     was); the plane/locust/elm comments at `street-details.js` §4 still need renaming. The Bryant Park and Central
+     Park plantings were already gone (Phase 5). Skipped: the 4th species, and OSM tree positions (no `natural=tree`
+     in the `tools/data` snapshots; it needs a new Overpass query and a geodata key). Unverified in a browser.
 
 ### Phase 12: Audio, lighting, cameras, teleports, cleanup
 
