@@ -82,7 +82,47 @@ const AREA_STYLE = {
   neighbourhood: { minS: 0.12, maxS: 1.5, font: '700 10.5px', color: 'rgba(168, 178, 192, 0.44)', tracking: '1.8px', caps: true }
 };
 const AREA_ORDER = Object.keys(AREA_STYLE);
-const AREA_TITLES = (GEO.labels || [])
+
+// Grunwald and Winogrady are what Poznań calls these parts of the city (the dzielnice before 1990), but OSM places only
+// their osiedla, so GEO.labels has "Stary Grunwald" and "Stare Winogrady" (kept: they name the smaller areas) and no
+// GRUNWALD or WINOGRADY. Each is set as a suburb title at the area-weighted centroid of its osiedla's GEO.districts
+// rings: Grunwald ≈ (-4170, 1280) in Grunwald Południe, Winogrady ≈ (310, -2250) in Stare Winogrady
+const DISTRICT_GROUPS = {
+  Grunwald: ['Grunwald Północ', 'Grunwald Południe', 'Stary Grunwald'],
+  Winogrady: ['Stare Winogrady', 'Nowe Winogrady Południe', 'Nowe Winogrady Wschód', 'Nowe Winogrady Północ']
+};
+
+/** Suburb labels { name, kind, x, z } at the area-weighted centroid of each group's district rings (those present) */
+function districtGroupLabels(districts, groups) {
+  const out = [];
+  for (const name in groups) {
+    let a = 0;
+    let mx = 0;
+    let mz = 0;
+    for (const d of districts) {
+      if (!groups[name].includes(d.name) || !d.ring) continue;
+      const { n, X, Z } = accessor(d.ring);
+      let ra = 0;
+      let rx = 0;
+      let rz = 0;
+      for (let i = 0, j = n - 1; i < n; j = i++) {
+        const c = X(j) * Z(i) - X(i) * Z(j);
+        ra += c;
+        rx += (X(j) + X(i)) * c;
+        rz += (Z(j) + Z(i)) * c;
+      }
+      // a ring's doubled area and moments share its winding's sign: flip clockwise rings so they add up
+      const sign = ra < 0 ? -1 : 1;
+      a += sign * ra;
+      mx += sign * rx;
+      mz += sign * rz;
+    }
+    if (a) out.push({ name, kind: 'suburb', x: mx / (3 * a), z: mz / (3 * a) });
+  }
+  return out;
+}
+
+const AREA_TITLES = [...(GEO.labels || []), ...districtGroupLabels(GEO.districts || [], DISTRICT_GROUPS)]
   .filter((l) => AREA_STYLE[l.kind])
   .sort((a, b) => AREA_ORDER.indexOf(a.kind) - AREA_ORDER.indexOf(b.kind))
   .map((l) => ({ text: AREA_STYLE[l.kind].caps ? mapCaps(l.name) : l.name, style: AREA_STYLE[l.kind], x: l.x, z: l.z }));
@@ -1609,4 +1649,4 @@ class CityMapSystem {
   }
 }
 
-export { CityMapSystem, buildRouteGraph, nearestNode, routeTree, routePath, compassTitle, roadLabelAnchors, chainRoadPieces };
+export { CityMapSystem, buildRouteGraph, nearestNode, routeTree, routePath, compassTitle, roadLabelAnchors, chainRoadPieces, districtGroupLabels, DISTRICT_GROUPS };

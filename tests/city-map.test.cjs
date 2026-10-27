@@ -391,3 +391,27 @@ test('every element the map looks up exists in index.html, and the legend names 
   assert.doesNotMatch(legend, /Hwy|Highway/i);
   assert.doesNotMatch(source, /\.highways?\b/);
 });
+
+test('Grunwald and Winogrady are labelled over their osiedla, whatever way the rings wind', async () => {
+  const { districtGroupLabels, DISTRICT_GROUPS } = routeModule();
+  // a 100 m square and a 200 m one wound the other way (centroids (50, 50) and (400, 100)), plus one outside the group:
+  // the title sits 4:1 towards the larger square
+  const districts = [
+    { name: 'A', ring: [0, 0, 100, 0, 100, 100, 0, 100] },
+    { name: 'B', ring: [300, 0, 300, 200, 500, 200, 500, 0] },
+    { name: 'C', ring: [9000, 9000, 9010, 9000, 9010, 9010] }
+  ];
+  const [label] = districtGroupLabels(districts, { AB: ['A', 'B', 'missing'] });
+  assert.equal(label.name, 'AB');
+  assert.equal(label.kind, 'suburb');
+  assert.ok(Math.abs(label.x - 330) < 1e-6 && Math.abs(label.z - 90) < 1e-6, `${label.x}, ${label.z}`);
+
+  // On the real districts, each title lands inside one of its own osiedla
+  const { GEO } = await import('../js/geodata.js');
+  const { districtAt } = await import('../js/city-config.js');
+  const labels = districtGroupLabels(GEO.districts, DISTRICT_GROUPS);
+  assert.deepEqual(Array.from(labels, (l) => l.name), ['Grunwald', 'Winogrady']);
+  for (const l of labels) {
+    assert.ok(DISTRICT_GROUPS[l.name].includes(districtAt(l.x, l.z)), `${l.name} lands in ${districtAt(l.x, l.z)}`);
+  }
+});

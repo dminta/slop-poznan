@@ -213,7 +213,9 @@ Physics notes:
   are the only class drawn at low zoom and ranked first for labels. The radar has no street-name line; the location
   HUD's street plates show where you are.
 - Area names are read from `GEO.labels` by `kind`: each kind (suburb, quarter, neighbourhood, water) has its own zoom
-  range; water is italic mixed case, the rest spaced caps via `mapCaps`. `LABEL_ALIAS` (`city-config.js`) holds short
+  range; water is italic mixed case, the rest spaced caps via `mapCaps`. OSM places only the osiedla of Grunwald and
+  Winogrady ("Stary Grunwald", "Stare Winogrady"), so `districtGroupLabels` adds GRUNWALD and WINOGRADY as suburb
+  titles at the area-weighted centroid of their osiedla's `GEO.districts` rings (`DISTRICT_GROUPS` in `city-map.js`). `LABEL_ALIAS` (`city-config.js`) holds short
   street names (empty for now). Road names are used as OSM signs them.
 - Road labels: `chainRoadPieces` joins same-named OSM pieces end to end (not through forks), then `roadLabelAnchors`
   places about one label per 260 m of arc length where the street runs straight (turns under 0.2 rad) for longer than
