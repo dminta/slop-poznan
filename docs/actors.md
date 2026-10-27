@@ -43,7 +43,7 @@
 `traffic.test.cjs` and `traffic-performance.test.cjs` extract inner functions of `traffic.js` by regex: from a line starting `  function name(` up to the first line that is exactly `  }`. They then run each function in a `vm` with a hand-written context of its free variables. The extracted functions are `mayEnter, signalAhead, canStop, yieldToCrossTraffic, yieldOncoming, nearView, refreshNear, spawnVehicle, spawnPed, renderPed, updateSparks, flagRange, playerInLane, occupyTrams, tramBlocks, inTramLane, overlapWithPlayer, collideWithTram, tramRoom, tramCrossings, tramNear` (`mayEnter` needs a `tramBlocks` stub, `spawnVehicle` a `nearTram` one), plus the `const pl = entity ... } : null;` snippet in highway `update`. Keep them as 2-space-indented `function` declarations. When a change adds a free variable or helper to one of them, add a stub to the matching test context.
 
 ## Trams (`js/trams.js`)
-`createTramSystem(scene, { network, rail = GEO.rail, stops = GEO.tramStops, traffic })` is built in `main.js` after
+`createTramSystem(scene, { network, rail = GEO.rail, stops = GEO.tramStops, routes = GEO.tramRoutes, traffic })` is built in `main.js` after
 the road paint, and `update(dt, elapsed, focus, camera, playerEntity, activeMode)` runs before the street traffic. It
 reads the road network (signal nodes, lanes and junction curves for `mapTramsToRoads`) and, read-only,
 `traffic.cars`/`traffic.buses` (`edge, x, z, yaw, yawOffset, half, halfWidth, tx, tz, speed, vx, vz`) to brake for
@@ -54,10 +54,21 @@ them; `traffic.js` does the yielding (see "Interactions" below).
   them oneway), so it gets the direction that keeps its neighbour on the left (right-hand running). The rest stay
   two-way and form single-track blocks (`run`/`runDir`): a tram enters a block only while nobody runs the other way in
   it. At a node a tram may continue onto an out-edge whose start tangent is within `SWITCH_TURN` (38°) of its end
-  tangent; the branch is chosen at random when the path is extended. Edges carry `vmax[]` (curve limit from
+  tangent; the branch is chosen when the path is extended (see **Lines**). Edges carry `routes` (the chain's
+  `GEO.rail[i].routes`), `vmax[]` (curve limit from
   `aLat` 0.9 m/s²), `crossings[]` (level crossings that aren't cut into nodes), `foulStart`/`foulEnd` (clearance points:
   how far the track stays within 2.9 m of the other tracks at a node), `endPad` (buffer stops on a stub that ends on
   another track), `stops[]` and `signals[]`.
+- **Lines**: every tram runs one route of `GEO.tramRoutes` (OSM `route=tram`, one per direction: `ref` and the
+  terminus `to`; docs/geodata.md), picked at random from the routes using the edge it spawns on; with routes in the data
+  it never spawns on track no route uses. `TramPath.route` steers `pickBranch`: at a switch it takes at random a branch
+  the route uses, else one that reaches the route within `ROUTE_REJOIN` (2) switches (short connecting pieces the
+  relations leave out), else any. Laying out the track behind a new tram keeps to the route the same way. Where the
+  route ends in the box (a terminus loop past the last stop, Zawady), `turnRoute` switches to the same line's route on
+  the next edge (usually the other direction) and the tram's display changes. Measured on the Poznań network: 98.6% of
+  paths laid out from every route edge stay on the route; a 10-minute headless run round Ostrów Tumski, lines 5, 6, 7, 8
+  and 17 over Most Chrobrego and Most Mieszka I, has 1.2% of tram samples off their route. Lines run the real
+  sequence of tracks only roughly: no timetable, any number of trams per line.
 - **Stops**: `tram-infra.js` stops (`railIndex`, `s`, `dir`) are attached to the edge running that way
   (`attachTramStops`). Bare `GEO.tramStops` nodes are snapped to the nearest track within 6 m (`snapTramStops`); that
   fallback is used by the tests. The tram's front stops `0.35 × length` past the stop point, dwells 20–30 s with its
@@ -81,7 +92,7 @@ them; `traffic.js` does the yielding (see "Interactions" below).
   lies on the chord between its two ends on the path (`poseSections`), so the joints stay on the track. Section kinds
   map to one `InstancedMesh` each (`buildTramSectionGeometry` in `actor-models.js`), plus the bellows. All of them use
   `createTramMaterial` with the per-vertex `tramInfo` (half length, cab ±1/0, door z) and the per-instance `tramState`
-  (brake, livery 0 Gamma / 1 Tramino, doors open). The pantograph head is at `TRAM_PANTOGRAPH_HEAD` (5.5 m).
+  (brake, livery 0 Gamma / 1 Tramino, doors open, display row = route + 1). The amber LED display above each cab's windscreen samples that row of `createTramDestinationTexture(GEO.tramRoutes)` (actor-models.js; line number, then the terminus; row 0 blank), mirrored per cab so it reads left to right from outside (not yet checked in a browser). The pantograph head is at `TRAM_PANTOGRAPH_HEAD` (5.5 m).
   Culling: the whole tram is tested against the frustum side planes (radius half its length + 6 m) and dropped beyond
   1.5 km. The upload, `hideEmpty` and zero-scale first-frames patterns are the same as for traffic. Per-frame code is
   allocation-free apart from refreshing the `trams` list.
@@ -92,7 +103,9 @@ them; `traffic.js` does the yielding (see "Interactions" below).
 - `tramSystem.trams`: the active trams, refreshed every update (the same objects as `tramSystem.pool`, filtered).
   Each has `id`, `model` (`'gamma'|'tramino'`), `spec` (its `TRAM_MODELS` entry), `length`, `x, z, heading` (the
   track point and tangent at mid-length), `frontX, frontZ`, `speed` (m/s), `acc`, `v0`, `atStop`, `stopName`, `dwell`,
-  `doorsOpen`, `nextStop`, `waitReason`, `leader`, `gap`, and `sections: [{ x, z, heading, halfLength, halfWidth, fx,
+  `doorsOpen`, `nextStop`, `waitReason`, `leader`, `gap`, `route` (its `GEO.tramRoutes` index, -1 for none), `line`
+  (the line number, e.g. `'17'`) and `destination` (the terminus, e.g. `'Starołęka PKM'`; both `''` without a route),
+  and `sections: [{ x, z, heading, halfLength, halfWidth, fx,
   fz, rx, rz }]`. These are world-space OBBs (centre, heading, half extents; `fx/fz`, `rx/rz` are the body's front and
   rear ends), front to rear. Use them for SAT tests. They are rewritten in place every frame, so copy any value you
   keep.
@@ -101,7 +114,7 @@ them; `traffic.js` does the yielding (see "Interactions" below).
   The tram's body covers path coordinates `[u - length, u]`. `tram.occN/occEdge/occS0/occS1` list the track edges under
   the body with local `[s0, s1]`, updated before driving.
 - `tramSystem.graph` (`{ nodes, edges, runs }`), `tramSystem.stops`, `tramSystem.signals` (`{ node, edge, s, group }`,
-  where `node` is the road-network node), and `tramSystem.models`.
+  where `node` is the road-network node), `tramSystem.routes` (`GEO.tramRoutes`) and `tramSystem.models`.
 - Also `obstacle`: the car (or player entity) nearest in the tram's way this frame, or null. Audio reads `x, z,
   heading, speed, acc, atStop, waitReason, length, id` and `sections[k].heading` (docs/audio.md).
 

@@ -390,3 +390,99 @@ test('trams brake for the player on the track, but not for a car facing them (it
     for (const t of sys.trams) assert.notEqual(t.waitReason, 'car');
   }
 });
+
+test('a tram path follows its line route at switches, rejoins it across a gap and turns at its terminus', () => {
+  const { buildTrackGraph, TramPath } = load();
+  const routed = (pts, routes) => Object.assign(tram(pts), { routes });
+  const g = buildTrackGraph([
+    routed([0, 0, 100, 0], [0, 1]), // 0: both lines
+    routed([100, 0, 300, 0], [0]), // 1: line 0 straight on
+    routed([100, 0, 290, 60], [1]), // 2: line 1 diverges
+    routed([300, 0, 400, 0], []), // 3: a connecting piece missing from line 0's relation
+    routed([400, 0, 600, 0], [0]), // 4: line 0 again
+    routed([300, 0, 480, 60], []) // 5: a branch no line uses
+  ]);
+  const chains = (path) => [...path.edges.slice(0, path.n)].map((e) => e.chain);
+  for (const [route, rand, expected] of [[0, 0.99, [0, 1, 3, 4]], [0, 0, [0, 1, 3, 4]], [1, 0, [0, 2]], [-1, 0.99, [0, 2]], [-1, 0, [0, 1, 3, 4]]]) {
+    const path = new TramPath();
+    path.route = route;
+    path.reset(g.edges[0], 50, 40, () => rand);
+    path.extend(1000, () => rand);
+    assert.deepEqual(chains(path), expected, `route ${route}, rand ${rand}`);
+  }
+  // Past the end of its route (a terminus loop the relation leaves out) it takes the same line's other direction
+  const lines = [{ ref: '5', from: 'Górczyn PKM', to: 'Zawady' }, { ref: '6', from: 'Zawady', to: 'Miłostowo' }, { ref: '5', from: 'Zawady', to: 'Górczyn PKM' }];
+  const loop = buildTrackGraph([
+    routed([0, 0, 100, 0], [0]),
+    routed([100, 0, 130, 10, 150, 40, 130, 70, 100, 80], []),
+    routed([100, 80, 0, 80], [1, 2])
+  ]);
+  const turn = new TramPath(lines);
+  turn.route = 0;
+  turn.reset(loop.edges[0], 50, 40, () => 0);
+  turn.extend(400, () => 0);
+  assert.deepEqual(chains(turn), [0, 1, 2]);
+  assert.equal(turn.route, 2, 'line 5 now runs to Górczyn PKM');
+});
+
+test('every tram runs a line with a number and a terminus and keeps to its route', () => {
+  const { createTramSystem } = load();
+  const routed = (pts, routes) => Object.assign(tram(pts), { routes });
+  const rail = [routed([0, 0, 1000, 0], [0, 1]), routed([1000, 0, 3000, 0], [0]), routed([1000, 0, 2900, 600], [1])];
+  const routes = [{ ref: '7', from: 'Ogrody', to: 'Połabska' }, { ref: '8', from: 'Ogrody', to: 'Miłostowo' }];
+  const sys = createTramSystem(inert(), { network: { nodes: [], edges: [] }, rail, stops: [], routes });
+  assert.equal(sys.routes, routes);
+  const seen = new Set();
+  for (let f = 0, time = 0; f < 15 * 120; f++) {
+    time += 1 / 15;
+    sys.update(1 / 15, time, { x: 1200, z: 0 }, inert());
+    for (const t of sys.trams) {
+      assert.ok(t.route === 0 || t.route === 1);
+      assert.equal(t.line, routes[t.route].ref);
+      assert.equal(t.destination, routes[t.route].to);
+      seen.add(t.line);
+      for (let i = 0; i < t.path.n; i++) assert.ok(t.path.edges[i].routes.includes(t.route), `line ${t.line} off its route`);
+    }
+  }
+  assert.deepEqual([...seen].sort(), ['7', '8']);
+});
+
+test('on the Poznań network the lines follow their routes, line 17 over Most Chrobrego to Katedra', async () => {
+  const { GEO } = await import('../js/geodata.js');
+  const { buildTrackGraph, TramPath, nearestOnEdge } = load();
+  const graph = buildTrackGraph(GEO.rail);
+  assert.ok(GEO.tramRoutes.length >= 30, `${GEO.tramRoutes.length} routes`);
+  let seed = 7;
+  const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  let on = 0;
+  let all = 0;
+  GEO.tramRoutes.forEach((r, route) => {
+    const edges = graph.edges.filter((e) => e.routes.includes(route));
+    assert.ok(edges.length > 0, `line ${r.ref} to ${r.to} has track`);
+    for (const e of edges) {
+      const path = new TramPath();
+      path.route = route;
+      path.reset(e, 0, 0, rand);
+      path.extend(3000, rand);
+      for (let i = 0; i < path.n; i++) {
+        all += path.edges[i].len;
+        if (path.edges[i].routes.includes(route)) on += path.edges[i].len;
+      }
+    }
+  });
+  // Measured 98.6%: the rest is past a route's last track in the box or across crossings the relations map loosely
+  assert.ok(on / all > 0.95, `${(100 * on / all).toFixed(1)}% of the laid-out paths on the route`);
+  // Line 17 to Starołęka from Małe Garbary: over Most Chrobrego (x ≈ 746, z ≈ -149), past Katedra, over Most Mieszka I
+  const route = GEO.tramRoutes.findIndex((r) => r.ref === '17' && r.to === 'Starołęka PKM');
+  const katedra = GEO.tramStops.find((s) => s.name === 'Katedra');
+  const near = { d: 0, s: 0, tx: 0, tz: 0 };
+  const start = graph.edges.filter((e) => e.routes.includes(route)).sort((a, b) => nearestOnEdge(a, 400, -200, near).d - nearestOnEdge(b, 400, -200, {}).d)[0];
+  const path = new TramPath();
+  path.route = route;
+  path.reset(start, 0, 0, rand);
+  path.extend(1500, rand);
+  const passes = (x, z) => path.edges.slice(0, path.n).some((e) => nearestOnEdge(e, x, z, near).d < 6);
+  assert.ok(passes(746, -149), 'over Most Chrobrego');
+  assert.ok(passes(katedra.x, katedra.z), 'past Katedra');
+  assert.ok(passes(1154, -216), 'over Most Mieszka I');
+});

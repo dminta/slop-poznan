@@ -9,7 +9,7 @@ const { loadModule } = require('./helpers/module.cjs');
 // it is handed to the road network in the app (it is built after it), but platforms and poles must still keep clear of
 // the car lanes: fed to the network as obstacles, they must leave its largest strongly connected set almost whole
 // (docs/world.md obstacle rule). Measured 2026-10: 4294 edges / 193.5 km with the furniture, 4282 / 193.1 km with the
-// tram footprints added; 121 stops (97 islands) from 142 stop nodes, 2200+ poles. The mainline railway's layout
+// tram footprints added; 129 stops (102 islands) from 142 stop nodes, 2300+ poles. The mainline railway's layout
 // (layoutRailInfrastructure) is checked on the same network: 8453 pieces (66 km; 3009 outside the detail box, 29 over
 // water, 282 at roads, 43 at tram tracks), 143 end walls, 1007 masts (827 cantilevers, 113 portals), and 29.3 km of
 // corridor boundary in 266 runs (46 of them gap stubs; 25.9 km over a solid wall, 5.6 km round the Poznań Główny
@@ -79,6 +79,11 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
     assert.equal(s.side, s.dir, `${s.name} platform on the right`);
   }
   assert.ok(poles.every((q) => laneDist(q.x, q.z) >= 2), 'poles keep 2 m from every lane centreline');
+  // The Ostrów Tumski line (closed for rebuilding in the OSM data, kept through its route=tram relations), Most
+  // Teatralny and Fredry: their stops have track now
+  for (const name of ['Katedra', 'Rondo Śródka', 'Fredry', 'Most Teatralny', 'Pl. Wielkopolski', 'Stare Zoo']) {
+    assert.ok(stops.some((s) => s.name === name), `a stop named ${name}`);
+  }
 
   // Mainline railway: pieces only on land, cut clear of every roadway and tram track with an end wall at each cut,
   // masts clear of roads, tram and rail tracks, portals reaching over neither, wires supported
