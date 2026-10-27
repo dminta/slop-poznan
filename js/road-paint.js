@@ -4,13 +4,28 @@ import { createRoadPaintMaterial } from './tsl-materials.js';
 
 // js/road-paint.js
 // Road markings generated from the drivable road network (js/road-network.js), so the paint matches where traffic
-// actually drives and stops: dashed lane lines, double yellow centre lines on two-way roads, stop bars at the stop
-// lines, continental crosswalks across every intersection approach and green bike lanes along wide one-way avenues.
+// actually drives and stops. Polish markings, all white: P-1 dashed lines between lanes going the same way, P-4 double
+// solid between opposing lanes on roads with two or more lanes each way, P-1 dashed between single opposing lanes
+// outside 30 zones (a residential street at 30 km/h or less has no centre line), P-14 stop lines at signalised
+// approaches only (unsignalised Polish junctions carry P-12/P-13 only with a STOP or give-way sign, which the geodata
+// does not have), P-10 zebras across every intersection approach, and red bike lanes along the curbs OSM tags with
+// cycleway=lane (road-network.js edge.bike) where the outer lane leaves room for one.
 
 const WHITE = new THREE.Color(0xe6e2d6);
-const YELLOW = new THREE.Color(0xe8ad22);
-const GREEN = new THREE.Color(0x2a8a4e);
+const RED = new THREE.Color(0xa8392c); // the red asphalt of Polish bike lanes
 const HEIGHT = 0.012; // above the asphalt
+const LINE_W = 0.12; // the standard Polish line width
+const DASH_PERIOD = 12; // P-1: 4 m dashes, 8 m gaps
+const DASH_DUTY = 1 / 3;
+const ZEBRA_PERIOD = 1.0; // P-10: 0.5 m stripes, 0.5 m gaps
+const STOP_W = 0.5; // P-14: 0.5 m deep, 1 m rectangles 0.5 m apart
+const STOP_PERIOD = 1.5;
+const STOP_DUTY = 2 / 3;
+const BIKE_EDGE_W = 0.24; // the wide solid line between a bike lane and the traffic lane
+const BIKE_W = 1.5; // the bike lane at most, and 1 m at least
+const BIKE_CURB = 0.2; // gap from the curb
+const CAR_HALF = 1.0; // a car's half width, which must stay off the bike lane's line
+const NO_BIKE = [false, false];
 
 function buildRoadPaint(scene, network) {
   const position = [];
@@ -71,43 +86,51 @@ function buildRoadPaint(scene, network) {
     if (back) for (const o of back.lanes) lanes.push({ o: -o, dir: -1 });
     lanes.sort((p, q) => p.o - q.o);
 
-    // Dashed white between lanes going the same way, double yellow between opposing ones
-    // (nothing across a median or a lane closed off by an obstacle)
+    // P-1 dashed between lanes going the same way; between opposing ones P-4 double solid where either way has two
+    // lanes or more, P-1 dashed on a one-lane-each-way road faster than 30 km/h, nothing on slower ones (nothing
+    // across a median or a lane closed off by an obstacle)
+    const multi = e.lanes.length > 1 || (back && back.lanes.length > 1);
+    const slow = Math.max(e.limit || 0, back ? back.limit || 0 : 0) <= 30 / 3.6 + 0.01;
     for (let k = 0; k + 1 < lanes.length; k++) {
       const p = lanes[k];
       const q = lanes[k + 1];
       const mid = (p.o + q.o) / 2;
       if (q.o - p.o > 4.5 && (p.dir === q.dir || !clearCentre(e, mid))) continue;
       if (p.dir === q.dir) {
-        along(e, mid, 0.13, WHITE, 12, 0.25);
-      } else {
-        along(e, mid - 0.12, 0.11, YELLOW);
-        along(e, mid + 0.12, 0.11, YELLOW);
+        along(e, mid, LINE_W, WHITE, DASH_PERIOD, DASH_DUTY);
+      } else if (multi) {
+        along(e, mid - LINE_W, LINE_W, WHITE);
+        along(e, mid + LINE_W, LINE_W, WHITE);
+      } else if (!slow) {
+        along(e, mid, LINE_W, WHITE, DASH_PERIOD, DASH_DUTY);
       }
     }
 
-    // Wide one-way avenues: edge line, then a buffer and a green bike lane along the curb on the side left free
-    if (!back && e.axis === 'ave' && lanes.length >= 4) {
-      for (const [edge, sign] of [[lanes[lanes.length - 1].o + 1.8, 1], [lanes[0].o - 1.8, -1]]) {
-        const curb = sign * e.half;
-        if ((curb - edge) * sign < 3.5) continue;
-        along(e, edge + sign * 0.2, 0.13, WHITE);
-        along(e, curb - sign * 2.4, 0.13, WHITE);
-        along(e, curb - sign * 1.3, 2.0, GREEN);
-      }
+    // Red bike lanes along the curbs OSM tags with one (e.bike: [left, right] of its way of travel; the left curb of a
+    // two-way road is the right one of the way back), BIKE_CURB off the curb and edged by a wide solid line, as wide as
+    // the room the outer lane leaves (BIKE_W at most): none where a car in it would cover the line
+    const right = (e.bike || NO_BIKE)[1];
+    const left = back ? (back.bike || NO_BIKE)[1] : (e.bike || NO_BIKE)[0];
+    for (const [has, sign, outer] of [[right, 1, lanes[lanes.length - 1].o], [left, -1, lanes[0].o]]) {
+      if (!has) continue;
+      const curb = sign * e.half;
+      const w = Math.min(BIKE_W, (curb - outer) * sign - CAR_HALF - BIKE_EDGE_W - BIKE_CURB);
+      if (w < 1) continue;
+      along(e, curb - sign * (BIKE_CURB + w / 2), w, RED);
+      along(e, curb - sign * (BIKE_CURB + w + BIKE_EDGE_W / 2), BIKE_EDGE_W, WHITE);
     }
 
-    // Stop bars across the lanes arriving at each stop line, from the centre line (or median) to the curb (none where a
-    // street merely bends: a shape node of the centreline streets)
+    // P-14 stop lines across the lanes arriving at each signalised stop line, from the centre line (or median) to the
+    // curb (none where a street merely bends: a shape node of the centreline streets)
     for (const f of back ? [e, back] : [e]) {
-      if (f.to.shape) continue;
+      if (f.to.shape || !f.to.signal) continue;
       const left = back ? Math.max(0, f.lanes[0] - 1.8) : -f.half;
-      across(f, f.len - 0.35, left + 0.1, f.half - 0.1, 0.45, WHITE);
+      across(f, f.len - 0.35, left + 0.1, f.half - 0.1, STOP_W, WHITE, STOP_PERIOD, STOP_DUTY);
     }
 
-    // Continental crosswalks curb to curb, between the stop lines and the intersections at both ends
-    if (!e.from.shape) across(e, -CROSSWALK / 2, -e.half, e.half, CROSSWALK - 0.3, WHITE, 1.2, 0.5);
-    if (!e.to.shape) across(e, e.len + CROSSWALK / 2, -e.half, e.half, CROSSWALK - 0.3, WHITE, 1.2, 0.5);
+    // P-10 zebras curb to curb, between the stop lines and the intersections at both ends
+    if (!e.from.shape) across(e, -CROSSWALK / 2, -e.half, e.half, CROSSWALK - 0.3, WHITE, ZEBRA_PERIOD, 0.5);
+    if (!e.to.shape) across(e, e.len + CROSSWALK / 2, -e.half, e.half, CROSSWALK - 0.3, WHITE, ZEBRA_PERIOD, 0.5);
 
     for (const [end, node] of [[0, e.from], [1, e.to]]) {
       if (!node.shape) continue;

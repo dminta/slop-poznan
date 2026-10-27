@@ -2,12 +2,13 @@ import * as THREE from 'three/webgpu';
 import { createTreeMaterial } from './tsl-materials.js';
 
 // js/trees.js
-// Procedural NYC street & park trees, planted by street-details.js (section 7):
-// - London plane, honey locust & American elm grown from seeded per-species rules: a flared trunk / leader carrying
-//   scaffold limbs, branches and twigs as tapered, curving bark tubes (uv in metres for the bark shader)
-// - Leaf sprays on alpha-tested cards hung from the twigs, cut from a generated leaf atlas (palmate plane leaves,
-//   feathery locust fronds, toothed elm leaves and a dense far-canopy clump) whose mipmaps keep their coverage, so
-//   distant crowns don't thin out
+// Procedural Poznań street & park trees, planted by street-details.js (section 4):
+// - Lime (lipa), Norway maple (klon) & horse chestnut (kasztanowiec) grown from seeded per-species rules: a flared
+//   trunk / leader carrying scaffold limbs, branches and twigs as tapered, curving bark tubes (uv in metres for the
+//   bark shader)
+// - Leaf sprays on alpha-tested cards hung from the twigs, cut from a generated leaf atlas (heart-shaped lime leaves
+//   with the odd flower bract, five-lobed maple leaves, seven-fingered chestnut leaves and a dense far-canopy clump)
+//   whose mipmaps keep their coverage, so distant crowns don't thin out
 // - Crown-shell normals, interior occlusion & sway weights baked per vertex (attributes: createTreeMaterial in
 //   tsl-materials.js)
 // - Three levels of detail (two variants per species up close), picked per tree from the camera distance and
@@ -35,7 +36,7 @@ const smooth = (e0, e1, x) => {
 
 // =====================================================================================================================
 // 1. LEAF ATLAS: 2x2 tiles of leaf sprays drawn in metres and fitted to their tile (tileMeters = the card's world size)
-//    0 London plane · 1 honey locust · 2 American elm · 3 dense far-canopy clump (whole-crown cards of the far level)
+//    0 lime · 1 Norway maple · 2 horse chestnut · 3 dense far-canopy clump (whole-crown cards of the far level)
 //    Texels: r = leaf brightness, g = per-leaf hue jitter, b = twig / stalk mask, a = coverage
 // =====================================================================================================================
 const ATLAS_SIZE = 1024;
@@ -72,76 +73,84 @@ function buildSprays(rng) {
 
   const sprays = [];
 
-  // 0. London plane: four or five twigs fanning out, big palmate leaves on long stalks, alternating along them
+  // 0. Lime (lipa, Tilia cordata): five zigzag twigs, drooping a little, with two ranks of small heart-shaped,
+  //    lopsided leaves on slender stalks, and now and then a pale strap-like bract that carries the flower cluster
   {
     const prims = [];
     const n = 5;
     for (let i = 0; i < n; i++) {
       const f = (i + 0.5) / n - 0.5;
-      const pts = twig(f * 0.08, 0, f * 1.55 + R(-0.1, 0.1), R(0.62, 0.8) * (1 - Math.abs(f) * 0.32), f * 0.6);
-      prims.push({ type: 'twig', pts, w0: 0.016, w1: 0.006 });
+      const pts = twig(f * 0.06, 0, f * 1.6 + R(-0.1, 0.1), R(0.52, 0.68) * (1 - Math.abs(f) * 0.25), f * 0.8, 14);
+      prims.push({ type: 'twig', pts, w0: 0.012, w1: 0.004 });
       let side = rng() < 0.5 ? 1 : -1;
-      for (let t = R(0.18, 0.26); t < 0.97; t += R(0.15, 0.19)) {
+      for (let t = R(0.1, 0.16); t < 0.97; t += R(0.09, 0.12)) {
         const { p, a } = at(pts, t);
         side = -side;
-        const la = a + side * R(0.55, 1.05);
-        const len = R(0.17, 0.23) * (1 - t * 0.25);
-        const stalk = len * 0.32;
+        const la = a + side * R(0.7, 1.15);
+        const len = R(0.095, 0.12) * (1 - t * 0.2);
+        const stalk = len * 0.3;
         const q = [p[0] + Math.sin(la) * stalk, p[1] + Math.cos(la) * stalk];
-        prims.push({ type: 'stalk', a: p, b: q, w: 0.006 });
-        prims.push({ type: 'palmate', p: q, a: la + R(-0.25, 0.25), len, t });
+        prims.push({ type: 'stalk', a: p, b: q, w: 0.003 });
+        prims.push({ type: 'heart', p: q, a: la + side * R(-0.1, 0.3), len, wid: 0.82, skew: side * 0.14, t });
+      }
+      if (rng() < 0.5) {
+        const { p, a } = at(pts, R(0.45, 0.75));
+        prims.push({ type: 'oval', p, a: a + R(-0.5, 0.5), len: R(0.07, 0.085), wid: 0.3, bract: true, t: 1 });
       }
       const tip = at(pts, 1);
-      prims.push({ type: 'palmate', p: tip.p, a: tip.a + R(-0.2, 0.2), len: R(0.15, 0.19), t: 1 });
+      prims.push({ type: 'heart', p: tip.p, a: tip.a, len: 0.09, wid: 0.8, skew: 0.1, t: 1 });
     }
     sprays.push(prims);
   }
 
-  // 1. Honey locust: slender twigs bearing feathery compound fronds of tiny paired leaflets (lacy, light-dappled)
+  // 1. Norway maple (klon pospolity, Acer platanoides): four twigs with opposite pairs of broad five-lobed leaves on
+  //    long stalks, the lobes ending in fine points with a few large teeth
+  {
+    const prims = [];
+    const n = 4;
+    for (let i = 0; i < n; i++) {
+      const f = (i + 0.5) / n - 0.5;
+      const pts = twig(f * 0.08, 0, f * 1.5 + R(-0.1, 0.1), R(0.58, 0.74) * (1 - Math.abs(f) * 0.3), f * 0.5);
+      prims.push({ type: 'twig', pts, w0: 0.015, w1: 0.006 });
+      for (let t = R(0.28, 0.36); t < 0.95; t += R(0.28, 0.34)) {
+        const { p, a } = at(pts, t);
+        for (const side of [-1, 1]) {
+          const la = a + side * R(0.75, 1.1);
+          const len = R(0.15, 0.19) * (1 - t * 0.2);
+          const stalk = len * 0.55;
+          const q = [p[0] + Math.sin(la) * stalk, p[1] + Math.cos(la) * stalk];
+          prims.push({ type: 'stalk', a: p, b: q, w: 0.005 });
+          prims.push({ type: 'maple', p: q, a: la + side * R(-0.2, 0.15), len, t });
+        }
+      }
+      const tip = at(pts, 1);
+      prims.push({ type: 'maple', p: tip.p, a: tip.a + R(-0.15, 0.15), len: R(0.13, 0.16), t: 1 });
+    }
+    sprays.push(prims);
+  }
+
+  // 2. Horse chestnut (kasztanowiec, Aesculus hippocastanum): three stout twigs with opposite pairs of big palmately
+  //    compound leaves, seven obovate leaflets fanned out from the end of a long stalk (the crown's coarse, heavy look)
   {
     const prims = [];
     const n = 3;
     for (let i = 0; i < n; i++) {
       const f = (i + 0.5) / n - 0.5;
-      const pts = twig(0, 0, f * 1.3 + R(-0.1, 0.1), R(0.5, 0.62), f * 0.5);
-      prims.push({ type: 'twig', pts, w0: 0.012, w1: 0.005 });
-      let side = rng() < 0.5 ? 1 : -1;
-      for (let t = R(0.12, 0.2); t <= 1.0; t += R(0.2, 0.26)) {
-        const { p, a } = at(pts, Math.min(t, 1));
-        side = -side;
-        const fa = a + side * R(0.35, 0.8);
-        const flen = R(0.26, 0.36);
-        const rachis = twig(p[0], p[1], fa, flen, side * R(-0.3, 0.1), 8);
-        prims.push({ type: 'stalk', pts: rachis, w: 0.004 });
-        for (let s = 0.12; s < 0.98; s += 0.07) {
-          const r = at(rachis, s);
-          for (const sd of [-1, 1]) {
-            prims.push({ type: 'oval', p: r.p, a: r.a + sd * R(1.0, 1.35), len: R(0.032, 0.042), wid: 0.38, t: Math.min(1, t + s * 0.3) });
-          }
-        }
-        const end = at(rachis, 1);
-        prims.push({ type: 'oval', p: end.p, a: end.a, len: 0.036, wid: 0.38, t: 1 });
-      }
-    }
-    sprays.push(prims);
-  }
-
-  // 2. American elm: zigzag twigs, drooping a little, with two ranks of oval, pointed, lopsided leaves
-  {
-    const prims = [];
-    const n = 5;
-    for (let i = 0; i < n; i++) {
-      const f = (i + 0.5) / n - 0.5;
-      const pts = twig(f * 0.06, 0, f * 1.6 + R(-0.1, 0.1), R(0.5, 0.66) * (1 - Math.abs(f) * 0.25), f * 0.9, 14);
-      prims.push({ type: 'twig', pts, w0: 0.012, w1: 0.004 });
-      let side = rng() < 0.5 ? 1 : -1;
-      for (let t = R(0.1, 0.16); t < 0.97; t += R(0.085, 0.11)) {
+      const pts = twig(f * 0.06, 0, f * 1.4 + R(-0.1, 0.1), R(0.5, 0.62), f * 0.4, 10);
+      prims.push({ type: 'twig', pts, w0: 0.02, w1: 0.009 });
+      for (let t = R(0.3, 0.38); t < 0.9; t += R(0.34, 0.4)) {
         const { p, a } = at(pts, t);
-        side = -side;
-        prims.push({ type: 'oval', p, a: a + side * R(0.6, 1.0), len: R(0.1, 0.13) * (1 - t * 0.2), wid: 0.5, skew: side * 0.12, t });
+        for (const side of [-1, 1]) {
+          const la = a + side * R(0.7, 1.05);
+          const len = R(0.2, 0.25) * (1 - t * 0.15);
+          const petiole = twig(p[0], p[1], la, len * 0.7, side * R(-0.25, 0.05), 5);
+          prims.push({ type: 'stalk', pts: petiole, w: 0.006 });
+          const end = at(petiole, 1);
+          prims.push({ type: 'digitate', p: end.p, a: end.a, len, t });
+        }
       }
       const tip = at(pts, 1);
-      prims.push({ type: 'oval', p: tip.p, a: tip.a, len: 0.09, wid: 0.48, t: 1 });
+      prims.push({ type: 'digitate', p: tip.p, a: tip.a, len: R(0.18, 0.21), t: 1 });
     }
     sprays.push(prims);
   }
@@ -179,6 +188,8 @@ function sprayBounds(prims) {
     else if (q.type === 'stalk') {
       add(q.a[0], q.a[1]);
       add(q.b[0], q.b[1]);
+    } else if (q.type === 'digitate') {
+      add(q.p[0], q.p[1], q.len); // leaflets fan out up to ±1.5 rad from the stalk
     } else {
       add(q.p[0] + Math.sin(q.a) * q.len * 0.5, q.p[1] + Math.cos(q.a) * q.len * 0.5, q.len * 0.62);
     }
@@ -243,6 +254,51 @@ function createLeafAtlas() {
       c.bezierCurveTo(...f(0.05, 0.6 + skew), ...f(0.6, 0.62), ...f(1, 0));
       c.closePath();
     };
+    // Lime leaf: two rounded basal lobes either side of the stalk (one a little bigger: the lopsided base), broad
+    // shoulders and a short drawn-out tip
+    const heartSide = (c, f, sd, k) => {
+      c.bezierCurveTo(...f(-0.16 * k, 0.24 * k * sd), ...f(-0.1 * k, 0.64 * sd), ...f(0.3, 0.62 * sd));
+      c.bezierCurveTo(...f(0.6, 0.6 * sd), ...f(0.84, 0.24 * sd), ...f(1, 0));
+    };
+    // Both halves run base to tip as separate sub-paths; the fill closes each along the midrib, and they meet there
+    const heartPath = (c, f, skew = 0) => {
+      c.moveTo(...f(0, 0));
+      heartSide(c, f, 1, 1 + skew);
+      c.closePath();
+      c.moveTo(...f(0, 0));
+      heartSide(c, f, -1, 1 - skew);
+      c.closePath();
+    };
+    const heartHalf = (c, f, skew = 0) => {
+      c.moveTo(...f(0, 0));
+      heartSide(c, f, 1, 1 + skew);
+      c.closePath();
+    };
+    // Horse chestnut leaflet: obovate, a narrow wedge at the base, widest two-thirds out, then a short point
+    const obovateSide = (c, f, sd) => {
+      c.bezierCurveTo(...f(0.3, 0.2 * sd), ...f(0.55, 0.62 * sd), ...f(0.8, 0.52 * sd));
+      c.bezierCurveTo(...f(0.92, 0.42 * sd), ...f(0.97, 0.14 * sd), ...f(1, 0));
+    };
+    const obovatePath = (c, f) => {
+      for (const sd of [1, -1]) {
+        c.moveTo(...f(0, 0));
+        obovateSide(c, f, sd);
+        c.closePath();
+      }
+    };
+    const obovateHalf = (c, f) => {
+      c.moveTo(...f(0, 0));
+      obovateSide(c, f, 1);
+      c.closePath();
+    };
+    // Norway maple lobe: straight-edged, one big tooth each side, a fine point at the tip
+    const LOBE = [[0, 0.5], [0.45, 0.6], [0.52, 0.98], [0.64, 0.46], [0.82, 0.36], [0.86, 0.56], [1, 0]];
+    const lobePath = (c, f) => {
+      c.moveTo(...f(...LOBE[0]));
+      for (let i = 1; i < LOBE.length; i++) c.lineTo(...f(...LOBE[i]));
+      for (let i = LOBE.length - 2; i >= 0; i--) c.lineTo(...f(LOBE[i][0], -LOBE[i][1]));
+      c.closePath();
+    };
     // Same path on both canvases: data colour on one, white coverage on the other
     const fill = (path, rgb) => {
       for (const [c, style] of [[col, rgb], [cov, '#fff']]) {
@@ -276,7 +332,8 @@ function createLeafAtlas() {
       if (q.type === 'twig') stroke(q.pts, q.w0, q.w1, rgb(110, 128, 255));
       else if (q.type === 'stalk') stroke(q.pts || [q.a, q.b], q.w, q.w * 0.7, rgb(120, 128, 150));
       else if (q.type === 'oval') {
-        const [r, g] = leafRGB(q.t);
+        // Lime bracts are pale yellow-green: bright, and high hue jitter (the material's sun-yellowed share)
+        const [r, g] = q.bract ? [Math.round(255 * R(0.86, 0.96)), Math.round(R(228, 252))] : leafRGB(q.t);
         const f = frame(q.p, q.a, q.len, q.len * q.wid);
         fill((c) => ovalPath(c, f, q.skew || 0), rgb(r, g));
         if (q.len * s > 9) {
@@ -286,18 +343,44 @@ function createLeafAtlas() {
           col.fillStyle = rgb(Math.round(r * 0.84), g);
           col.fill();
         }
-      } else if (q.type === 'palmate') {
-        // Five pointed lobes radiating from the blade centre: main, two side & two small basal ones
+      } else if (q.type === 'heart') {
+        const [r, g] = leafRGB(q.t);
+        const f = frame(q.p, q.a, q.len, q.len * q.wid);
+        fill((c) => heartPath(c, f, q.skew || 0), rgb(r, g));
+        if (q.len * s > 9) {
+          col.beginPath();
+          heartHalf(col, f, q.skew || 0);
+          col.fillStyle = rgb(Math.round(r * 0.86), g);
+          col.fill();
+        }
+      } else if (q.type === 'maple') {
+        // Five toothed lobes radiating from the blade centre: main, two side & two smaller basal ones, wider than long
         const [r, g] = leafRGB(q.t);
         const L = q.len;
-        const cP = [q.p[0] + Math.sin(q.a) * L * 0.22, q.p[1] + Math.cos(q.a) * L * 0.22];
-        const lobes = [[0, 0.78, 0.36], [0.85, 0.62, 0.34], [-0.85, 0.62, 0.34], [1.65, 0.34, 0.36], [-1.65, 0.34, 0.36]];
+        const cP = [q.p[0] + Math.sin(q.a) * L * 0.3, q.p[1] + Math.cos(q.a) * L * 0.3];
+        const lobes = [[0, 0.72, 0.34], [0.98, 0.66, 0.34], [-0.98, 0.66, 0.34], [1.95, 0.38, 0.4], [-1.95, 0.38, 0.4]];
         lobes.forEach(([da, ll, ww], li) => {
-          const f = frame(cP, q.a + da + R(-0.08, 0.08), L * ll, L * ll * ww);
+          const f = frame(cP, q.a + da + R(-0.07, 0.07), L * ll, L * ll * ww);
           const shade = li === 0 ? 1 : (da > 0 ? 0.88 : 0.95);
-          fill((c) => ovalPath(c, f), rgb(Math.round(r * shade), g));
+          fill((c) => lobePath(c, f), rgb(Math.round(r * shade), g));
         });
-        fill((c) => c.arc(X(cP), Y(cP), L * 0.24 * s, 0, Math.PI * 2), rgb(Math.round(r * 0.96), g));
+        fill((c) => c.arc(X(cP), Y(cP), L * 0.3 * s, 0, Math.PI * 2), rgb(Math.round(r * 0.96), g));
+      } else if (q.type === 'digitate') {
+        // Seven leaflets from the end of the stalk, the middle one longest, the outer pair small and swept back
+        const [r, g] = leafRGB(q.t);
+        const sizes = [0.5, 0.72, 0.9, 1, 0.9, 0.72, 0.5];
+        sizes.forEach((ll, k) => {
+          const L = q.len * ll * R(0.92, 1.05);
+          const f = frame(q.p, q.a + (k - 3) * 0.47 + R(-0.06, 0.06), L, L * 0.36);
+          const shade = k === 3 ? 1 : (k % 2 ? 0.9 : 0.96);
+          fill((c) => obovatePath(c, f), rgb(Math.round(r * shade), g));
+          if (L * s > 9) {
+            col.beginPath();
+            obovateHalf(col, f);
+            col.fillStyle = rgb(Math.round(r * shade * 0.85), g);
+            col.fill();
+          }
+        });
       }
     }
   });
@@ -396,32 +479,35 @@ function coverageMips(level0, size, tiles, cutoff = 128) {
 //    Scale 1 is a mature park tree; street trees are planted smaller.
 // =====================================================================================================================
 const SPECIES = [
-  { // 0: London plane: tall clear trunk and leader with heavy ascending limbs, a broad rounded crown of big leaves
-    name: 'plane', tile: 0,
-    trunk: { r: 0.3, top: 8.6, lean: 0.04, segs: 8 },
-    limbs: { n: 6, y: [3.4, 7.4], tilt: [1.0, 0.36], len: [4.6, 2.8], r: 0.62, up: 0.07, out: 0, droop: 0, jitter: 0.07, segs: 6 },
-    branches: { n: 4, t: [0.3, 0.98], angle: [0.55, 0.95], len: [0.62, 0.42], up: 0.06, out: 0.02, droop: 0, jitter: 0.1, segs: 4 },
-    twigs: { n: 3, t: [0.3, 1.0], angle: [0.6, 1.05], len: [1.15, 0.75], up: 0.02, out: 0, droop: 0.04, jitter: 0.12, segs: 2 },
+  { // 0: Lime (lipa): straight trunk and leader with many slim ascending limbs, a dense egg-shaped dome of small
+    //    leaves whose outer twigs hang a little; Poznań's commonest street and park tree
+    name: 'lime', tile: 0,
+    trunk: { r: 0.28, top: 9.0, lean: 0.03, segs: 8 },
+    limbs: { n: 7, y: [3.0, 8.2], tilt: [1.05, 0.38], len: [4.0, 2.4], r: 0.58, up: 0.06, out: 0, droop: 0, jitter: 0.07, segs: 6 },
+    branches: { n: 4, t: [0.3, 0.98], angle: [0.55, 0.95], len: [0.6, 0.42], up: 0.04, out: 0.02, droop: 0.03, jitter: 0.1, segs: 4 },
+    twigs: { n: 3, t: [0.3, 1.0], angle: [0.6, 1.05], len: [1.05, 0.7], up: 0, out: 0, droop: 0.08, jitter: 0.12, segs: 2 },
+    cards: { perTwig: 2, scale: [0.85, 1.1], droop: 0.15 },
+    tints: [0x55762b, 0x63842f, 0x4a6a27]
+  },
+  { // 1: Norway maple (klon): a short trunk soon dividing into several spreading limbs, a broad, dense, rounded crown
+    //    of big lobed leaves; the narrow-street and planter tree
+    name: 'maple', tile: 1,
+    trunk: { r: 0.25, top: 5.6, lean: 0.05, segs: 7 },
+    limbs: { n: 6, y: [2.4, 5.2], tilt: [1.1, 0.45], len: [4.4, 3.0], r: 0.64, up: 0.07, out: 0, droop: 0, jitter: 0.1, segs: 6 },
+    branches: { n: 4, t: [0.3, 0.98], angle: [0.55, 1.0], len: [0.62, 0.44], up: 0.05, out: 0.02, droop: 0, jitter: 0.12, segs: 4 },
+    twigs: { n: 3, t: [0.3, 1.0], angle: [0.6, 1.05], len: [1.05, 0.7], up: 0.02, out: 0, droop: 0.03, jitter: 0.12, segs: 2 },
     cards: { perTwig: 2, scale: [0.85, 1.1], droop: 0.05 },
-    tints: [0x4b6a29, 0x5a7a2f, 0x3f5e25]
+    tints: [0x4a6b28, 0x577a2d, 0x415f24]
   },
-  { // 1: Honey locust: slim trunk forking into spreading, zigzag limbs, an open layered crown of feathery fronds
-    name: 'locust', tile: 1,
-    trunk: { r: 0.19, top: 5.4, lean: 0.07, segs: 7 },
-    limbs: { n: 5, y: [2.6, 5.0], tilt: [1.12, 0.55], len: [4.2, 2.8], r: 0.68, up: 0.04, out: 0, droop: 0, jitter: 0.16, segs: 6 },
-    branches: { n: 4, t: [0.3, 0.98], angle: [0.6, 1.05], len: [0.6, 0.42], up: 0.03, out: 0.03, droop: 0.02, jitter: 0.16, segs: 4 },
-    twigs: { n: 3, t: [0.3, 1.0], angle: [0.55, 1.0], len: [1.0, 0.65], up: 0, out: 0, droop: 0.06, jitter: 0.14, segs: 2 },
-    cards: { perTwig: 2, scale: [0.85, 1.1], droop: 0.1 },
-    tints: [0x7b8c33, 0x8d9b3d, 0x6c7f2d]
-  },
-  { // 2: American elm: trunk forking low into upright limbs that arch outward, a tall vase with drooping twigs
-    name: 'elm', tile: 2,
-    trunk: { r: 0.28, top: 4.3, lean: 0.03, segs: 6 },
-    limbs: { n: 5, y: [3.3, 4.1], tilt: [0.36, 0.22], len: [7.4, 7.0], r: 0.6, up: 0, out: 0.075, droop: 0, jitter: 0.06, segs: 7 },
-    branches: { n: 5, t: [0.35, 1.0], angle: [0.5, 0.85], len: [0.44, 0.3], up: 0, out: 0.05, droop: 0.07, jitter: 0.1, segs: 4 },
-    twigs: { n: 3, t: [0.3, 1.0], angle: [0.5, 0.95], len: [1.3, 0.85], up: 0, out: 0, droop: 0.16, jitter: 0.12, segs: 2 },
-    cards: { perTwig: 2, scale: [0.85, 1.1], droop: 0.4 },
-    tints: [0x44622a, 0x53702e, 0x3a5724]
+  { // 2: Horse chestnut (kasztanowiec): a stout trunk under a broad, heavy dome; the low limbs sweep out almost level
+    //    and turn up at their ends, the branches hang from them and the twig tips curl up again
+    name: 'chestnut', tile: 2,
+    trunk: { r: 0.36, top: 6.2, lean: 0.04, segs: 7 },
+    limbs: { n: 6, y: [2.4, 5.8], tilt: [1.25, 0.45], len: [5.6, 3.2], r: 0.62, up: 0.09, out: 0, droop: 0, jitter: 0.08, segs: 7 },
+    branches: { n: 4, t: [0.3, 0.98], angle: [0.6, 1.0], len: [0.58, 0.4], up: 0.02, out: 0.02, droop: 0.06, jitter: 0.1, segs: 4 },
+    twigs: { n: 3, t: [0.3, 1.0], angle: [0.55, 1.0], len: [1.1, 0.7], up: 0.06, out: 0, droop: 0, jitter: 0.12, segs: 2 },
+    cards: { perTwig: 2, scale: [0.9, 1.15], droop: 0.08 },
+    tints: [0x3c5a22, 0x466828, 0x34511f]
   }
 ];
 
@@ -1018,7 +1104,7 @@ function createTreeField(scene, sites) {
     update(viewPos.setFromMatrixPosition(camera.matrixWorld));
   };
 
-  // Levels for the start-up view (Midtown, 5th Ave), so the precompile pass sees the tree meshes
+  // Levels for the start-up view (Stary Rynek, south of the Ratusz), so the precompile pass sees the tree meshes
   update(new V3(0, 10, 140));
 
   // Precompile one visible representative per geometry; the other cells use exactly the same pipeline.

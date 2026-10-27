@@ -80,7 +80,7 @@ in `tools/build-geodata.mjs`. Proposed contract:
 | `labels` | `[{name, kind, x, z}]` | **new** | Area labels for the map (`place=suburb/quarter/neighbourhood`, water names). Replaces `AREA_LABELS` in `city-map.js`. |
 | `streets`, `avenues` | `[]` | kept empty | They stay so the runtime can tolerate empty lists during the transition; delete them in Phase 12. |
 | `roads` | `[name, w, dir, lanes, hw, flatPts]` | kept | `name` is the display name (`ul. Święty Marcin`), not upper-case CSCL. `dir` becomes `1/-1/0` instead of `FT/TF/TW` (update `city-config` `ROADS`). |
-| `roadGraph` | `{ nodes, links:[[a,b,nameIdx,w,lanes,dir,innerFlat,flags,kmh]], names, signals:[nodeIdx] }` | extended | `flags` bit 0 = bridge, bit 1 = tram on street, bit 2 = roundabout. `kmh` is the speed limit (OSM `maxspeed`, zone tags, else by class; Phase 10). `signals` comes from OSM `highway=traffic_signals` nodes snapped to junctions. |
+| `roadGraph` | `{ nodes, links:[[a,b,nameIdx,w,lanes,dir,innerFlat,flags,kmh]], names, signals:[nodeIdx] }` | extended | `flags` bit 0 = bridge, bit 1 = tram on street, bit 2 = roundabout, bits 3/4 = a painted bike lane (`cycleway=lane`/`opposite_lane`) right/left of a→b (Phase 11). `kmh` is the speed limit (OSM `maxspeed`, zone tags, else by class; Phase 10). `signals` comes from OSM `highway=traffic_signals` nodes snapped to junctions. |
 | `rail` | `[{kind:'tram'\|'rail', street:0\|1, tracks, pts}]` | **new** | From `railway=tram` (476 ways, 1435 mm, 600 V) and `railway=rail`. |
 | `plazas` | `[{name, ring}]` | changed | Pedestrian areas (`highway=pedestrian` areas, `area:highway`, `place=square`): Stary Rynek, Plac Wolności, Plac Kolegiacki, Półwiejska. |
 | `blocks` | unchanged tuple | kept | `[outline, rects, parkShare, parkName, rect, frames]`. Generic. |
@@ -854,6 +854,13 @@ All in `traffic.js`, `actor-models.js`, `controllers.js` and `vehicle-lights.js`
    - P-10 zebras ≈ 4 m deep with 0.5 m stripes. `CROSSWALK` (`road-network.js`, 2.5 m) → ≈ 4.0. It also moves the
      stop-line setback, which is correct, but it changes lane lengths;
    - P-12/P-14 stop lines; optional "BUS" lane text.
+
+   **Done** (Phase 11.1): all white; P-1 dashed lane lines (4 m / 8 m), P-4 double solid between opposing lanes where
+   either way has ≥ 2 lanes, P-1 dashed between single opposing lanes above 30 km/h, none at ≤ 30 km/h; P-14 stop lines
+   at signalised approaches only (the geodata has no STOP/give-way signs for P-12/P-13); P-10 zebras 4.0 m deep in
+   0.5 m stripes (`CROSSWALK` 4.3 = zebra + 0.15 m margins); red bike lanes from new link flags bits 3/4 (OSM
+   `cycleway=lane`/`opposite_lane`, 15.2 km of curb tagged), painted only where the outer lane leaves ≥ 1 m (4.1 km).
+   No "BUS" text: the graph carries no bus-lane data. Browser rendering unverified at the time of writing.
 2. **`street-details.js`**:
    - **§1 signals.** Pole-mounted S-1 three-aspect heads (black/grey housing; some with a yellow backplate) at each
      signalised corner, an S-2 arrow where configured, and pedestrian red/green figure heads with countdowns. They are
@@ -879,6 +886,13 @@ All in `traffic.js`, `actor-models.js`, `controllers.js` and `vehicle-lights.js`
    - OSM has 2,521 `natural=tree` nodes in the Stare Miasto core alone. Optionally plant real tree positions there
      instead of procedural rows (keep `mulberry32` determinism for the rest).
    - §7 A/B (Bryant Park allées, Central Park CPB) are deleted. C/D (street trees from `sidewalkBlocks`) stay.
+   - **Status: done** (bar the options). `SPECIES` is lime / Norway maple / horse chestnut on tiles 0–2 (heart-shaped
+     leaves with the odd bract, toothed five-lobed leaves, seven-leaflet palmate leaves), with per-species crowns,
+     tints and bark (`createTreeMaterial`). The indices keep their callers' roles, so `street-details.js`, `city-grid.js`
+     and `buildings.js` are unchanged (lime where the plane was, maple where the locust was, chestnut where the elm
+     was); the plane/locust/elm comments at `street-details.js` §4 still need renaming. The Bryant Park and Central
+     Park plantings were already gone (Phase 5). Skipped: the 4th species, and OSM tree positions (no `natural=tree`
+     in the `tools/data` snapshots; it needs a new Overpass query and a geodata key). Unverified in a browser.
 
 ### Phase 12: Audio, lighting, cameras, teleports, cleanup
 
