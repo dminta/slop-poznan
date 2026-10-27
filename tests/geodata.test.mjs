@@ -88,6 +88,21 @@ test('Poznań geodata builds offline with default paths in a checkout containing
       const at = GEO.tramStops.filter((s) => s.name === stop);
       assert.ok(at.length > 0 && at.every((s) => tramDist(s.x, s.z) < 1), `${stop}: every stop node lies on a tram track`);
     }
+    // Tram line routes: one per direction of the day lines, and every tram chain lists the routes using it
+    assert.ok(GEO.tramRoutes.length >= 30 && GEO.tramRoutes.every((r) => /^\d+$/.test(r.ref) && r.to), 'tram routes');
+    const tramRail = GEO.rail.filter((r) => r.kind === 'tram');
+    assert.ok(tramRail.every((r) => Array.isArray(r.routes) && r.routes.every((i) => i >= 0 && i < GEO.tramRoutes.length)));
+    assert.ok(tramRail.filter((r) => r.routes.length).length > 0.9 * tramRail.length, 'most tram track is on a route');
+    const over = (x, z) => tramRail.filter((r) => {
+      for (let i = 0; i + 3 < r.pts.length; i += 2) {
+        const dx = r.pts[i + 2] - r.pts[i], dz = r.pts[i + 3] - r.pts[i + 1];
+        const t = Math.max(0, Math.min(1, ((x - r.pts[i]) * dx + (z - r.pts[i + 1]) * dz) / (dx * dx + dz * dz || 1)));
+        if (Math.hypot(r.pts[i] + dx * t - x, r.pts[i + 1] + dz * t - z) < 8) return true;
+      }
+      return false;
+    });
+    const chrobrego = new Set(over(746, -149).flatMap((r) => r.routes.map((i) => GEO.tramRoutes[i].ref)));
+    assert.deepEqual([...chrobrego].sort(), ['17', '7', '8'], 'lines 7, 8 and 17 cross Most Chrobrego');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -13,10 +13,12 @@
 //   plazas:         [{ name, ring: [[x, z]...], holes? }] pedestrian areas and squares, negative shoelace winding;
 //                   holes: a multipolygon's inner rings of PLAZA_HOLE_M2 and up (buildings on the square), positive
 //   pedestrianWays: [{ name, w, pts }] linear highway=pedestrian streets (Półwiejska, Stary Rynek's lanes)
-//   rail:           [{ kind: 'tram'|'rail', street: 0|1, tracks, oneway: 0|1, pts }] chained OSM track pieces (one entry
+//   rail:           [{ kind: 'tram'|'rail', street: 0|1, tracks, oneway: 0|1, pts, routes? }] chained OSM track pieces (one entry
 //                   per mapped track, cut at switches and crossings; a one-way track runs along its points)
 //   railCorridors:  { rings: [ring...], lines: [{ pts, w }] } landuse=railway areas and off-street tracks (non-buildable)
 //   roads:          GEO.roads tuples [name, w, dir, lanes, hw, flatPts]
+//   tramRoutes:     [{ ref, from, to, id, ways: Set }] the day lines' route=tram relations (one per direction); tram
+//                   rail entries carry `routes`, the indices of the routes using them
 //   tramStops:      [{ name, x, z }]
 //   signalNodes:    [{ id, x, z, crossing }] highway=traffic_signals nodes (crossing: a pedestrian-crossing signal)
 import { load, log, toWorld, DETAIL_BOX, inDetailBox } from './poz-base.mjs';
@@ -327,10 +329,11 @@ for (const [i, p] of pieces.entries()) {
 const streetGrid = segGrid(pieces.filter((p) => p.cls !== 'service').map((p) => p.pts));
 const onStreet = (pts) => shareAlong(pts, (x, z, dx, dz) => nearParallel(streetGrid, x, z, dx, dz, TRAM_D, TRAM_COS)) >= 0.5;
 
-// Chain lines sharing end nodes into longer polylines. Items: { key, pts, nodes, directed }. A chain grows through a node
-// only where exactly two items of the same key meet, so junctions stay chain ends; undirected items are reversed as
-// needed. Deterministic: the walk follows item order.
-function chainByNodes(items) {
+// Chain lines sharing end nodes into longer polylines. Items: { key, pts, nodes, directed, id? }. A chain grows through a
+// node only where exactly two items of the same key meet, so junctions stay chain ends; undirected items are reversed as
+// needed. Each chain lists the `id`s of its items. `stopAt` (optional): nodes no chain grows through whatever the keys
+// (where more than two items of any key end). Deterministic: the walk follows item order.
+function chainByNodes(items, stopAt = null) {
   const out = [];
   const groups = new Map();
   for (const it of items) {
@@ -348,7 +351,7 @@ function chainByNodes(items) {
     // chain's tail, so a directed item must start at n (at the head, end at n)
     const step = (n, fwd) => {
       const c = at.get(n);
-      if (c.length !== 2) return -1;
+      if (c.length !== 2 || (stopAt && stopAt.has(n))) return -1;
       for (const k of c) {
         if (used[k]) continue;
         if (list[k].directed && (fwd ? first(list[k]) : last(list[k])) !== n) continue;
@@ -361,10 +364,12 @@ function chainByNodes(items) {
       used[i0] = 1;
       let pts = list[i0].pts.slice();
       let nodes = list[i0].nodes.slice();
+      const ids = [list[i0].id];
       for (let j; nodes[nodes.length - 1] !== nodes[0] && (j = step(nodes[nodes.length - 1], true)) >= 0;) {
         used[j] = 1;
         const it = list[j];
         const keep = first(it) === nodes[nodes.length - 1];
+        ids.push(it.id);
         pts = pts.concat((keep ? it.pts : it.pts.slice().reverse()).slice(1));
         nodes = nodes.concat((keep ? it.nodes : it.nodes.slice().reverse()).slice(1));
       }
@@ -372,23 +377,57 @@ function chainByNodes(items) {
         used[j] = 1;
         const it = list[j];
         const keep = last(it) === nodes[0];
+        ids.push(it.id);
         pts = (keep ? it.pts : it.pts.slice().reverse()).slice(0, -1).concat(pts);
         nodes = (keep ? it.nodes : it.nodes.slice().reverse()).slice(0, -1).concat(nodes);
       }
-      out.push({ key, pts, nodes });
+      out.push({ key, pts, nodes, ids });
     }
   }
   return out;
 }
 
+// Tram line routes (GEO.tramRoutes): the PTv2 route=tram relations of the day lines (ref 1-99; not the heritage lines 0
+// and H, the night lines 2xx, or the two unversioned diversion variants of line 17), one per direction, sorted by line
+// number and destination. A tram chain lists every route with one of its ways as a member (`routes`, indices into
+// tramRoutes): the chains are cut at every switch, so a route uses a chain whole, and the runtime follows the route by
+// taking, at each switch, a branch the route uses. A chain is not cut where a dropped track (a tunnel) leaves it, so a
+// route can cover only part of one; it counts when its ways make up ROUTE_SHARE of the chain's length.
+const ROUTE_SHARE = 0.5;
+const allTramRoutes = osmTramRoutes.elements
+  .filter((r) => r.type === 'relation' && tagOf(r).route === 'tram' && tagOf(r)['public_transport:version'] === '2' &&
+    /^[1-9][0-9]?$/.test(tagOf(r).ref || ''))
+  .map((r) => ({ ref: r.tags.ref, from: r.tags.from || '', to: r.tags.to || '', id: r.id,
+    ways: new Set(r.members.filter((m) => m.type === 'way').map((m) => m.ref)) }))
+  .sort((a, b) => +a.ref - +b.ref || a.to.localeCompare(b.to, 'pl') || a.id - b.id);
+
 for (const t of trackWays) t.street = t.kind === 'tram' && onStreet(t.pts) ? 1 : 0;
+// A switch whose branches differ in key (one street-running, one not; one-way and two-way) must stay a chain end too, or
+// the branch would meet the other chain mid-way and the runtime would find no junction there
+const pieceEnds = new Map();
+for (const p of trackPieces) for (const n of [p.nodes[0], p.nodes[p.nodes.length - 1]]) pieceEnds.set(n, (pieceEnds.get(n) || 0) + 1);
+const switchNodes = new Set([...pieceEnds].filter(([, k]) => k > 2).map(([n]) => n));
 const rail = [];
-for (const c of chainByNodes(trackPieces.map(({ way: t, pts, nodes }) => (
-  { key: `${t.kind}|${t.street}|${t.tracks}|${t.oneway}`, pts, nodes, directed: !!t.oneway })))) {
+for (const c of chainByNodes(trackPieces.map(({ way: t, pts, nodes }, id) => (
+  { key: `${t.kind}|${t.street}|${t.tracks}|${t.oneway}`, pts, nodes, directed: !!t.oneway, id })), switchNodes)) {
   const [kind, street, tracks, oneway] = c.key.split('|');
   if (!touchesBox(c.pts, 0)) continue;
-  rail.push({ kind, street: +street, tracks: +tracks, oneway: +oneway, pts: rdp(c.pts, 0.3).map(([x, z]) => [r1(x), r1(z)]) });
+  const line = { kind, street: +street, tracks: +tracks, oneway: +oneway, pts: rdp(c.pts, 0.3).map(([x, z]) => [r1(x), r1(z)]) };
+  if (kind === 'tram') {
+    const total = c.ids.reduce((t, id) => t + lineLen(trackPieces[id].pts), 0);
+    line.routes = allTramRoutes.flatMap((r, i) => {
+      const on = c.ids.reduce((t, id) => t + (r.ways.has(trackPieces[id].way.id) ? lineLen(trackPieces[id].pts) : 0), 0);
+      return on >= ROUTE_SHARE * total ? [i] : [];
+    });
+  }
+  rail.push(line);
 }
+// Routes with no track in the box (line 1 runs Junikowo - Franowo south of it) are dropped and the indices renumbered
+const routeIndex = allTramRoutes.map(() => -1);
+for (const r of rail) for (const i of r.routes || []) routeIndex[i] = 0;
+const tramRoutes = allTramRoutes.filter((_, i) => routeIndex[i] === 0);
+allTramRoutes.forEach((r, i) => { if (routeIndex[i] === 0) routeIndex[i] = tramRoutes.indexOf(r); });
+for (const r of rail) if (r.routes) r.routes = r.routes.map((i) => routeIndex[i]);
 
 // Non-buildable rail land: landuse=railway areas, plus a corridor around every off-street track (street trams are
 // covered by their road's widened stamp). 5 m per mapped rail track (1435 mm gauge, 4.5 m track centres), 4 m per tram.
@@ -498,6 +537,11 @@ log(`bridges: ${pieces.filter((p) => p.bridge).length} pieces (${named((p) => p.
 log(`tram on street: ${pieces.filter((p) => p.tram).length} pieces, ${(pieces.filter((p) => p.tram).reduce((s, p) => s + lineLen(p.pts), 0) / 1000).toFixed(1)} km on ${named((p) => p.tram).length} streets`);
 log(`plazas: ${plazas.length} (${[...new Set(plazas.map((p) => p.name).filter(Boolean))].length} named), pedestrian ways: ${pedestrianWays.length}`);
 log(`rail: ${rail.length} lines (tram ${rail.filter((r) => r.kind === 'tram').length}, on street ${rail.filter((r) => r.street).length}; rail ${rail.filter((r) => r.kind === 'rail').length}); ${trackWays.length} track ways (${closedTram} closed tram ways kept from route=tram relations), ${droppedRailTunnel} tunnel ways dropped; corridors ${railCorridors.rings.length} rings, ${railCorridors.lines.length} lines`);
+{
+  const tram = rail.filter((r) => r.kind === 'tram');
+  const len = (rs) => rs.reduce((t, r) => t + lineLen(r.pts), 0) / 1000;
+  log(`tram routes: ${tramRoutes.length} (lines ${[...new Set(tramRoutes.map((r) => r.ref))].join(', ')}; ${allTramRoutes.length - tramRoutes.length} with no track in the box dropped); ${len(tram.filter((r) => r.routes.length)).toFixed(1)} of ${len(tram).toFixed(1)} km of tram track on a route; every route on ${tramRoutes.map((_, i) => tram.filter((r) => r.routes.includes(i)).length).join('/')} chains`);
+}
 log(`roads: ${roads.length} polylines (${roads.reduce((t, r) => t + r[5].length / 2, 0)} pts); tram stops ${tramStops.length}; signal nodes ${signalNodes.length}`);
 
-export { pieces, plazas, pedestrianWays, rail, railCorridors, roads, tramStops, signalNodes, midOf, lineLen };
+export { pieces, plazas, pedestrianWays, rail, railCorridors, roads, tramRoutes, tramStops, signalNodes, midOf, lineLen };

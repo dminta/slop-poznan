@@ -2127,7 +2127,8 @@ function createLoftedHelicopterMaterial() {
 // nose at +z (cab 1, the front) or -z (cab -1, the rear end). Roof equipment fairings, the bogies under the skirt, a
 // coupler cover and the single-arm pantograph are separate pieces of the same mesh (partId). Windows, doors, livery
 // and lamps are painted by createTramMaterial() from object-space position and normal plus a constant per-vertex
-// `tramInfo` (half length, cab, two door centres) and the per-instance `tramState` (brake, livery, doors open, -).
+// `tramInfo` (half length, cab, two door centres) and the per-instance `tramState` (brake, livery, doors open, display
+// row).
 const TRAM_PARTS = {
   BODY: 0,
   TRIM: 1,
@@ -2229,11 +2230,50 @@ function buildTramBellowsGeometry() {
   return geo;
 }
 
+// Cab destination displays (amber LED, as on the MPK Gamma and Tramino): one row per tram line route, row 0 blank and
+// row i + 1 GEO.tramRoutes[i], the line number in the first 22% of the width and the terminus after it, then a dark grid
+// for the dot-matrix look. 7:1 rows, the shape of the display's text area (1.24 × 0.18 m).
+function createTramDestinationTexture(routes) {
+  const c = document.createElement('canvas');
+  const rowH = 64;
+  c.width = 448;
+  c.height = rowH * (routes.length + 1);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#07080a';
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.fillStyle = '#ffa31a';
+  ctx.textBaseline = 'middle';
+  const fit = (text, x, y, maxWidth, align) => {
+    const w = ctx.measureText(text).width;
+    const k = w > maxWidth ? maxWidth / w : 1;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(k, 1);
+    ctx.textAlign = align;
+    ctx.fillText(text, 0, 0);
+    ctx.restore();
+  };
+  routes.forEach((r, i) => {
+    const y = (i + 1) * rowH + rowH / 2 + 2;
+    ctx.font = '800 48px Arial, sans-serif';
+    fit(r.ref, 50, y, 88, 'center');
+    ctx.font = '700 36px Arial, sans-serif';
+    fit(r.to, 110, y, 326, 'left');
+  });
+  ctx.fillStyle = 'rgba(7, 8, 10, 0.75)';
+  for (let x = 0; x < c.width; x += 4) ctx.fillRect(x, 0, 1, c.height);
+  for (let y = 0; y < c.height; y += 4) ctx.fillRect(0, y, c.width, 1);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 let _tramMat = null;
 
 /**
  * The TSL material shared by every tram section and the bellows:
- * - Cab ends: a large raked windscreen with the LED destination display above it; LED headlamps (front cab) or
+ * - Cab ends: a large raked windscreen with the LED destination display above it (row `tramState.w` of `signMap`, which
+ *   holds `rows` rows, the first at the top; without a map, a generic dot pattern); LED headlamps (front cab) or
  *   red tail / brake lamps (rear cab)
  * - Continuous dark window band with thin pillars, glazed double doors on the right (-x) side, opening dark (doors
  *   open, `tramState.z`); interiors glow at night
@@ -2241,7 +2281,7 @@ let _tramMat = null;
  *   yellow cab front; livery 1 (Tramino) metallic green with thin yellow accents, yellow door frames and a yellow
  *   front band; light grey roof & fairings, dark skirt, ribbed black bellows
  */
-function createTramMaterial() {
+function createTramMaterial(signMap = null, rows = 1) {
   if (_tramMat) return _tramMat;
   const p = attribute('position', 'vec3');
   const n = attribute('normal', 'vec3');
@@ -2269,7 +2309,12 @@ function createTramMaterial() {
   const isRear = step(cab, -0.5);
   const windscreen = roundedRect(vec2(p.x, p.y.sub(2.0)), vec2(1.0, 0.74), 0.2).mul(cabFace);
   const display = roundedRect(vec2(p.x, p.y.sub(2.9)), vec2(0.66, 0.11), 0.03).mul(cabFace);
-  const displayText = step(0.45, fract(p.x.mul(9.0))).mul(roundedRect(vec2(p.x.add(0.1), p.y.sub(2.9)), vec2(0.46, 0.06), 0.01));
+  // Text area 1.24 × 0.18 m, read left to right from outside the cab (+x is the tram's left, so mirrored by cab)
+  const signU = clamp(p.x.mul(cab).add(0.62).div(1.24), 0.0, 1.0);
+  const signV = clamp(p.y.sub(2.81).div(0.18), 0.0, 1.0);
+  const displayText = signMap
+    ? texture(signMap, vec2(signU, signV.add(float(rows - 1).sub(state.w)).div(rows))).rgb.mul(1.6)
+    : color(0xffa020).mul(step(0.45, fract(p.x.mul(9.0))).mul(roundedRect(vec2(p.x.add(0.1), p.y.sub(2.9)), vec2(0.46, 0.06), 0.01)));
 
   // Window band (pillars every 1.6 m), doors with glazed leaves
   const band = smoothstep(1.1, 1.14, p.y).mul(smoothstep(2.6, 2.56, p.y)).mul(side).mul(step(abs(p.z), halfLen.sub(0.3)));
@@ -2324,7 +2369,7 @@ function createTramMaterial() {
   mat.emissiveNode = color(0xd9efff)
     .mul(headLamp.mul(night.mul(1.3).add(0.12)))
     .add(color(0xff0a12).mul(tailLamp.mul(brake.mul(1.5).add(0.7))))
-    .add(color(0xffa020).mul(display.mul(displayText).mul(0.9)))
+    .add(displayText.mul(display).mul(0.9))
     .add(color(0xffe2b8).mul(max(band.mul(pillar).mul(one.sub(door)), max(leaf, doorway)).mul(night).mul(0.32)));
 
   _tramMat = mat;
@@ -2358,5 +2403,6 @@ export {
   TRAM_PANTOGRAPH_HEAD,
   buildTramSectionGeometry,
   buildTramBellowsGeometry,
-  createTramMaterial
+  createTramMaterial,
+  createTramDestinationTexture
 };

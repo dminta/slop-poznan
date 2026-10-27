@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { log, llAffine, LAT0, LON0, BEARING_DEG, DETAIL_BOX, inDetailBox } from './poz-base.mjs';
 import { r1, Raster } from './geo-util.mjs';
-import { pieces, plazas, rail, roads, signalNodes, tramStops } from './poz-roads.mjs';
+import { pieces, plazas, rail, roads, signalNodes, tramRoutes, tramStops } from './poz-roads.mjs';
 import { water, land, landHoles, outskirts, outskirtsHoles } from './poz-water.mjs';
 import { parks, landmarks, districts, labels } from './poz-extra.mjs';
 import { blocks, STRIP, SIDEWALK } from './poz-blocks.mjs';
@@ -76,9 +76,14 @@ const GEO = {
   // flags (bit 0 bridge, bit 1 tram on street, bit 2 roundabout, bits 3/4 a painted bike lane right/left of a -> b),
   // speed limit km/h], names, signals [node index]
   roadGraph,
-  // [{ kind: 'tram'|'rail', street (1 street-running), tracks, oneway (1: runs along pts), pts }]; cut at every switch and
-  // crossing, so the tram network joins on equal end coordinates
-  rail: rail.map((r) => ({ kind: r.kind, street: r.street, tracks: r.tracks, oneway: r.oneway, pts: flat(r.pts) })),
+  // [{ kind: 'tram'|'rail', street (1 street-running), tracks, oneway (1: runs along pts), pts, routes (tram only) }]; cut
+  // at every switch and crossing, so the tram network joins on equal end coordinates. routes: indices into tramRoutes of
+  // the lines using the track
+  rail: rail.map((r) => (r.routes
+    ? { kind: r.kind, street: r.street, tracks: r.tracks, oneway: r.oneway, pts: flat(r.pts), routes: r.routes }
+    : { kind: r.kind, street: r.street, tracks: r.tracks, oneway: r.oneway, pts: flat(r.pts) })),
+  // [{ ref, from, to }] tram line routes (OSM route=tram, PTv2, one per direction): line number, first and last stop
+  tramRoutes: tramRoutes.map((r) => ({ ref: r.ref, from: r.from, to: r.to })),
   // [{ name, x, z }] railway=tram_stop nodes inside the detail box (one per stop position, usually on the track)
   tramStops: tramStops.filter((s) => inDetailBox(s.x, s.z, 0)),
   // [{ name, ring, holes? }] pedestrian areas and squares; holes are the buildings standing on them (Stary Rynek's

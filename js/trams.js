@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import { GEO } from './geodata.js';
 import { signalPhase } from './city-config.js';
 import { cityUniforms } from './tsl-materials.js';
-import { buildTramSectionGeometry, buildTramBellowsGeometry, createTramMaterial } from './actor-models.js';
+import { buildTramSectionGeometry, buildTramBellowsGeometry, createTramMaterial, createTramDestinationTexture } from './actor-models.js';
 import { HEADLIGHTS, tramLightSpec, createVehicleHeadlight, placeVehicleHeadlight } from './vehicle-lights.js';
 
 // js/trams.js
@@ -12,8 +12,12 @@ import { HEADLIGHTS, tramLightSpec, createVehicleHeadlight, placeVehicleHeadligh
 // - Track graph: the tram chains (cut at every switch and crossing by the geodata build, so chain ends with equal
 //   coordinates are the junctions) become directed edges, one-way chains one way and the others both ways. At a node a
 //   tram may continue onto an edge whose start tangent is within SWITCH_TURN of its own end tangent (a switch or a
-//   crossing, never a reversal); it picks one of them at random when its path is extended. A dead end (mostly the
-//   edges of the detail box, some depot stubs) is a buffer stop: the tram stops there and is respawned elsewhere.
+//   crossing, never a reversal); it picks one when its path is extended. A dead end (mostly the edges of the detail box,
+//   some depot stubs) is a buffer stop: the tram stops there and is respawned elsewhere.
+// - Lines: every tram runs one of GEO.tramRoutes (the OSM route=tram relations, one per direction: line number `ref`
+//   and terminus `to`), picked from the routes using the track it spawns on. Each tram chain lists the routes using it
+//   (GEO.rail[i].routes), so at a switch the tram takes a branch its route uses, and a random one only where none
+//   does (off its route, or past the end of a route inside the box). The cab displays show the line and terminus.
 // - Stops: GEO.tramStops snapped to the nearest track(s) within STOP_SNAP m; a tram brakes for a virtual stopped
 //   leader so that its middle stands at the stop, dwells 20–30 s with its doors open, then departs.
 // - Signals: the signalised road junctions (road-network.js) within SIGNAL_REACH m of a track hold trams at a stop
@@ -29,8 +33,8 @@ import { HEADLIGHTS, tramLightSpec, createVehicleHeadlight, placeVehicleHeadligh
 //   player still in their swept path ahead.
 //
 // Public surface (docs/actors.md "Trams"): createTramSystem(scene, { network, traffic }) returns { group, update, trams,
-// pool, graph, stops, signals, models }; update(dt, elapsed, focus, camera, playerEntity, activeMode). `trams` holds
-// the active tram entities, refreshed every update.
+// pool, graph, stops, signals, routes, models }; update(dt, elapsed, focus, camera, playerEntity, activeMode). `trams`
+// holds the active tram entities, refreshed every update; each carries its `route`, `line` and `destination`.
 
 const NUM_TRAMS = 24;
 const TRAM_HALF_WIDTH = 1.2;
@@ -111,6 +115,7 @@ for (const m of Object.values(TRAM_MODELS)) {
 // another tram track (RIGHT_HAND_GAP) is taken as one track of a pair and given the direction that keeps its neighbour
 // on the left (right-hand running). Only the rest (single track, junction stubs) stays two-way.
 const RIGHT_HAND_GAP = [1.8, 6.5];
+const NO_ROUTES = Object.freeze([]);
 
 // +1 if the chain is the right-hand track along its pts, -1 against them, 0 if no parallel neighbour decides it
 function rightHandDirection(r, others) {
@@ -207,7 +212,7 @@ function buildTrackGraph(rail, maxTurn = SWITCH_TURN) {
       next: [], prev: [], reverse: null,
       stx: (pts[2] - pts[0]) / s0, stz: (pts[3] - pts[1]) / s0,
       etx: (pts[2 * n - 2] - pts[2 * n - 4]) / s1, etz: (pts[2 * n - 1] - pts[2 * n - 3]) / s1,
-      vmax: new Float32Array(n).fill(Infinity), stops: [], signals: [], crossings: [], endPad: 1,
+      vmax: new Float32Array(n).fill(Infinity), stops: [], signals: [], crossings: [], endPad: 1, routes: NO_ROUTES,
       foulStart: FOUL_MIN, foulEnd: FOUL_MIN, box
     };
     e.from.out.push(e);
@@ -237,6 +242,11 @@ function buildTrackGraph(rail, maxTurn = SWITCH_TURN) {
     if (fwd && rev) {
       fwd.reverse = rev;
       rev.reverse = fwd;
+    }
+    // The line routes using the chain (indices into GEO.tramRoutes); a two-way chain serves them both ways
+    if (r.routes && r.routes.length) {
+      if (fwd) fwd.routes = r.routes;
+      if (rev) rev.routes = r.routes;
     }
   }
 
@@ -666,13 +676,48 @@ function mapTramsToRoads(graph, network, gap = ROAD_OVERLAP) {
 // ---------------------------------------------------------------------------------------------------------------------
 const _back = [];
 
+// Does the route use edge e, or an edge up to `depth` switches past it?
+function routeAhead(e, route, depth) {
+  if (e.routes.includes(route)) return true;
+  if (depth <= 0) return false;
+  for (let i = 0; i < e.next.length; i++) if (routeAhead(e.next[i], route, depth - 1)) return true;
+  return false;
+}
+
+// One edge of `list` (an edge's next, or with ahead 0 its prev): at random among those the route uses; else among
+// those leading back onto it within ROUTE_REJOIN switches (a short connecting piece the OSM relation leaves out);
+// else among all of them
+const ROUTE_REJOIN = 2;
+function pickBranch(list, route, rand, ahead = ROUTE_REJOIN) {
+  let n = 0;
+  let depth = 0;
+  if (route >= 0) {
+    for (; depth <= ahead && !n; depth++) for (let i = 0; i < list.length; i++) if (routeAhead(list[i], route, depth)) n++;
+    depth--;
+  }
+  if (!n) return list[Math.floor(rand() * list.length) % list.length];
+  let k = Math.floor(rand() * n) % n;
+  for (let i = 0; i < list.length; i++) if (routeAhead(list[i], route, depth) && k-- === 0) return list[i];
+  return list[0];
+}
+
+// At the end of its route (a terminus loop in the box: the relation stops at the last stop), a tram takes the same
+// line's route that uses the edge it continues on, usually the other direction, and changes its display
+function turnRoute(e, route, lines) {
+  const ref = lines[route] ? lines[route].ref : null;
+  for (let i = 0; i < e.routes.length; i++) if (lines[e.routes[i]] && lines[e.routes[i]].ref === ref) return e.routes[i];
+  return route;
+}
+
 class TramPath {
-  constructor() {
+  constructor(lines = null) {
+    this.lines = lines; // GEO.tramRoutes, for turnRoute
     this.edges = new Array(PATH_CAP).fill(null);
     this.start = new Float64Array(PATH_CAP);
     this.n = 0;
     this.u = 0; // the tram's front
     this.end = Infinity; // path coordinate of a dead end once the path has reached one
+    this.route = -1; // the line route (GEO.tramRoutes index) the branches follow, -1 for none
   }
 
   // Front at s on edge, with at least `back` metres of track behind it where predecessors exist
@@ -683,7 +728,7 @@ class TramPath {
     while (covered < back && k < PATH_CAP >> 1) {
       const prev = _back[k - 1].prev;
       if (!prev.length) break;
-      const p = prev[Math.floor(rand() * prev.length) % prev.length];
+      const p = pickBranch(prev, this.route, rand, 0);
       _back[k++] = p;
       covered += p.len;
     }
@@ -711,7 +756,9 @@ class TramPath {
         this.end = lastEnd;
         break;
       }
-      this.edges[this.n] = last.next[Math.floor(rand() * last.next.length) % last.next.length];
+      const next = pickBranch(last.next, this.route, rand);
+      if (this.route >= 0 && this.lines && !routeAhead(next, this.route, ROUTE_REJOIN)) this.route = turnRoute(next, this.route, this.lines);
+      this.edges[this.n] = next;
       this.start[this.n] = lastEnd;
       this.n++;
     }
@@ -779,7 +826,7 @@ function poseSections(path, u, model, out) {
 // ---------------------------------------------------------------------------------------------------------------------
 // The tram system
 // ---------------------------------------------------------------------------------------------------------------------
-function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.tramStops, traffic = null } = {}) {
+function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.tramStops, routes = GEO.tramRoutes, traffic = null } = {}) {
   const group = new THREE.Group();
   group.name = 'Trams';
   scene.add(group);
@@ -791,6 +838,8 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     ? attachTramStops(graph, stops)
     : snapTramStops(graph, stops || []);
   const signals = findTrackSignals(graph, network ? network.nodes : []);
+  const lines = routes || [];
+  const routed = graph.edges.some((e) => e.routes.length > 0);
 
   let seed = 1922; // the first electric tram in Poznań (1898 horse tram, 1922 MPK)
   const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
@@ -801,12 +850,13 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     const model = i % 3 === 2 ? TRAM_MODELS.tramino : TRAM_MODELS.gamma;
     pool.push({
       id: i, model: model.id, spec: model, length: model.length,
-      active: false, path: new TramPath(),
+      active: false, path: new TramPath(lines),
       x: 0, z: 0, heading: 0, speed: 0, acc: 0, v0: 0, v0Factor: 0.9 + rand() * 0.1,
       frontX: 0, frontZ: 0,
       sections: model.sections.map(() => ({ x: 0, z: 0, heading: 0, halfLength: 0, halfWidth: TRAM_HALF_WIDTH, fx: 0, fz: 0, rx: 0, rz: 0 })),
       atStop: false, stopName: '', dwell: 0, doorsOpen: false, nextStop: null, lastStop: null,
       leader: null, gap: Infinity, waitReason: '', obstacle: null,
+      route: -1, line: '', destination: '',
       deadEndWait: 0, stuck: 0,
       // per-frame occupancy: the path edges under the body, local [s0, s1] on each
       occN: 0, occEdge: new Array(PATH_CAP).fill(null), occS0: new Float64Array(PATH_CAP), occS1: new Float64Array(PATH_CAP),
@@ -816,7 +866,8 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
   const trams = [];
 
   // Meshes: one per section kind (+ the bellows), capacity = the kind's count over the pool
-  const material = createTramMaterial();
+  // Cab destination displays: row 0 blank, row i + 1 route i (tramState.w)
+  const material = createTramMaterial(lines.length ? createTramDestinationTexture(lines) : null, lines.length + 1);
   const kindCount = new Map();
   const kindSpec = new Map();
   for (const t of pool) {
@@ -899,6 +950,14 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     t.heading = Math.atan2(_p.tx, _p.tz);
   }
 
+  // The line route a tram runs, its number and terminus (the display row follows t.route)
+  function setLine(t, route) {
+    const r = route >= 0 ? lines[route] : null;
+    t.route = r ? route : -1;
+    t.line = r ? r.ref : '';
+    t.destination = r ? r.to : '';
+  }
+
   // Try to put tram t on the track near the focus: false if this attempt found no free spot
   function spawn(t, fx, fz, minD, protectView) {
     if (!nearEdges.length) return false;
@@ -912,7 +971,11 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       if (o === t || !o.active) continue;
       if (Math.hypot(o.x - _p.x, o.z - _p.z) < SPAWN_SPACING) return false;
     }
+    // Its line: one of the routes using this track (with routes in the data, never on track no route uses)
+    if (routed && !e.routes.length) return false;
+    const route = e.routes.length ? e.routes[Math.floor(rand() * e.routes.length) % e.routes.length] : -1;
     const path = t.path;
+    path.route = route;
     path.reset(e, s, t.length + 10, rand);
     path.extend(LOOKAHEAD, rand);
     if (path.end - path.u < 80) return false; // not just before a buffer stop
@@ -923,6 +986,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     }
     if (traffic && !trackClear(path, t.length)) return false;
     t.active = true;
+    setLine(t, path.route);
     t.speed = Math.min(8, path.edges[path.indexAt(path.u)].street ? STREET_SPEED : TRACK_SPEED) * (0.4 + 0.6 * rand());
     t.acc = 0;
     t.atStop = false;
@@ -1356,6 +1420,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     }
     path.trim(t.length + 8);
     path.extend(LOOKAHEAD + 20, rand);
+    if (path.route !== t.route) setLine(t, path.route);
   }
 
   // Instance writes
@@ -1376,12 +1441,13 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     a[o + 8] = s * scaleZ; a[o + 9] = 0; a[o + 10] = c * scaleZ; a[o + 11] = 0;
     a[o + 12] = x; a[o + 13] = 0.02; a[o + 14] = z; a[o + 15] = 1;
   }
-  function writeState(mesh, slot, brake, doors) {
+  function writeState(mesh, slot, brake, doors, sign) {
     const st = mesh.geometry.attributes.tramState.array;
     const o = slot * 4;
-    if (st[o] !== brake || st[o + 2] !== doors) {
+    if (st[o] !== brake || st[o + 2] !== doors || st[o + 3] !== sign) {
       st[o] = brake;
       st[o + 2] = doors;
+      st[o + 3] = sign;
       dirtyState.add(mesh);
     }
   }
@@ -1391,12 +1457,13 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     const spec = t.spec;
     const brake = t.acc < -0.6 || t.speed < 0.3 ? 1 : 0;
     const doors = t.doorsOpen ? 1 : 0;
+    const sign = t.route + 1;
     for (let k = 0; k < secs.length; k++) {
       const s = secs[k];
       const mesh = meshes.get(spec.sections[k].kind);
       const slot = mesh.count++;
       writeMatrix(mesh, slot, s.x, s.z, s.heading, 1);
-      writeState(mesh, slot, brake, doors);
+      writeState(mesh, slot, brake, doors, sign);
       if (k === 0) t._frontMatrix.fromArray(mesh.instanceMatrix.array, slot * 16);
       if (k > 0) {
         // Bellows over the joint, along the mean heading, stretched over the gap (wider on the outside of curves)
@@ -1555,7 +1622,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     }
   }
 
-  return { group, update, trams, pool, graph, stops: tramStops, signals, models: TRAM_MODELS };
+  return { group, update, trams, pool, graph, stops: tramStops, signals, routes: lines, models: TRAM_MODELS };
 }
 
 export {
@@ -1571,6 +1638,7 @@ export {
   findTrackSignals,
   mapTramsToRoads,
   TramPath,
+  pickBranch,
   poseSections,
   createTramSystem
 };
