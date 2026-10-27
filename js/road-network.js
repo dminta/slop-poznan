@@ -24,6 +24,11 @@ const LANE_W = 3.6; // lane spacing
 // it and the zebra that the annex on horizontal signs asks for (Dz.U. 2019 poz. 2311, załącznik nr 2, 4.2.5).
 const CROSSWALK = 4.3;
 const STOP_SETBACK = 1.75;
+// How far past a road's curb, as its half width puts it, a zebra may run on to reach the real curb island (the half
+// width of a merged junction's arm or a divided road's two roadways can fall a few metres short of the real curbs):
+// pedestrian-routes.js lays crosswalks only where both ends find a curb island within it, road-paint.js paints them
+// and street-details.js keeps their landings clear
+const CROSSWALK_REACH = 4;
 const SHORE_MARGIN = 6;
 // A major road (buses spawn on it): at least 14.5 m curb to curb (four lanes and some) or with three travel lanes or
 // more (OSM lanes, both ways). The graph carries no road class, so width and lanes stand in for primary/secondary.
@@ -1045,4 +1050,4 @@ function curvePoint(c, s, out) {
   return out;
 }
 
-export { buildRoadNetwork, CROSSWALK, STOP_SETBACK };
+export { buildRoadNetwork, CROSSWALK, CROSSWALK_REACH, STOP_SETBACK };

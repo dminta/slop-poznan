@@ -9,9 +9,10 @@ import { createRoadPaintMaterial } from './tsl-materials.js';
 // https://isap.sejm.gov.pl/isap.nsf/DocDetails.xsp?id=WDU20190002311): P-1b dashed lines (P-1a above 70 km/h) between
 // lanes going the same way; P-4 double solid between opposing lanes on roads with three lanes or more (the annex
 // requires it there); P-1b/P-1a between single opposing lanes on carriageways 5.8 m or wider outside 30 zones (no
-// centre line at 30 km/h or less is local practice, not the annex); P-14 stop lines before the P-10 zebra on every
-// signalised approach and on unsignalised ones of major roads (see STOP_W); and red bike lanes behind a P-2b line along
-// the curbs OSM tags with cycleway=lane (road-network.js edge.bike) where the outer lane leaves room.
+// centre line at 30 km/h or less is local practice, not the annex); P-10 zebras where pedestrian-routes.js lays its
+// crosswalks (traffic.js hands them over); P-14 stop lines on every signalised approach and on unsignalised ones of
+// major roads with a zebra (see STOP_W); and red bike lanes behind a P-2b line along the curbs OSM tags with
+// cycleway=lane (road-network.js edge.bike) where the outer lane leaves room.
 
 const WHITE = new THREE.Color(0xe6e2d6);
 const RED = new THREE.Color(0xa8392c); // bike lanes "may" be red (annex 7.11.1); Poznań paints them red
@@ -30,7 +31,8 @@ const ZEBRA_PERIOD = 1.0; // P-10: 0.5 m stripes, 0.5 m gaps, 4.0 m deep (annex 
 //   corners gives up some or all of the setback (road-network.js place); its line still goes at the edge end, where
 //   traffic stops, only closer to the zebra than the 2 m (down to 0.25 m, never on it), rather than leave a signal
 //   without one;
-// - unsignalised, on a major road (axis 'ave', road-network.js isMajorRoad), with the full setback: the annex requires
+// - unsignalised, on a major road (axis 'ave', road-network.js isMajorRoad), with the full setback, before a zebra (an
+//   approach with no crosswalk has nothing to stop before): the annex requires
 //   P-14 before crossings at junctions "na wlotach drogi z pierwszeństwem" and only recommends it on subordinate and
 //   equal-priority approaches (4.2.1). The geodata has no D-1/A-7 signs, so the major road stands in for the priority
 //   road; the annex has no lane-count rule;
@@ -45,7 +47,8 @@ const BIKE_CURB = 0.2; // gap from the curb
 const CAR_HALF = 1.0; // a car's half width, which must stay off the bike lane's line
 const NO_BIKE = [false, false];
 
-function buildRoadPaint(scene, network) {
+// crosswalks: pedestrian-routes.js `crosswalks` ({ node, ax, az, bx, bz, ux, uz }: a network node and the zebra's ends)
+function buildRoadPaint(scene, network, crosswalks = []) {
   const position = [];
   const side = [];
   const paint = [];
@@ -88,6 +91,16 @@ function buildRoadPaint(scene, network) {
     }
     return true;
   };
+
+  // The zebras at each junction (paint nodes stand where the network's do), to find the one across an approach
+  const zebrasAt = new Map();
+  const nodeKey = (n) => `${n.x},${n.z}`;
+  for (const c of crosswalks) {
+    const key = nodeKey(c.node);
+    if (!zebrasAt.has(key)) zebrasAt.set(key, []);
+    zebrasAt.get(key).push(c);
+  }
+  const zebraBefore = (f) => (zebrasAt.get(nodeKey(f.to)) || []).some((c) => c.ux * f.dx + c.uz * f.dz < -0.94);
 
   // The one or two directed edges of each road between a pair of intersections
   const roads = new Map();
@@ -142,17 +155,13 @@ function buildRoadPaint(scene, network) {
 
     // P-14 stop lines across the lanes arriving at each junction, before its zebra, from the centre line (or median) to
     // the curb (none where a street merely bends, a shape node of the centreline streets): at every signal, squeezed or
-    // not, and on major roads' approaches with the full 2 m gap (see STOP_W)
+    // not, and on major roads' approaches with the full 2 m gap before a zebra (see STOP_W)
     for (const f of back ? [e, back] : [e]) {
       if (f.to.shape) continue;
-      if (!f.to.signal && (f.axis !== 'ave' || f.setbackTo < STOP_SETBACK - 1e-6)) continue;
+      if (!f.to.signal && (f.axis !== 'ave' || f.setbackTo < STOP_SETBACK - 1e-6 || !zebraBefore(f))) continue;
       const left = back ? Math.max(0, f.lanes[0] - 1.8) : -f.half;
       across(f, f.len - 0.35, left + 0.1, f.half - 0.1, STOP_W, WHITE, STOP_PERIOD, STOP_DUTY);
     }
-
-    // P-10 zebras curb to curb, between the stop lines and the intersections at both ends, next to the intersections
-    if (!e.from.shape) across(e, -e.setbackFrom - CROSSWALK / 2, -e.half, e.half, CROSSWALK - 0.3, WHITE, ZEBRA_PERIOD, 0.5);
-    if (!e.to.shape) across(e, e.len + e.setbackTo + CROSSWALK / 2, -e.half, e.half, CROSSWALK - 0.3, WHITE, ZEBRA_PERIOD, 0.5);
 
     for (const [end, node] of [[0, e.from], [1, e.to]]) {
       if (!node.shape) continue;
@@ -160,6 +169,11 @@ function buildRoadPaint(scene, network) {
       bends.get(node.id).push({ e, end, lines: lines.slice(firstLine) });
     }
   }
+
+  // P-10 zebras exactly where pedestrian-routes.js lays its crosswalks, curb to curb next to the intersection (between
+  // it and the stop lines): only where both ends reach a curb island, and never on top of one another, so none is
+  // painted on the short links inside a junction complex or ending in the roadway, and none where nobody crosses
+  for (const c of crosswalks) strip(c.ax, c.az, c.bx, c.bz, CROSSWALK - 0.3, WHITE, ZEBRA_PERIOD, 0.5);
 
   // At a simple bend, corresponding offset lines meet at a bounded miter, without an intersection-sized gap.
   for (const roadsAtBend of bends.values()) {

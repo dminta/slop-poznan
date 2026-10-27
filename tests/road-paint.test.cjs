@@ -4,9 +4,20 @@ const { join } = require('node:path');
 const test = require('node:test');
 const { loadModule } = require('./helpers/module.cjs');
 
+// The crosswalks pedestrian-routes.js would lay at both ends of the road below (both curbs on a sidewalk): curb to
+// curb, CROSSWALK deep next to each junction, beyond the stop line's setback, u pointing out of the junction
+function crosswalksOf(edges) {
+  const e = edges[0];
+  const cross = (node, s, sign) => {
+    const x = e.sx + e.dx * s, z = e.sz + e.dz * s;
+    return { node, ax: x - e.rx * e.half, az: z - e.rz * e.half, bx: x + e.rx * e.half, bz: z + e.rz * e.half, ux: e.dx * sign, uz: e.dz * sign };
+  };
+  return [cross(e.from, -e.setbackFrom - 2.15, 1), cross(e.to, e.len + e.setbackTo + 2.15, -1)];
+}
+
 // The markings road-paint.js lays on a hand-built network, read back from its geometry: one quad per strip
 // (vertices a-, a+, b+, b-), with its colour and dash pattern (paint: phase, period, duty)
-function paintOf(edges) {
+function paintOf(edges, crosswalks = crosswalksOf(edges)) {
   let geometry = null;
   class Color { constructor(hex) { this.r = (hex >> 16) / 255; this.g = ((hex >> 8) & 255) / 255; this.b = (hex & 255) / 255; } }
   class BufferGeometry { constructor() { this.a = {}; geometry = this; } setAttribute(k, v) { this.a[k] = v.array; } setIndex() {} }
@@ -16,7 +27,7 @@ function paintOf(edges) {
     imports: { 'three/webgpu': THREE, './road-network.js': { CROSSWALK: 4.3, STOP_SETBACK: 1.75 }, './tsl-materials.js': { createRoadPaintMaterial: () => ({}) } },
     filename: 'road-paint.js'
   });
-  buildRoadPaint({ add() {} }, { edges, paintEdges: edges });
+  buildRoadPaint({ add() {} }, { edges, paintEdges: edges }, crosswalks);
   const { position: p, color: c, paint } = geometry.a;
   const quads = [];
   for (let v = 0; v < p.length / 3; v += 4) {
@@ -83,6 +94,9 @@ test('P-14 stop lines of 0.75 m rectangles 0.25 m apart at signals and on major 
   assert.equal(stops(paintOf(road({ half: 7.5, lanes: [1.8, 5.4] }))).length, 0, 'unsignalised multi-lane minor road');
   const major = { half: 7.5, lanes: [1.8, 5.4], axis: 'ave' };
   assert.equal(stops(paintOf(road(major))).length, 2, 'unsignalised major road (priority, annex 4.2.1)');
+  assert.equal(stops(paintOf(road(major), [])).length, 0, 'but not where no zebra crosses it');
+  assert.equal(zebras(paintOf(road(major), [])).length, 0, 'zebras only where pedestrian-routes.js has crosswalks');
+  assert.equal(stops(paintOf(road({ half: 5, lanes: [1.8], signal: true }), [])).length, 2, 'signals keep theirs');
   assert.equal(stops(paintOf(road({ ...major, lanes: [-1.8, 1.8], back: null }))).length, 1, 'one-way: arriving end only');
   // 2.0 m of asphalt at least between the stop line and the zebra (annex 4.2.5)
   for (const quads of [paintOf(road(major)), paintOf(road({ half: 5, lanes: [1.8], signal: true }))]) {

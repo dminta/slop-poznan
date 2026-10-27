@@ -878,6 +878,10 @@ carry the measured numbers.
    P-14 now goes on every signalised approach (7.6.2.4; on squeezed links at the edge end, closer than 2 m to the zebra)
    and on unsignalised major-road approaches with the full setback, standing in for the priority roads where 4.2.1
    requires it before crossings; nowhere else: 377 signalised + 117 major = 494 stop-line pieces of 2684 approaches.
+   Zebras then moved from every paint-edge end (3616, 276 overlapping pairs, X shapes inside junction complexes, 2208
+   ending in the roadway) to exactly the crosswalks `pedestrian-routes.js` lays (1374: curb island to curb island,
+   none overlapping, the longest roads' first); unsignalised major-road P-14 only before one (49, so 426 pieces).
+   Browser rendering of that change unverified.
 2. **`street-details.js`**:
 
    **Status: done** ([`world.md`](world.md#street-furniture-street-detailsjs)), not yet checked in a browser. Signal

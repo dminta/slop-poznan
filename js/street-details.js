@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import { Fn, float, color, uniform, mod, fract, step, smoothstep, mix, uv, texture, attribute, vec2, floor, sin, positionWorld } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { SIGNAL_SITES, SIGNAL_TIMING, JUNCTIONS, blockAt, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES } from './city-config.js';
-import { CROSSWALK, STOP_SETBACK } from './road-network.js';
+import { CROSSWALK, CROSSWALK_REACH, STOP_SETBACK } from './road-network.js';
 import { cityUniforms, createTreeGrateMaterial } from './tsl-materials.js';
 import { createTreeField } from './trees.js';
 import { pavedPlazaRects, parkTreeSites, parkLampSites } from './city-grid.js';
@@ -408,9 +408,11 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   // each side) at the crosswalk road-paint.js paints STOP_SETBACK beyond its stop line, and drops a crosswalk with any
   // footprint on it. The stop line is where the arm clears the roads crossing it (road-network.js stopBack, with the arms
   // the graph gives here) plus the CROSSWALK and STOP_SETBACK; signal poles 1-4 m past the corner closed 41 crosswalks,
-  // bollards 8. A bend (two arms in about one line) has none. Landings are kept free across the whole crosswalk depth and 2.6 m behind the curb.
+  // bollards 8. A bend (two arms in about one line) has none. Landings are kept free across the whole crosswalk depth and
+  // 2.6 m behind the curb: the curb island's, which the crosswalk runs on to where it lies up to CROSSWALK_REACH beyond
+  // the arm's width (pedestrian-routes.js), found the same way here.
   const LANDING_CELL = 64;
-  const landingGrid = new Map(); // cell -> [{ x, z, ux, uz, half, mid }]
+  const landingGrid = new Map(); // cell -> [{ x, z, ux, uz, left, right, mid }]
   for (const j of JUNCTIONS) {
     const arms = j.arms;
     if (arms.length === 2 && arms[0].ux * arms[1].ux + arms[0].uz * arms[1].uz < -0.82) continue;
@@ -423,7 +425,13 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         ext = Math.max(ext, (b.w / 2 + (a.w / 2) * Math.abs(cos)) / sin);
       }
       const mid = (ext > 0 ? Math.min(ext, 20) + CROSSWALK + STOP_SETBACK : 2) - STOP_SETBACK - CROSSWALK / 2;
-      const l = { x: j.x, z: j.z, ux: a.ux, uz: a.uz, half: a.w / 2, mid };
+      // how far each landing lies past the arm's curb lines (+ along (uz, -ux), the side the lateral offset counts up)
+      const reach = (sign) => {
+        const x = j.x + a.ux * mid + a.uz * sign * a.w / 2, z = j.z + a.uz * mid - a.ux * sign * a.w / 2;
+        for (let d = 0; d <= CROSSWALK_REACH; d += 0.25) if (blockAt(x + a.uz * sign * d, z - a.ux * sign * d)) return d;
+        return 0;
+      };
+      const l = { x: j.x, z: j.z, ux: a.ux, uz: a.uz, left: a.w / 2 + reach(-1), right: a.w / 2 + reach(1), mid };
       const ix = Math.floor((j.x + a.ux * mid) / LANDING_CELL);
       const iz = Math.floor((j.z + a.uz * mid) / LANDING_CELL);
       const k = ix * 100000 + iz;
@@ -440,7 +448,8 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
           const ox = x - l.x;
           const oz = z - l.z;
           const along = ox * l.ux + oz * l.uz;
-          if (Math.abs(along - l.mid) < CROSSWALK / 2 + r && Math.abs(ox * l.uz - oz * l.ux) < l.half + 2.6 + r) return false;
+          const side = ox * l.uz - oz * l.ux;
+          if (Math.abs(along - l.mid) < CROSSWALK / 2 + r && side > -l.left - 2.6 - r && side < l.right + 2.6 + r) return false;
         }
       }
     }
