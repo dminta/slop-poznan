@@ -176,13 +176,17 @@ Physics notes:
 - Wrap every storage access in `try { } catch { /* reason */ }`. Storage may be unavailable, and that must never block play.
 
 ## HUD, CSS and cache busting
-- `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently `20261027-map-legend`). When you change
+- `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently `20261027-sim-plates`). When you change
   `style.css`, bump that query in `index.html` in the same commit; GitHub Pages caches it.
 - Colours are tokens on `:root`: `--accent`/`--accent-ink` (yellow, also the map's GPS route in `city-map.js`) mark
-  whatever is active, `--sign-blue` is the street plate. The loading screen, brand and map title share the `.badge` roundel.
-- The location HUD draws each street as a blue plate: `renderLocation` in `main.js` splits the kind off the OSM name
-  (`splitStreetKind`: "Aleja"/"Plac"/"Osiedle"/"Rondo"/"Most" become "al."/"pl."/"os."/"rondo"/"most", squares named by
-  their kind get none, everything else "ul.") into `.street-sign-kind` over `.street-sign-name`.
+  whatever is active; `--sign-graphite` (#3b3d3f) and `--sign-blue` (#1f5bb5, the district strip) are the street plate.
+  The loading screen, brand and map title share the `.badge` roundel.
+- The location HUD draws each street as a Poznań SIM 2017 plate, the same design as the in-world wall plates:
+  `renderLocation(label, district)` in `main.js` runs each OSM name through `plateLabel` (exported by
+  `street-details.js`, the one copy of the kind words and the patron given-name list) and fills `.street-sign-kind`
+  ("ulica Jana Henryka", "aleje Karola", "rondo"; none for Rynek/Zaułek/Pasaż/Wzgórze names), `.street-sign-name`
+  ("Dąbrowskiego") and `.street-sign-district`, the blue bottom strip with `districtAt` of the player (or scenic
+  camera) position in capitals; outside every district ring the strip is left out.
 - Fonts: Inter (UI) and Overpass (plates) from Google Fonts; the css2 API serves their latin-ext subset by `unicode-range`,
   which covers Ą Ć Ę Ł Ń Ó Ś Ź Ż. A replacement family must have latin-ext.
 - JS modules carry no version query. The boot test requires plain `./js/x.js` paths so that preloads and imports share one URL.

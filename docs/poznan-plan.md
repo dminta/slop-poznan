@@ -568,9 +568,11 @@ https://dminta.github.io/slop-poznan/. Deviations and open points:
   so they are hand-placed in `tools/data/poz_places.json` and appended to `GEO.labels` (`docs/geodata.md`). CENTRUM is
   dropped: it names the same centre as ŚRÓDMIEŚCIE and would overlap it and STARE MIASTO. The map legend
   (`#fullmap-legend`) has Tram and Rail swatches, coloured from `MAP` in `city-map.js`.
-- The accent stays yellow (`--accent` #ffc21a). The street plate is a blue (#1d4f9c) plate with a white inner border; the
-  prefix comes from `splitStreetKind` in `main.js` (Aleja → al., Plac → pl., Osiedle → os., Rondo, Most; names starting
-  Rynek/Stary/Zaułek/Pasaż/Wzgórze/Bulwar get none; the rest ul.). The design was not checked against street imagery.
+- The accent stays yellow (`--accent` #ffc21a). The HUD street plate follows Poznań's System Informacji Miejskiej (2017
+  manual, pp. 41–51) like the in-world wall plates: graphite #3b3d3f, no border, white left-set medium Overpass, the
+  full lowercase kind word with the patron's given names on top ("ulica Jana Henryka" over "Dąbrowskiego"), and a blue
+  #1f5bb5 bottom strip with the district (`districtAt`) in capitals. `main.js` takes the lines from `plateLabel` in
+  `street-details.js`; `splitStreetKind` and the "ul./al./pl./os." abbreviations are gone.
 - The gauge labels live in `controllers.js` (`ent.label`): "Poznań Taxi", "Bike Lane Cyclist".
 - Camera popover labels name the Poznań views; the preset ids stay NYC until Phase 12.
 
@@ -1120,7 +1122,7 @@ Tall buildings:
 
 - Exact heights of the Ratusz tower, Fara, Zamek Królewski, Teatr Wielki (→ nDSM).
 - Whether GUGiK LOD2 covers Poznań.
-- Exact MPK tram and bus livery colours; the Poznań street-plate design; Poznań taxi marking rules (→ street imagery /
+- Exact MPK tram and bus livery colours; Poznań taxi marking rules (→ street imagery /
   city regulations).
 - Whether GEOPOZ offers machine-readable open data.
 - D12 (repo name and live URL).
