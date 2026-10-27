@@ -800,8 +800,8 @@ browser.
 `createTrafficSystem` on the real network); see [`actors.md`](actors.md) for the livery codes (`carState.w`: 1 Policja,
 2 PRM ambulance, 3 PSP fire, all with `isPolice` for the siren and signal privileges), the MPK bus routes, per-link
 speed limits (`edge.limit`, driver `pace`/`vmax`) and the `'redAmber'` phase. Taxis are ordinary colours with a TAXI
-roof lamp; NPC and player cars carry EU "PO" plates; drivers honk after 8 s blocked. The bus still has the folded front
-bike rack from the NYC model.
+roof lamp; NPC and player cars carry EU "PO" plates; drivers honk after 8 s blocked. The NYC model's folded front bike
+rack is gone from the bus.
 
 All in `traffic.js`, `actor-models.js`, `controllers.js` and `vehicle-lights.js`. Mind the audio field contract
 (`docs/audio.md`).
