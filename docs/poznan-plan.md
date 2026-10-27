@@ -685,8 +685,8 @@ Deviations and open points:
   Ostrów/Śródka within 650 m of the Katedra. Only 4 buildings qualify as `monumental`.
 - Rynek houses are facade boxes with a gable roof spec, not `buildArcadedHouseRow` (keeps them in the batched boxes).
 - Materials: `createRoofMaterial` (tile/slate/metal/copper share one pipeline), `createPanelBlockMaterial` (+1 pipeline),
-  `masonry: 'brick'|'ashlar'|'plaster'` on `createPreWarBuildingMaterial`. The pre-war shader still draws window
-  air-conditioners (NYC leftover).
+  `masonry: 'brick'|'ashlar'|'plaster'` on `createPreWarBuildingMaterial`. The NYC window air-conditioners are gone
+  from the pre-war shader.
 - Roofs: `js/roofs.js` (boot preloads 39), 9,240 roofs / 21k instances; chimneys and skylights replace water towers;
   scaffold sheds became renovation scaffolding with building-wrap adverts. There was no billboard machinery to convert.
 - Balconies: `fire-escapes.js` → `balconies.js`, street fronts only, `BALCONY_P` 0.5.
@@ -800,8 +800,8 @@ browser.
 `createTrafficSystem` on the real network); see [`actors.md`](actors.md) for the livery codes (`carState.w`: 1 Policja,
 2 PRM ambulance, 3 PSP fire, all with `isPolice` for the siren and signal privileges), the MPK bus routes, per-link
 speed limits (`edge.limit`, driver `pace`/`vmax`) and the `'redAmber'` phase. Taxis are ordinary colours with a TAXI
-roof lamp; NPC and player cars carry EU "PO" plates; drivers honk after 8 s blocked. The bus still has the folded front
-bike rack from the NYC model.
+roof lamp; NPC and player cars carry EU "PO" plates; drivers honk after 8 s blocked. The NYC model's folded front bike
+rack is gone from the bus.
 
 All in `traffic.js`, `actor-models.js`, `controllers.js` and `vehicle-lights.js`. Mind the audio field contract
 (`docs/audio.md`).

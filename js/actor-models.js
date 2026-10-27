@@ -1387,7 +1387,7 @@ function limbSections(joints, segments = 6, phase = 0) {
 // 4. LOFTED CITY BUS GEOMETRY & TSL MATERIAL
 // ============================================================================
 // A 12 m low-floor city bus (the size of MPK Poznań's rigid Solaris Urbino 12; the body is still the NYC port's) lofted with the car body machinery: rounded plan-view corners, a raked windshield, a
-// tight roof radius and arches over the wheels; bumpers, the folded front bike rack, stalk mirrors and the roof AC &
+// tight roof radius and arches over the wheels; bumpers, stalk mirrors and the roof AC &
 // battery pods are separate pieces of the same mesh (partId). Windows, doors, livery & lamps are painted by
 // createLoftedBusMaterial(); destination signs are textured panels (buildBusSignGeometry).
 const BUS_PARTS = {
@@ -1441,14 +1441,10 @@ function buildLoftedBusBodyGeometry() {
   body.computeVertexNormals();
   const parts = [part(body, BUS_PARTS.BODY)];
 
-  // Bumpers, front bike rack (folded), stalk mirrors
+  // Bumpers, stalk mirrors
   parts.push(part(roundedBox(1.24, 0.12, 0.24, 0.07, 0.03).translate(0, 0.5, s.zFront - 0.05), BUS_PARTS.TRIM));
   parts.push(part(roundedBox(1.24, 0.11, 0.22, 0.06, 0.03).translate(0, 0.48, s.zRear + 0.05), BUS_PARTS.TRIM));
-  const rackZ = s.zFront + 0.13;
-  parts.push(part(roundedBox(0.5, 0.024, 0.05, 0.02, 0.008).translate(0, 1.0, rackZ + 0.05), BUS_PARTS.TRIM));
-  parts.push(part(roundedBox(0.46, 0.02, 0.05, 0.018, 0.008).translate(0, 0.74, rackZ), BUS_PARTS.TRIM));
   for (const side of [-1, 1]) {
-    parts.push(part(new THREE.BoxGeometry(0.035, 0.36, 0.035).rotateX(-0.14).translate(side * 0.47, 0.83, rackZ + 0.02), BUS_PARTS.TRIM));
     // Mirror stalk from the roof corner, curving forward & out to a tall mirror head ahead of the windshield corner
     const stalk = new THREE.BoxGeometry(0.035, 0.035, 0.5)
       .rotateX(0.55)
