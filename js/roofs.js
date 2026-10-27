@@ -210,6 +210,117 @@ function planDormers(shape, w, d, h, rand) {
   return { s0, base, dw, dh, depth, us };
 }
 
+// -------------------------------------------------------------------------------------------------------------------
+// Rynek gable screens (szczyty): the attic wall a Stary Rynek kamieniczka raises in its facade plane in front of the
+// gable end of its roof, taller than the roof and with a shaped skyline: 'stepped' (Gothic / Renaissance stepped
+// gable: four steps a side and a top block) or 'volute' (Baroque: a pediment over two tiers, each tier's flank an
+// ogee scroll curling at its foot, obelisk finials on the outer corners). Unit piece: x in [-0.5, 0.5] (scaled to the
+// wall's width), y from 0 (the eave line) to 1 (scaled so the roof's ridge reaches GABLE_PEAK of it), z in
+// [-0.5, 0.5] (thickness), front at +z. The outline is a height profile y(x), so the front and back are columns
+// between its points and the skyline one strip per segment; the underside sits in the wall and is left out. Both
+// outlines have ledges at y 0.4 and 0.8, where createGableScreenMaterial draws its string courses.
+// -------------------------------------------------------------------------------------------------------------------
+const GABLE_STYLES = ['stepped', 'volute'];
+const GABLE_PEAK = { stepped: 0.8, volute: 0.72 }; // the roof's ridge height, of the screen's height
+const GABLE_THICK = 0.45; // m; the front stands GABLE_PROUD in front of the wall it rises from
+const GABLE_PROUD = 0.2;
+
+// An ogee (S-curve) from (x0, y0) down to (x1, y1), convex at the top and concave at the foot: `steps` points, the
+// first left out
+function ogee(x0, y0, x1, y1, steps) {
+  const pts = [];
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    pts.push([x0 + (x1 - x0) * t, y0 + (y1 - y0) * (0.5 - 0.5 * Math.cos(Math.PI * t))]);
+  }
+  return pts;
+}
+// A scroll's curl seen side-on: a half disc of radius r on (cx, cy), from its left foot over the top to its right
+function curl(cx, cy, r, steps) {
+  const pts = [];
+  for (let i = 0; i <= steps; i++) {
+    const a = Math.PI * (1 - i / steps);
+    pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+  }
+  return pts;
+}
+
+// The half outline from the centre (x = 0) out to the outer corner (x = 0.5), as [x, y] points with x never
+// decreasing (equal x: a vertical riser)
+function gableHalf(style) {
+  if (style === 'stepped') return stepped();
+  const pts = [[0, 1], [0.14, 0.9], [0.14, 0.8], [0.18, 0.8]]; // pediment over a cornice
+  pts.push(...ogee(0.18, 0.8, 0.285, 0.44, 6)); // the upper tier's flank
+  pts.push(...curl(0.31, 0.44, 0.025, 4).slice(1)); // its curl
+  pts.push([0.335, 0.4], [0.36, 0.4]); // the ledge of the lower tier
+  pts.push(...ogee(0.36, 0.4, 0.405, 0.19, 5)); // the lower flank
+  pts.push(...curl(0.425, 0.19, 0.02, 4).slice(1));
+  pts.push([0.445, 0.27], [0.4725, 0.32], [0.5, 0.27]); // an obelisk finial on the corner
+  return pts;
+}
+// Stepped half outline: the top block (|x| < 0.1) at 1.0, then treads at 0.8, 0.6, 0.4 and 0.2, 0.1 wide each
+function stepped() {
+  const pts = [[0, 1], [0.1, 1]];
+  for (let k = 1; k <= 4; k++) {
+    const y = 1 - 0.2 * k;
+    pts.push([0.1 * k, y], [0.1 * (k + 1), y]);
+  }
+  return pts;
+}
+
+// The full skyline from x = -0.5 to 0.5 ([x, y], x never decreasing)
+function gableOutline(style) {
+  const half = gableHalf(style);
+  const left = half.slice(1).reverse().map(([x, y]) => [-x, y]);
+  return [...left, ...half];
+}
+
+function gablePiece(style) {
+  const top = gableOutline(style);
+  const polys = [];
+  const uvOf = (x, y) => [x + 0.5, y];
+  for (let i = 0; i + 1 < top.length; i++) {
+    const [xa, ya] = top[i];
+    const [xb, yb] = top[i + 1];
+    // skyline strip, its normal out of the solid (the outline is walked left to right, the solid below it)
+    const len = Math.hypot(xb - xa, yb - ya);
+    if (len > 1e-9) {
+      polys.push({
+        pts: [[xa, ya, -0.5], [xb, yb, -0.5], [xb, yb, 0.5], [xa, ya, 0.5]],
+        uv: [uvOf(xa, ya), uvOf(xb, yb), uvOf(xb, yb), uvOf(xa, ya)],
+        n: [-(yb - ya) / len, (xb - xa) / len, 0]
+      });
+    }
+    if (xb - xa < 1e-9) continue;
+    // front and back columns
+    for (const z of [-0.5, 0.5]) {
+      polys.push({
+        pts: [[xa, 0, z], [xb, 0, z], [xb, yb, z], [xa, ya, z]],
+        uv: [uvOf(xa, 0), uvOf(xb, 0), uvOf(xb, yb), uvOf(xa, ya)],
+        n: [0, 0, z * 2]
+      });
+    }
+  }
+  // the outer sides
+  for (const [x, y, sx] of [[-0.5, top[0][1], -1], [0.5, top[top.length - 1][1], 1]]) {
+    polys.push({ pts: [[x, 0, -0.5], [x, 0, 0.5], [x, y, 0.5], [x, y, -0.5]], uv: [uvOf(x, 0), uvOf(x, 0), uvOf(x, y), uvOf(x, y)], n: [sx, 0, 0] });
+  }
+  return buildPiece(polys, [0, 0.1, 0]);
+}
+
+function createGableGeometries() {
+  return { stepped: gablePiece('stepped'), volute: gablePiece('volute') };
+}
+
+// sRGB hex → linear [r, g, b] (instance tints are working-space colours)
+function linearRGB(hex) {
+  const f = (c) => {
+    const v = c / 255;
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  return [f((hex >> 16) & 255), f((hex >> 8) & 255), f(hex & 255)];
+}
+
 const PIECES = ['prism', 'hipCap', 'gambrel', 'mansardCap'];
 const ROOF_SHAPES = ['gable', 'hip', 'mansard', 'gambrel'];
 const ROOF_MATERIALS = ['tile', 'slate', 'copper'];
@@ -219,7 +330,7 @@ const FALLBACK_COLORS = { tile: 0xa34a30, slate: 0x4b5159, copper: 0x5e9c86 };
 // 21,200 instance records (a hip or mansard takes 3), and dormers take two records each (body and window): see
 // MAX_ROOF_INSTANCES' measured use in docs/world.md. 32 bytes a record
 const MAX_ROOF_INSTANCES = 64000;
-const STRIDE = 8; // x, y, z, sx, sy, sz, ry, mesh index
+const STRIDE = 9; // x, y, z, sx, sy, sz, ry, mesh index, tint (sRGB hex; gable screens)
 
 function createRoofGeometries() {
   return { prism: prismPiece(false), hipCap: capPiece(false), gambrel: prismPiece(true), mansardCap: capPiece(true) };
@@ -229,17 +340,20 @@ function createDormerGeometries() {
   return { dormer: dormerPiece(), window: windowPiece() };
 }
 
-// createRoofs({ materials: { tile, slate, copper, window }, max, parent }) → the roof family. Meshes exist from the
-// start (one per piece × material, the dormers per dormer material, one for all dormer windows; added to `parent` if
-// given) so the build can register them; they get their instances in finish(). Call order: add() / addDormers()…
+// createRoofs({ materials: { tile, slate, copper, window, gable }, max, parent }) → the roof family. Meshes exist from
+// the start (one per piece × material, the dormers per dormer material, one for all dormer windows, one per gable
+// screen style; added to `parent` if given) so the build can register them; they get their instances in finish().
+// Call order: add() / addDormers() / addGable()…
 // (mark() / transform() per turned block) …, then finish() once, before scene culling
 function createRoofs({ materials = {}, max = MAX_ROOF_INSTANCES, parent = null } = {}) {
   const geos = { ...createRoofGeometries(), ...createDormerGeometries() };
+  const gableGeos = createGableGeometries();
   const mats = {};
   for (const key of ROOF_MATERIALS) {
     mats[key] = materials[key] || new THREE.MeshStandardNodeMaterial({ color: FALLBACK_COLORS[key], roughness: 0.8 });
   }
   const windowMat = materials.window || new THREE.MeshStandardNodeMaterial({ color: 0x1b2733, roughness: 0.2 });
+  const gableMat = materials.gable || new THREE.MeshStandardNodeMaterial({ color: 0xe8dcc0, roughness: 0.85 });
   const meshes = [];
   const meshIndex = {}; // `${piece}:${material}` (or the piece alone) -> index into meshes
   function addMesh(key, geo, mat, name) {
@@ -258,12 +372,14 @@ function createRoofs({ materials = {}, max = MAX_ROOF_INSTANCES, parent = null }
   }
   for (const key of DORMER_MATERIALS) addMesh(`dormer:${key}`, geos.dormer, mats[key], `Roof-dormer-${key}`);
   addMesh('window', geos.window, windowMat, 'Roof-dormerWindow');
+  // gable screens carry a per-instance `gableTint` (their house's render colour), so each gets its own geometry
+  for (const style of GABLE_STYLES) addMesh(`gable:${style}`, gableGeos[style], gableMat, `Roof-gable-${style}`);
 
   const rec = new Float32Array(max * STRIDE);
   let n = 0;
   let finished = false;
 
-  function push(mi, x, y, z, sx, sy, sz, ry) {
+  function push(mi, x, y, z, sx, sy, sz, ry, tint = 0) {
     const o = n++ * STRIDE;
     rec[o] = x;
     rec[o + 1] = y;
@@ -273,6 +389,7 @@ function createRoofs({ materials = {}, max = MAX_ROOF_INSTANCES, parent = null }
     rec[o + 5] = sz;
     rec[o + 6] = ry;
     rec[o + 7] = mi;
+    rec[o + 8] = tint; // 24-bit integers are exact in a float32
   }
 
   // Roof of shape ('gable' | 'hip' | 'mansard' | 'gambrel') and material ('tile' | 'slate' | 'copper') on the plan
@@ -345,6 +462,17 @@ function createRoofs({ materials = {}, max = MAX_ROOF_INSTANCES, parent = null }
     return added;
   }
 
+  // Gable screen of `style` ('stepped' | 'volute') rising from the wall plane point (x, y, z) at the eave line, `w` wide
+  // across the gable, in front of a roof whose ridge stands `rise` over y, its front facing ry (local +z turned by ry:
+  // world (sin ry, cos ry)), rendered in `tint` (sRGB hex). Its height is rise / GABLE_PEAK, so the skyline clears
+  // the roof everywhere. Returns false for an unknown style, a full pool or a finished family
+  function addGable(style, x, y, z, w, rise, ry, tint) {
+    if (finished || meshIndex[`gable:${style}`] === undefined || !(w > 0 && rise > 0) || n + 1 > max) return false;
+    const off = GABLE_PROUD - GABLE_THICK * 0.5;
+    push(meshIndex[`gable:${style}`], x + Math.sin(ry) * off, y, z + Math.cos(ry) * off, w, rise / GABLE_PEAK[style], GABLE_THICK, ry, tint);
+    return true;
+  }
+
   // Number of instances staged so far; take it before populating a turned block and pass it to transform() after
   function mark() {
     return n;
@@ -390,7 +518,19 @@ function createRoofs({ materials = {}, max = MAX_ROOF_INSTANCES, parent = null }
       e[m + 14] = rec[o + 2];
       e[m + 15] = 1;
     }
+    // per-instance tints of the gable screens, in the same order as their matrices
+    const tints = {};
+    for (const style of GABLE_STYLES) {
+      const k = meshIndex[`gable:${style}`];
+      tints[k] = { arr: new Float32Array(Math.max(1, counts[k]) * 3), i: 0 };
+    }
+    for (let i = 0; i < n; i++) {
+      const t = tints[rec[i * STRIDE + 7]];
+      if (!t) continue;
+      t.arr.set(linearRGB(rec[i * STRIDE + 8]), t.i++ * 3);
+    }
     meshes.forEach((mesh, k) => {
+      if (tints[k]) mesh.geometry.setAttribute('gableTint', new THREE.InstancedBufferAttribute(tints[k].arr, 3));
       mesh.instanceMatrix = new THREE.InstancedBufferAttribute(arrays[k], 16);
       mesh.count = counts[k];
       if (!counts[k]) {
@@ -402,17 +542,21 @@ function createRoofs({ materials = {}, max = MAX_ROOF_INSTANCES, parent = null }
     });
   }
 
-  return { meshes, add, addDormers, mark, transform, finish, count: () => n };
+  return { meshes, add, addDormers, addGable, mark, transform, finish, count: () => n };
 }
 
 export {
   createRoofs,
   createRoofGeometries,
   createDormerGeometries,
+  createGableGeometries,
+  gableOutline,
   planDormers,
   slopeHeight,
   ROOF_SHAPES,
   ROOF_MATERIALS,
   DORMER_ROOF,
+  GABLE_STYLES,
+  GABLE_PEAK,
   MAX_ROOF_INSTANCES
 };

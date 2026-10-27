@@ -3,8 +3,9 @@ import { fitToSite, addMesh, box, cylinder, lathe, pitchedRoof, profileSlab, col
 
 // js/landmarks-rynek.js
 // Stary Rynek's central block: the Ratusz with its loggia, attic and tower (and the koziołki, the noon goats), the
-// Domki Budnicze arcaded row south of it, and the Wieża Wójtowska house. buildArcadedHouseRow is exported as the
-// template of the Rynek kamienice (Phase 8).
+// Domki Budnicze arcaded row south of it, and the Wieża Wójtowska house. The kamienice round the square are not built
+// from buildArcadedHouseRow: they are buildings.js rynekHouses (batched facade boxes with roofs.js gables and their
+// stepped / volute screens).
 
 // -------------------------------------------------------------------------------------------------------------------
 // Shared bits
@@ -61,7 +62,7 @@ function disc(parent, r, t, material, x, y, z, axis = 'x', segments = 16) {
 }
 
 // -------------------------------------------------------------------------------------------------------------------
-// Arcaded house row (Domki Budnicze; Phase 8 reuses it for the Rynek kamienice). The row runs along local z from
+// Arcaded house row (Domki Budnicze). The row runs along local z from
 // z0, the fronts face +x: every house is `depth` deep (x -depth/2..depth/2), has a ground-floor arcade (podcienie)
 // `arcadeDepth` deep under its upper floors, `storeys` floors in all and a gable to the front under a pitched roof
 // with its ridge across the row (the saw-tooth Rynek skyline). `houses`: [{ width, storeys, wall, windows }], wall a

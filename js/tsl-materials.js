@@ -1441,6 +1441,45 @@ function createDormerWindowMaterial() {
   return mat;
 }
 
+let _gableScreenMat = null;
+
+/**
+ * Rynek gable screens (roofs.js 'stepped' / 'volute' pieces, unit outline scaled to the house): render in the
+ * house's colour (per-instance `gableTint`, linear RGB) with white stucco trim: a plinth band, string courses at the
+ * outline's ledges (v 0.4 and 0.8) and the coping along the skyline (every face but the front and back); an attic
+ * window between the courses, two below the lower one and an oculus near the top, framed in white. A third of the
+ * attic windows glow at night (instance-index hash). uv: u across the screen, v up it (unit). One pipeline.
+ */
+function createGableScreenMaterial() {
+  if (_gableScreenMat) return _gableScreenMat;
+  const mat = new THREE.MeshStandardNodeMaterial({ metalness: 0.0, roughness: 0.85 });
+  const cTrim = color(0xf1eadb);
+  const cGlass = color(0x17222c);
+  const cWarm = color(0xffbf78);
+  const tint = attribute('gableTint', 'vec3');
+  const p = uv();
+  const fw = fwidth(p);
+  // the front and back carry the decoration; the skyline strips and the sides are the coping
+  const face = step(0.5, abs(normalGeometry.z));
+  const box = (u0, u1, v0, v1) => filteredPulse(p.x, u0, u1, fw.x).mul(filteredPulse(p.y, v0, v1, fw.y));
+  const courses = filteredPulse(p.y, 0.0, 0.035, fw.y).add(filteredPulse(p.y, 0.385, 0.415, fw.y))
+    .add(filteredPulse(p.y, 0.785, 0.815, fw.y)).clamp(0.0, 1.0);
+  const panes = box(0.455, 0.545, 0.5, 0.72).add(box(0.275, 0.345, 0.12, 0.32)).add(box(0.655, 0.725, 0.12, 0.32))
+    .add(box(0.48, 0.52, 0.86, 0.92)).clamp(0.0, 1.0);
+  const frames = box(0.44, 0.56, 0.48, 0.74).add(box(0.26, 0.36, 0.1, 0.34)).add(box(0.64, 0.74, 0.1, 0.34))
+    .add(box(0.47, 0.53, 0.85, 0.93)).clamp(0.0, 1.0);
+  const trim = float(1.0).sub(face).max(courses).max(frames.sub(panes).clamp(0.0, 1.0));
+  const glass = panes.mul(face);
+  const grime = float(0.93).add(noise2D(positionWorld.xy.add(positionWorld.zy).mul(0.35)).mul(0.1));
+  mat.colorNode = mix(mix(tint.mul(grime), cTrim, trim), cGlass, glass);
+  mat.roughnessNode = mix(float(0.86), float(0.1), glass);
+  const lit = step(hash2D(vec2(float(instanceIndex).mul(0.173), 3.91)), 0.33);
+  const night = smoothstep(0.5, 1.2, cityUniforms.uInteriorGlow);
+  mat.emissiveNode = cWarm.mul(glass).mul(lit).mul(night).mul(cityUniforms.uInteriorGlow).mul(0.7);
+  _gableScreenMat = mat;
+  return mat;
+}
+
 /**
  * Instanced unit boxes for the facade materials' `boxLocal` mode, one per { x, y, z, w, h, d, faces?, tone?, ry? }
  * (y = centre; ry: turn about +y, for blocks laid out along a non-grid street), with the per-instance `box` attribute
@@ -3073,6 +3112,7 @@ export {
   createPanelBlockMaterial,
   createRoofMaterial,
   createDormerWindowMaterial,
+  createGableScreenMaterial,
   createFacadeBoxes,
   createCarPaintMaterial,
   createTreeMaterial,

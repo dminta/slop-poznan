@@ -28,7 +28,10 @@ class MeshStandardNodeMaterial {
   constructor(params) { Object.assign(this, params); }
 }
 const THREE = { BufferGeometry, Float32BufferAttribute, InstancedBufferAttribute, InstancedMesh, MeshStandardNodeMaterial };
-const { createRoofs, createRoofGeometries, createDormerGeometries, planDormers, slopeHeight, DORMER_ROOF } = loadModule(readFileSync(join(__dirname, '../js/roofs.js'), 'utf8'), {
+const {
+  createRoofs, createRoofGeometries, createDormerGeometries, createGableGeometries, gableOutline, planDormers, slopeHeight,
+  DORMER_ROOF, GABLE_STYLES, GABLE_PEAK
+} = loadModule(readFileSync(join(__dirname, '../js/roofs.js'), 'utf8'), {
   imports: { 'three/webgpu': THREE },
   globals: { Math, Float32Array, Int32Array }
 });
@@ -203,4 +206,71 @@ test('addDormers stands each dormer on its slope, facing down it, with its windo
     assert.ok(w[12] > e[12] && w[12] - e[12] < 0.1, 'the pane sits just proud of the front wall');
     close(w[14], e[14]);
   }
+});
+
+test('stepped and volute gable outlines rise clear of the roof behind them and stay inside the unit screen', () => {
+  for (const style of GABLE_STYLES) {
+    const top = gableOutline(style);
+    assert.equal(top[0][0], -0.5);
+    assert.equal(top[top.length - 1][0], 0.5);
+    for (let i = 0; i + 1 < top.length; i++) assert.ok(top[i + 1][0] >= top[i][0] - 1e-12, `${style}: x never goes back`);
+    // the lower of the two ends of every segment against the roof line under the segment's inner end
+    for (let i = 0; i + 1 < top.length; i++) {
+      const [xa, ya] = top[i];
+      const [xb, yb] = top[i + 1];
+      const inner = Math.min(Math.abs(xa), Math.abs(xb));
+      const roof = GABLE_PEAK[style] * (1 - 2 * inner);
+      assert.ok(Math.min(ya, yb) >= roof + 0.02, `${style}: clears the roof at x ${xa.toFixed(3)}`);
+      assert.ok(ya <= 1 + 1e-12 && yb <= 1 + 1e-12);
+    }
+    // symmetric
+    for (let i = 0; i < top.length; i++) {
+      close(top[i][0], -top[top.length - 1 - i][0]);
+      close(top[i][1], top[top.length - 1 - i][1]);
+    }
+  }
+});
+
+test('gable screen pieces are closed on the front, back and skyline, normals out of the solid', () => {
+  const geos = createGableGeometries();
+  for (const style of GABLE_STYLES) {
+    const tris = triangles(geos[style]);
+    assert.ok(tris.length <= (style === 'stepped' ? 80 : 320), `${style}: ${tris.length} triangles`);
+    let front = 0, back = 0;
+    for (const { v, n } of tris) {
+      const g = cross(sub(v[1], v[0]), sub(v[2], v[0]));
+      const len = Math.hypot(...g);
+      if (len < 1e-12) continue;
+      for (let a = 0; a < 3; a++) close(g[a] / len, n[a], 1e-5);
+      assert.ok(n[1] > -1e-6, `${style}: nothing faces down`);
+      const area = len / 2;
+      if (n[2] > 0.99) front += area;
+      if (n[2] < -0.99) back += area;
+    }
+    // front and back each cover the area under the outline
+    const top = gableOutline(style);
+    let area = 0;
+    for (let i = 0; i + 1 < top.length; i++) area += ((top[i][1] + top[i + 1][1]) / 2) * (top[i + 1][0] - top[i][0]);
+    close(front, area, 1e-5);
+    close(back, area, 1e-5);
+  }
+});
+
+test('addGable stands the screen in the wall plane facing out, sized to the roof, with its tint', () => {
+  const roofs = createRoofs();
+  assert.equal(roofs.addGable('baroque', 0, 0, 0, 8, 4, 0, 0xffffff), false);
+  assert.equal(roofs.addGable('volute', 10, 12, 30, 8, 4.5, Math.PI / 2, 0xe4aaa0), true); // facing +x
+  roofs.finish();
+  const mesh = roofs.meshes.find((m) => m.name === 'Roof-gable-volute');
+  assert.equal(mesh.count, 1);
+  const e = mesh.instanceMatrix.array;
+  close(e[8], 0.45, 1e-6); // thickness along +x
+  close(e[2], -8, 1e-6); // width along -z
+  close(e[5], 4.5 / GABLE_PEAK.volute, 1e-5);
+  close(e[12], 10 + 0.2 - 0.225, 1e-5); // its front 0.2 m proud of the wall
+  close(e[13], 12);
+  const tint = mesh.geometry.attributes.gableTint.array;
+  assert.equal(tint.length, 3);
+  assert.ok(tint[0] > tint[1] && tint[1] > tint[2] - 0.01 && tint[0] < 1, 'rose, in linear RGB');
+  assert.equal(roofs.meshes.find((m) => m.name === 'Roof-gable-stepped').visible, false);
 });
