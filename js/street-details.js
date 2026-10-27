@@ -17,6 +17,7 @@ import { pavedPlazaRects, parkTreeSites, parkLampSites } from './city-grid.js';
 // - tall red hydrants, Poczta Polska post boxes, parking machines and bollards along the curbs; press and flower
 //   kiosks and advertising columns (słupy ogłoszeniowe) where the sidewalk is wide
 // - park and street trees, and the pooled street lights that follow the camera
+// Every prop but the trees is an obstacle footprint (lanes and walkers keep clear) and a player collider.
 
 // Pedestrian head faces: a standing figure in the top cell, a walking one in the bottom, white on black (a mask)
 function createPedestrianFigureTexture() {
@@ -60,33 +61,51 @@ function createPedestrianFigureTexture() {
   return tex;
 }
 
-// Street name plates: one 256 x 64 cell per name, white on blue with a white rule
-const PLATE_CELL = [256, 64];
-function createPlateAtlas(labels) {
+// Street name plates after Poznań's System Informacji Miejskiej (2017 city information system manual, pp. 41-51;
+// zdm.poznan.pl "Nowe tablice ulicowe"): graphite RAL 7043 with white type set left, the street kind as a full
+// lowercase word on a small top line ("ulica", "aleja", "rondo"; a patron's given names and titles go up there too), the
+// name large below it, and a blue RAL 5005 strip along the bottom with the district in capitals. Two sizes: 0.315 x
+// 0.22 m in the Old Town and on narrow streets, 0.67 x 0.35 m elsewhere; one atlas cell per label and size.
+const PLATE_SIZES = { small: { w: 0.315, h: 0.22, cell: [180, 126] }, large: { w: 0.67, h: 0.35, cell: [256, 134] } };
+function createPlateAtlas(labels, [cw, ch]) {
   const cols = 8;
   const rows = Math.max(1, Math.ceil(labels.length / cols));
   const c = document.createElement('canvas');
-  c.width = cols * PLATE_CELL[0];
-  c.height = rows * PLATE_CELL[1];
+  c.width = cols * cw;
+  c.height = rows * ch;
   const ctx = c.getContext('2d');
-  labels.forEach((label, i) => {
-    const x0 = (i % cols) * PLATE_CELL[0];
-    const y0 = Math.floor(i / cols) * PLATE_CELL[1];
-    ctx.fillStyle = '#1b3f8c';
-    ctx.fillRect(x0, y0, PLATE_CELL[0], PLATE_CELL[1]);
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(x0 + 5, y0 + 5, PLATE_CELL[0] - 10, PLATE_CELL[1] - 10);
+  const font = (weight, size) => `${weight} ${size}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+  // the largest size up to `size` at which `text` fits `width`
+  const fit = (text, weight, size, width) => {
+    ctx.font = font(weight, size);
+    while (size > 8 && ctx.measureText(text).width > width) ctx.font = font(weight, --size);
+    return size;
+  };
+  labels.forEach(({ kind, name, district }, i) => {
+    const x0 = (i % cols) * cw;
+    const y0 = Math.floor(i / cols) * ch;
+    const pad = Math.round(cw * 0.06);
+    const strip = Math.round(ch * 0.2); // ~70 mm on the large plate, ~45 mm on the small
+    ctx.fillStyle = '#3b3d3f';
+    ctx.fillRect(x0, y0, cw, ch);
+    ctx.fillStyle = '#1f5bb5';
+    ctx.fillRect(x0, y0 + ch - strip, cw, strip);
     ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    let size = 30;
-    ctx.font = `700 ${size}px Inter, Arial, sans-serif`;
-    while (size > 12 && ctx.measureText(label).width > PLATE_CELL[0] - 24) {
-      size -= 2;
-      ctx.font = `700 ${size}px Inter, Arial, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    const top = Math.round(ch * 0.17);
+    if (kind) {
+      fit(kind, 500, top, cw - 2 * pad);
+      ctx.fillText(kind, x0 + pad, y0 + pad + top * 0.8);
     }
-    ctx.fillText(label, x0 + PLATE_CELL[0] / 2, y0 + PLATE_CELL[1] / 2 + 1);
+    const big = fit(name, 500, Math.round(ch * 0.36), cw - 2 * pad);
+    ctx.fillText(name, x0 + pad, y0 + ch - strip - Math.max(pad * 0.7, (ch - strip - pad - top - big) * 0.35));
+    if (district) {
+      const label = district.toUpperCase();
+      fit(label, 500, Math.round(strip * 0.55), cw - 2 * pad);
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, x0 + pad, y0 + ch - strip / 2 + 1);
+    }
   });
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -94,11 +113,30 @@ function createPlateAtlas(labels) {
   return { tex, cols, rows };
 }
 
-// "ul. Garbary", "al. Niepodległości"; squares, roundabouts and bridges keep their own word
-function plateLabel(name) {
-  if (/^Alej[ae]\s/i.test(name)) return `al. ${name.replace(/^\S+\s+/, '')}`;
-  if (/^(Rondo|Most|Plac|Rynek|Osiedle|Wybrzeże|Bulwar|Park|Skwer)\b/i.test(name)) return name;
-  return `ul. ${name}`;
+// A street's plate lines: { kind (the small top line), name (the large one), district }. "Aleje Karola Marcinkowskiego"
+// -> "aleje Karola" over "Marcinkowskiego"; squares, roundabouts and bridges take their own word, "Stary Rynek" none.
+const PLATE_KINDS = { aleja: 'aleja', aleje: 'aleje', rondo: 'rondo', plac: 'plac', osiedle: 'osiedle', most: 'most',
+  skwer: 'skwer', park: 'park', bulwar: 'bulwar', 'wybrzeże': 'wybrzeże' };
+// given names (genitive) and titles that go on the top line before the surname
+const PATRON_WORDS = new Set(('Adama Aleksandra Andrzeja Anny Antoniego Arcybiskupa Arnolda Augusta Biskupa Bolesława ' +
+  'Edwarda Emilii Ewarysta Feliksa Floriana Franciszka Franklina Fryderyka Generała Grzegorza Gustawa Henryka Ignacego ' +
+  'Jakuba Jana Janusza Jarosława Jerzego Józefa Karola Kazimierza Księcia Księdza Króla Królowej Ludwika Marcina Marii ' +
+  'Marszałka Michała Mikołaja Pawła Piotra Prymasa Romana Ryszarda Stanisława Stefana Świętego Świętej Tadeusza ' +
+  'Władysława Wojciecha Zygmunta i').split(' '));
+function plateLabel(name, district) {
+  const words = name.split(/\s+/);
+  let kind = 'ulica';
+  const first = words[0].toLowerCase();
+  if (PLATE_KINDS[first] && words.length > 1) {
+    kind = PLATE_KINDS[first];
+    words.shift();
+  } else if (/\bRynek\b/.test(name)) kind = '';
+  // the patron's given names and titles up top, the surname (with any numeral, "Mieszka I") large
+  let k = 0;
+  while (k < words.length - 1 && PATRON_WORDS.has(words[k])) k++;
+  if (k === words.length - 1 && /^[IVX]+$/.test(words[k])) k--;
+  const head = words.slice(0, Math.max(0, k)).join(' ');
+  return { kind: [kind, head].filter(Boolean).join(' '), name: words.slice(Math.max(0, k)).join(' '), district: district || '' };
 }
 
 // Advertising column posters: a seeded patchwork of bills (no text), wrapped round the column
@@ -237,6 +275,8 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   const gasGlassGlow = new THREE.MeshBasicNodeMaterial();
   gasGlassGlow.colorNode = mix(color(0xc9ccc4), color(0xffdc9a).mul(1.9), smoothstep(0.4, 1.1, cityUniforms.uInteriorGlow));
   const castIronMat = new THREE.MeshStandardNodeMaterial({ color: 0x23282a, roughness: 0.6, metalness: 0.55 });
+  // the plates' aluminium tray, graphite RAL 7043 like their face
+  const plateBackMat = new THREE.MeshStandardNodeMaterial({ color: 0x3b3d3f, roughness: 0.5, metalness: 0.4 });
 
   const bothFaces = (geo) => [geo, geo.clone().rotateY(Math.PI)];
   // Lens and panel geometry carries its lamp in uv.y (see the lens materials): a constant, or the panel's own
@@ -525,7 +565,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
       // Street name plates for the corner buildings either side of the arm (1B)
       if (a.name) {
         for (const side of [1, -1]) {
-          plateSites.push({ t: corner + 3.5, a, side, label: plateLabel(a.name) });
+          plateSites.push({ t: corner + 3.5, a, side });
         }
       }
     });
@@ -535,8 +575,9 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   // 1B. STREET NAME PLATES ON THE CORNER BUILDINGS
   //     From the curb just past each signalised corner, a ray across the sidewalk finds the first building wall
   //     (buildingColliders: the city-block and landmark colliders main.js hands over) within 14 m; the plate goes on
-  //     it at 3.3 m, facing the street it names. Nearby plates of one name are dropped; with no colliders (tests) there
-  //     are no plates.
+  //     it at 3.3 m, facing the street it names: the small Poznań SIM plate in the Old Town and on streets under 10 m,
+  //     the large one elsewhere, with the block's district on the strip. Nearby plates of one name are dropped; with no
+  //     colliders (tests) there are no plates.
   // =========================================================================
   const WALL_CELL = 24;
   const wallGrid = new Map();
@@ -609,30 +650,43 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
     }
     return best;
   }
-  const plateMatrices = [];
-  const plateCells = [];
-  const plateLabels = [];
+  // The Old Town as buildings.js draws it (OLD_TOWN_BOX: Stare Miasto east of al. Marcinkowskiego, with Garbary and
+  // Chwaliszewo), and Ostrów Tumski / Śródka within 650 m of the Katedra
+  const OLD_TOWN_BOX = { x0: -330, x1: 900, z0: -900, z1: 600 };
+  const KATEDRA = LANDMARK_SITES && LANDMARK_SITES.Katedra;
+  const inOldTown = (b, x, z) =>
+    (b.district === 'Stare Miasto' && x > OLD_TOWN_BOX.x0 && x < OLD_TOWN_BOX.x1 && z > OLD_TOWN_BOX.z0 && z < OLD_TOWN_BOX.z1) ||
+    (!!KATEDRA && Math.hypot(x - KATEDRA.x, z - KATEDRA.z) < 650);
+  const plates = { small: { matrices: [], cells: [], labels: [], keys: [] }, large: { matrices: [], cells: [], labels: [], keys: [] } };
   const placedPlates = [];
   if (wallGrid.size) {
-    for (const { t, a, side, label } of plateSites) {
+    for (const { t, a, side } of plateSites) {
       const rx = a.uz * side;
       const rz = -a.ux * side;
       const x = a.x + a.ux * t + rx * (a.w / 2 + 0.3);
       const z = a.z + a.uz * t + rz * (a.w / 2 + 0.3);
-      if (!blockAt(x + rx * 0.6, z + rz * 0.6)) continue;
+      const b = blockAt(x + rx * 0.6, z + rz * 0.6);
+      if (!b) continue;
       const hit = wallHit(x, z, rx, rz, 14);
       // only a wall facing back to the street, not a party wall seen edge-on
       if (!hit || hit.nx * -rx + hit.nz * -rz < 0.7) continue;
       const wx = x + rx * hit.t + hit.nx * 0.03;
       const wz = z + rz * hit.t + hit.nz * 0.03;
-      if (placedPlates.some((p) => p.label === label && Math.hypot(p.x - wx, p.z - wz) < 25)) continue;
-      placedPlates.push({ x: wx, z: wz, label });
-      let cell = plateLabels.indexOf(label);
-      if (cell < 0) cell = plateLabels.push(label) - 1;
-      plateCells.push(cell % 8, Math.floor(cell / 8));
-      plateMatrices.push(setFacing(wx, 3.3, wz, hit.nx, hit.nz));
+      if (placedPlates.some((p) => p.name === a.name && Math.hypot(p.x - wx, p.z - wz) < 25)) continue;
+      placedPlates.push({ x: wx, z: wz, name: a.name });
+      const set = plates[a.w < 10 || inOldTown(b, wx, wz) ? 'small' : 'large'];
+      const label = plateLabel(a.name, b.district);
+      const key = `${label.kind}|${label.name}|${label.district}`;
+      let cell = set.keys.indexOf(key);
+      if (cell < 0) {
+        cell = set.keys.push(key) - 1;
+        set.labels.push(label);
+      }
+      set.cells.push(cell % 8, Math.floor(cell / 8));
+      set.matrices.push(setFacing(wx, 3.3, wz, hit.nx, hit.nz));
     }
   }
+  const plateCount = plates.small.matrices.length + plates.large.matrices.length;
 
   // =========================================================================
   // 2. STREETLIGHTS ALONG EVERY CURB, BY STREET CLASS
@@ -643,13 +697,6 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   //    get the historic gas lanterns Poznań still lights, every ~22 m. Poles stand ~1 m inside the curb, their
   //    footprints clear of the lanes (LANE_CLEAR).
   // =========================================================================
-  // The Old Town as buildings.js draws it (OLD_TOWN_BOX: Stare Miasto east of al. Marcinkowskiego, with Garbary and
-  // Chwaliszewo), and Ostrów Tumski / Śródka within 650 m of the Katedra
-  const OLD_TOWN_BOX = { x0: -330, x1: 900, z0: -900, z1: 600 };
-  const KATEDRA = LANDMARK_SITES && LANDMARK_SITES.Katedra;
-  const inOldTown = (b, x, z) =>
-    (b.district === 'Stare Miasto' && x > OLD_TOWN_BOX.x0 && x < OLD_TOWN_BOX.x1 && z > OLD_TOWN_BOX.z0 && z < OLD_TOWN_BOX.z1) ||
-    (!!KATEDRA && Math.hypot(x - KATEDRA.x, z - KATEDRA.z) < 650);
   const streetClass = (b, mx, mz, outX, outZ) => {
     const near = nearestRoads(mx + outX * 3, mz + outZ * 3, 18);
     const r = near.length ? near[0].road : null;
@@ -793,15 +840,17 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   addMatrixArrayInstanced(ledLensGeo, lampBulbGlow, ledHeadMatrices, false);
   addMatrixArrayInstanced(gasPostGeo, castIronMat, gasPostMatrices);
   addMatrixArrayInstanced(gasGlassGeo, gasGlassGlow, gasPostMatrices, false);
-  if (plateMatrices.length) {
-    const atlas = createPlateAtlas(plateLabels);
+  for (const [size, set] of Object.entries(plates)) {
+    if (!set.matrices.length) continue;
+    const { w, h, cell: px } = PLATE_SIZES[size];
+    const atlas = createPlateAtlas(set.labels, px);
     const plateMat = new THREE.MeshStandardNodeMaterial({ roughness: 0.45 });
     const cell = attribute('plateCell', 'vec2');
     // canvas row 0 is the texture's top (flipY)
     plateMat.colorNode = texture(atlas.tex, uv().add(vec2(cell.x, float(atlas.rows - 1).sub(cell.y))).div(vec2(atlas.cols, atlas.rows)));
-    addMatrixArrayInstanced(new THREE.PlaneGeometry(0.92, 0.23).translate(0, 0, 0.013), plateMat, plateMatrices, false,
-      { plateCell: { size: 2, data: plateCells } });
-    addMatrixArrayInstanced(new THREE.BoxGeometry(0.96, 0.27, 0.024), poleMetalMat, plateMatrices, false);
+    addMatrixArrayInstanced(new THREE.PlaneGeometry(w, h).translate(0, 0, 0.013), plateMat, set.matrices, false,
+      { plateCell: { size: 2, data: set.cells } });
+    addMatrixArrayInstanced(new THREE.BoxGeometry(w, h, 0.024), plateBackMat, set.matrices, false);
   }
 
   // =========================================================================
@@ -1029,7 +1078,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   addMatrixArrayInstanced(columnDrumGeo, posterMat, columnMatrices);
 
   console.info(`[streetDetails] ${s1Matrices.length} signal heads and ${pedHeadMatrices.length} pedestrian heads on ` +
-    `${signalPoleMatrices.length} poles at ${builtJunctions.size} junctions, ${plateMatrices.length} name plates; lamps ` +
+    `${signalPoleMatrices.length} poles at ${builtJunctions.size} junctions, ${plateCount} name plates; lamps ` +
     `${lampCount.main} main, ${lampCount.side} side, ${lampCount.old} gas; ${hydrantMatrices.length} hydrants, ` +
     `${postBoxMatrices.length} post boxes, ${parkingMatrices.length} parking machines, ${bollardMatrices.length} bollards, ` +
     `${kioskMatrices.length} kiosks, ${flowerMatrices.length} flower stands, ${columnMatrices.length} advertising columns`);
