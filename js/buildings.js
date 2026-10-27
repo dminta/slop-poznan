@@ -21,7 +21,7 @@ import {
   mx_noise_float,
   mx_worley_noise_float
 } from 'three/tsl';
-import { CITY_BOUNDS, BLOCKS, BRIDGES, LANDMARK_SITES, PLAZAS, SPAWN, blockAt } from './city-config.js';
+import { CITY_BOUNDS, BLOCKS, BRIDGES, LANDMARK_SITES, PLAZAS, SPAWN, SRODKA_MURAL, blockAt } from './city-config.js';
 import {
   createPreWarBuildingMaterial,
   createCurtainWallMaterial,
@@ -2072,6 +2072,16 @@ function buildCityBlocks(scene) {
     }
     return outlineBounds(pts);
   }).filter(Boolean);
+  // Śródka's mural square (city-config.js SRODKA_MURAL): the house with the mural, built by landmarks-heritage.js,
+  // and the square in front of its painted wall out to the curb
+  {
+    const M = SRODKA_MURAL;
+    const hx = M.len * 0.5 + 0.5;
+    LANDMARK_RESERVE.push(outlineBounds([[-hx, -M.depth], [hx, -M.depth], [hx, M.square], [-hx, M.square]].map(([x, z]) => {
+      const p = M.toWorld(x, z);
+      return [p.x, p.z];
+    })));
+  }
   function outlineBounds(pts) {
     const m = RESERVE_MARGIN;
     return {

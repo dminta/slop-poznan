@@ -595,6 +595,26 @@ const TELEPORT_LOCATIONS = {
 };
 // Where a new session starts: ul. Święty Marcin in front of the Zamek Cesarski (CK Zamek). The street is divided here;
 // this is the westbound carriageway on the castle's side, so the spawn faces west along it (13° north of due west)
+// Śródka's mural square: "Opowieść Śródecka" (2015, Radosław Barek after Gerard Cofta's idea) is painted on the east
+// gable wall of the kamienica at ul. Śródka 3 (OSM way 238466003, 52.4113 N 16.9535 E), over the small square where
+// Śródka meets Rynek Śródecki and Filipińska. The wall runs from its south corner `a` to its north corner `b` (OSM
+// nodes); the house's local frame has x along the wall (a to b), z out of it over the square, so `ang` is a turn the
+// way landmark sites and frontage frames turn (local x → world (cos, -sin), local z → (sin, cos)). The house is
+// `depth` deep behind the wall (the footprint's 13 m front on Śródka), the square reaches `square` out to the
+// curb. landmarks-heritage.js builds both; buildings.js keeps them clear of generic buildings
+const SRODKA_MURAL = (() => {
+  const a = LL(16.9534265, 52.4111877);
+  const b = LL(16.9535378, 52.4113565);
+  const len = Math.hypot(b.x - a.x, b.z - a.z);
+  const cs = (b.x - a.x) / len;
+  const sn = -(b.z - a.z) / len;
+  const cx = (a.x + b.x) * 0.5;
+  const cz = (a.z + b.z) * 0.5;
+  // local (x, z) of the house frame (origin at the wall's middle, at street level) → world { x, z }
+  const toWorld = (lx, lz) => ({ x: cx + lx * cs + lz * sn, z: cz - lx * sn + lz * cs });
+  return { a, b, len, cx, cz, ang: Math.atan2(sn, cs), cs, sn, depth: 13, square: 17, toWorld };
+})();
+
 const SPAWN = { x: -1049.7, z: 130.5, heading: Math.atan2(-16.1, -3.7) };
 
 // Raised ground the player stands on, as {minX, maxX, minZ, maxZ, top} rects (none yet; landmarks may push theirs)
@@ -723,6 +743,7 @@ export {
   CITY_LANDMARKS,
   TELEPORT_LOCATIONS,
   SPAWN,
+  SRODKA_MURAL,
   RAISED_GROUND,
   getLocationLabel,
   isTypingInField,
