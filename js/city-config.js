@@ -241,11 +241,34 @@ function waterAt(x, z) {
 // Signalised junctions: the one list both road-network.js (node.signal) and street-details.js (signal heads) read,
 // since street details are built before the road network exists. Each site is a junction centre (x, z) plus the widest
 // incident road running mostly north-south (nsWidth, signal group 0 on an axis-aligned junction) and east-west
-// (ewWidth), which place the corner masts.
-const SIGNAL_SITES = (() => {
+// (ewWidth).
+// `junction` and `arms` are for the signal heads: graph nodes joined by links under 14 m are one junction, as in
+// road-network.js step 2 (a divided road's corners), and sites sharing a `junction` id share its `arms`, the links
+// leaving it: { x, z (the junction-side graph node), ux, uz (unit, along the first leg away from it), w (curb to curb;
+// the street's own width where the link has none), lanes, name, inbound (traffic arrives at the junction over it) }.
+// LANE_GUIDE: every link as road-network.js lays its run out before any furniture (from junction centre to junction
+// centre, the mean of each junction's graph nodes, through the real bends), [ax, az, bx, bz, half] per segment; near a
+// merged junction that strays up to ~2 m from the real centreline. roadClearance reads it.
+const { SIGNAL_SITES, LANE_GUIDE } = (() => {
   const g = GEO.roadGraph;
   const ns = new Map(), ew = new Map();
-  for (const [a, b, , w, , , inner] of g.links) {
+  const nodeCount = g.nodes.length / 2;
+  const parent = Array.from({ length: nodeCount }, (_, i) => i);
+  const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const legs = []; // [node, other end's node, ux, uz, link]
+  const widthOf = new Map(); // street name -> widest measured link (stands in where a link has no width)
+  for (const l of g.links) {
+    const [a, b, ni, w, , , inner] = l;
+    if (w > 3) widthOf.set(g.names[ni], Math.max(widthOf.get(g.names[ni]) || 0, w));
+    let len = 0;
+    let px = g.nodes[a * 2], pz = g.nodes[a * 2 + 1];
+    for (let k = 0; k <= inner.length; k += 2) {
+      const qx = k < inner.length ? inner[k] : g.nodes[b * 2], qz = k < inner.length ? inner[k + 1] : g.nodes[b * 2 + 1];
+      len += Math.hypot(qx - px, qz - pz);
+      px = qx;
+      pz = qz;
+    }
+    if (len < 14) parent[find(a)] = find(b);
     for (const [n, m] of [[a, inner && inner.length ? -1 : b], [b, inner && inner.length ? -2 : a]]) {
       // the arm's first leg: towards the other end, or the nearest inner point on a bent link
       let ox, oz;
@@ -253,10 +276,72 @@ const SIGNAL_SITES = (() => {
       const dx = ox - g.nodes[n * 2], dz = oz - g.nodes[n * 2 + 1];
       const map = Math.abs(dz) >= Math.abs(dx) ? ns : ew;
       map.set(n, Math.max(map.get(n) || 0, w));
+      const d = Math.hypot(dx, dz) || 1;
+      legs.push([n, n === a ? b : a, dx / d, dz / d, l]);
     }
   }
-  return g.signals.map((n) => ({ x: g.nodes[n * 2], z: g.nodes[n * 2 + 1], nsWidth: ns.get(n) || 0, ewWidth: ew.get(n) || 0 }));
+  const arms = new Map(); // junction root -> arms
+  for (const n of g.signals) arms.set(find(n), []);
+  for (const [n, m, ux, uz, [a, , ni, w, lanes, dir]] of legs) {
+    const list = arms.get(find(n));
+    if (!list || find(m) === find(n)) continue;
+    const name = g.names[ni];
+    list.push({ x: g.nodes[n * 2], z: g.nodes[n * 2 + 1], ux, uz, w: w > 3 ? w : widthOf.get(name) || 9.1, lanes, name,
+      inbound: dir === 0 || (dir > 0) === (n !== a) });
+  }
+  const sites = g.signals.map((n) => ({ x: g.nodes[n * 2], z: g.nodes[n * 2 + 1], nsWidth: ns.get(n) || 0, ewWidth: ew.get(n) || 0,
+    junction: find(n), arms: arms.get(find(n)) }));
+  const sum = new Map();
+  const counted = new Set();
+  for (const [a, b] of g.links) {
+    for (const i of [a, b]) {
+      if (counted.has(i)) continue;
+      counted.add(i);
+      const s = sum.get(find(i)) || { x: 0, z: 0, n: 0 };
+      s.x += g.nodes[i * 2];
+      s.z += g.nodes[i * 2 + 1];
+      s.n++;
+      sum.set(find(i), s);
+    }
+  }
+  const centre = (i) => {
+    const s = sum.get(find(i));
+    return [s.x / s.n, s.z / s.n];
+  };
+  const guide = [];
+  for (const [a, b, ni, w, , , inner] of g.links) {
+    if (find(a) === find(b)) continue;
+    const half = (w > 3 ? w : widthOf.get(g.names[ni]) || 9.1) / 2;
+    const pts = [centre(a)];
+    for (let k = 0; k < inner.length; k += 2) pts.push([inner[k], inner[k + 1]]);
+    pts.push(centre(b));
+    for (let k = 0; k + 1 < pts.length; k++) guide.push([pts[k][0], pts[k][1], pts[k + 1][0], pts[k + 1][1], half]);
+  }
+  return { SIGNAL_SITES: sites, LANE_GUIDE: guide };
 })();
+const GUIDE_CELL = 32;
+const GUIDE_GRID = new Map(); // each segment in every cell within its half width + 4 m
+for (const s of LANE_GUIDE) {
+  const m = s[4] + 4;
+  for (let ix = Math.floor((Math.min(s[0], s[2]) - m) / GUIDE_CELL); ix <= Math.floor((Math.max(s[0], s[2]) + m) / GUIDE_CELL); ix++) {
+    for (let iz = Math.floor((Math.min(s[1], s[3]) - m) / GUIDE_CELL); iz <= Math.floor((Math.max(s[1], s[3]) + m) / GUIDE_CELL); iz++) {
+      const k = ix * 100000 + iz;
+      if (!GUIDE_GRID.has(k)) GUIDE_GRID.set(k, []);
+      GUIDE_GRID.get(k).push(s);
+    }
+  }
+}
+// How far (x, z) stands outside the nearest roadway (LANE_GUIDE): negative inside one, up to ~4 m (Infinity when no
+// road is that near). Street furniture keeps its footprint outside, so it closes no lane (docs/world.md obstacle rule).
+function roadClearance(x, z) {
+  let best = Infinity;
+  for (const [ax, az, bx, bz, half] of GUIDE_GRID.get(Math.floor(x / GUIDE_CELL) * 100000 + Math.floor(z / GUIDE_CELL)) || []) {
+    const dx = bx - ax, dz = bz - az;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1e-9)));
+    best = Math.min(best, Math.hypot(ax + t * dx - x, az + t * dz - z) - half);
+  }
+  return best;
+}
 
 // Named roads (the real centreline, merged per street) — maps, labels & lookups. dir: 1 one-way along pts, -1 against,
 // 0 both ways. Names are as signed, without the "ul." prefix (OSM convention).
@@ -541,6 +626,7 @@ export {
   clampToLand,
   waterAt,
   SIGNAL_SITES,
+  roadClearance,
   ROADS,
   LABEL_ALIAS,
   nearestRoads,

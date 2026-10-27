@@ -104,11 +104,11 @@ test('lanes follow the OSM lane count and direction within the roadway', () => {
 });
 
 // The real Poznań graph on the real land, bare and with the street furniture street-details.js stands along the curbs
-// (lamps, globe lanterns, signal masts: built here with inert three.js stubs, since only its footprints matter). An
+// (signal poles, lamps, gas lanterns, hydrants, bollards, kiosks: built here with inert three.js stubs, since only its footprints matter). An
 // obstacle within LANE_CLEAR of a lane closes the lane over its whole edge, and a lost one-way edge can take whole
 // loops out of the largest strongly connected set, so a big drop with the furniture means a placement or lane geometry
 // rule broke (docs/world.md). Measured 2026-10: bare 6925 edges long enough, 4300 (193.8 km) in the set; with the
-// furniture (9501 footprints) 4027 (182.5 km). The rest of the bare graph is mostly cul-de-sacs and roads cut at the
+// furniture (15284 footprints: signal poles, lamps, hydrants, bollards, kiosks, ...) 4069 (184.6 km). The rest of the bare graph is mostly cul-de-sacs and roads cut at the
 // detail box.
 function inert() {
   const store = {};

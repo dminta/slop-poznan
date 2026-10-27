@@ -98,7 +98,7 @@ freezes. If you rename or remove any of these, update `audio-sources.js` in the 
   y 0.25 / 380 to mirror the controller's altitude clamp. If you change those limits in `controllers.js`, update it.
 - trams (`tramSystem.trams`): `id`, `x`, `z`, `heading`, `speed`, `acc`, `atStop`, `waitReason` (`'player'` rings the
   bell), `length`, `sections[k].heading`.
-- `streetDetails.audioSignals`: pole positions with `isAvenue`. WALK timing comes from `walkSignal` in `city-config.js`.
+- `streetDetails.audioSignals`: pedestrian head positions (about 980) with `isAvenue` (true when the head walks with group 0's traffic). WALK timing comes from `walkSignal` in `city-config.js`.
 - Footsteps fire when `rig.phase + offset` wraps (one per foot). Changing the rig's phase convention breaks them.
 
 ## Events
