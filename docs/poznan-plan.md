@@ -1,9 +1,10 @@
 # Implementation plan: replacing New York with Poznań
 
 Status: **Phases 1–11 done, with open items** (each phase heading carries its own status note; Phase 9 skips PST, the
-Kaponiera portals, line routes and the Combino; Phase 10 the articulated bus, the S-2 arrow and the taxi crest; Phase 11
+Kaponiera portals and the Combino; Phase 10 the articulated bus, the S-2 arrow and the taxi crest; Phase 11
 the S-2 arrow, signal countdowns, "BUS" lane text, a 4th tree species and real OSM tree positions). The 2026-10-27 audit
-found further gaps: see **Open items from the 2026-10-27 audit** below. Phase 12 is partly done (teleports, tram sounds,
+found further gaps; its six functional gaps were fixed on 2026-10-28, the rest is listed in **Open items from the
+2026-10-27 audit** below. Phase 12 is partly done (teleports, tram sounds,
 the `nyc-sound` key); the rest is not started.
 Line references are as of commit `46ec12b` and will drift; grep for the named symbol if a line no longer matches. Read `AGENTS.md` and the topic docs (`geodata.md`, `world.md`, `rendering.md`,
 `actors.md`, `audio.md`, `architecture.md`, `testing.md`) before starting any phase. They hold the repo-wide rules
@@ -12,29 +13,31 @@ Line references are as of commit `46ec12b` and will drift; grep for the named sy
 ## Open items from the 2026-10-27 audit
 
 A read-only audit compared every Phase 1–11 deliverable with the code at `a37d2d8`; `node --test tests/` passed (168/168).
-About 300 items checked out. The items below are what is left. None of them has been fixed yet.
+About 300 items checked out. The items below are what is left.
 
-**Functional gaps** (highest first):
-1. **Tram tracks missing from `GEO.rail`** (Phases 4, 9, 11). There is no track on Most Chrobrego or Most Mieszka I, nor
-   at the stops Katedra, Fredry, Rondo Śródka, Pl. Wielkopolski and Stare Zoo (`docs/world.md`). `poz_rail.json` has no
-   `railway=tram` way near those links: the nearest element is `landuse=railway` about 50 m away. So the tram-on-street
-   flag is behaving correctly, and the Phase 4 deviation note that blames it is wrong. `q_poz_rail.overpassql` looks
-   correct (`tram|rail|light_rail` in the padded box), and `poz-roads.mjs` drops only tunnels and `layer<0`. Suspects:
-   a stale snapshot, or other tags on the Ostrów Tumski / Śródka line in OSM (`construction`, `disused`, a layer).
-   Check this against live Overpass, then refetch and rebuild. A second, smaller case: one Most Teatralny link lies
-   1.5 m from a tram track but has no tram bit.
-2. **No tram line routes** (Phase 9, step 2). Trams take a random branch at every switch (`js/trams.js:16`) and carry no
-   line number or destination. Only the GTFS source was marked optional; the routes themselves were not.
-3. **No zebras where a median or tram strip is not a block** (Phase 11). The Dworzec complex has 0 zebras.
-4. **Pedestrians start a crossing only at signalised junctions** (Phase 2, "Left open"). `nearSignals`
-   (`js/traffic.js:632`) holds only signal nodes, and crossers spawn only from it (`:1691`). With 235 signals and 1374
-   zebras, most unsignalised zebras never get a fresh crosser.
-5. **Missing Phase 8 features.** There are no dormers, and the Rynek gables are plain 48–55° gables with no steps or
-   volutes (`rynekHouse`, `js/buildings.js:890`). Śródka's mural square is absent too. None of these is in the
-   deviations list.
-6. **The map still has a highways layer** with no data behind it. `js/city-map.js` builds it, draws it and ranks its
-   labels (`:67`, `:228`, `:451`, `:1205`), and the legend still says "Bridge / Hwy". `#minimap-street-label`
-   (`:729`, `:1317`) has never existed in `index.html`.
+**Functional gaps: fixed on 2026-10-28** (checked headless, 189/189 tests; none of it seen in a browser yet):
+1. **Tram tracks on Ostrów Tumski** (Phases 4, 9, 11). The snapshot was not stale: OSM tags the line as closed for
+   rebuilding (`railway=razed` on Most Chrobrego, `disused` from Pl. Wielkopolski via Katedra and Most Mieszka I to
+   Rondo Śródka and on the Fredry curve, `construction` on Most Teatralny), so a `railway=tram` filter dropped it. The
+   build now keeps such ways when a `route=tram` relation lists them (`poz_tram_routes.json`, 59 ways): tram links
+   599 → 666, stops 121 → 129. Still without a stop: a Pl. Wielkopolski node on a disused siding and a Stare Zoo node in
+   the old depot yard. The Most Teatralny link 1.5 m from a track was a perpendicular crossing, correctly skipped.
+2. **Tram line routes** (Phase 9, step 2): `GEO.tramRoutes` (36 one-direction routes of 19 day lines from OSM), route
+   following at switches with a terminus turn, `line`/`destination` on each tram and on the cab LED display. A build bug
+   that merged switch branches with different attributes into one chain was fixed on the way (chains 249 → 367).
+   1.2% of tram samples were off-route in a 10-minute headless run.
+3. **Zebras over medians and tram strips that are not blocks** (Phase 11): split crossings in `pedestrian-routes.js`
+   (gap 3.2–14 m, paired across the strip). Zebras 1375 → 1385, Dworzec 0 → 2; only 7 split crossings city-wide. The
+   central Dworzec node is still bare; the real fix is still medians/tram strips as blocks in `tools/`. Unchecked:
+   people waiting on a strip stand at the rail edge, and split zebras may be painted up to the rails.
+4. **Crossers at unsignalised zebras** (Phase 2): `nearSignals` → `nearCrossings`, drawn from the 695 junctions with
+   a crosswalk (129 signalised). The effect of the extra yielding on traffic flow is unmeasured.
+5. **Phase 8 features**: instanced dormers (10,472, ≈ 136k triangles, roof pool 32k → 64k), stepped and volute Rynek
+   gables, and the Śródka mural square at ul. Śródka 3 (`SRODKA_MURAL`, `landmarks-heritage.js`). Dormers are the
+   costly item: lower `DORMER_P` / `DORMER_MAX` if the browser frame time suffers.
+6. **Map**: the empty highways layer and the dead `#minimap-street-label` code are gone; the legend says "Bridge". Open:
+   pin dots overlap at low zoom around Stary Rynek and Andersia, and "Kiss & Ride & Zachodnia" clashes with the HUD's
+   " & " street join.
 
 **Skips not recorded in the phase bodies until now:**
 - Phase 9: there is no Combino (only Gamma and Tramino) and no white-bar tram signal heads. Trams obey S-1 groups that
@@ -50,10 +53,8 @@ About 300 items checked out. The items below are what is left. None of them has 
   - No test checks determinism against the committed file.
 - Phase 2: `major` ignores the OSM class (width and lanes only).
 - Phase 1: `RAISED_GROUND` (planned as `RAISED_LAWNS`) takes rectangles only and is always empty.
-- Phase 6:
-  - The outskirts labels "GRUNWALD" and "WINOGRADY" exist only as "Stary Grunwald" and "Stare Winogrady".
-  - 10 of the 25 landmarks have no map pin, among them AND2, PFC, Novotel, Collegium Minus and Domki Budnicze.
-- Phase 3: the altitude readout uses `toLocaleString()` with no locale (`js/main.js:786`), unlike `formatCount('pl')`.
+- Phase 6 and Phase 3 (fixed 2026-10-28): GRUNWALD and WINOGRADY district titles over their osiedla, pins for all 25
+  landmarks, and the altitude readout through `formatCount`.
 
 **NYC leftovers that no phase covers** (add them to Phase 12.5):
 - Visible:
@@ -225,7 +226,8 @@ geodata rebuild stays byte-identical. Behaviour changes on Manhattan:
 - Links with no width take their road's median width instead of 18 m (Park Row, Bowery, Broadway, Cooper Sq).
 - 166 centreline edges switched `axis`, so `major` now decides which road is group 0.
 
-Left open: pedestrians that start a crossing still spawn only at signalised crosswalks (`nearSignals` in `refreshNear`).
+Pedestrians that start a crossing used to spawn only at signalised crosswalks; since 2026-10-28 they spawn at every
+junction with a crosswalk (`nearCrossings` in `refreshNear`).
 The signal-mast layout in `street-details.js` still assumes axis-aligned junctions; that is Phase 11 work.
 
 1. **Signals from one source.** `road-network.js` step 8 (:1073-1079) and `street-details.js` §1 (:227-230) both loop
@@ -351,7 +353,8 @@ to build and what each module decides is in `docs/geodata.md`. Deviations and op
 - Plazas: place=square outlines and pedestrian areas are cleared, then the multipolygon inner rings of 100 m² and up are
   given back, grown by `SIDEWALK`. This replaces the Times/Herald Square hack. Linear `highway=pedestrian` ways are
   stamped at 8 m (or their `width`) outside plazas.
-- The tram-on-street flag misses Most Bolesława Chrobrego and Most Mieszka I (599 tram links in all).
+- Most Bolesława Chrobrego and Most Mieszka I had no tram bit because OSM tags their closed track `razed`/`disused`;
+  fixed on 2026-10-28 by keeping route-member track (666 tram links).
 - `Pomnik Czerwca 1956` is a node only (a fixed 10 × 10 m site). Delta 4 is not in OSM; the `Delta` key is the older
   building.
 - Water labels (`kind: 'water'`) sit at the deepest point of each body inside the detail box. Jezioro Maltańskie runs
@@ -777,7 +780,8 @@ Deviations and open points:
   scaffold sheds became renovation scaffolding with building-wrap adverts. The Times Square billboard canvas and material
   (`createBillboardCanvasTexture` / `createBillboardMaterial` in `tsl-materials.js`) survive as unused exports; delete
   them in Phase 12.5.
-- Not done (found by the 2026-10-27 audit): dormers, stepped/volute Rynek gables (§8.5) and Śródka's mural square (§8.1).
+- Dormers, stepped/volute Rynek gables (§8.5) and Śródka's mural square (§8.1) were added on 2026-10-28 after the
+  audit; see the audit section at the top.
 - Balconies: `fire-escapes.js` → `balconies.js`, street fronts only, `BALCONY_P` 0.5.
 - Outskirts osiedla use the panel material (60 extra draw calls); `place()` now rejects footprints leaving their zone.
 - Browser checks pending: roof normals/pitch and ridge alignment on turned blocks, panel shader cost and shimmer on
@@ -840,9 +844,8 @@ for cars and the player, pedestrians wait, player SAT collisions) and audio (tra
 [`actors.md`](actors.md#trams-jstramsjs) "Interactions" and [`audio.md`](audio.md); checked headless on the real
 network, not yet in a browser. Step 1 is `js/tram-infra.js`
 ([`world.md`](world.md#tram-infrastructure)), built after the road network and kept clear of its lanes. It places 121
-stops (97 islands) from the 142 stop nodes; the stops in the centre that are missing (Katedra, Fredry, Rondo Śródka,
-Pl. Wielkopolski, Stare Zoo) have no track in `GEO.rail` within 25 m. Not yet checked in a
-browser.
+stops (97 islands) from the 142 stop nodes; since the 2026-10-28 route-member track fix it places 129 (102 islands),
+including Katedra, Fredry and Rondo Śródka. Not yet checked in a browser.
 
 1. **Static first** (no actors):
    - `GEO.rail` → grooved-rail paint or meshes (2 × 1435 mm per track) in `road-paint.js`, or a dedicated instanced
@@ -858,7 +861,7 @@ browser.
    track graph with switches, right-hand running on unmarked double track, single-track blocks, clearance points and
    uncut crossings; stops from `tram-infra.js` with a 20–30 s dwell and doors; signals; IDM following;
    Gamma and Tramino articulated bodies with bellows and a pantograph; headlights; the map radar (`trams` array).
-   Random branches at switches; no GTFS routes. **Interactions done**: cars yielding on shared lanes and junction
+   Line routes from OSM `route=tram` relations since 2026-10-28 (`GEO.tramRoutes`); no GTFS. **Interactions done**: cars yielding on shared lanes and junction
    curves, trams braking for cars and the player, pedestrians waiting at the rails, player collisions per section.
    Template: `createHighwayTraffic` (`traffic.js:2128-2160`;
    lane polylines, IDM per lane, no lane changes, cyclic leaders, LOD). Add:
@@ -941,7 +944,8 @@ All in `traffic.js`, `actor-models.js`, `controllers.js` and `vehicle-lights.js`
 real OSM tree positions). Checked headless only (tests, the furnished network on the real land); the per-item notes below
 carry the measured numbers.
 
-**Open: no crosswalks where medians and tram strips aren't blocks.** Zebras need a curb island within `CROSSWALK_REACH`
+**Partly fixed (2026-10-28): split crossings over medians and tram strips** (see the audit section at the top; Dworzec
+0 → 2 zebras). The rest of this note still holds. **Was: no crosswalks where medians and tram strips aren't blocks.** Zebras need a curb island within `CROSSWALK_REACH`
 (4 m) at both ends (`pedestrian-routes.js`), so junction complexes whose refuges are only road-network gaps get none.
 The Dworzec complex (Roosevelta / Most Dworcowy, junction nodes around −1567, 560) went from 18 broken zebras to 0: the
 station side is open and the nearest island, a 2 m strip 6 m east of Roosevelta's western roadway, is out of reach. Fix
