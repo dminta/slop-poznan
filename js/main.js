@@ -3,7 +3,7 @@ import { pass, mrt, output, normalView, positionView, metalness, roughness, vec2
 import { ssr } from 'three/addons/tsl/display/SSRNode.js';
 import { createPostProcessing } from './post-processing.js';
 import { ClusteredLighting } from 'three/addons/lighting/ClusteredLighting.js';
-import { getLocationLabel, districtAt, isTypingInField, ROADS, CITY_LANDMARKS, TELEPORT_LOCATIONS } from './city-config.js';
+import { getLocationLabel, districtAt, isTypingInField, formatCount, ROADS, CITY_LANDMARKS, TELEPORT_LOCATIONS } from './city-config.js';
 import { buildCityGrid } from './city-grid.js';
 import { buildOutskirts } from './outskirts.js';
 import { buildBridges } from './bridges.js';
@@ -786,7 +786,7 @@ async function initApp() {
       if (elSpeed) elSpeed.textContent = String(kmh);
       if (elSpeedMeter) elSpeedMeter.style.transform = `scaleX(${Math.min(1, kmh / (topSpeedKmh[mode] || 130))})`;
       document.body.classList.toggle('is-boosting', controllerManager.keys.boost && kmh > 0);
-      if (elAltitude) elAltitude.textContent = altM.toLocaleString();
+      if (elAltitude) elAltitude.textContent = formatCount(altM);
       // The street corner of the player on the follow cameras, of the camera itself on the scenic ones
       const where = cameraSystem.getActivePreset().category === 'follow' ? activeEnt.position : cameraSystem.currentPos;
       renderLocation(getLocationLabel(where.x, where.z), districtAt(where.x, where.z));

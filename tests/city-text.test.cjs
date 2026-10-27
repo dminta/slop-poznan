@@ -1,5 +1,15 @@
 const assert = require('node:assert/strict');
+const { readdirSync, readFileSync } = require('node:fs');
+const { join } = require('node:path');
 const test = require('node:test');
+
+test('numbers in the UI are formatted in Polish, never in the browser locale', () => {
+  const dir = join(__dirname, '../js');
+  for (const file of readdirSync(dir).filter((f) => f.endsWith('.js'))) {
+    const src = readFileSync(join(dir, file), 'utf8');
+    assert.doesNotMatch(src, /\.toLocaleString\(\s*\)/, `${file}: use formatCount (city-config.js)`);
+  }
+});
 
 test('map text helpers fold Polish letters, sort and upper-case in Polish', async () => {
   const { foldText, compareNames, mapCaps, formatCount, LABEL_ALIAS } = await import('../js/city-config.js');
