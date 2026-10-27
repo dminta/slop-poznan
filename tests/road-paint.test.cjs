@@ -55,20 +55,24 @@ test('all markings are white or red, with P-10 zebras 4 m deep in 0.5 m stripes'
 
 test('opposing lanes: P-4 double solid on multi-lane roads, dashed or nothing on single-lane ones', () => {
   const solid = (qs) => qs.filter((q) => q.white && q.period === 1 && Math.abs(q.w - 0.12) < 1e-6);
-  const dashed = (qs) => qs.filter((q) => q.white && q.period === 12);
+  const dashed = (qs, period = 6) => qs.filter((q) => q.white && q.period === period && Math.abs(q.duty - 1 / 3) < 1e-6);
   const wide = paintOf(road({ half: 7.5, lanes: [1.8, 5.4] }));
   assert.equal(solid(wide).length, 2, 'the double line');
-  assert.equal(dashed(wide).length, 2, 'a lane line each way');
+  assert.equal(dashed(wide).length, 2, 'a P-1b lane line each way (2 m dashes, 4 m gaps)');
   const narrow = paintOf(road({ half: 3.5, lanes: [1.75] }));
   assert.equal(solid(narrow).length, 0);
   assert.equal(dashed(narrow).length, 1, 'a dashed centre line at 50 km/h');
   assert.equal(dashed(paintOf(road({ half: 3.5, lanes: [1.75], limit: 30 / 3.6 }))).length, 0, 'none in a 30 zone');
+  assert.equal(dashed(paintOf(road({ half: 2.8, lanes: [1.4] }))).length, 0, 'none under 5.8 m of carriageway');
+  assert.equal(dashed(paintOf(road({ half: 7.5, lanes: [1.8, 5.4], limit: 90 / 3.6 })), 12).length, 2,
+    'P-1a (4 m dashes, 8 m gaps) above 70 km/h');
 });
 
-test('P-14 stop lines only at signalised junctions', () => {
-  const stops = (qs) => qs.filter((q) => Math.abs(q.w - 0.5) < 1e-6 && q.period === 1.5);
+test('P-14 stop lines of 0.75 m rectangles 0.25 m apart on every junction approach', () => {
+  const stops = (qs) => qs.filter((q) => Math.abs(q.w - 0.5) < 1e-6 && q.period === 1 && q.duty === 0.75);
   assert.equal(stops(paintOf(road({ half: 5, lanes: [1.8], signal: true }))).length, 2);
-  assert.equal(stops(paintOf(road({ half: 5, lanes: [1.8] }))).length, 0);
+  assert.equal(stops(paintOf(road({ half: 5, lanes: [1.8] }))).length, 2);
+  assert.equal(stops(paintOf(road({ half: 5, lanes: [-1.8, 1.8], back: null }))).length, 1, 'one-way: arriving end only');
 });
 
 test('red bike lanes along tagged curbs where the outer lane leaves room', () => {

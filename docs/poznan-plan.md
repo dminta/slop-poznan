@@ -564,8 +564,10 @@ https://dminta.github.io/slop-poznan/. Deviations and open points:
 - `city-map.js`: most layers, the north-up frame and the Ratusz default waypoint already came with Phase 5. New: the
   tram (red) and rail (dashed grey) layer from `RAIL`, the fit-to-city `minZoom()`, area labels straight from
   `GEO.labels` (`AREA_LABELS` is gone from `city-config.js`), arc-length road labels over same-name chains
-  (`chainRoadPieces`, `roadLabelAnchors`). CHWALISZEWO, CENTRUM, CYTADELA, MALTA and ŚRÓDMIEŚCIE are not in `GEO.labels`,
-  so they don't show; add them in `tools/` if wanted. No map legend for trams yet.
+  (`chainRoadPieces`, `roadLabelAnchors`). OSM has no place elements for ŚRÓDMIEŚCIE, CHWALISZEWO, CYTADELA and MALTA,
+  so they are hand-placed in `tools/data/poz_places.json` and appended to `GEO.labels` (`docs/geodata.md`). CENTRUM is
+  dropped: it names the same centre as ŚRÓDMIEŚCIE and would overlap it and STARE MIASTO. The map legend
+  (`#fullmap-legend`) has Tram and Rail swatches, coloured from `MAP` in `city-map.js`.
 - The accent stays yellow (`--accent` #ffc21a). The street plate is a blue (#1d4f9c) plate with a white inner border; the
   prefix comes from `splitStreetKind` in `main.js` (Aleja → al., Plac → pl., Osiedle → os., Rondo, Most; names starting
   Rynek/Stary/Zaułek/Pasaż/Wzgórze/Bulwar get none; the rest ul.). The design was not checked against street imagery.
@@ -685,8 +687,8 @@ Deviations and open points:
   Ostrów/Śródka within 650 m of the Katedra. Only 4 buildings qualify as `monumental`.
 - Rynek houses are facade boxes with a gable roof spec, not `buildArcadedHouseRow` (keeps them in the batched boxes).
 - Materials: `createRoofMaterial` (tile/slate/metal/copper share one pipeline), `createPanelBlockMaterial` (+1 pipeline),
-  `masonry: 'brick'|'ashlar'|'plaster'` on `createPreWarBuildingMaterial`. The pre-war shader still draws window
-  air-conditioners (NYC leftover).
+  `masonry: 'brick'|'ashlar'|'plaster'` on `createPreWarBuildingMaterial`. The NYC window air-conditioners are gone
+  from the pre-war shader.
 - Roofs: `js/roofs.js` (boot preloads 39), 9,240 roofs / 21k instances; chimneys and skylights replace water towers;
   scaffold sheds became renovation scaffolding with building-wrap adverts. There was no billboard machinery to convert.
 - Balconies: `fire-escapes.js` → `balconies.js`, street fronts only, `BALCONY_P` 0.5.
@@ -800,8 +802,8 @@ browser.
 `createTrafficSystem` on the real network); see [`actors.md`](actors.md) for the livery codes (`carState.w`: 1 Policja,
 2 PRM ambulance, 3 PSP fire, all with `isPolice` for the siren and signal privileges), the MPK bus routes, per-link
 speed limits (`edge.limit`, driver `pace`/`vmax`) and the `'redAmber'` phase. Taxis are ordinary colours with a TAXI
-roof lamp; NPC and player cars carry EU "PO" plates; drivers honk after 8 s blocked. The bus still has the folded front
-bike rack from the NYC model.
+roof lamp; NPC and player cars carry EU "PO" plates; drivers honk after 8 s blocked. The NYC model's folded front bike
+rack is gone from the bus.
 
 All in `traffic.js`, `actor-models.js`, `controllers.js` and `vehicle-lights.js`. Mind the audio field contract
 (`docs/audio.md`).
@@ -866,6 +868,10 @@ carry the measured numbers.
    0.5 m stripes (`CROSSWALK` 4.3 = zebra + 0.15 m margins); red bike lanes from new link flags bits 3/4 (OSM
    `cycleway=lane`/`opposite_lane`, 15.2 km of curb tagged), painted only where the outer lane leaves ≥ 1 m (4.1 km).
    No "BUS" text: the graph carries no bus-lane data. Browser rendering unverified at the time of writing.
+   Later checked against the regulation's annex (Dz.U. 2019 poz. 2311, załącznik nr 2): lane lines became P-1b
+   (2 m / 4 m; 4 m / 8 m is P-1a, above 70 km/h). P-14 became 0.75 m rectangles 0.25 m apart, on every junction
+   approach. Centre lines are dropped under 5.8 m of carriageway. Still open: P-14 sits 0.25 m before the zebra, not the
+   required 2 m (see [`world.md`](world.md) Markings).
 2. **`street-details.js`**:
 
    **Status: done** ([`world.md`](world.md#street-furniture-street-detailsjs)), not yet checked in a browser. Signal

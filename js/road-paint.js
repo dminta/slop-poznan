@@ -4,24 +4,32 @@ import { createRoadPaintMaterial } from './tsl-materials.js';
 
 // js/road-paint.js
 // Road markings generated from the drivable road network (js/road-network.js), so the paint matches where traffic
-// actually drives and stops. Polish markings, all white: P-1 dashed lines between lanes going the same way, P-4 double
-// solid between opposing lanes on roads with two or more lanes each way, P-1 dashed between single opposing lanes
-// outside 30 zones (a residential street at 30 km/h or less has no centre line), P-14 stop lines at signalised
-// approaches only (unsignalised Polish junctions carry P-12/P-13 only with a STOP or give-way sign, which the geodata
-// does not have), P-10 zebras across every intersection approach, and red bike lanes along the curbs OSM tags with
-// cycleway=lane (road-network.js edge.bike) where the outer lane leaves room for one.
+// actually drives and stops. Polish markings, all white, sized after the annex on horizontal signs (Rozporządzenie
+// Ministra Infrastruktury z 3 lipca 2003 r., załącznik nr 2; consolidated text Dz.U. 2019 poz. 2311,
+// https://isap.sejm.gov.pl/isap.nsf/DocDetails.xsp?id=WDU20190002311): P-1b dashed lines (P-1a above 70 km/h) between
+// lanes going the same way; P-4 double solid between opposing lanes on roads with three lanes or more (the annex
+// requires it there); P-1b/P-1a between single opposing lanes on carriageways 5.8 m or wider outside 30 zones (no
+// centre line at 30 km/h or less is local practice, not the annex); P-14 stop lines before the P-10 zebra on every
+// junction approach (the annex requires P-14 before crossings on priority approaches and recommends it on the others;
+// P-12/P-13 go only with a STOP or give-way sign, which the geodata does not have); and red bike lanes behind a P-2b
+// line along the curbs OSM tags with cycleway=lane (road-network.js edge.bike) where the outer lane leaves room.
 
 const WHITE = new THREE.Color(0xe6e2d6);
-const RED = new THREE.Color(0xa8392c); // the red asphalt of Polish bike lanes
+const RED = new THREE.Color(0xa8392c); // bike lanes "may" be red (annex 7.11.1); Poznań paints them red
 const HEIGHT = 0.012; // above the asphalt
-const LINE_W = 0.12; // the standard Polish line width
-const DASH_PERIOD = 12; // P-1: 4 m dashes, 8 m gaps
+const LINE_W = 0.12; // P-1a/b, P-2a and each line of P-4 (annex 2.2.1); P-4's two lines are 0.12 m apart
 const DASH_DUTY = 1 / 3;
-const ZEBRA_PERIOD = 1.0; // P-10: 0.5 m stripes, 0.5 m gaps
-const STOP_W = 0.5; // P-14: 0.5 m deep, 1 m rectangles 0.5 m apart
-const STOP_PERIOD = 1.5;
-const STOP_DUTY = 2 / 3;
-const BIKE_EDGE_W = 0.24; // the wide solid line between a bike lane and the traffic lane
+const DASH_SHORT = 6; // P-1b, up to 70 km/h: 2 m dashes, 4 m gaps (annex 2.2.1.2)
+const DASH_LONG = 12; // P-1a, above 70 km/h: 4 m dashes, 8 m gaps (annex 2.2.1.1)
+const FAST = 70 / 3.6 + 0.01;
+const CENTRE_MIN = 5.8; // no lane lines on a two-way carriageway narrower than this (annex 2.2.1)
+const ZEBRA_PERIOD = 1.0; // P-10: 0.5 m stripes, 0.5 m gaps, 4.0 m deep (annex 4.2.1)
+// P-14: 0.5 m deep, 0.75 m rectangles 0.25 m apart (annex 4.2.5). The annex wants it ≥ 2 m before the zebra; here it
+// is 0.25 m, because both have to fit in the CROSSWALK (road-network.js) between the edge end and the junction box
+const STOP_W = 0.5;
+const STOP_PERIOD = 1.0;
+const STOP_DUTY = 0.75;
+const BIKE_EDGE_W = 0.24; // P-2b, the wide solid line between a bike lane and the traffic lane (annex 2.2.1.7, 7.11.1)
 const BIKE_W = 1.5; // the bike lane at most, and 1 m at least
 const BIKE_CURB = 0.2; // gap from the curb
 const CAR_HALF = 1.0; // a car's half width, which must stay off the bike lane's line
@@ -86,28 +94,30 @@ function buildRoadPaint(scene, network) {
     if (back) for (const o of back.lanes) lanes.push({ o: -o, dir: -1 });
     lanes.sort((p, q) => p.o - q.o);
 
-    // P-1 dashed between lanes going the same way; between opposing ones P-4 double solid where either way has two
-    // lanes or more, P-1 dashed on a one-lane-each-way road faster than 30 km/h, nothing on slower ones (nothing
-    // across a median or a lane closed off by an obstacle)
+    // P-1b dashed (P-1a above 70 km/h) between lanes going the same way; between opposing ones P-4 double solid where
+    // either way has two lanes or more, dashed on a one-lane-each-way road faster than 30 km/h and at least CENTRE_MIN
+    // wide, nothing on slower or narrower ones (nothing across a median or a lane closed off by an obstacle)
     const multi = e.lanes.length > 1 || (back && back.lanes.length > 1);
-    const slow = Math.max(e.limit || 0, back ? back.limit || 0 : 0) <= 30 / 3.6 + 0.01;
+    const limit = Math.max(e.limit || 0, back ? back.limit || 0 : 0);
+    const slow = limit <= 30 / 3.6 + 0.01 || 2 * e.half < CENTRE_MIN;
+    const dash = limit > FAST ? DASH_LONG : DASH_SHORT;
     for (let k = 0; k + 1 < lanes.length; k++) {
       const p = lanes[k];
       const q = lanes[k + 1];
       const mid = (p.o + q.o) / 2;
       if (q.o - p.o > 4.5 && (p.dir === q.dir || !clearCentre(e, mid))) continue;
       if (p.dir === q.dir) {
-        along(e, mid, LINE_W, WHITE, DASH_PERIOD, DASH_DUTY);
+        along(e, mid, LINE_W, WHITE, dash, DASH_DUTY);
       } else if (multi) {
         along(e, mid - LINE_W, LINE_W, WHITE);
         along(e, mid + LINE_W, LINE_W, WHITE);
       } else if (!slow) {
-        along(e, mid, LINE_W, WHITE, DASH_PERIOD, DASH_DUTY);
+        along(e, mid, LINE_W, WHITE, dash, DASH_DUTY);
       }
     }
 
     // Red bike lanes along the curbs OSM tags with one (e.bike: [left, right] of its way of travel; the left curb of a
-    // two-way road is the right one of the way back), BIKE_CURB off the curb and edged by a wide solid line, as wide as
+    // two-way road is the right one of the way back), BIKE_CURB off the curb and edged by a P-2b line, as wide as
     // the room the outer lane leaves (BIKE_W at most): none where a car in it would cover the line
     const right = (e.bike || NO_BIKE)[1];
     const left = back ? (back.bike || NO_BIKE)[1] : (e.bike || NO_BIKE)[0];
@@ -120,10 +130,10 @@ function buildRoadPaint(scene, network) {
       along(e, curb - sign * (BIKE_CURB + w + BIKE_EDGE_W / 2), BIKE_EDGE_W, WHITE);
     }
 
-    // P-14 stop lines across the lanes arriving at each signalised stop line, from the centre line (or median) to the
-    // curb (none where a street merely bends: a shape node of the centreline streets)
+    // P-14 stop lines across the lanes arriving at each junction, before its zebra, from the centre line (or median) to
+    // the curb (none where a street merely bends: a shape node of the centreline streets)
     for (const f of back ? [e, back] : [e]) {
-      if (f.to.shape || !f.to.signal) continue;
+      if (f.to.shape) continue;
       const left = back ? Math.max(0, f.lanes[0] - 1.8) : -f.half;
       across(f, f.len - 0.35, left + 0.1, f.half - 0.1, STOP_W, WHITE, STOP_PERIOD, STOP_DUTY);
     }

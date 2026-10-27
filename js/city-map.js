@@ -732,6 +732,12 @@ class CityMapSystem {
     this.miniCache = null; // { canvas, cx, cz, s, version }: the radar's ground layers, twice the radar's size
     const elCounts = document.getElementById('fullmap-counts');
     if (elCounts) elCounts.textContent = `${ROAD_NAME_COUNT} streets · ${formatCount(BLOCKS.length)} blocks`;
+    // The legend's tram & rail swatches take their colours from the palette the map draws them with
+    const elLegend = document.getElementById('fullmap-legend');
+    if (elLegend) {
+      elLegend.style.setProperty('--map-tram', MAP.tram);
+      elLegend.style.setProperty('--map-rail', MAP.rail);
+    }
 
     // The map is drawn grid north up; the compass needle points to true north, the grid's bearing to its left
     const needle = document.getElementById('map-compass-needle');

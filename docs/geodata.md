@@ -90,6 +90,10 @@ Inputs for the Poznań pipeline (`docs/poznan-plan.md` §4.1), OSM via Overpass,
   is not in OSM; `Delta` (way 106179571, Towarowa 35, 11 levels) is the older building.
 - Admin: relation 165941 (level 8), 42 level-9 and 81 level-10 relations, plus `place=suburb|quarter|neighbourhood`
   nodes, ways and relations.
+- `poz_places.json` is hand-written, not fetched: area labels OSM has no place element for (Śródmieście, Chwaliszewo,
+  Cytadela, Malta), each with a kind and lat/lon read off OSM features in the other snapshots (the `where` field says
+  which). `poz-extra.mjs` appends them after the OSM places and skips any name OSM already has. Centrum is left out on
+  purpose: it is the same city centre as Śródmieście and would sit on top of it.
 
 ## Pipeline (tools/build-poznan.mjs)
 The build (`docs/poznan-plan.md` §2, §4) reads only the `poz_*.json` snapshots.

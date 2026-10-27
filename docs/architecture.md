@@ -176,7 +176,7 @@ Physics notes:
 - Wrap every storage access in `try { } catch { /* reason */ }`. Storage may be unavailable, and that must never block play.
 
 ## HUD, CSS and cache busting
-- `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently `20261026-poznan-hud`). When you change
+- `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently `20261027-map-legend`). When you change
   `style.css`, bump that query in `index.html` in the same commit; GitHub Pages caches it.
 - Colours are tokens on `:root`: `--accent`/`--accent-ink` (yellow, also the map's GPS route in `city-map.js`) mark
   whatever is active, `--sign-blue` is the street plate. The loading screen, brand and map title share the `.badge` roundel.
@@ -195,6 +195,9 @@ Physics notes:
 - Layers, bottom up: outskirts land, the core, water (with island holes), parks, blocks, plazas, rail (dashed grey),
   bridges, trams (thin red, above the decks), landmarks. The furthest zoom-out (`minZoom()`) fits the whole city outline
   to the canvas; "fit all" (`#map-view-all`) fits the detail box (`CITY_BOUNDS`).
+- The legend (`#fullmap-legend`, static items in `index.html`) wraps to a second row rather than run under the centred
+  status pill, and hides below 1360 px. Its Tram and Rail swatches read `--map-tram`/`--map-rail`, which the
+  `CityMapSystem` constructor sets from `MAP`, so they follow the palette the map draws with.
 - Area names are read from `GEO.labels` by `kind`: each kind (suburb, quarter, neighbourhood, water) has its own zoom
   range; water is italic mixed case, the rest spaced caps via `mapCaps`. `LABEL_ALIAS` (`city-config.js`) holds short
   street names (empty for now). Road names are used as OSM signs them.

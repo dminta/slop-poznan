@@ -64,7 +64,7 @@ import { CITY_BOUNDS, isLand, blockAt } from './city-config.js';
 // - Mikkelsen Surface-Gradient Hardware Derivative Bump Mapping (bumpNormal)
 // - Filter-Width Anti-Aliased Procedural Markings & Mortar (lineAA & gridLine via fwidth)
 // - True 3D Slab Ray-Marched Room & Retail Storefront Interiors (walls, ceiling lamps, floors, rugs, doors, art, shelves, curtains)
-// - Window Air-Conditioner Units with Louver Relief & Grimy Soda-Lime Window Glazing
+// - Grimy Soda-Lime Window Glazing
 // - Crown-Sphere Foliage Normal Relief, Radial Interior Canopy AO & Cast-Iron Tree Grate Shading
 // - Occlusion-Aware Urban Canyon Global Illumination (aoNode + Warm Terracotta/Limestone Bounce)
 
@@ -411,7 +411,7 @@ const WALL_KINDS = { shop: 0, entry: 1, rear: 2, lotLine: 3, blankStone: 4 };
  * World-space by default. With `boxLocal` the mesh must come from createFacadeBoxes: u then starts at each wall's
  * corner and every wall fits a whole number of bays, so no window straddles a corner. `cornerPier` (m, box-local only)
  * keeps a solid band of wall at both ends of every wall (masonry corners): the bays fill the width between the piers
- * and `solid` is 1 inside the piers above the ground floor, where callers suppress windows, sills & AC units.
+ * and `solid` is 1 inside the piers above the ground floor, where callers suppress windows & sills.
  * Box-local walls also read their treatment from the per-instance `faces` attribute (see WALL_KINDS / createFacadeBoxes):
  * `isGroundFloor` is 1 only on storefront ground floors, `door` marks the entrance bay of residential fronts, `back`
  * the plain common-brick rear & lot-line walls (tinted by the building's `tone`) and `blank` the windowless ones
@@ -713,7 +713,6 @@ function createCurtainWallMaterial(opts = {}) {
  * Features (ported from SkyscraperGenerator.js):
  * - Anti-Aliased Running-Bond Brickwork with Domed Brick Face Relief (`bumpNormal`)
  * - Fast 3D Apartment Interior Mapping on Upper Floors (2D Glazing on Ground-Floor Shops)
- * - Protruding Window Air-Conditioner Units (`acUnits`) with Louver Relief & Condensate Grime
  * - Grimy Soda-Lime Window Glazing (pooled sill dirt + vertical rain streaks)
  * - Urban Canyon Global Illumination (`aoNode` + warm terracotta bounce)
  *
@@ -800,10 +799,8 @@ function createPreWarBuildingMaterial(opts = {}) {
   const aptRoom = evaluateApartmentInterior(uCoord, vCoord, winUV, cellId, bayWidth, uFloorHeight, uSeed, uWarmth, uLitProbability.mul(0.62), fw);
   const shopLit = step(0.24, hash2D(cellId.add(vec2(uSeed, 19.4))));
   const bulbCol = mix(cCoolWindow, cWarmWindow, step(float(1.0).sub(uWarmth), hash2D(cellId.add(vec2(uSeed.mul(1.9), 83.1)))));
-  // Window AC units (~12% of upper-floor windows), none in the floor the band course covers
+  // The floor the band course covers (street fronts only): no sills in it
   const beltFloor = step(5.0, mod(floor(gridV), 6.0)).mul(front);
-  const acRand = hash2D(cellId.add(vec2(uSeed.mul(1.3).add(7.1), 91.7)));
-  const hasAC = step(0.88, acRand).mul(float(1.0).sub(isGroundFloor)).mul(float(1.0).sub(isRoof)).mul(open).mul(float(1.0).sub(beltFloor));
   // Street-front finish (rear & lot-line walls stay brick): masonry units are bricks or dressed-stone courses; plaster
   // drops the joints, the per-unit tint and the domed relief
   const notBack = float(1.0).sub(back);
@@ -834,30 +831,8 @@ function createPreWarBuildingMaterial(opts = {}) {
     const storeMullion = lineAA(fract(cellUV.x.mul(2.0)).sub(0.5), 0.018).mul(isGroundFloor);
     const sashMask = clamp(max(max(sashBarY, sashBarX), max(storeTransom, storeMullion)), 0.0, 1.0);
 
-    // Protruding Window Air-Conditioner Unit, sitting on the sill (see hasAC)
-    const acMinX = float(0.31);
-    const acMaxX = float(0.69);
-    const acMinY = effHalfY;
-    const acMaxY = effHalfY.add(0.22);
-    const inACBox = filteredPulse(cellUV.x, acMinX, acMaxX, fw.x)
-      .mul(filteredPulse(cellUV.y, acMinY, acMaxY, fw.y))
-      .mul(hasAC);
-    const acUV = clamp(
-      vec2(cellUV.x.sub(acMinX).div(0.38), cellUV.y.sub(acMinY).div(0.22)),
-      vec2(0.0),
-      vec2(1.0)
-    );
-    const acGrille = smoothstep(0.08, 0.16, acUV.x).mul(float(1.0).sub(smoothstep(0.84, 0.92, acUV.x)))
-      .mul(smoothstep(0.14, 0.22, acUV.y)).mul(float(1.0).sub(smoothstep(0.84, 0.92, acUV.y)));
-    const acSlats = fract(acUV.y.mul(6.0));
-    const acPlastic = mix(color(0xf0eee8), color(0xcac6bc), fract(acRand.mul(7.3)));
-    const acColor = acPlastic.mul(mix(float(1.0), mix(float(0.38), float(0.75), acSlats), acGrille));
-    const acUnderShadow = filteredPulse(cellUV.x, acMinX.sub(0.02), acMaxX.add(0.02), fw.x)
-      .mul(filteredPulse(cellUV.y, effHalfY.sub(0.09), effHalfY, fw.y))
-      .mul(hasAC).mul(0.42);
-
     const isWindowOpening = inX.mul(inY).mul(float(1.0).sub(isRoof)).mul(float(1.0).sub(isCornice));
-    const isWindowGlass = isWindowOpening.mul(float(1.0).sub(sashMask)).mul(float(1.0).sub(inACBox));
+    const isWindowGlass = isWindowOpening.mul(float(1.0).sub(sashMask));
 
     // Anti-Aliased Running-Bond Brickwork & Ashlar Stone Coursing
     const brickH = unitH;
@@ -967,7 +942,6 @@ function createPreWarBuildingMaterial(opts = {}) {
     const masonryWeathered = mix(masonryWithMortar.mul(plasterShade), cSoot, sootDirt)
       .mul(float(1.0).sub(corniceShadow))
       .mul(float(1.0).sub(isSillUnderShadow.mul(0.42)))
-      .mul(float(1.0).sub(acUnderShadow))
       .add(cityUniforms.uSunColor.mul(isSillTop.mul(0.24)))
       .add(canyonGlow);
 
@@ -995,10 +969,9 @@ function createPreWarBuildingMaterial(opts = {}) {
     const wallOrRoof = mix(masonryWeathered, roofCol, isRoof);
     const withFrames = mix(wallOrRoof, frameCol, isWindowOpening.mul(sashMask));
     const withGlass = mix(withFrames, glassCol, isWindowGlass);
-    const withAC = mix(withGlass, acColor, inACBox);
 
     // Entrance of a residential front: painted panel door under a glazed transom, in a stone surround (door bay only)
-    const finalCol = withAC.toVar();
+    const finalCol = withGlass.toVar();
     If(door.greaterThan(0.5), () => {
       const inDoorway = filteredPulse(cellUV.x, 0.27, 0.73, fw.x).mul(filteredPulse(cellUV.y, 0.065, 0.8, fw.y));
       const surround = filteredPulse(cellUV.x, 0.21, 0.79, fw.x).mul(filteredPulse(cellUV.y, 0.0, 0.86, fw.y));
@@ -1012,7 +985,7 @@ function createPreWarBuildingMaterial(opts = {}) {
       // Meeting stiles & lock rail (box-filtered with the cell footprint: no derivatives in this branch)
       const doorPanels = max(filteredPulse(cellUV.x, 0.494, 0.506, fw.x), filteredPulse(cellUV.y, 0.39, 0.41, fw.y));
       const doorCol = mix(doorPaint.mul(float(1.0).sub(doorPanels.mul(0.5))), mix(cGlass, cityUniforms.uSkyHorizonColor, 0.18), transom);
-      finalCol.assign(mix(mix(withAC, cTrim.mul(0.85), surround), doorCol, inDoorway));
+      finalCol.assign(mix(mix(withGlass, cTrim.mul(0.85), surround), doorCol, inDoorway));
     });
     return finalCol;
   })();
@@ -1031,8 +1004,8 @@ function createPreWarBuildingMaterial(opts = {}) {
     return mix(float(0.78).add(stoneGrain), glassRough, isWindow);
   })();
 
-  // Hardware derivative bumpNormal for domed brickwork, stone courses, recessed windows & AC louvers. Edges ramp over
-  // >= 2px and the fine brick & louver relief fades before it shrinks to pixels: sharper height steps turn into
+  // Hardware derivative bumpNormal for domed brickwork, stone courses & recessed windows. Edges ramp over
+  // >= 2px and the fine brick relief fades before it shrinks to pixels: sharper height steps turn into
   // derivative sparkles that crawl along every mortar joint & sill as the camera moves
   mat.normalNode = Fn(() => {
     const camDist = length(positionWorld.sub(cameraPosition));
@@ -1041,7 +1014,7 @@ function createPreWarBuildingMaterial(opts = {}) {
     const ramp = fw.mul(2.0);
     const footprint = max(fwidth(uCoord), fwidth(vCoord)); // Meters per pixel
 
-    // Stone band course every 6 floors on street fronts: no window recesses, sills or AC units in it
+    // Stone band course every 6 floors on street fronts: no window recesses or sills in it
     const belt = filteredPulse(gridV.div(6.0), 0.86, 1.0, ramp.y.div(6.0)).mul(front);
     const inX = filteredPulse(cellUV.x, effHalfX, float(1.0).sub(effHalfX), ramp.x).mul(open).mul(float(1.0).sub(belt));
     const inY = filteredPulse(cellUV.y, effHalfY, float(1.0).sub(effHalfY), ramp.y);
@@ -1060,14 +1033,8 @@ function createPreWarBuildingMaterial(opts = {}) {
     const sillLedge = filteredPulse(cellUV.y, effHalfY.sub(0.032), effHalfY, ramp.y).mul(inX).mul(0.016);
     const corniceLedge = belt.mul(0.022);
 
-    const inACBox = filteredPulse(cellUV.x, 0.31, 0.69, ramp.x)
-      .mul(filteredPulse(cellUV.y, effHalfY, effHalfY.add(0.22), ramp.y))
-      .mul(hasAC);
-    const acLouverHeight = fract(cellUV.y.sub(effHalfY).div(0.22).mul(6.0)).mul(0.012)
-      .mul(float(1.0).sub(smoothstep(0.012, 0.025, footprint)));
-
     const wallHeight = brickDome.mul(float(1.0).sub(coping)).add(sillLedge).add(corniceLedge).add(coping.mul(0.024));
-    const totalHeight = mix(wallHeight, acLouverHeight.mul(inACBox), isWindow);
+    const totalHeight = wallHeight.mul(float(1.0).sub(isWindow)); // window recesses are flat
 
     return bumpNormal(totalHeight.mul(detailFade));
   })();
@@ -1090,15 +1057,10 @@ function createPreWarBuildingMaterial(opts = {}) {
     const storeMullion = lineAA(fract(cellUV.x.mul(2.0)).sub(0.5), 0.020).mul(isGroundFloor);
     const sashMask = clamp(max(max(sashBarY, sashBarX), max(storeTransom, storeMullion)), 0.0, 1.0);
 
-    const inACBox = filteredPulse(cellUV.x, 0.31, 0.69, fw.x)
-      .mul(filteredPulse(cellUV.y, glowHalfY, glowHalfY.add(0.22), fw.y))
-      .mul(hasAC);
-
     const isWindow = inX.mul(inY)
       .mul(float(1.0).sub(isRoof))
       .mul(float(1.0).sub(isCornice))
-      .mul(float(1.0).sub(sashMask))
-      .mul(float(1.0).sub(inACBox));
+      .mul(float(1.0).sub(sashMask));
 
     const shopShelves = float(1.0).sub(step(0.76, fract(winUV.y.mul(3.0))).mul(0.32));
     const vertGrad = smoothstep(0.08, 0.92, winUV.y).mul(0.62).add(0.28);
