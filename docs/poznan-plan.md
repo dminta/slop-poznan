@@ -872,8 +872,9 @@ carry the measured numbers.
    No "BUS" text: the graph carries no bus-lane data. Browser rendering unverified at the time of writing.
    Later checked against the regulation's annex (Dz.U. 2019 poz. 2311, załącznik nr 2): lane lines became P-1b
    (2 m / 4 m; 4 m / 8 m is P-1a, above 70 km/h). P-14 became 0.75 m rectangles 0.25 m apart, on every junction
-   approach. Centre lines are dropped under 5.8 m of carriageway. Still open: P-14 sits 0.25 m before the zebra, not the
-   required 2 m (see [`world.md`](world.md) Markings).
+   approach. Centre lines are dropped under 5.8 m of carriageway. P-14 then moved 2.0 m before the zebra (4.2.5):
+   `STOP_SETBACK` 1.75 m between the `CROSSWALK` band and the stop line, given up first on short links, which then get
+   no P-14 (1834 of 2684 approaches have one; see [`world.md`](world.md) road-paint and Markings).
 2. **`street-details.js`**:
 
    **Status: done** ([`world.md`](world.md#street-furniture-street-detailsjs)), not yet checked in a browser. Signal

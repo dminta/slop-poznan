@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { CROSSWALK } from './road-network.js';
+import { CROSSWALK, STOP_SETBACK } from './road-network.js';
 import { createRoadPaintMaterial } from './tsl-materials.js';
 
 // js/road-paint.js
@@ -24,8 +24,10 @@ const DASH_LONG = 12; // P-1a, above 70 km/h: 4 m dashes, 8 m gaps (annex 2.2.1.
 const FAST = 70 / 3.6 + 0.01;
 const CENTRE_MIN = 5.8; // no lane lines on a two-way carriageway narrower than this (annex 2.2.1)
 const ZEBRA_PERIOD = 1.0; // P-10: 0.5 m stripes, 0.5 m gaps, 4.0 m deep (annex 4.2.1)
-// P-14: 0.5 m deep, 0.75 m rectangles 0.25 m apart (annex 4.2.5). The annex wants it ≥ 2 m before the zebra; here it
-// is 0.25 m, because both have to fit in the CROSSWALK (road-network.js) between the edge end and the junction box
+// P-14: 0.5 m deep, 0.75 m rectangles 0.25 m apart, at least 2 m before the zebra (annex 4.2.5): 0.1 m inside the edge
+// end, which is the edge's setbackTo (STOP_SETBACK 1.75 m) before the CROSSWALK band, whose zebra keeps 0.15 m off its
+// edges. A short link squeezed between two corners gives up some or all of that setback (road-network.js place), and
+// gets no P-14: drivers stop before the zebra or the signal anyway.
 const STOP_W = 0.5;
 const STOP_PERIOD = 1.0;
 const STOP_DUTY = 0.75;
@@ -131,16 +133,16 @@ function buildRoadPaint(scene, network) {
     }
 
     // P-14 stop lines across the lanes arriving at each junction, before its zebra, from the centre line (or median) to
-    // the curb (none where a street merely bends: a shape node of the centreline streets)
+    // the curb (none where a street merely bends, a shape node of the centreline streets, nor short of the 2 m gap)
     for (const f of back ? [e, back] : [e]) {
-      if (f.to.shape) continue;
+      if (f.to.shape || f.setbackTo < STOP_SETBACK - 1e-6) continue;
       const left = back ? Math.max(0, f.lanes[0] - 1.8) : -f.half;
       across(f, f.len - 0.35, left + 0.1, f.half - 0.1, STOP_W, WHITE, STOP_PERIOD, STOP_DUTY);
     }
 
-    // P-10 zebras curb to curb, between the stop lines and the intersections at both ends
-    if (!e.from.shape) across(e, -CROSSWALK / 2, -e.half, e.half, CROSSWALK - 0.3, WHITE, ZEBRA_PERIOD, 0.5);
-    if (!e.to.shape) across(e, e.len + CROSSWALK / 2, -e.half, e.half, CROSSWALK - 0.3, WHITE, ZEBRA_PERIOD, 0.5);
+    // P-10 zebras curb to curb, between the stop lines and the intersections at both ends, next to the intersections
+    if (!e.from.shape) across(e, -e.setbackFrom - CROSSWALK / 2, -e.half, e.half, CROSSWALK - 0.3, WHITE, ZEBRA_PERIOD, 0.5);
+    if (!e.to.shape) across(e, e.len + e.setbackTo + CROSSWALK / 2, -e.half, e.half, CROSSWALK - 0.3, WHITE, ZEBRA_PERIOD, 0.5);
 
     for (const [end, node] of [[0, e.from], [1, e.to]]) {
       if (!node.shape) continue;

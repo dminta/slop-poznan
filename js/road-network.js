@@ -18,9 +18,12 @@ import { GEO } from './geodata.js';
 const CELL = 32;
 const LANE_CLEAR = 1.2; // half width each lane keeps free of obstacles
 const LANE_W = 3.6; // lane spacing
-// Depth between an intersection box and its stop lines: a P-10 zebra 4 m deep (the Polish minimum on most streets) and
-// a 0.15 m margin each side (road-paint.js)
+// Between an intersection box and its stop lines: the crosswalk band right at the box, a P-10 zebra 4 m deep (the
+// Polish minimum on most streets) and a 0.15 m margin each side (road-paint.js), then STOP_SETBACK to the stop line
+// (the edge end). The P-14 line is painted 0.1-0.6 m inside the edge end, so 1.75 m leaves the 2.0 m of asphalt between
+// it and the zebra that the annex on horizontal signs asks for (Dz.U. 2019 poz. 2311, załącznik nr 2, 4.2.5).
 const CROSSWALK = 4.3;
+const STOP_SETBACK = 1.75;
 const SHORE_MARGIN = 6;
 // A major road (buses spawn on it): at least 14.5 m curb to curb (four lanes and some) or with three travel lanes or
 // more (OSM lanes, both ways). The graph carries no road class, so width and lanes stand in for primary/secondary.
@@ -38,7 +41,8 @@ const SIGNAL_REACH = 12;
 const CHORD_DEV = 0.5;
 const CHORD_END = 12;
 // ...and the nearest a shape node for that may come to a junction: a run from a bend into a junction shorter than the
-// junction's stop-line setback (up to ~22 m) gets squeezed and dropped (4.), which breaks more than the stray costs
+// junction's stop-line setback (up to 26 m, 24.3 m once a short link gives up STOP_SETBACK) gets squeezed and dropped
+// (4.), which breaks more than the stray costs
 const JUNCTION_END = 25;
 
 function buildRoadNetwork(sidewalks, obstacles) {
@@ -524,8 +528,8 @@ function buildRoadNetwork(sidewalks, obstacles) {
     return 45;
   }
   // How far before node n an edge arriving along `arm` stops: clear of every road crossing it (at whatever angle: its
-  // curb corner reaches past the crossing road's far side by half its own width over the tangent) plus the crosswalk,
-  // and clear of the lanes of a road merging with it or forking off it
+  // curb corner reaches past the crossing road's far side by half its own width over the tangent) plus the crosswalk and
+  // the stop-line setback behind it, and clear of the lanes of a road merging with it or forking off it
   const goesOn = (p, q) => p.ux * q.ux + p.uz * q.uz < 0 && Math.abs(p.ux * q.uz - p.uz * q.ux) < 0.26; // q within 15° of straight on from p
   function stopBack(n, arm) {
     if (n.shape) return 1;
@@ -545,17 +549,31 @@ function buildRoadNetwork(sidewalks, obstacles) {
       const sin = Math.abs(a.ux * b.uz - a.uz * b.ux);
       ext = Math.max(ext, (b.wide + a.wide * Math.abs(cos)) / sin);
     }
-    return Math.max(ext > 0 ? Math.min(ext, 20) + CROSSWALK : 2, fork);
+    return Math.max(ext > 0 ? Math.min(ext, 20) + CROSSWALK + STOP_SETBACK : 2, fork);
   }
 
   // Edges run between stop lines: clear of the roads crossing them and the crosswalk at both ends. On a short link
-  // between acute corners the two pull in together, keeping at least 10 m (or half the link) to queue on.
+  // between acute corners, keeping at least 10 m (or half the link) to queue on, the stop lines first close up to their
+  // zebras (setbackFrom/To: from the stop line to the CROSSWALK band, which road-paint.js, pedestrian-routes.js and
+  // traffic.js put there), so the zebras stay by the junction; then both setbacks pull in together, zebras and all.
   function place(e) {
     let b0 = stopBack(e.from, e.outArm);
     let b1 = stopBack(e.to, e.inArm);
+    let g0 = e.from.shape ? 0 : Math.min(STOP_SETBACK, b0);
+    let g1 = e.to.shape ? 0 : Math.min(STOP_SETBACK, b1);
     const keep = Math.min(10, e.span * 0.5);
+    const short = Math.min(keep - (e.span - b0 - b1), g0 + g1);
+    if (short > 0) {
+      const k = 1 - short / (g0 + g1);
+      b0 -= g0 * (1 - k);
+      b1 -= g1 * (1 - k);
+      g0 *= k;
+      g1 *= k;
+    }
+    e.setbackFrom = g0;
+    e.setbackTo = g1;
     e.squeezed = false;
-    if (e.span - b0 - b1 < keep) {
+    if (e.span - b0 - b1 < keep - 1e-9) {
       const k = (e.span - keep) / (b0 + b1);
       b0 *= k;
       b1 *= k;
@@ -574,9 +592,10 @@ function buildRoadNetwork(sidewalks, obstacles) {
   // Snapshot their geometry before routing moves stop lines, drops edges and renumbers the surviving junctions.
   // (`signal` is filled in at 6.)
   const paintNodes = new Map(nodes.map((n, id) => [n, { id, x: n.x, z: n.z, shape: n.shape, signal: false }]));
-  const paintEdges = edges.map(({ from, to, axis, x0, z0, sx, sz, dx, dz, rx, rz, span, len, half, lanes, limit, bike }) => ({
-    from: paintNodes.get(from), to: paintNodes.get(to), axis, x0, z0, sx, sz, dx, dz, rx, rz, span, len, half, lanes, limit,
-    bike
+  const paintEdges = edges.map(({ from, to, axis, x0, z0, sx, sz, dx, dz, rx, rz, span, len, setbackFrom, setbackTo, half, lanes,
+    limit, bike }) => ({
+    from: paintNodes.get(from), to: paintNodes.get(to), axis, x0, z0, sx, sz, dx, dz, rx, rz, span, len, setbackFrom,
+    setbackTo, half, lanes, limit, bike
   }));
 
   // 4. Movements at each intersection (no U-turns) and the lane each lane leads to, along obstacle-free curves:
@@ -758,7 +777,9 @@ function buildRoadNetwork(sidewalks, obstacles) {
   const inTheWayOut = new Set();
   for (const e of edges) {
     if (!e.squeezed || !e.from.shape || !inTheWay(e)) continue;
+    const len = e.len;
     while (e.len > 6 && inTheWay(e)) e.len = Math.max(5.5, e.len - 1);
+    e.setbackTo += len - e.len; // the zebra stays where it was
     if (inTheWay(e)) inTheWayOut.add(e); // even so
   }
   if (inTheWayOut.size) {
@@ -1024,4 +1045,4 @@ function curvePoint(c, s, out) {
   return out;
 }
 
-export { buildRoadNetwork, CROSSWALK };
+export { buildRoadNetwork, CROSSWALK, STOP_SETBACK };

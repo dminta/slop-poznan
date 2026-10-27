@@ -5,6 +5,7 @@ const test = require('node:test');
 const { loadModule } = require('./helpers/module.cjs');
 
 const CROSSWALK = 4.3;
+const STOP_SETBACK = 1.75;
 const { createPedestrianRoutes } = loadModule(
   readFileSync(join(__dirname, '../js/pedestrian-routes.js'), 'utf8'),
   { imports: { './road-network.js': { CROSSWALK } } }
@@ -14,7 +15,7 @@ const { createPedestrianRoutes } = loadModule(
 // metres out from n, a right normal (rx, rz) = (-dz, dx) and the lateral axis (clx, clz) flipped the same both ways.
 function edge(x0, z0, dx, dz, back, len, half) {
   const rx = -dz, rz = dx, flip = rx < -1e-6 || (Math.abs(rx) <= 1e-6 && rz < 0);
-  return { sx: x0 + dx * back, sz: z0 + dz * back, dx, dz, rx, rz, len, half, clx: flip ? -rx : rx, clz: flip ? -rz : rz };
+  return { sx: x0 + dx * back, sz: z0 + dz * back, dx, dz, rx, rz, len, setbackFrom: STOP_SETBACK, setbackTo: STOP_SETBACK, half, clx: flip ? -rx : rx, clz: flip ? -rz : rz };
 }
 function arm(n, ux, uz, { half, back, side, group }) {
   const len = 80;
@@ -58,7 +59,7 @@ test('a centreline junction gets oriented crosswalks over every arm, at the pain
       near(t.uz, a.in.clz, 'along the axis traffic measures lanes on (z)');
       near(t.len, 2 * a.half + 4, 'curb to curb and 2 m onto each sidewalk');
       const mx = t.ax + t.ux * t.len / 2 - n.x, mz = t.az + t.uz * t.len / 2 - n.z;
-      near(mx * a.ux + mz * a.uz, 12 - CROSSWALK / 2 + t.line, 'between the junction and its stop lines');
+      near(mx * a.ux + mz * a.uz, 12 - STOP_SETBACK - CROSSWALK / 2 + t.line, 'between the junction and its stop lines');
       near(mx * a.uz - mz * a.ux, 0, 'centred on its road');
     }
   }

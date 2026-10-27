@@ -41,10 +41,10 @@ function createPedestrianRoutes({ walkable }, blockAt) {
     return result;
   }
 
-  // One crosswalk per junction arm (road-network.js step 7), over the painted one (road-paint.js: CROSSWALK deep, just
-  // short of the stop lines) and along the lateral axis of the arm's road (clx/clz of its edge in, else out, the axis
-  // traffic.js measures lanes and walkers on). People cross there with priority over turning and arriving traffic.
-  // A bend (shape node) has no corner and no crosswalk.
+  // One crosswalk per junction arm (road-network.js step 7), over the painted one (road-paint.js: CROSSWALK deep, next to
+  // the intersection, the edges' setbackFrom/To beyond their stop lines) and along the lateral axis of the arm's road
+  // (clx/clz of its edge in, else out, the axis traffic.js measures lanes and walkers on). People cross there with
+  // priority over turning and arriving traffic. A bend (shape node) has no corner and no crosswalk.
   function across(n) {
     if (crossings.has(n)) return crossings.get(n);
     const result = [];
@@ -58,7 +58,7 @@ function createPedestrianRoutes({ walkable }, blockAt) {
       let depth = 0, count = 0, lo = Infinity, hi = -Infinity;
       for (const e of [arm.in, arm.out]) {
         if (!e) continue;
-        const s = e === arm.in ? e.len + CROSSWALK / 2 : -CROSSWALK / 2;
+        const s = e === arm.in ? e.len + e.setbackTo + CROSSWALK / 2 : -e.setbackFrom - CROSSWALK / 2;
         const x = e.sx + e.dx * s, z = e.sz + e.dz * s, c = x * cx + z * cz;
         depth += (x - n.x) * ux + (z - n.z) * uz;
         count++;

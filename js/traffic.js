@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { buildRoadNetwork } from './road-network.js';
+import { buildRoadNetwork, CROSSWALK } from './road-network.js';
 import { createPedestrianRoutes } from './pedestrian-routes.js';
 import { signalPhase, walkSignal, blockAt } from './city-config.js';
 import { cityUniforms, createContactShadowMaterial, createCarFlareMaterial } from './tsl-materials.js';
@@ -526,7 +526,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     const e = v.edge;
     const f = v.move.to;
     touchNode(e.to).box[e.axisIndex]++;
-    if (!v.conn || v.cs < v.half + 2.5) e.to.crossing[e.inSide]++; // until its tail is past the crosswalk on its way in
+    if (!v.conn || v.cs < v.half + e.setbackTo + CROSSWALK) e.to.crossing[e.inSide]++; // until its tail is past the crosswalk on its way in
     if (v.move.turn !== 'L') touchEdge(e).through++;
     if (!v.yielding) cross(v);
     occupy(f.occ[v.out], v, v.conn ? v.cs - v.conn.len : v.s - e.len - connector(e, v.lane, f, v.out).len);
@@ -564,7 +564,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
         const side = straddle(v);
         if (side) occupy(e.occ[v.lane + side], v, v.s);
         if (v.commit === e.to) claim(v);
-        if (v.s < v.half) touchNode(e.from).crossing[e.outSide]++; // its tail still over the crosswalk behind it
+        if (v.s < v.half - e.setbackFrom) touchNode(e.from).crossing[e.outSide]++; // its tail still over the crosswalk behind it
       } else {
         claim(v);
         occupy(e.occ[v.lane], v, e.len + v.cs); // until it is out of the intersection, still ahead of those behind it
@@ -819,9 +819,13 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     return false;
   }
 
+  // How far before the end of a connector into f its crosswalk starts, with 0.5 m to spare (road-network.js: the stop
+  // line f starts at is setbackFrom beyond the CROSSWALK band)
+  const shortOfZebra = (f) => f.setbackFrom + CROSSWALK + 0.5;
+
   // ...on the crosswalk v leaves the intersection over, while v, its front bumper d metres before it, passes? Once v
   // holds that crosswalk (it isn't waiting inside to turn), people at the curb wait for it.
-  const pedsOut = (v, d) => d > 0 && pedestrianOn(v.edge.to, v.move.to.outSide, laneCoord(v.move.to, v.out, v.move.to.outArm), timeTo(v, d), timeTo(v, d + 3 + 2 * v.half), !v.yielding);
+  const pedsOut = (v, d) => d > 0 && pedestrianOn(v.edge.to, v.move.to.outSide, laneCoord(v.move.to, v.out, v.move.to.outArm), timeTo(v, d), timeTo(v, d + 0.5 + CROSSWALK + 2 * v.half), !v.yielding);
 
   // Must v, pulled into the intersection to turn, wait there: for people crossing its way out (`peds`) or, turning
   // left, for oncoming traffic?
@@ -939,13 +943,13 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     const c = connector(e, v.lane, f, j);
     const first = n.signal && (!v.isPolice || phase === 'green') && m.turn !== 'S' && !lead;
     const across = m.turn === 'L' && !!e.opposite;
-    const wait = first ? (across ? yieldPoint(v, c, e) : c.len - 3 - v.half) : -1; // < 0: no room inside to wait
+    const wait = first ? (across ? yieldPoint(v, c, e) : c.len - shortOfZebra(f) - v.half) : -1; // < 0: no room inside to wait
     if (m.turn === 'L' ? across && wait < 0 && yieldOncoming(e.opposite, v.wait > 8, v) : e.opposite && e.opposite.lefts > 0) return false;
     if ((n.signal ? v.isPolice && phase !== 'green' : e.axisIndex !== 0) && yieldToCrossTraffic(v, n)) return false;
     // nobody on the crosswalks while it passes over them, on the way in and on the way out, and a free place to
     // clear the intersection to, taking turns with lanes merging into it
-    if (pedestrianOn(n, e.inSide, laneCoord(e, v.lane, e.inArm), 0, timeTo(v, d + 2.5 + 2 * v.half))) return false;
-    if (wait < 0 && pedestrianOn(n, f.outSide, laneCoord(f, j, f.outArm), timeTo(v, d + c.len - 3), timeTo(v, d + c.len + 2 * v.half))) return false;
+    if (pedestrianOn(n, e.inSide, laneCoord(e, v.lane, e.inArm), 0, timeTo(v, d + e.setbackTo + CROSSWALK + 2 * v.half))) return false;
+    if (wait < 0 && pedestrianOn(n, f.outSide, laneCoord(f, j, f.outArm), timeTo(v, d + c.len - shortOfZebra(f)), timeTo(v, d + c.len - f.setbackFrom + 2 * v.half))) return false;
     const vs = v.s - e.len - c.len; // where on f it would be now
     if (!room(f, j, v) || alongside(f, j, v, vs, m.turn !== 'S') || mergingAhead(v, f, j)) return false;
     v.out = j;
@@ -1046,7 +1050,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
         } else {
           worst = Math.min(worst, follow(v, f.occ[j], vs), signalAhead(v, f, f.len - vs - v.half));
           // pulling in to wait inside: slow down for that spot already if it will have to wait there
-          if (v.yielding && holdsOn(v, pedsOut(v, d + c.len - 3))) worst = Math.min(worst, stopAt(v, d + v.half + v.yieldAt, 0.5));
+          if (v.yielding && holdsOn(v, pedsOut(v, d + c.len - shortOfZebra(f)))) worst = Math.min(worst, stopAt(v, d + v.half + v.yieldAt, 0.5));
         }
         // easing off to fall in behind a vehicle from another lane merging ahead into the same lane (unless committed:
         // then the others wait for v)
@@ -1062,8 +1066,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       const f = v.move.to;
       const vs = v.cs - v.conn.len;
       worst = Math.min(follow(v, f.occ[v.out], vs), follow(v, e.occ[v.lane], e.len + v.cs), signalAhead(v, f, f.len - vs - v.half));
-      // someone crossing the way out: wait for them inside the intersection, short of the 2.5 m crosswalk
-      const d = v.conn.len - 3 - v.cs - v.half;
+      // someone crossing the way out: wait for them inside the intersection, short of the crosswalk
+      const d = v.conn.len - shortOfZebra(f) - v.cs - v.half;
       const peds = pedsOut(v, d);
       if (v.yielding && v.cs < v.yieldAt && holdsOn(v, peds)) {
         worst = Math.min(worst, stopAt(v, v.yieldAt - v.cs, 0.5)); // waiting inside to turn

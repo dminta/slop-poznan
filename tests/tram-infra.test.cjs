@@ -8,7 +8,7 @@ const { loadModule } = require('./helpers/module.cjs');
 // furniture street-details.js stands along the curbs (three.js stubbed out, as in road-network.test.cjs). Nothing of
 // it is handed to the road network in the app (it is built after it), but platforms and poles must still keep clear of
 // the car lanes: fed to the network as obstacles, they must leave its largest strongly connected set almost whole
-// (docs/world.md obstacle rule). Measured 2026-10: 4294 edges / 193.5 km with the furniture, 4287 / 193.3 km with the
+// (docs/world.md obstacle rule). Measured 2026-10: 4294 edges / 193.5 km with the furniture, 4282 / 193.1 km with the
 // tram footprints added; 121 stops (97 islands) from 142 stop nodes, 2200+ poles.
 function inert() {
   const store = {};
@@ -30,7 +30,7 @@ test('tram stops, platforms and poles keep clear of the car lanes', async () => 
   const config = await import('../js/city-config.js');
   const { GEO } = await import('../js/geodata.js');
   const logs = [];
-  const { buildRoadNetwork, CROSSWALK } = loadModule(readFileSync(join(__dirname, '../js/road-network.js'), 'utf8'), {
+  const { buildRoadNetwork, CROSSWALK, STOP_SETBACK } = loadModule(readFileSync(join(__dirname, '../js/road-network.js'), 'utf8'), {
     imports: { './city-config.js': config, './geodata.js': { GEO } },
     globals: { console: { info: (line) => logs.push(line) } },
     filename: 'road-network.js'
@@ -38,7 +38,7 @@ test('tram stops, platforms and poles keep clear of the car lanes', async () => 
   const { buildStreetDetails } = loadModule(readFileSync(join(__dirname, '../js/street-details.js'), 'utf8'), {
     imports: {
       'three/webgpu': inert(), 'three/tsl': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert(),
-      './city-config.js': config, './road-network.js': { CROSSWALK }, './tsl-materials.js': inert(),
+      './city-config.js': config, './road-network.js': { CROSSWALK, STOP_SETBACK }, './tsl-materials.js': inert(),
       './trees.js': { createTreeField: () => ({ group: inert() }) },
       './city-grid.js': { pavedPlazaRects: [], parkTreeSites: [], parkLampSites: [] }
     },
