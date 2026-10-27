@@ -42,6 +42,20 @@ test('Poznań geodata builds offline with default paths in a checkout containing
     assert.ok(limits.includes(70), 'a 70 km/h artery');
     assert.ok(GEO.landmarks['Ratusz']);
     assert.ok(GEO.blocks.length > 500);
+    // blockStats: [built share, median levels, buildings] per block, from the OSM footprints (poz-buildings.mjs)
+    const stats = GEO.blockStats;
+    assert.equal(stats.length, GEO.blocks.length);
+    assert.ok(stats.every(([s, lv, n]) => s >= 0 && s <= 1 && lv >= 0 && lv < 60 && Number.isInteger(n) && n >= 0));
+    const blockArea = (f) => { let a = 0; for (let i = 0, j = f.length - 2; i < f.length; j = i, i += 2) a += f[j] * f[i + 1] - f[i] * f[j + 1]; return Math.abs(a) / 2; };
+    const nearRatusz = (f) => { const x = f.filter((_, i) => i % 2 === 0), z = f.filter((_, i) => i % 2); return Math.hypot(x.reduce((t, v) => t + v, 0) / x.length, z.reduce((t, v) => t + v, 0) / z.length) < 150; };
+    // the Stary Rynek frontages and the central block: 52-85 % built, 3-4 storeys on the 2026-10-27 snapshot
+    const core = stats.filter((_, i) => nearRatusz(GEO.blocks[i][0]));
+    assert.ok(core.length >= 8 && core.every(([s, lv]) => s > 0.4 && lv >= 2), 'Old Town blocks densely built');
+    // 3.67 km² built of 18.69 km² of block land (20 %): parks, Cytadela and the rail land pull it down
+    let built = 0, land = 0;
+    GEO.blocks.forEach((b, i) => { const a = blockArea(b[0]); built += a * stats[i][0]; land += a; });
+    assert.ok(built / land > 0.12 && built / land < 0.35, `area-weighted built share ${(built / land).toFixed(3)}`);
+    assert.ok(stats.reduce((t, s) => t + s[2], 0) > 8000, 'buildings counted in blocks');
     // frame.ll puts the Ratusz (the D1 origin) at the world origin
     const ll = GEO.frame.ll;
     const [lon, lat] = [16.93401, 52.40856];

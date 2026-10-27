@@ -9,6 +9,7 @@ import { pieces, plazas, rail, roads, signalNodes, tramStops } from './poz-roads
 import { water, land, landHoles, outskirts, outskirtsHoles } from './poz-water.mjs';
 import { parks, landmarks, districts, labels } from './poz-extra.mjs';
 import { blocks, STRIP, SIDEWALK } from './poz-blocks.mjs';
+import { blockStats } from './poz-buildings.mjs';
 import { buildRoadGraph } from './poz-roadgraph.mjs';
 
 const OUT = process.argv[2] || fileURLToPath(new URL('../js/geodata.js', import.meta.url));
@@ -86,6 +87,9 @@ const GEO = {
   // [outline, lot rects, park share, park name, rectangular, frontage frames [[θ, px, pz, lot rects in the frame], ...] | 0]
   blocks: blocks.map((b) => [flat(b.poly), b.rects.map((r) => r.map(q)), b.park || 0, b.parkName || '', b.rect ? 1 : 0,
     b.frames ? b.frames.map(([th, px, pz, rs]) => [Math.round(th * 1e4) / 1e4, q(px), q(pz), rs.map((r) => r.map(q))]) : 0]),
+  // One per blocks entry, same order: [built share of the curb island under OSM building footprints (0..1), area-weighted
+  // median building:levels of the buildings centred in it (0 if none tagged), building count] (poz-buildings.mjs)
+  blockStats,
   parks,
   // { name: { x, z, w, d, h, area, ring, ang } }: w and d along the turned axes (ang, radians)
   landmarks

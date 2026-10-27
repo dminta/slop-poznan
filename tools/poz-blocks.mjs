@@ -284,7 +284,9 @@ function maskRects(m, w, h, maxRects = 8, minSide = 8) {
         stack[sp++] = i;
       }
     }
-    if (best < 120 || (rects.length && best < total * 0.06)) break;
+    // 2% (it was 6%): with the higher caps below, the deep holes of the big irregular blocks shrank from 115 k to
+    // 76 k m² round Królowej Jadwigi, +385 k m² built over the detail box
+    if (best < 120 || (rects.length && best < total * 0.02)) break;
     rects.push([bi0, bi1, bj0, bj1]);
     covered += best;
     for (let j = bj0; j <= bj1; j++) for (let i = bi0; i <= bi1; i++) m[j * w + i] = 0;
@@ -440,7 +442,7 @@ function blockFrames(c, poly) {
       const { lw, lh, prop: vp, reg, cell } = vw;
       const m = new Uint8Array(lw * lh);
       for (let k = 0; k < lw * lh; k++) m[k] = vp[k] && (pass === 2 || reg[k]) && cell[k] >= 0 && !used[cell[k]] ? 1 : 0;
-      const { rects } = maskRects(m, lw, lh, pass === 1 ? 6 : 4, 12);
+      const { rects } = maskRects(m, lw, lh, pass === 1 ? 12 : 10, 12);
       for (const [i0, i1, j0, j1] of rects) {
         for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (cell[j * lw + i] >= 0) markUsed(cell[j * lw + i]);
         vw.rects.push([vw.u0 + i0, vw.u0 + i1 + 1, vw.v0 + j0, vw.v0 + j1 + 1]);

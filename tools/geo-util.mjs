@@ -233,6 +233,30 @@ class Raster {
   }
 }
 
+// Even-odd scanline over several rings at once (inner rings cut their holes), calling cell(i, j) for each cell of the
+// grid { x0, z0, res, w, h } (a Raster qualifies) whose centre is inside, rows from north to south
+function scanRings(rings, g, cell) {
+  let zmin = Infinity, zmax = -Infinity;
+  for (const ring of rings) for (const p of ring) { if (p[1] < zmin) zmin = p[1]; if (p[1] > zmax) zmax = p[1]; }
+  const j0 = Math.max(0, Math.floor((zmin - g.z0) / g.res)), j1 = Math.min(g.h - 1, Math.ceil((zmax - g.z0) / g.res));
+  const xs = [];
+  for (let j = j0; j <= j1; j++) {
+    const z = g.z0 + (j + 0.5) * g.res;
+    xs.length = 0;
+    for (const ring of rings) {
+      for (let a = 0, k = ring.length - 1; a < ring.length; k = a++) {
+        const [xa, za] = ring[k], [xb, zb] = ring[a];
+        if ((za > z) !== (zb > z)) xs.push(xa + ((z - za) * (xb - xa)) / (zb - za));
+      }
+    }
+    xs.sort((u, v) => u - v);
+    for (let n = 0; n + 1 < xs.length; n += 2) {
+      const i0 = Math.max(0, Math.ceil((xs[n] - g.x0) / g.res - 0.5)), i1 = Math.min(g.w - 1, Math.floor((xs[n + 1] - g.x0) / g.res - 0.5));
+      for (let i = i0; i <= i1; i++) cell(i, j);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Overpass elements (`out geom`) to world rings
 // ---------------------------------------------------------------------------------------------------------------------
@@ -243,10 +267,11 @@ function elemRing(e, project) {
   for (const m of e.members || []) if (m.role === 'outer' && m.geometry && m.geometry.length > best.length) best = m.geometry.map((g) => project(g.lon, g.lat));
   return best;
 }
-function elemRings(e, project) {
-  // relations (The Lake, Turtle Pond, Harlem Meer) come as several outer ways: chain them into closed rings
-  if (e.type === 'way') return [(e.geometry || []).map((g) => project(g.lon, g.lat))];
-  const parts = (e.members || []).filter((m) => m.role === 'outer' && m.geometry).map((m) => m.geometry.map((g) => project(g.lon, g.lat)));
+function elemRings(e, project, role = 'outer') {
+  // relations (The Lake, Turtle Pond, Harlem Meer) come as several outer ways: chain them into closed rings. A way is
+  // its own single outer ring and has no inner ones.
+  if (e.type === 'way') return role === 'outer' ? [(e.geometry || []).map((g) => project(g.lon, g.lat))] : [];
+  const parts = (e.members || []).filter((m) => m.role === role && m.geometry).map((m) => m.geometry.map((g) => project(g.lon, g.lat)));
   const rings = [];
   const close = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 0.5;
   while (parts.length) {
@@ -405,4 +430,4 @@ function traceComponents(ras, { minCells = 1, minHoleCells = Infinity, longCells
   return { components, labels };
 }
 
-export { r1, ringArea, bbox, rdp, rdpRing, pointInRing, centroid, Raster, elemRing, elemRings, chainCoastline, labelComponents, traceComponents };
+export { r1, ringArea, bbox, rdp, rdpRing, pointInRing, centroid, Raster, scanRings, elemRing, elemRings, chainCoastline, labelComponents, traceComponents };
