@@ -1,7 +1,8 @@
 # Implementation plan: replacing New York with Poznań
 
-Status: **Phases 1–10 done** (each phase heading carries its own status note; Phase 9 skips PST and the Kaponiera
-portals, Phase 10 the articulated bus and the S-2 arrow); Phases 11–12 are not started.
+Status: **Phases 1–11 done** (each phase heading carries its own status note; Phase 9 skips PST and the Kaponiera
+portals, Phase 10 the articulated bus and the S-2 arrow, Phase 11 the S-2 arrow, signal countdowns, "BUS" lane text, a
+4th tree species and real OSM tree positions); Phase 12 is not started.
 Line references are as of commit `46ec12b` and will drift; grep for the named symbol if a line no longer matches. Read `AGENTS.md` and the topic docs (`geodata.md`, `world.md`, `rendering.md`,
 `actors.md`, `audio.md`, `architecture.md`, `testing.md`) before starting any phase. They hold the repo-wide rules
 (modulepreload + boot count, module syntax, source-sliced tests, generated geodata, CSS `?v=` bump).
@@ -846,6 +847,10 @@ All in `traffic.js`, `actor-models.js`, `controllers.js` and `vehicle-lights.js`
    their distributions is optional.
 
 ### Phase 11: Street details, trees, road paint
+
+**Status: done, except the optional parts** (S-2 arrows, pedestrian countdowns, "BUS" lane text, a 4th tree species,
+real OSM tree positions). Checked headless only (tests, the furnished network on the real land); the per-item notes below
+carry the measured numbers.
 
 1. **`road-paint.js`**:
    - **All markings white** (`YELLOW` stops being used for centre lines, `:89-93`): P-1 dashed, P-4 solid/double solid
