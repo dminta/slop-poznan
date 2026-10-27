@@ -1,0 +1,9 @@
+{
+  "note": "Hand-placed area labels that OSM has no place=suburb/quarter/neighbourhood node or relation for in poz_admin.json (2026-10-25). Positions read off OSM features in the other snapshots, rounded to ~10 m. Read by tools/poz-extra.mjs; an OSM place of the same name wins.",
+  "places": [
+    { "name": "Śródmieście", "kind": "quarter", "lat": 52.4065, "lon": 16.9235, "where": "ul. 27 Grudnia / Gwarna, between Plac Wolności and the Zamek, west of Stare Miasto" },
+    { "name": "Chwaliszewo", "kind": "neighbourhood", "lat": 52.4091, "lon": 16.9425, "where": "ul. Chwaliszewo (OSM way 28672444), on the filled-in old Warta bed west of Ostrów Tumski" },
+    { "name": "Cytadela", "kind": "quarter", "lat": 52.4215, "lon": 16.9349, "where": "centre of the Park Cytadela bounds (OSM way 23003645)" },
+    { "name": "Malta", "kind": "quarter", "lat": 52.4050, "lon": 16.9640, "where": "north shore of Jezioro Maltańskie by ul. Baraniaka, clear of the lake's own water label" }
+  ]
+}

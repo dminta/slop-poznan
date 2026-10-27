@@ -2,7 +2,8 @@
 // §4.2, §9.1). Everything exported is GEO-ready (flat [x0, z0, x1, z1, ...] rings, 0.1 m precision) except the park
 // coverage inputs, which stay as [x, z] point rings for the block builder's scanline pass.
 //
-// Inputs (tools/data/; OpenStreetMap via Overpass, ODbL): poz_parks.json, poz_landmarks.json, poz_admin.json
+// Inputs (tools/data/; OpenStreetMap via Overpass, ODbL): poz_parks.json, poz_landmarks.json, poz_admin.json; the
+// hand-placed area labels in poz_places.json
 
 import { load, loadText, log, toWorld, DETAIL_BOX, inDetailBox } from './poz-base.mjs';
 import { r1, ringArea, bbox, rdpRing, centroid, elemRings } from './geo-util.mjs';
@@ -375,9 +376,18 @@ for (const c of placeCands) {
   if (!prev || c.rank < prev.rank) labelBy.set(c.name, c);
 }
 const labels = [...labelBy.values()].map(({ name, kind, x, z }) => ({ name, kind, x, z }));
+const osmLabels = labels.length;
+// Hand-placed names OSM has no place element for (Śródmieście, Chwaliszewo, Cytadela, Malta; poz_places.json), after
+// the OSM ones so an OSM place of the same name wins. Centrum is left out: it names the same city centre as
+// Śródmieście, so the two would sit on top of each other (and of Stare Miasto).
+for (const p of load('poz_places.json').places) {
+  if (labelBy.has(p.name) || !(p.kind in KIND_RANK)) continue;
+  const [x, z] = toWorld(p.lon, p.lat);
+  labels.push({ name: p.name, kind: p.kind, x: r1(x), z: r1(z) });
+}
 {
   const n = (k) => labels.filter((l) => l.kind === k).length;
-  log(`labels: ${labels.length} places within ${AREA_PAD} m of the detail box (${n('suburb')} suburb, ${n('quarter')} quarter, ${n('neighbourhood')} neighbourhood; ${placeCands.length - labels.length} duplicates dropped)`);
+  log(`labels: ${labels.length} places within ${AREA_PAD} m of the detail box (${n('suburb')} suburb, ${n('quarter')} quarter, ${n('neighbourhood')} neighbourhood; ${placeCands.length - osmLabels} duplicates dropped, ${labels.length - osmLabels} hand-placed)`);
 }
 
 export { parks, parkRings, coverParks, parkCellsByLabel, parkCoverage, landmarks, districts, labels };
