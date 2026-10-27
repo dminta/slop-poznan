@@ -59,10 +59,52 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt) {
   // - its zebra overlaps no zebra of a crosswalk kept before it, the arms of the longest roads first, so where the
   //   short links between the nodes of a junction complex (a divided road's or a tram corridor's corners) put zebras
   //   on top of each other or across each other, the ones on its outer approaches stay.
+  // A divided road's median or tram strip is often no curb island (blockAt) at all, only the gap between its two
+  // roadways, which are separate edges with their own junction nodes (the Dworzec complex had no zebra). An end with no
+  // island in reach may instead stop at such a strip (`refuge`): STRIP_MIN-STRIP_MAX wide up to the next roadway, which
+  // runs along this one, and running on STRIP_RUN m out of the junction with no other road across it (in a junction
+  // complex's middle, the gap between its short links, a crossing road closes it within a few metres). Its crosswalk is
+  // then one of a split crossing: kept only together with the crosswalk over the other roadway that stops at the same
+  // strip from the other side (STRIP_OFFSET m along the road at most), the two tracks linked over the strip (`links`),
+  // where people wait for the second roadway as at any curb. The tracks go STRIP_LAND onto the strip, so the curb
+  // queue (traffic.js KERB, 1.6 m along a track) stands on it.
   const ZEBRA_HALF = (CROSSWALK - 0.3) / 2; // the painted zebra, 0.15 m inside the CROSSWALK band
+  const STRIP_MIN = 3.2, STRIP_MAX = 14, STRIP_RUN = 15, STRIP_OFFSET = 12, STRIP_LAND = 1.6;
+  const PARALLEL = Math.cos(30 * Math.PI / 180);
   function reach(x, z, dx, dz) {
     for (let d = 0; d <= CROSSWALK_REACH; d += 0.25) if (blockAt(x + dx * d, z + dz * d)) return d;
     return -1;
+  }
+  // The roadways node to node (x0, z0 along d for span, half wide), in 32 m cells, filed by layOut: the one under (x, z)
+  // but the edges of `arm`, or null
+  const ways = new Map();
+  function wayAt(x, z, arm) {
+    for (const w of ways.get(Math.floor(x / 32) * 100000 + Math.floor(z / 32)) || []) {
+      const e = w.e;
+      if (e === arm.in || e === arm.out) continue;
+      const s = (x - e.x0) * e.dx + (z - e.z0) * e.dz;
+      if (s >= 0 && s <= e.span && Math.abs((x - e.x0) * e.rx + (z - e.z0) * e.rz) < e.half) return e;
+    }
+    return null;
+  }
+  // From the curb at (x, z), across along (wx, wz), with the arm's road along (ux, uz) out of the junction: the strip's
+  // width up to the next roadway, or -1
+  function refuge(x, z, wx, wz, ux, uz, arm) {
+    let w = -1;
+    for (let d = 0.25; d <= STRIP_MAX; d += 0.25) {
+      const e = wayAt(x + wx * d, z + wz * d, arm);
+      if (!e) continue;
+      if (Math.abs(e.dx * ux + e.dz * uz) < PARALLEL) return -1; // a crossing road: the corner, not a strip
+      w = d - 0.25;
+      break;
+    }
+    if (w < STRIP_MIN) return -1;
+    const mx = x + wx * w / 2, mz = z + wz * w / 2;
+    for (let s = 1; s <= STRIP_RUN; s++) {
+      const e = wayAt(mx + ux * s, mz + uz * s, arm);
+      if (e && Math.abs(e.dx * ux + e.dz * uz) < PARALLEL) return -1;
+    }
+    return w;
   }
   function crosswalkOf(n, arm) {
     const road = arm.in || arm.out;
@@ -83,23 +125,34 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt) {
     const along = n.x * ux + n.z * uz + depth;
     const at = (c) => ({ x: cx * c + ux * along, z: cz * c + uz * along });
     const curb0 = at(lo), curb1 = at(hi);
-    const d0 = reach(curb0.x, curb0.z, -cx, -cz), d1 = reach(curb1.x, curb1.z, cx, cz);
-    if (d0 < 0 || d1 < 0) return null;
-    lo -= d0;
-    hi += d1;
-    const tracks = [];
     // one line over the widest road (group 0), set back from the box; two over the others
-    for (const line of arm.group === 0 ? [0.75] : [-0.75, 0.75]) {
-      const a = { x: cx * (lo - 2) + ux * (along + line), z: cz * (lo - 2) + uz * (along + line) };
-      const b = { x: a.x + cx * (hi - lo + 4), z: a.z + cz * (hi - lo + 4) };
-      if (!blockAt(a.x, a.z) || !blockAt(b.x, b.z)) continue;
+    const lines = arm.group === 0 ? [0.75] : [-0.75, 0.75];
+    // Each end: on a curb island d m past the curb (the walk landing 2 m onto it), else at a strip w wide (the zebra
+    // still running on to an island in reach, the walk landing STRIP_LAND past it, short of the strip's middle), else
+    // nowhere
+    const end = (curb, sx, sz) => {
+      const d = reach(curb.x, curb.z, sx, sz);
+      const x = curb.x + sx * (d + 2), z = curb.z + sz * (d + 2);
+      if (d >= 0 && lines.some((line) => blockAt(x + ux * line, z + uz * line))) return { d, land: 2, w: -1 };
+      const w = refuge(curb.x, curb.z, sx, sz, ux, uz, arm);
+      return w >= 0 && Math.max(d, 0) + STRIP_LAND <= w / 2 ? { d: Math.max(d, 0), land: STRIP_LAND, w } : null;
+    };
+    const end0 = end(curb0, -cx, -cz), end1 = end0 && end(curb1, cx, cz);
+    if (!end0 || !end1) return null;
+    lo -= end0.d;
+    hi += end1.d;
+    const tracks = [];
+    for (const line of lines) {
+      const a = { x: cx * (lo - end0.land) + ux * (along + line), z: cz * (lo - end0.land) + uz * (along + line) };
+      const b = { x: a.x + cx * (hi - lo + end0.land + end1.land), z: a.z + cz * (hi - lo + end0.land + end1.land) };
+      if ((end0.w < 0 && !blockAt(a.x, a.z)) || (end1.w < 0 && !blockAt(b.x, b.z))) continue;
       if (!clear(a, b)) continue;
       tracks.push(segment(a, b, { node: n, side: arm.side, group: arm.group, line, from: n, to: n }));
     }
     if (!tracks.length) return null;
     const a = at(lo), b = at(hi);
     return { node: n, side: arm.side, group: arm.group, ax: a.x, az: a.z, bx: b.x, bz: b.z, h: ZEBRA_HALF, ux, uz, span,
-      tracks };
+      tracks, ends: [{ x: a.x, z: a.z, wx: -cx, wz: -cz, w: end0.w }, { x: b.x, z: b.z, wx: cx, wz: cz, w: end1.w }] };
   }
   // Rectangles { ax, az, bx, bz, h }: h either side of the line a-b. Two overlap when no side of either separates them;
   // two that only touch don't (at an acute fork, the zebras of its two roads may meet at a corner)
@@ -142,6 +195,13 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt) {
     for (const e of edges) {
       file(runs, { e, ax: e.sx, az: e.sz, bx: e.sx + e.dx * e.len, bz: e.sz + e.dz * e.len, h: e.half });
     }
+    for (const e of edges) {
+      const r = { e, ax: e.x0, az: e.z0, bx: e.x0 + e.dx * e.span, bz: e.z0 + e.dz * e.span, h: e.half };
+      cells(r, (k) => {
+        if (!ways.has(k)) ways.set(k, []);
+        ways.get(k).push(r);
+      });
+    }
     const found = [];
     for (const n of nodes) {
       crossings.set(n, []);
@@ -151,14 +211,100 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt) {
         if (c && !hits(runs, c, arm)) found.push(c);
       }
     }
-    found.sort((p, q) => q.span - p.span);
-    const kept = new Map();
+    // Split crossings: each strip end pairs with the end of another crosswalk facing it across the strip (another strip
+    // end at the same strip, or an island end on it: a curb island inside the strip but out of reach), the one least
+    // offset along the road, where the choice is mutual and the walk over the strip is clear. The crosswalks paired up
+    // form one group (a chain from curb island to curb island), kept or dropped whole.
+    const ends = new Map();
     for (const c of found) {
-      if (hits(kept, c)) continue;
-      file(kept, c);
-      crosswalks.push(c);
-      crossings.get(c.node).push(...c.tracks);
+      c.ends.forEach((end, k) => {
+        Object.assign(end, { c, k, mate: null });
+        const key = Math.floor(end.x / 32) * 100000 + Math.floor(end.z / 32);
+        if (!ends.has(key)) ends.set(key, []);
+        ends.get(key).push(end);
+      });
     }
+    // how far along the road strip end s is off end o across its strip, or Infinity where o does not face it there
+    const offset = (s, o) => {
+      if (s.wx * o.wx + s.wz * o.wz > -0.9) return Infinity;
+      const dx = o.x - s.x, dz = o.z - s.z, across = dx * s.wx + dz * s.wz;
+      if (o.w >= 0 ? Math.abs(across - s.w) > 1 || Math.abs(across - o.w) > 1 : across < -0.5 || across > s.w + 0.5) {
+        return Infinity;
+      }
+      return Math.abs(dx * s.c.ux + dz * s.c.uz);
+    };
+    const best = (p) => {
+      let mate = null, least = STRIP_OFFSET;
+      const ix0 = Math.floor(p.x / 32), iz0 = Math.floor(p.z / 32);
+      for (let ix = ix0 - 1; ix <= ix0 + 1; ix++) {
+        for (let iz = iz0 - 1; iz <= iz0 + 1; iz++) {
+          for (const q of ends.get(ix * 100000 + iz) || []) {
+            if (q.c === p.c || (p.w < 0 && q.w < 0)) continue;
+            const off = p.w >= 0 ? offset(p, q) : offset(q, p);
+            if (off < least) { mate = q; least = off; }
+          }
+        }
+      }
+      return mate;
+    };
+    for (const list of ends.values()) {
+      for (const p of list) {
+        if (p.w < 0 || p.mate) continue;
+        const q = best(p);
+        if (q && !q.mate && best(q) === p) { p.mate = q; q.mate = p; }
+      }
+    }
+    // the walks over the strip, track end to track end
+    const strand = (p) => {
+      const out = [];
+      for (const a of p.c.tracks) {
+        for (const b of p.mate.c.tracks) {
+          if (clear(point(a, p.k), point(b, p.mate.k))) out.push({ a, b });
+        }
+      }
+      return out;
+    };
+    const groups = new Map(); // crosswalk -> its group: { members, span, ok }
+    for (const c of found) {
+      if (groups.has(c)) continue;
+      const group = { members: [], span: 0, ok: true };
+      const queue = [c];
+      groups.set(c, group);
+      while (queue.length) {
+        const m = queue.pop();
+        group.members.push(m);
+        group.span = Math.max(group.span, m.span);
+        for (const end of m.ends) {
+          if (!end.mate) {
+            if (end.w >= 0) group.ok = false;
+            continue;
+          }
+          if (!strand(end).length) group.ok = false;
+          if (!groups.has(end.mate.c)) {
+            groups.set(end.mate.c, group);
+            queue.push(end.mate.c);
+          }
+        }
+      }
+    }
+    const sorted = [...new Set(groups.values())].filter((g) => g.ok).sort((p, q) => q.span - p.span);
+    const kept = new Map();
+    for (const group of sorted) {
+      if (group.members.some((c) => hits(kept, c))) continue;
+      for (const c of group.members) {
+        file(kept, c);
+        crosswalks.push(c);
+        crossings.get(c.node).push(...c.tracks);
+        for (const end of c.ends) {
+          if (!end.mate) continue;
+          for (const { a, b } of strand(end)) {
+            if (!a.refuge) a.refuge = [null, null];
+            (a.refuge[end.k] || (a.refuge[end.k] = [])).push({ track: b, end: end.mate.k });
+          }
+        }
+      }
+    }
+    for (const c of found) delete c.ends;
   }
   function across(n) {
     layOut();
@@ -203,7 +349,15 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt) {
     const result = ends[end] = [];
     const n = end ? track.to : track.from;
     if (!n) return result;
-    const a = point(track, end), block = blockAt(a.x, a.z);
+    const a = point(track, end);
+    // on a split crossing's strip: over it to the crosswalk on the other roadway (and on along the island, if any)
+    for (const { track: next, end: nextEnd } of track.refuge?.[end] || []) {
+      const b = point(next, nextEnd), path = [];
+      if (Math.hypot(b.x - a.x, b.z - a.z) > 0.01) path.push({ track: segment(a, b), dir: 1 });
+      path.push({ track: next, dir: nextEnd ? -1 : 1 });
+      result.push(path);
+    }
+    const block = blockAt(a.x, a.z);
     if (!block) return result;
     for (const port of ports(n)) {
       const next = port.track, nextDir = port.end ? -1 : 1;

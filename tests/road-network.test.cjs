@@ -142,7 +142,7 @@ test('lanes follow the OSM lane count and direction within the roadway', () => {
 // rule broke (docs/world.md). Measured 2026-10: bare 6925 edges long enough, 4300 (193.8 km) in the set; with the
 // furniture (14520 footprints: signal poles, lamps, hydrants, bollards, kiosks, ...) 4294 (193.5 km). The rest of the
 // bare graph is mostly cul-de-sacs and roads cut at the detail box. On the furnished network, pedestrian-routes.js lays
-// 1374 crosswalks (1887 tracks; 1399 / 1928 bare), the zebras road-paint.js paints: none overlapping (276 pairs when
+// 1385 crosswalks (1899 tracks; 14 of them split at a median or tram strip that is no curb island), the zebras road-paint.js paints: none overlapping (276 pairs when
 // every edge end of the paint edges had one, 3616 zebras) and none ending in the roadway (2208 did).
 function inert() {
   const store = {};
@@ -229,16 +229,36 @@ test('most of the Poznań road graph survives the largest strongly connected set
     }
   }
   assert.deepEqual(overlaps, [], 'no two zebras overlap');
+  // Every zebra ends on a curb island, or at a median or tram strip that is no island, where its walk goes on over the
+  // strip to the zebra across the other roadway (a split crossing)
+  const onStrip = (c, end) => c.tracks.some((t) => t.refuge?.[end]?.length);
   const offCurb = crosswalks.filter((c) => {
     const L = Math.hypot(c.bx - c.ax, c.bz - c.az), dx = (c.bx - c.ax) / L, dz = (c.bz - c.az) / L;
-    return !config.blockAt(c.ax - dx * 0.01, c.az - dz * 0.01) || !config.blockAt(c.bx + dx * 0.01, c.bz + dz * 0.01);
+    return (!config.blockAt(c.ax - dx * 0.01, c.az - dz * 0.01) && !onStrip(c, 0))
+      || (!config.blockAt(c.bx + dx * 0.01, c.bz + dz * 0.01) && !onStrip(c, 1));
   });
-  assert.equal(offCurb.length, 0, 'every zebra ends on a curb island');
+  assert.equal(offCurb.length, 0, 'every zebra ends on a curb island or a split crossing\'s strip');
   for (const c of crosswalks) {
     for (const t of c.tracks) {
-      assert.ok(config.blockAt(t.ax, t.az) && config.blockAt(t.ax + t.ux * t.len, t.az + t.uz * t.len), 'and so does the walk');
+      const end0 = t.refuge?.[0] || config.blockAt(t.ax, t.az);
+      const end1 = t.refuge?.[1] || config.blockAt(t.ax + t.ux * t.len, t.az + t.uz * t.len);
+      assert.ok(end0 && end1, 'and so does the walk');
+      for (const end of [0, 1]) {
+        for (const { track } of t.refuge?.[end] || []) {
+          assert.ok(track.node !== t.node || track.side !== t.side, 'a split crossing goes on over another roadway');
+          assert.ok(across(track.node).includes(track), 'whose crosswalk is kept');
+        }
+      }
     }
   }
+  // Split crossings over a divided road's two roadways where its median or tram strip is no island: the Dworzec complex
+  // (Roosevelta / Most Dworcowy, junction nodes around -1567, 560) had no zebra at all. Measured 2026-10: 2 there (one
+  // split crossing of Roosevelta), 14 split zebras in all, 1385 zebras (1375 before)
+  const split = crosswalks.filter((c) => onStrip(c, 0) || onStrip(c, 1));
+  const dworzec = crosswalks.filter((c) => Math.hypot((c.ax + c.bx) / 2 + 1567, (c.az + c.bz) / 2 - 560) < 150);
+  assert.ok(dworzec.length > 0, 'zebras in the Dworzec complex');
+  assert.ok(split.length >= 8 && split.length < 200, `${split.length} split zebras`);
+  assert.ok(crosswalks.length < 1600, `${crosswalks.length} zebras: no flood of new ones`);
 
   // every piece of it is a player collider too, as small as the thing itself
   assert.equal(colliders.length, footprints.length);

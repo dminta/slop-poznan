@@ -16,7 +16,7 @@ const { createPedestrianRoutes } = loadModule(
 // metres out from n, a right normal (rx, rz) = (-dz, dx) and the lateral axis (clx, clz) flipped the same both ways.
 function edge(x0, z0, dx, dz, back, len, half) {
   const rx = -dz, rz = dx, flip = rx < -1e-6 || (Math.abs(rx) <= 1e-6 && rz < 0);
-  return { sx: x0 + dx * back, sz: z0 + dz * back, dx, dz, rx, rz, len, span: len + 2 * back, setbackFrom: STOP_SETBACK,
+  return { x0, z0, sx: x0 + dx * back, sz: z0 + dz * back, dx, dz, rx, rz, len, span: len + 2 * back, setbackFrom: STOP_SETBACK,
     setbackTo: STOP_SETBACK, half, clx: flip ? -rx : rx, clz: flip ? -rz : rz };
 }
 function arm(n, ux, uz, { half, back, side, group, len = 80 }) {
@@ -121,4 +121,45 @@ test('where the zebras of a junction complex overlap, those of the longer roads 
   for (const p of routes.crosswalks) for (const q of routes.crosswalks) assert.ok(p === q || !overlap(p, q), 'no zebras overlap');
   assert.deepEqual(Array.from(routes.across(n1), (t) => t.side), [0], 'nobody crosses where no zebra is');
   assert.deepEqual(Array.from(routes.across(n2), (t) => t.side).sort(), [0, 1]);
+});
+
+// A divided road along z: two roadways 4 m half wide at x = -gap/2 - 4 and x = gap/2 + 4, the strip between them no
+// curb island, each roadway's node with a side street leaving it west / east; the sidewalks are off all the roads
+function dividedRoad(gap) {
+  const off = gap / 2 + 4;
+  const n1 = { x: -off, z: 0, signal: false, arms: [] };
+  const n2 = { x: off, z: 0, signal: false, arms: [] };
+  n1.arms.push(arm(n1, 0, 1, { half: 4, back: 12, side: 0, group: 0 }), arm(n1, -1, 0, { half: 4, back: 12, side: 1, group: 1 }));
+  n2.arms.push(arm(n2, 0, 1, { half: 4, back: 12, side: 0, group: 0 }), arm(n2, 1, 0, { half: 4, back: 12, side: 1, group: 1 }));
+  const block = { poly: [] };
+  const edges = [n1, n2].flatMap((n) => n.arms.flatMap((a) => [a.in, a.out]));
+  const routes = createPedestrianRoutes({ nodes: [n1, n2], edges, walkable: () => true },
+    (x, z) => (Math.abs(x) > off + 4 && Math.abs(z) > 4 ? block : null));
+  return { n1, n2, routes };
+}
+
+test('a divided road whose strip is no curb island gets a split crossing, one zebra over each roadway', () => {
+  const { n1, n2, routes } = dividedRoad(8);
+  const over = (n) => routes.crosswalks.find((c) => c.node === n && c.side === 0);
+  const west = over(n1), east = over(n2);
+  assert.ok(west && east, 'a zebra over each roadway');
+  near(Math.max(west.ax, west.bx), -4, 'the west zebra stops at its curb by the strip');
+  near(Math.min(east.ax, east.bx), 4, 'and so does the east one');
+  const [a] = routes.across(n1).filter((t) => t.side === 0);
+  const [b] = routes.across(n2).filter((t) => t.side === 0);
+  near(a.ax + a.ux * a.len, -4 + 1.6, 'the walk lands 1.6 m onto the strip');
+  // from the west sidewalk over the west roadway, then over the strip onto the east roadway's crosswalk
+  const path = routes.next(a, 1, 100, 20);
+  assert.equal(path[path.length - 1].track, b);
+  assert.equal(path[path.length - 1].dir, 1);
+  near(path[0].track.len, 8 - 3.2, 'the walk over the strip');
+  const back = routes.next(b, -1, -100, 20);
+  assert.equal(back[back.length - 1].track, a, 'and back');
+  assert.equal(back[back.length - 1].dir, -1);
+});
+
+test('no split crossing over a strip too narrow to wait on', () => {
+  const { n1, n2, routes } = dividedRoad(3);
+  assert.equal(routes.crosswalks.filter((c) => c.side === 0).length, 0);
+  assert.equal(routes.across(n1).filter((t) => t.side === 0).length + routes.across(n2).filter((t) => t.side === 0).length, 0);
 });
