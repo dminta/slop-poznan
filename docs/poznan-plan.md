@@ -1187,8 +1187,8 @@ from the 2026-10-27 audit**; grep case-insensitively.
 
 ### Phase 15: Bug fixes and Polish vehicles
 
-**Status: items 1–4 done on 2026-10-28, item 5 open** (opened 2026-10-28 from in-browser reports and the agents' open
-items). Everything was checked headless only (211 tests).
+**Status: items 1–5 done on 2026-10-28, items 6–10 open** (opened 2026-10-28 from in-browser reports and the agents'
+open items). Everything was checked headless only (222 tests).
 - 15.1: Plac Cyryla Ratajskiego and Plac Wielkopolski are paved round a 2.29 m cut on each side of the track
   (`cutSlab`). Every prop keeps 2 m off any rail (`clearOfRails`); 48 square/park props, 154 street props and 66 street
   trees were removed or moved. Open: 18 signal poles found no free spot and are gone. Platforms sit 1 cm above the slab,
@@ -1261,16 +1261,53 @@ items). Everything was checked headless only (211 tests).
    then rebuild the geodata. Removing them also takes away one suspect of 15.2. Check what reads `bike` before
    deleting: `road-network.js`, `road-paint.js`, `traffic.js`, `audio-*.js`, the cyclist player mode in
    `controllers.js`, and `tools/poz-roadgraph.mjs`. The cyclist player mode stays, riding in the roadway.
-5. **Agent-reported open items** (from the 2026-10-28 fixes):
-   - Pedestrians waiting on a split crossing's strip stand at the rail edge (Roosevelta), and trams do not brake for
-     them. Split zebras may be painted up to the rails.
-   - The 6-arm central Dworzec node still has no zebras. The proper fix is medians and tram strips as blocks in
-     `tools/`.
-   - Map pin dots overlap at low zoom (Stary Rynek, Andersia group).
-   - "Kiss & Ride & Zachodnia": the HUD's " & " street join clashes with OSM names that contain " & ".
-   - 1.2% of tram samples run off their route at loosely mapped crossings.
-   - Measure traffic flow with crossers at the unsignalised zebras.
-   - Re-measure the stale track-dependent numbers in `docs/actors.md`.
+5. **Agent-reported open items: done 2026-10-28.**
+   - Pedestrians on tram strips wait 2 m clear of the rails, and trams brake for pedestrians within 1.7 m.
+     Measured over 3 minutes at six crossings, people within 1.7 m of a track went from 10,439 samples to 0. Split
+     crosswalks went from 22 to 12.
+   - Zebra paint leaves 1.7 m either side of a track unpainted (238 zebras).
+   - Map pins merge into one ringed dot with a count ("Ratusz +2").
+   - The HUD street join is now `STREET_JOIN = ' / '`.
+   - Tram off-route samples went from 1.15% to 0.44%. The rest is data: the Zawady loop is in no route relation, and
+     some relations end inside the box.
+   - Crossers at unsignalised zebras make no measurable difference to traffic.
+   - Signal heads move to the left pole when the right curb has no spot, so arms without a head went from 219 to 161.
+   - Still open: the central Dworzec node still has no zebras (needs medians and tram strips as blocks in `tools/`).
+     One approach at (675, 2738) off Krucza/Zamenhofa has no signal head.
+6. **Traffic gridlock** (found by the 15.5 measurement). Over 5 simulated minutes in 5 districts:
+   - mean car speed is 4.7 km/h;
+   - 65% of cars are stopped;
+   - the longest queue is 34 cars;
+   - the longest waits are 250–260 s.
+
+   It is mostly in Jeżyce, Łazarz and Centrum, and crossers make no difference. Find the deadlocks (junction-box
+   blocking, signal phases, turn conflicts, tram waits) and fix them. A tram stuck 90 s behind a "switch" wait near
+   (-1430, 90) predates 15.5. Files: `js/traffic.js`, `js/road-network.js`, `js/trams.js`.
+7. **Villa density: done 2026-10-28.** A new `villaBlock` layout builds detached houses steered to each block's real
+   share. Blocks that are empty in OSM stay empty, and Chartowo is now an `ESTATE`. On buildable blocks:
+
+   | District | Before | After | Real |
+   |---|---|---|---|
+   | Sołacz | 7.1% | 12.7% | 12.9% |
+   | Winiary | 8.8% | 17.4% | 17.0% |
+   | Ogrody | 10.2% | 17.1% | 15.9% |
+   | Chartowo | 18.7% | 13.0% | 12.1% |
+
+   Covered by `tests/buildings-density.test.cjs`. **Decision pending:** whether to build inside the 13 park blocks.
+   Leaving them unbuilt keeps Sołacz at 6.7% vs 9% and Antoninek at 3.2% vs 6.6% over the whole district. Górczyn and
+   Grunwald Północ are about 15% over.
+8. **Trackbed over roadways** (reported on Hetmańska): done 2026-10-28 in `js/tram-infra.js` (`layoutTrackBeds`). The
+   ballast narrows to 2.4 m or goes flush, so it now covers 0 m² of carriageway (297 m² before). The worst case was
+   28 Czerwca 1956 r. just south of Hetmańska, at 84 m². Hetmańska itself has no ballast. Two candidates there, not
+   changed until the user confirms:
+   - on the 3-lane stretch, the outer lanes run 0.5 m past the carriageway toward the flush tracks;
+   - near Dmowskiego (−2448, 2214), the rails ride up on a 0.22 m curb sliver.
+
+   Zebras over ballasted track are still covered by the bed.
+9. **Re-measure the docs**: the counts in `docs/world.md` and `docs/actors.md` measured before 15.2 and 13.2
+   (furniture, stop lines, lane-line km, track km).
+10. **Tram route data**: the Zawady loop and the route ends inside the box (lines 2/7/8/18 at (−3501, −946), 7/12/13 at
+    (696, 2718)). This may need hand-made route extensions in `tools/`.
 
 ---
 
