@@ -1,6 +1,5 @@
 // tools/poz-roadgraph.mjs — GEO.roadGraph for Poznań: the at-grade drivable pieces of poz-roads.mjs as a graph over the
-// detail box. Same output layout as geo-roadgraph.mjs (nodes [x, z, ...], names, links with inner shape points) plus a
-// trailing `flags` element per link and `signals`.
+// detail box: nodes, names and links with inner shape points, plus per-link `flags` and speed limits, and `signals`.
 //
 //   nodes:   [x0, z0, x1, z1, ...] (0.1 m)
 //   links:   [[a, b, nameIdx, w, lanes, dir, innerFlat, flags, kmh]]; dir 1 = a→b, -1 = b→a, 0 = both;
@@ -11,7 +10,7 @@
 import { log, inDetailBox } from './poz-base.mjs';
 import { rdp, r1 } from './geo-util.mjs';
 
-const MERGE = 1.0; // m: distinct OSM nodes this close are one graph node (as geo-roadgraph.mjs)
+const MERGE = 1.0; // m: distinct OSM nodes this close are one graph node
 // Pieces whose midpoint lies within this distance of the detail box form the graph. Pieces crossing the margin are kept
 // whole, so the graph ends in short dead-end stubs 0-50 m (plus the piece's half length) outside the box rather than
 // cut mid-street; the runtime treats them like any dead end.

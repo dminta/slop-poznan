@@ -1,6 +1,6 @@
 /* css/style.css */
 /* HUD design system: quiet graphite glass in the corners of the screen, one yellow accent for whatever is active,
-   blue Poznań street plates for street names, so that the city itself stays the star */
+   graphite Poznań street plates with a blue district strip for street names, so that the city itself stays the star */
 
 :root {
   /* Surfaces */

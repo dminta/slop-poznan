@@ -43,7 +43,7 @@ NYC leftovers (names, ids, comments) are still expected. Check it before renamin
   (keyboard/touch/gamepad), cameras, teleports, persistence, the map UI or HUD/CSS.
 - `docs/rendering.md` — read before touching TSL materials, lighting or time of day, post-processing/SSR, scene culling,
   instanced meshes or the WebGPU/WebGL2 renderer setup.
-- `docs/world.md` — read before changing city-grid, outskirts, bridges, buildings, fire escapes, landmarks, street details,
+- `docs/world.md` — read before changing city-grid, outskirts, bridges, buildings, balconies, landmarks, street details,
   trees, the road network or road paint, or adding props, landmarks or colliders.
 - `docs/geodata.md` — read before touching `tools/`, `tools/data/`, `js/geodata.js` or the world coordinate frame.
 - `docs/actors.md` — read before changing traffic, pedestrians, vehicle/person models, vehicle lights, spawning, player–traffic
