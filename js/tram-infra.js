@@ -9,7 +9,8 @@ import { cityUniforms, createCurbMaterial, transparentEffectMRT } from './tsl-ma
 // The static tram infrastructure (docs/poznan-plan.md Phase 9 step 1), built once after the road network so it can keep
 // clear of the car lanes without feeding obstacles back into them:
 // - grooved rails for every tram track of GEO.rail (two 70 mm heads at 1435 mm gauge, flush with the road on
-//   street-running track; on ballast with concrete sleepers on off-street track)
+//   street-running track; on ballast with concrete sleepers on off-street track, the ballast narrowed or left out where
+//   the roadway comes near, so it never lies on a carriageway or a lane)
 // - the overhead line: a contact wire 5.8 m over each track, carried every ~30 m by span wires between side poles (or a
 //   centre pole between the tracks), cantilever arms on one-sided poles, or wall rosettes in the narrow streets round
 //   the Old Town
@@ -27,6 +28,10 @@ const HEAD_W = 0.07; // grooved rail head (Ri60-ish)
 const GROOVE_W = 0.042;
 const SW_TOP = 0.22; // city-grid.js sidewalk top
 const PIECE = 4; // rails and ballast are laid as straight pieces up to this long, so they follow curbs and bends
+const BED_HALF = 1.45; // off-street ballast, 2.9 m across
+const BED_MIN = 1.2; // ...narrowed to keep off the roadway down to this, else the rails are flush (sleepers 0.82 of it)
+const BED_GAP = 0.05; // ...and this far outside it
+const LANE_HALF = 1.8; // half of road-network.js LANE_W: a lane's paint lines stand this far from its centreline
 const WIRE_Y = 5.8; // contact wire height
 const SPAN_Y = 6.6; // span wires and cantilever arms
 const STATION = 30; // support spacing along the track
@@ -211,6 +216,82 @@ function laneDistance(network) {
     const h = laneGrid.nearest(x, z, r);
     return h ? h.d : r;
   };
+}
+
+// How far (x, z) stands outside the nearest OSM carriageway (negative inside, capped at r <= 4): every GEO.roadGraph
+// link along its own points at its carriageway's half width. A tram strip beside the carriageway (link flags bits 3/4)
+// is left out of it, as the lanes are (road-network.js lanesOf); a tram link with the tracks on it (no side bit) is
+// carriageway all across, so its tracks are street-running.
+const TRAM_STRIP_W = 6.5; // poz-roads.mjs TRAM_W
+function carriagewayDistance() {
+  const CELL = 32;
+  const cells = new Map();
+  const g = GEO.roadGraph;
+  for (const [a, b, , w, , , inner, flags] of g.links) {
+    const half = Math.max(0.5, (w > 3 ? w : 9.1) / 2 - (flags & 24 ? TRAM_STRIP_W / 2 : 0));
+    const pts = [g.nodes[2 * a], g.nodes[2 * a + 1], ...inner, g.nodes[2 * b], g.nodes[2 * b + 1]];
+    for (let k = 0; k + 3 < pts.length; k += 2) {
+      const seg = [pts[k], pts[k + 1], pts[k + 2], pts[k + 3], half];
+      const m = half + 4;
+      for (let ix = Math.floor((Math.min(seg[0], seg[2]) - m) / CELL); ix <= Math.floor((Math.max(seg[0], seg[2]) + m) / CELL); ix++) {
+        for (let iz = Math.floor((Math.min(seg[1], seg[3]) - m) / CELL); iz <= Math.floor((Math.max(seg[1], seg[3]) + m) / CELL); iz++) {
+          const key = ix * 100003 + iz;
+          if (!cells.has(key)) cells.set(key, []);
+          cells.get(key).push(seg);
+        }
+      }
+    }
+  }
+  return (x, z, r = 4) => {
+    let best = r;
+    for (const [ax, az, bx, bz, half] of cells.get(Math.floor(x / CELL) * 100003 + Math.floor(z / CELL)) || []) {
+      const ex = bx - ax;
+      const ez = bz - az;
+      const t = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez || 1)));
+      best = Math.min(best, Math.hypot(ax + ex * t - x, az + ez * t - z) - half);
+    }
+    return best;
+  };
+}
+
+// Rail pieces of every tram track and the trackbed each gets: [{ railIndex, s0, ax, az, bx, bz, ground, bed }] (ground:
+// the curb island's top under the piece, else 0; bed: the ballast's half width, 0 where the rails are flush). The
+// roadway wins: a piece whose centreline comes into a carriageway, a lane or a turning path is flush (street-running, or
+// a level crossing), and the ballast of the rest is narrowed to keep BED_GAP off the roadway, or left out below BED_MIN.
+// roadwayDist(x, z): how far (x, z) stands outside the roadway (the OSM carriageways, LANE_HALF either side of every
+// lane centreline and turning path; capped at 4 m). Under the old rule (ballast wherever no lane centreline came within
+// 3.5 m of the piece's middle) the fixed 2.9 m bed lay on ~300 m² of carriageway: in junction boxes and carriageways the
+// lanes keep off (28 Czerwca 1956 roku at Hetmańska, Drobna, Głogowska), and down 25 pieces of carriageway carrying
+// street=0 track.
+function layoutTrackBeds(tracks, laneDist) {
+  const carriageway = carriagewayDistance();
+  const roadwayDist = (x, z) => Math.min(carriageway(x, z, 4), laneDist(x, z, 4 + LANE_HALF) - LANE_HALF);
+  const beds = [];
+  for (const tr of tracks) {
+    const count = Math.max(1, Math.ceil(tr.len / PIECE));
+    for (let i = 0; i < count; i++) {
+      const s0 = (i * tr.len) / count;
+      const A = pointAt(tr, s0);
+      const B = pointAt(tr, ((i + 1) * tr.len) / count);
+      const mx = (A.x + B.x) / 2;
+      const mz = (A.z + B.z) / 2;
+      const len = Math.hypot(B.x - A.x, B.z - A.z);
+      if (!isLand(mx, mz) || len < 0.01) continue;
+      const ground = blockAt(mx, mz) ? SW_TOP : 0;
+      let bed = 0;
+      if (tr.street !== 1 && !ground) {
+        // the roadway's distance from the centreline every 0.5 m along the piece: a box `half` either side of it stays
+        // clear when that is half + 0.25 m (half the step) + BED_GAP
+        let room = Infinity;
+        const n = Math.max(2, Math.ceil(len / 0.5));
+        for (let k = 0; k <= n; k++) room = Math.min(room, roadwayDist(A.x + (B.x - A.x) * k / n, A.z + (B.z - A.z) * k / n));
+        const half = Math.min(BED_HALF, room - 0.25 - BED_GAP);
+        if (half >= BED_MIN) bed = half;
+      }
+      beds.push({ railIndex: tr.railIndex, s0, ax: A.x, az: A.z, bx: B.x, bz: B.z, ground, bed });
+    }
+  }
+  return { beds, roadwayDist };
 }
 
 /**
@@ -446,6 +527,8 @@ function layoutTramInfrastructure(network) {
     });
   }
 
+  const { beds, roadwayDist } = layoutTrackBeds(tracks, laneDist);
+
   // Ground footprints of everything placed, as small axis-aligned boxes (platforms sampled every 1.5 m): none goes to
   // the road network (built before this), but tests/tram-infra.test.cjs feeds them to it to prove no lane is crowded
   const footprints = [];
@@ -465,7 +548,7 @@ function layoutTramInfrastructure(network) {
     }
   }
 
-  return { tracks, stops, skipped, poles, spans, arms, rosettes, droppers, footprints, laneDist, trackDist };
+  return { tracks, stops, skipped, poles, spans, arms, rosettes, droppers, footprints, laneDist, trackDist, beds, roadwayDist };
 }
 
 /**
@@ -978,7 +1061,7 @@ function instanced(name, geo, mat, matrices, attrs = {}, shadow = true) {
  */
 function buildTramInfrastructure(scene, network) {
   const layout = layoutTramInfrastructure(network);
-  const { tracks, stops, poles, spans, arms, rosettes, droppers, laneDist } = layout;
+  const { tracks, stops, poles, spans, arms, rosettes, droppers } = layout;
   const group = new THREE.Group();
   group.name = 'TramInfrastructure';
   const colliders = [];
@@ -1052,44 +1135,34 @@ function buildTramInfrastructure(scene, network) {
   const grooveM = [];
   const ballastM = [];
   const ties = [];
-  for (const tr of tracks) {
-    const pieces = Math.max(1, Math.ceil(tr.len / PIECE));
-    for (let i = 0; i < pieces; i++) {
-      const s0 = (i * tr.len) / pieces;
-      const s1 = ((i + 1) * tr.len) / pieces;
-      const A = pointAt(tr, s0);
-      const B = pointAt(tr, s1);
-      const mx = (A.x + B.x) / 2;
-      const mz = (A.z + B.z) / 2;
-      if (!isLand(mx, mz)) continue;
-      const len = Math.hypot(B.x - A.x, B.z - A.z);
-      if (len < 0.01) continue;
-      const dx = (B.x - A.x) / len;
-      const dz = (B.z - A.z) / len;
-      const ground = blockAt(mx, mz) ? SW_TOP : 0;
-      // Off-street track on ballast, except where it crosses a road
-      const ballast = tr.street !== 1 && !ground && laneDist(mx, mz, 4) >= 3.5;
-      const headTop = ballast ? ground + 0.27 : ground + 0.016;
-      if (ballast) {
-        dummy.position.set(mx, ground + 0.06, mz);
-        dummy.rotation.set(0, Math.atan2(-dz, dx), 0);
-        dummy.scale.set(len + 0.02, 0.16, 2.9);
-        ballastM.push(M());
-        ties.push(len, s0);
-      }
-      for (const sg of [1, -1]) {
-        const o = sg * (GAUGE / 2 + HEAD_W / 2);
-        const h = ballast ? 0.17 : 0.05;
-        dummy.position.set(mx - dz * o, headTop - h / 2, mz + dx * o);
-        dummy.rotation.set(0, Math.atan2(-dz, dx), 0);
-        dummy.scale.set(len + 0.03, h, HEAD_W);
-        railM.push(M());
-        if (!ballast) {
-          const og = sg * (GAUGE / 2 - GROOVE_W / 2);
-          dummy.position.set(mx - dz * og, headTop - 0.002 - 0.02, mz + dx * og);
-          dummy.scale.set(len + 0.03, 0.04, GROOVE_W);
-          grooveM.push(M());
-        }
+  // Off-street track on ballast, narrowed or flush where the roadway comes near (layoutTrackBeds)
+  for (const { s0, ax, az, bx, bz, ground, bed } of layout.beds) {
+    const mx = (ax + bx) / 2;
+    const mz = (az + bz) / 2;
+    const len = Math.hypot(bx - ax, bz - az);
+    const dx = (bx - ax) / len;
+    const dz = (bz - az) / len;
+    const ballast = bed > 0;
+    const headTop = ballast ? ground + 0.27 : ground + 0.016;
+    if (ballast) {
+      dummy.position.set(mx, ground + 0.06, mz);
+      dummy.rotation.set(0, Math.atan2(-dz, dx), 0);
+      dummy.scale.set(len + 0.02, 0.16, 2 * bed);
+      ballastM.push(M());
+      ties.push(len, s0);
+    }
+    for (const sg of [1, -1]) {
+      const o = sg * (GAUGE / 2 + HEAD_W / 2);
+      const h = ballast ? 0.17 : 0.05;
+      dummy.position.set(mx - dz * o, headTop - h / 2, mz + dx * o);
+      dummy.rotation.set(0, Math.atan2(-dz, dx), 0);
+      dummy.scale.set(len + 0.03, h, HEAD_W);
+      railM.push(M());
+      if (!ballast) {
+        const og = sg * (GAUGE / 2 - GROOVE_W / 2);
+        dummy.position.set(mx - dz * og, headTop - 0.002 - 0.02, mz + dx * og);
+        dummy.scale.set(len + 0.03, 0.04, GROOVE_W);
+        grooveM.push(M());
       }
     }
   }
