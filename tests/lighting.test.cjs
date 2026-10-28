@@ -93,3 +93,13 @@ test('every preset is a stated Poznań moment whose label and sun direction agre
   assert.ok(twilight.sunElevation < -4 && twilight.sunElevation > -8);
   assert.ok(midnight.sunElevation < -6 && midnight.sunElevation > -14);
 });
+
+test('the in-game clock starts each preset at its stated local time', () => {
+  // city-clock.js keeps its own PRESET_CLOCK so the audio and the goats need not import the renderer modules
+  const { PRESET_CLOCK } = loadModule(readFileSync(join(__dirname, '../js/city-clock.js'), 'utf8'), { filename: 'city-clock.js' });
+  assert.deepEqual(Object.keys(PRESET_CLOCK).sort(), Object.keys(TIME_PRESETS).sort());
+  for (const preset of Object.values(TIME_PRESETS)) {
+    const [, hh, mm] = /T(\d{2}):(\d{2})/.exec(preset.when);
+    assert.equal(PRESET_CLOCK[preset.id], Number(hh) * 60 + Number(mm), preset.id);
+  }
+});
