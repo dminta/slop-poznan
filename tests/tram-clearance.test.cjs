@@ -7,10 +7,11 @@ const { loadModule } = require('./helpers/module.cjs');
 // Trams do not collide with props, so no furniture may stand on their way (docs/poznan-plan.md Phase 15.1, reported
 // at Plac Cyryla Ratajskiego): the square and park furniture of city-grid.js and the street furniture and trees of
 // street-details.js keep their footprints 2 m from every GEO.rail centreline, no landmark outline takes in tram track,
-// and the squares crossed by tram track (Plac Cyryla Ratajskiego, Plac Wielkopolski) are paved round it instead of
-// burying the rails under the 0.24 m slab. The tram infrastructure itself (poles, platforms, shelters) is meant to stand
-// beside the track and is not checked here. Measured 2026-10: 48 square and park props and 2 cut squares; the street
-// furniture had 183 footprints and 74 street trees within 2 m of a tram track.
+// and the squares crossed by tram track (Plac Cyryla Ratajskiego, Plac Wielkopolski, Plac Ludwika Waryńskiego) are
+// paved round it instead of burying the rails under the 0.24 m slab. The tram infrastructure itself (poles, platforms,
+// shelters) is meant to stand beside the track and is not checked here. Measured 2026-10: 48 square and park props and
+// 2 cut squares; the street furniture had 183 footprints and 74 street trees within 2 m of a tram track. Over the
+// 8.2 × 5.7 km detail box (2026-10-28): 63 props kept off the tracks, 3 cut squares.
 function inert() {
   const store = {};
   return new Proxy(function () {}, {
@@ -109,7 +110,7 @@ test('square and park furniture and its colliders keep 2 m off every track', () 
   const [benches, lamps, trees, total] = /(\d+) benches, (\d+) lampposts, (\d+) park & plaza trees; (\d+) player/
     .exec(world.logs.join('\n')).slice(1).map(Number);
   assert.ok(benches > 200 && lamps > 1400 && trees > 14000 && total === grid.propColliders.length);
-  assert.match(world.logs.join('\n'), /(\d+) props kept off the tracks; 2 squares paved round tram track/);
+  assert.match(world.logs.join('\n'), /(\d+) props kept off the tracks; 3 squares paved round tram track/);
 });
 
 test('street furniture, its colliders and the street trees keep 2 m off every track', () => {
@@ -155,8 +156,9 @@ test('squares crossed by tram track are paved round it, the rails in sight', () 
   const { grid, gridModule, GEO } = world;
   const plazas = gridModule.pavedPlazas().filter((p) => p.tramSegs);
   const names = (list) => JSON.stringify(Array.from(list, (p) => p.name).sort());
-  assert.equal(names(plazas), '["Plac Cyryla Ratajskiego","Plac Wielkopolski"]');
-  assert.equal(names(grid.cutPlazas), names(plazas));
+  // the unnamed pedestrian area at the Ogrody tram loop (Dąbrowskiego) has a building on it too: left unpaved
+  assert.equal(names(plazas), '["","Plac Cyryla Ratajskiego","Plac Ludwika Waryńskiego","Plac Wielkopolski"]');
+  assert.equal(names(grid.cutPlazas), '["Plac Cyryla Ratajskiego","Plac Ludwika Waryńskiego","Plac Wielkopolski"]');
   const ringArea = (ring) => {
     let a = 0;
     for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) a += ring[j].x * ring[i].z - ring[i].x * ring[j].z;
@@ -174,7 +176,7 @@ test('squares crossed by tram track are paved round it, the rails in sight', () 
     }
     return inside;
   };
-  for (const pl of plazas) {
+  for (const pl of plazas.filter((p) => p.name)) {
     const cut = grid.cutPlazas.find((c) => c.name === pl.name);
     const area = Math.abs(ringArea(pl.ring));
     for (const piece of [...cut.curb, ...cut.top]) assert.ok(ringArea(piece) > 0, 'pieces turn left');

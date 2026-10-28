@@ -161,13 +161,14 @@ test('divided roadways keep their own lines into merged junctions, their lanes b
 // (signal poles, lamps, gas lanterns, hydrants, bollards, kiosks: built here with inert three.js stubs, since only its footprints matter). An
 // obstacle within LANE_CLEAR of a lane closes the lane over its whole edge, and a lost one-way edge can take whole
 // loops out of the largest strongly connected set, so a big drop with the furniture means a placement or lane geometry
-// rule broke (docs/world.md). Measured 2026-10-28: bare 6635 edges long enough, 4235 (199.3 km) in the set; with the
-// furniture (signal poles, lamps, hydrants, bollards, kiosks, ...) 4218 (198.5 km). The rest of the bare graph is
-// mostly cul-de-sacs and roads cut at the detail box. On the furnished network, pedestrian-routes.js lays 1602
-// crosswalks (2216 tracks; 14 of them split at a median or tram strip that is no curb island; 1388 / 1904 before the
-// runs into merged junctions kept to their roadways, when many arms' curbs lay out of reach), the zebras road-paint.js
-// paints: none overlapping (276 pairs when every edge end of the paint edges had one, 3616 zebras) and none ending in
-// the roadway (2208 did).
+// rule broke (docs/world.md). Measured 2026-10-28 on the 8.2 × 5.7 km detail box: bare 13097 edges long enough, 8704
+// (433.7 km) in the set, 345 signalised junctions; with the 25059 furniture footprints (signal poles, lamps, hydrants,
+// bollards, kiosks, ...) 8654 (430.4 km). (The 6.1 × 3.7 km box: 6635, 4235 (199.3 km), 168; 14026 footprints, 4218
+// (198.5 km).) The rest of the bare graph is mostly cul-de-sacs and roads cut at the detail box. On the furnished
+// network, pedestrian-routes.js lays 3310 crosswalks (4579 tracks; 22 of them split at a median or tram strip that is
+// no curb island; the smaller box had 1602 and 2216, and 1388 / 1904 before the runs into merged junctions kept to
+// their roadways, when many arms' curbs lay out of reach), the zebras road-paint.js paints: none overlapping (276 pairs
+// when every edge end of the paint edges had one, 3616 zebras) and none ending in the roadway (2208 did).
 function inert() {
   const store = {};
   return new Proxy(function () {}, {
@@ -217,17 +218,17 @@ test('most of the Poznań road graph survives the largest strongly connected set
   const counts = /(\d+) long enough, (\d+) in the largest strongly connected set/.exec(logs.join('\n'));
   assert.ok(counts, 'the edge counts are logged');
   assert.equal(Number(counts[2]), bare.edges.length);
-  assert.ok(Number(counts[1]) > 6200, `${counts[1]} edges long enough`);
-  assert.ok(bare.edges.length > 3850 && km(bare) > 175, `${bare.edges.length} edges, ${km(bare).toFixed(1)} km in the set`);
-  assert.ok(bare.nodes.filter((n) => n.signal).length > 150, 'signal sites mark their junctions');
+  assert.ok(Number(counts[1]) > 12500, `${counts[1]} edges long enough`);
+  assert.ok(bare.edges.length > 8200 && km(bare) > 410, `${bare.edges.length} edges, ${km(bare).toFixed(1)} km in the set`);
+  assert.ok(bare.nodes.filter((n) => n.signal).length > 310, 'signal sites mark their junctions');
   // OSM speed limits (GEO.roadGraph links): most of the network at the built-up 50 km/h, a good part in 30/20 zones
   const kmAt = (f) => bare.edges.filter((e) => f(Math.round(e.limit * 3.6))).reduce((sum, e) => sum + e.span, 0) / 1000;
   assert.ok(kmAt((v) => v === 50) > 0.4 * km(bare), `${kmAt((v) => v === 50).toFixed(1)} km at 50 km/h`);
   assert.ok(kmAt((v) => v <= 30) > 0.2 * km(bare), `${kmAt((v) => v <= 30).toFixed(1)} km at 30 km/h or less`);
-  assert.ok(kmAt((v) => v >= 70) > 3, `${kmAt((v) => v >= 70).toFixed(1)} km at 70 km/h`);
+  assert.ok(kmAt((v) => v >= 70) > 12, `${kmAt((v) => v >= 70).toFixed(1)} km at 70 km/h`);
 
   const { footprints, colliders } = buildStreetDetails(inert());
-  assert.ok(footprints.length > 5000, `${footprints.length} street furniture footprints`);
+  assert.ok(footprints.length > 22000, `${footprints.length} street furniture footprints`);
   const furnished = buildRoadNetwork([], footprints);
   assert.ok(km(furnished) > 0.99 * km(bare), `${km(furnished).toFixed(1)} of ${km(bare).toFixed(1)} km survive the furniture`);
   // Crosswalks, and so zebras: none on top of another, both ends on a curb island, the walk 2 m onto it
@@ -236,7 +237,7 @@ test('most of the Poznań road graph survives the largest strongly connected set
   });
   const { crosswalks, across } = createPedestrianRoutes(furnished, config.blockAt);
   const tracks = furnished.nodes.reduce((sum, n) => sum + across(n).length, 0);
-  assert.ok(crosswalks.length > 1250 && tracks > 1750, `${crosswalks.length} crosswalks, ${tracks} tracks`);
+  assert.ok(crosswalks.length > 3000 && tracks > 4200, `${crosswalks.length} crosswalks, ${tracks} tracks`);
   const h = (CROSSWALK - 0.3) / 2;
   const corners = (c) => [[c.ax, c.az], [c.bx, c.bz]].flatMap(([x, z]) => [[x - c.ux * h, z - c.uz * h], [x + c.ux * h, z + c.uz * h]]);
   const overlap = (p, q) => [[p.ux, p.uz], [-p.uz, p.ux], [q.ux, q.uz], [-q.uz, q.ux]].every(([ax, az]) => {
@@ -282,13 +283,14 @@ test('most of the Poznań road graph survives the largest strongly connected set
     }
   }
   // Split crossings over a divided road's two roadways where its median or tram strip is no island: the Dworzec complex
-  // (Roosevelta / Most Dworcowy, junction nodes around -1567, 560) had no zebra at all. Measured 2026-10: 2 there (one
-  // split crossing of Roosevelta), 14 split zebras in all, 1602 zebras (1385 before the ports, 1375 before split crossings)
+  // (Roosevelta / Most Dworcowy, junction nodes around -1567, 560) had no zebra at all. Measured 2026-10-28: 1 there (a
+  // split crossing of Roosevelta), 22 split zebras in all, 3310 zebras over the 8.2 × 5.7 km box (14 and 1602 over the
+  // 6.1 × 3.7 km one; 1385 before the ports, 1375 before split crossings)
   const split = crosswalks.filter((c) => onStrip(c, 0) || onStrip(c, 1));
   const dworzec = crosswalks.filter((c) => Math.hypot((c.ax + c.bx) / 2 + 1567, (c.az + c.bz) / 2 - 560) < 150);
   assert.ok(dworzec.length > 0, 'zebras in the Dworzec complex');
-  assert.ok(split.length >= 8 && split.length < 200, `${split.length} split zebras`);
-  assert.ok(crosswalks.length < 1800, `${crosswalks.length} zebras: no flood of new ones`);
+  assert.ok(split.length >= 15 && split.length < 200, `${split.length} split zebras`);
+  assert.ok(crosswalks.length < 3600, `${crosswalks.length} zebras: no flood of new ones`);
 
   // every piece of it is a player collider too, as small as the thing itself
   assert.equal(colliders.length, footprints.length);
@@ -310,8 +312,10 @@ test('most of the Poznań road graph survives the largest strongly connected set
 // (1.8%), over a curb 2.3% (3.4%), phantom roadway 3.0% (5.4%), on tram track 1.0% (1.0%), steep 2.0% (7.0%); Święty
 // Marcin off 0.3% (4.3%, up to 7 m: lanes on the tracks by the Kaponiera), phantom 47.7% (56.8%: the rest is the plaza
 // by the Zamek), steep 2 of 60 (7 of 38); Franklina Roosevelta off 0.2% (1.4%, up to 6.7 m), phantom 1.8% (5.6%),
-// steep 0 of 124 (12 of 118). Paint and traffic use the same lanes and stop lines everywhere (6 stop lines were up to
-// a few metres off where routing moved them after the paint snapshot).
+// steep 0 of 124 (12 of 118). Over the 8.2 × 5.7 km box (2026-10-28, 174k samples against 80k): off 0.6%, over a
+// curb 2.0%, phantom 1.8%, on tram track 0.5%, steep 1.8% (168 of 9559); the two streets unchanged. Paint and traffic
+// use the same lanes and stop lines everywhere (6 stop lines were up to a few metres off where routing moved them
+// after the paint snapshot).
 test('lanes keep to their roadways, off curbs, medians and tram strips, without sideways jumps', async () => {
   const config = await import('../js/city-config.js');
   const { GEO } = await import('../js/geodata.js');
@@ -434,7 +438,7 @@ test('lanes keep to their roadways, off curbs, medians and tram strips, without 
   const pct = (t, key, of) => `${(100 * share(t, key, of)).toFixed(1)}%`;
   const report = (t) => `off ${pct(t, 'off', 'samples')}, curb ${pct(t, 'curb', 'samples')}, tram ${pct(t, 'tram', 'samples')}, ` +
     `phantom ${pct(t, 'margin', 'outer')}, steep ${t.steep} of ${t.moves}`;
-  assert.ok(all.samples > 60000, `${all.samples} lane samples`);
+  assert.ok(all.samples > 160000, `${all.samples} lane samples`);
   assert.ok(share(all, 'off', 'samples') < 0.012, report(all));
   assert.ok(share(all, 'curb', 'samples') < 0.03, report(all));
   assert.ok(share(all, 'margin', 'outer') < 0.04, report(all));

@@ -8,7 +8,7 @@ It is a port of a Manhattan simulation, still in progress: `docs/poznan-plan.md`
 NYC leftovers (names, ids, comments) are still expected. Check it before renaming or deleting anything NYC-flavoured.
 
 ## Commands
-- Tests: `node --test tests/` (~11 s, mostly the Poznań geodata rebuild); quick loop: `node --test tests/*.cjs` (<1 s). Node 22+.
+- Tests: `node --test tests/` (~30 s, mostly the Poznań geodata rebuild); quick loop: `node --test tests/*.cjs` (~6 s). Node 22+.
 - Serve: `python3 -m http.server 8000` from the repo root, then open `http://localhost:8000/` in a WebGPU browser (needs network
   for three.js).
 - Rendering, shaders, lighting, culling and audio have no automated coverage: verify them in the browser and watch the console.

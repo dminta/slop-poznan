@@ -95,7 +95,14 @@ test('Poznań geodata builds offline with default paths in a checkout containing
     assert.ok(GEO.tramRoutes.length >= 30 && GEO.tramRoutes.every((r) => /^\d+$/.test(r.ref) && r.to), 'tram routes');
     const tramRail = GEO.rail.filter((r) => r.kind === 'tram');
     assert.ok(tramRail.every((r) => Array.isArray(r.routes) && r.routes.every((i) => i >= 0 && i < GEO.tramRoutes.length)));
-    assert.ok(tramRail.filter((r) => r.routes.length).length > 0.9 * tramRail.length, 'most tram track is on a route');
+    // by length: the depot yard at Głogowska is ~145 short chains no route uses (74% of the chains, 94.7% of the
+    // 127 km of track on a route, measured 2026-10-28)
+    const trackLen = (rails) => {
+      let sum = 0;
+      for (const r of rails) for (let i = 0; i + 3 < r.pts.length; i += 2) sum += Math.hypot(r.pts[i + 2] - r.pts[i], r.pts[i + 3] - r.pts[i + 1]);
+      return sum;
+    };
+    assert.ok(trackLen(tramRail.filter((r) => r.routes.length)) > 0.9 * trackLen(tramRail), 'most tram track is on a route');
     const over = (x, z) => tramRail.filter((r) => {
       for (let i = 0; i + 3 < r.pts.length; i += 2) {
         const dx = r.pts[i + 2] - r.pts[i], dz = r.pts[i + 3] - r.pts[i + 1];
