@@ -220,20 +220,57 @@ function tractionBuffer(context) {
   return normalizeLoop(buffer, 0.24, 0.8);
 }
 
-function sirenSweepWave(context) {
-  const real = new Float32Array(25), imaginary = new Float32Array(25);
-  // Electronic wail/yelp circuits use a nearly triangular control voltage, with softened turning points.
-  for (let harmonic = 1; harmonic < real.length; harmonic++) {
-    for (let i = 0; i < 512; i++) {
-      const phase = i / 512;
-      const ramp = phase < 0.46 ? phase / 0.46 : (1 - phase) / 0.54;
-      const triangle = 2 * ramp - 1;
-      const value = triangle * 0.88 + Math.sin(triangle * Math.PI / 2) * 0.12;
-      real[harmonic] += value * Math.cos(2 * Math.PI * harmonic * phase) / 256;
-      imaginary[harmonic] += value * Math.sin(2 * Math.PI * harmonic * phase) / 256;
+// Fourier coefficients of a periodic control function sampled over one cycle, for createPeriodicWave (which
+// normalises the result to a peak of 1).
+function controlWaveCoefficients(control, harmonics, samples = 2048) {
+  const real = new Float32Array(harmonics), imaginary = new Float32Array(harmonics);
+  for (let harmonic = 1; harmonic < harmonics; harmonic++) {
+    for (let i = 0; i < samples; i++) {
+      const phase = i / samples;
+      const value = control(phase);
+      real[harmonic] += value * Math.cos(2 * Math.PI * harmonic * phase) * 2 / samples;
+      imaginary[harmonic] += value * Math.sin(2 * Math.PI * harmonic * phase) * 2 / samples;
     }
   }
-  return context.createPeriodicWave(real, imaginary);
+  return { real, imaginary };
+}
+
+// Electronic wail circuits use a nearly triangular control voltage, with softened turning points.
+function wailControl(phase) {
+  const ramp = phase < 0.46 ? phase / 0.46 : (1 - phase) / 0.54;
+  const triangle = 2 * ramp - 1;
+  return triangle * 0.88 + Math.sin(triangle * Math.PI / 2) * 0.12;
+}
+
+// The Polish two-tone (hi-lo): a stepped square control wave, high for the first half of the cycle and low for the
+// second, with ~16 ms raised-cosine steps at the 0.91 Hz cycle so the carrier jumps between the tones without clicks
+// and the truncated series stays nearly flat on each plateau.
+const TWO_TONE_EDGE = 0.015;
+function twoToneControl(phase) {
+  const edge = (x) => {
+    const t = Math.max(0, Math.min(1, x / TWO_TONE_EDGE + 0.5));
+    return 0.5 - 0.5 * Math.cos(Math.PI * t);
+  };
+  const p = phase - Math.floor(phase);
+  // rises through phase 0 (and 1), falls through phase 0.5
+  return 2 * (p < 0.25 ? edge(p) : p < 0.75 ? 1 - edge(p - 0.5) : edge(p - 1)) - 1;
+}
+
+// Polish emergency vehicles: two-tone hi-lo at ≈ 435 / 580 Hz (a fourth apart), each tone held ≈ 0.55 s, with a
+// fast wail (650–1450 Hz, 2 sweeps a second) now and then. `wail` says which mode a voice is in at `time` (seconds):
+// 6 s of wail in every 30 s, offset per vehicle by `variation` (0..1).
+const SIREN = {
+  low: 435,
+  high: 580,
+  tone: 0.55,
+  wailLow: 650,
+  wailHigh: 1450,
+  wailRate: 2,
+  cycle: 30,
+  wailFor: 6
+};
+function sirenWailing(time, variation) {
+  return (time + variation * SIREN.cycle) % SIREN.cycle >= SIREN.cycle - SIREN.wailFor;
 }
 
 export function createSynthResources(context) {
@@ -290,6 +327,7 @@ export function createSynthResources(context) {
     }
   }
 
+  const periodicWave = (ctx, { real, imaginary }) => ctx.createPeriodicWave(real, imaginary);
   const wave = (harmonics) => context.createPeriodicWave(new Float32Array(harmonics.length), new Float32Array(harmonics));
   const helicopter = rotorBuffers(context);
   return {
@@ -307,7 +345,8 @@ export function createSynthResources(context) {
     chain: chainBuffer(context),
     traction: tractionBuffer(context),
     sirenWave: wave([0, 1, 0.13, 0.29, 0.055, 0.11, 0.025, 0.045, 0.012, 0.018]),
-    sirenSweep: sirenSweepWave(context),
+    sirenSweep: periodicWave(context, controlWaveCoefficients(wailControl, 25, 512)),
+    sirenTwoTone: periodicWave(context, controlWaveCoefficients(twoToneControl, 128)),
     voiceSerial: 0
   };
 }
@@ -592,37 +631,47 @@ export function createMotorVoice(context, resources, kind, output) {
       noiseRate((0.85 + pace * 0.3) * doppler, now);
     };
   } else {
-    const siren = oscillator(resources.sirenWave, 1125);
-    const highpass = filter('highpass', 480, 0.7);
+    const siren = oscillator(resources.sirenWave, (SIREN.low + SIREN.high) / 2);
+    const highpass = filter('highpass', 260, 0.7);
     const hornBody = filter('peaking', 1750, 1.1);
     hornBody.gain.value = 3.5;
     const hornFilter = filter('lowpass', 4200, 0.65);
     const sirenGain = gain();
     siren.connect(highpass).connect(hornBody).connect(hornFilter).connect(sirenGain).connect(mix);
-    const sweep = oscillator(resources.sirenSweep, 0.2);
+    // Two control oscillators drive the carrier: the stepped hi-lo square and the wail's triangle. Only one has depth
+    // at a time; both keep their phase through a switch.
+    const twoTone = oscillator(resources.sirenTwoTone, 1 / (2 * SIREN.tone));
+    const twoToneDepth = gain();
+    twoTone.connect(twoToneDepth).connect(siren.frequency);
+    const sweep = oscillator(resources.sirenSweep, SIREN.wailRate);
     const sweepDepth = gain();
     sweep.connect(sweepDepth).connect(siren.frequency);
     const envelopeDepth = gain();
     sweep.connect(envelopeDepth).connect(sirenGain.gain);
-    const sirenFrequency = smoothParameter(siren.frequency, 0.09, 0.1);
+    const sirenFrequency = smoothParameter(siren.frequency, 0.04, 0.1);
+    const twoToneFrequency = smoothParameter(twoTone.frequency, 0.035, 0.002, true);
+    const twoToneRange = smoothParameter(twoToneDepth.gain, 0.04, 0.1);
     const sweepFrequency = smoothParameter(sweep.frequency, 0.035, 0.002, true);
-    const sweepRange = smoothParameter(sweepDepth.gain, 0.09, 0.1);
+    const sweepRange = smoothParameter(sweepDepth.gain, 0.04, 0.1);
     const sirenLevel = smoothParameter(sirenGain.gain, 0.10);
     const envelopeLevel = smoothParameter(envelopeDepth.gain, 0.10);
     const sirenCutoff = smoothParameter(hornFilter.frequency, 0.12, 1);
     const hornFrequency = smoothParameter(hornBody.frequency, 0.12, 1);
     render = (speed, load, doppler, now) => {
       const pitch = (0.98 + variation * 0.04) * doppler;
-      sirenFrequency(1125 * pitch, now);
-      sweepRange(425 * pitch, now);
-      // Hold a long wail, then briefly select yelp. Different cars switch independently; the oscillator
-      // keeps its phase through a change, and Doppler shifts both the pitch and the sweep cadence.
-      const yelp = (now + variation * 24) % 24 >= 19;
-      sweepFrequency((yelp ? 3 : 0.2) * (0.97 + variation * 0.06) * doppler, now);
+      // Hold the hi-lo, then briefly a fast wail. Different vehicles switch independently; Doppler shifts both the
+      // pitch and the cadence.
+      const wail = sirenWailing(now, variation);
+      const low = wail ? SIREN.wailLow : SIREN.low, high = wail ? SIREN.wailHigh : SIREN.high;
+      sirenFrequency((low + high) / 2 * pitch, now);
+      twoToneRange(wail ? 0 : (high - low) / 2 * pitch, now);
+      sweepRange(wail ? (high - low) / 2 * pitch : 0, now);
+      twoToneFrequency(1 / (2 * SIREN.tone) * (0.98 + variation * 0.04) * doppler, now);
+      sweepFrequency(SIREN.wailRate * (0.97 + variation * 0.06) * doppler, now);
       sirenLevel(0.09, now);
-      envelopeLevel(0.01, now);
+      envelopeLevel(wail ? 0.01 : 0, now);
       sirenCutoff(4200 * doppler, now);
-      hornFrequency(1750 * doppler, now);
+      hornFrequency((wail ? 1750 : 1300) * doppler, now);
     };
   }
 
@@ -661,3 +710,5 @@ export function createMotorVoice(context, resources, kind, output) {
 
   return { update, dispose };
 }
+
+export { SIREN, controlWaveCoefficients, sirenWailing, twoToneControl };
