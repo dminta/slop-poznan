@@ -28,7 +28,7 @@ GEO_DATA=/some/dir node ... tools/build-poznan.mjs                # read inputs 
 - Rings and polylines are flat `[x0, z0, x1, z1, ...]` arrays, rounded to 0.1 m. Outer rings have a negative shoelace area in (x, z); hole rings are positive.
 
 ## Output shape and consumers
-- `GEO` has these keys: `version` (2), `frame{bearingDeg, origin, lat0, lon0, units, strip, sidewalk, detailBox, ll}`, `land`, `landHoles`, `water`, `outskirts`, `outskirtsHoles`, `districts`, `labels`, `roads`, `roadGraph`, `rail`, `tramRoutes`, `tramStops`, `plazas`, `blocks`, `blockStats`, `parks`, `landmarks`. The positional tuple layouts of `roads`, `roadGraph.links`, `blocks` and `blockStats` are documented in comments next to the `GEO` literal in `build-poznan.mjs`. Keep those comments in sync when you change a layout.
+- `GEO` has these keys: `version` (2), `frame{bearingDeg, origin, lat0, lon0, units, strip, sidewalk, detailBox, ll}`, `land`, `landHoles`, `water`, `outskirts`, `outskirtsHoles`, `districts`, `labels`, `roads`, `roadGraph`, `rail`, `levelCrossings`, `tramRoutes`, `tramStops`, `plazas`, `blocks`, `blockStats`, `parks`, `landmarks`. The positional tuple layouts of `roads`, `roadGraph.links`, `blocks` and `blockStats` are documented in comments next to the `GEO` literal in `build-poznan.mjs`. Keep those comments in sync when you change a layout.
 - `js/city-config.js` is the main consumer. It turns `GEO` into `{x, z}` rings and named exports: `LAND_RINGS`/`LAND_HOLES`, `WATER`, `OUTSKIRTS`/`OUTSKIRTS_HOLES`, `RAIL`, `PLAZAS`, `DISTRICTS` (`districtAt`), `BRIDGES` (the bridge-flagged graph links chained per name), `SIGNAL_SITES` (from `roadGraph.signals`, with each junction's arms), `roadClearance` (distance outside the road graph's runs, for street furniture), `ROADS`, `BLOCKS` (each with `built`, `levels` and `buildings` from `GEO.blockStats`), `LANDMARK_SITES`, and the land raster behind `isLand`/`isWater`/`distToWater`/`clampToLand` (2 m cells; bridge decks count as land). Prefer those exports in runtime code. A few modules read `GEO` directly:
   - `road-network.js`: `roadGraph`
   - `city-grid.js`, `buildings.js`, `city-map.js`: `parks`, `plazas`, `frame`
@@ -115,6 +115,11 @@ since the 2026-10-25/27 fetches (no tag change on any road, rail, tram route, bu
   (Hetmańska 4, Nad Wierzbakiem, two service roads), 3 track ways (Hetmańska's 2 tram tracks, one outside the box);
   still dropped: 74 road ways (garage ramps, courtyard passages, Warmińska under Niestachowska) and 17 track ways (the
   Franowo tram tunnel, a 72 m PST tunnel).
+- Level crossings (`GEO.levelCrossings`, flat `[x, z, ...]`, `poz-roads.mjs`): the nodes a drivable piece shares with a
+  mainline track way, inside the detail box. OSM joins a road and a track only where they cross at grade (the node
+  carries `railway=level_crossing`, which the snapshots do not fetch); bridges and underpasses share no node. 39 on the
+  2026-10-28 snapshot: Św. Michała, Krańcowa, Bałtycka, Gdyńska and Wrzesińska, the rest on yard service roads.
+  tram-infra.js lays flush rails there instead of the walled cut (`docs/world.md`).
 - Signals live in their own file (`poz_signals.json`, nodes with tags); match them to road ways by node id.
 - Water includes `natural=water` without a `water=*` subtag (most small ponds). The Warta in D3 is the unnamed closed way
   27942106 (`water=river`); the named `waterway=river` centreline (`Warta`) lies inside it. Jezioro Maltańskie is

@@ -18,6 +18,8 @@
 //   rail:           [{ kind: 'tram'|'rail', street: 0|1, tracks, oneway: 0|1, pts, routes? }] chained OSM track pieces (one entry
 //                   per mapped track, cut at switches and crossings; a one-way track runs along its points)
 //   railCorridors:  { rings: [ring...], lines: [{ pts, w }] } landuse=railway areas and off-street tracks (non-buildable)
+//   levelCrossings: [[x, z]...] nodes a drivable piece shares with a mainline (railway=rail|light_rail) track way,
+//                   inside the detail box: the level crossings (OSM puts railway=level_crossing on that shared node)
 //   roads:          GEO.roads tuples [name, w, dir, lanes, hw, flatPts]
 //   tramRoutes:     [{ ref, from, to, id, ways: Set }] the day lines' route=tram relations (one per direction); tram
 //                   rail entries carry `routes`, the indices of the routes using them
@@ -525,6 +527,23 @@ for (const t of trackWays) {
   railCorridors.lines.push({ pts: rdp(t.pts, 0.3).map(([x, z]) => [r1(x), r1(z)]), w: t.kind === 'tram' ? 4 : 5 });
 }
 
+// Level crossings: a road and a mainline track meet at grade only on a shared node. Everywhere else one passes over
+// the other (a rail bridge over the street, a road viaduct over the yard, an underpass kept at grade above).
+const levelCrossings = [];
+{
+  const railNode = new Map();
+  for (const t of trackWays) if (t.kind === 'rail') t.nodes.forEach((n, i) => railNode.set(n, t.pts[i]));
+  const seen = new Set();
+  for (const p of pieces) {
+    for (const n of p.nodes) {
+      const q = railNode.get(n);
+      if (!q || seen.has(n) || !inDetailBox(q[0], q[1])) continue;
+      seen.add(n);
+      levelCrossings.push([r1(q[0]), r1(q[1])]);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Plazas and pedestrian streets
 // ---------------------------------------------------------------------------------------------------------------------
@@ -613,7 +632,7 @@ log(`road pieces: ${pieces.length} from ${drivableWays.length} drivable ways (${
 log(`bridges: ${pieces.filter((p) => p.bridge).length} pieces (${named((p) => p.bridge).join(', ')})`);
 log(`tram on street: ${pieces.filter((p) => p.tram).length} pieces, ${(pieces.filter((p) => p.tram).reduce((s, p) => s + lineLen(p.pts), 0) / 1000).toFixed(1)} km on ${named((p) => p.tram).length} streets`);
 log(`plazas: ${plazas.length} (${[...new Set(plazas.map((p) => p.name).filter(Boolean))].length} named), pedestrian ways: ${pedestrianWays.length}`);
-log(`rail: ${rail.length} lines (tram ${rail.filter((r) => r.kind === 'tram').length}, on street ${rail.filter((r) => r.street).length}; rail ${rail.filter((r) => r.kind === 'rail').length}); ${trackWays.length} track ways (${closedTram} closed tram ways kept from route=tram relations), ${droppedRailTunnel} tunnel ways dropped (${trackUnderpasses.size} railway underpasses kept); corridors ${railCorridors.rings.length} rings, ${railCorridors.lines.length} lines`);
+log(`rail: ${rail.length} lines (tram ${rail.filter((r) => r.kind === 'tram').length}, on street ${rail.filter((r) => r.street).length}; rail ${rail.filter((r) => r.kind === 'rail').length}); ${trackWays.length} track ways (${closedTram} closed tram ways kept from route=tram relations), ${droppedRailTunnel} tunnel ways dropped (${trackUnderpasses.size} railway underpasses kept); corridors ${railCorridors.rings.length} rings, ${railCorridors.lines.length} lines; ${levelCrossings.length} level crossings`);
 {
   const tram = rail.filter((r) => r.kind === 'tram');
   const len = (rs) => rs.reduce((t, r) => t + lineLen(r.pts), 0) / 1000;
@@ -621,4 +640,5 @@ log(`rail: ${rail.length} lines (tram ${rail.filter((r) => r.kind === 'tram').le
 }
 log(`roads: ${roads.length} polylines (${roads.reduce((t, r) => t + r[5].length / 2, 0)} pts); tram stops ${tramStops.length}; signal nodes ${signalNodes.length}`);
 
-export { TRAM_W, pieces, plazas, pedestrianWays, rail, railCorridors, roads, tramRoutes, tramStops, signalNodes, midOf, lineLen };
+export { TRAM_W, pieces, plazas, pedestrianWays, rail, railCorridors, levelCrossings, roads, tramRoutes, tramStops, signalNodes, midOf,
+  lineLen };

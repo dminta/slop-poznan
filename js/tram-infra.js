@@ -18,8 +18,8 @@ import { cityUniforms, createCurbMaterial, transparentEffectMRT } from './tsl-ma
 //   lanes (else the stop stands on the sidewalk, as on the Poznań streets with no room for an island), a glass shelter,
 //   a stop sign with the stop's name plate and a ticket machine
 // - the mainline railway (GEO.rail kind 'rail'): ballast beds with concrete sleepers and raised rails, cut with a
-//   concrete end wall wherever a road or tram line crosses (the bridges and underpasses have no levels here), and the
-//   3 kV DC overhead line (contact and messenger wire, masts with cantilevers, portals over the yards)
+//   concrete end wall wherever a road or tram line crosses (the bridges and underpasses have no levels here) and laid
+//   flush across the road at the level crossings (GEO.levelCrossings), and the 3 kV DC overhead line (contact and messenger wire, masts with cantilevers, portals over the yards)
 // layoutTramInfrastructure(network) and layoutRailInfrastructure(network) are the pure placements (no three.js) that
 // tests/tram-infra.test.cjs checks; the tram layout's `stops` list is the public one trams can dwell at.
 
@@ -57,6 +57,10 @@ const RAIL_HEAD_H = 0.16; // 60E1 rail on its sleeper
 // RAIL_TRAM_KEEP of a tram track centreline (half bed + 1 m + the tram's 1.45 m half ballast)
 const RAIL_ROAD_KEEP = 3.5;
 const RAIL_TRAM_KEEP = 5;
+// Level crossings (GEO.levelCrossings): a run of road-cut pieces passing within RAIL_LEVEL_NEAR of one keeps its rails,
+// flush with the road (RAIL_LEVEL_TOP) and with no end walls, so the fences simply end at the crossing
+const RAIL_LEVEL_NEAR = 3;
+const RAIL_LEVEL_TOP = 0.016;
 const RAIL_END_H = 1.1; // concrete end wall where a bed is cut
 // Corridor boundary along the outer edge of a track bundle: a concrete plinth with a 2 m welded-mesh fence, 1.1 m
 // outside the bed's foot; a 1.2 m wall under the fence where a street, a block or open land (a car park, a plaza) lies
@@ -559,6 +563,8 @@ function layoutTramInfrastructure(network) {
  * - pieces: [{ railIndex, s0, ax, az, bx, bz, ground }] straight pieces up to RAIL_PIECE long (s0 = arc length of a)
  * - dropped: { offLand, water, road, tram } pieces left out: outside the detail box, over open water (rail bridges have
  *   no deck), on or within RAIL_ROAD_KEEP of a roadway (or under a road bridge), within RAIL_TRAM_KEEP of a tram track
+ * - level: [{ railIndex, ax, az, bx, bz, ground }] the road-cut pieces of a level crossing, laid as flush rails (counted
+ *   in dropped.road)
  * - ends: [{ x, z, dx, dz, ground, s, inward, tr }] end walls where a kept piece meets a dropped one (d: pointing into
  *   the gap; s: arc length of the end, inward: +1 when the kept bed lies at larger s)
  * - runs: corridor boundary runs [{ railIndex, side, pts: [{ x, z }], solid: [0|1 per segment], s0 }] RAIL_FENCE_O out
@@ -607,11 +613,19 @@ function layoutRailInfrastructure(network) {
     const h = tramGrid.nearest(x, z, r);
     return h ? h.d : r;
   };
+  const levelGrid = segmentGrid(32);
+  const lx = GEO.levelCrossings || [];
+  for (let k = 0; k + 1 < lx.length; k += 2) levelGrid.add(lx[k], lx[k + 1], lx[k], lx[k + 1] + 0.001, k / 2);
+  const segNear = (A, B, r) => {
+    for (let t = 0; t <= 1; t += 0.125) if (levelGrid.nearest(A.x + (B.x - A.x) * t, A.z + (B.z - A.z) * t, r)) return true;
+    return false;
+  };
 
   // --- Track pieces -------------------------------------------------------------------------------------------------
   const pieces = [];
   const ends = [];
   const dropped = { offLand: 0, water: 0, road: 0, tram: 0 };
+  const level = []; // [{ railIndex, ax, az, bx, bz, ground }] flush pieces over level crossings
   const keptAt = new Map(); // railIndex -> Uint8Array: 1 for every kept piece
   const trackGeo = new Map(); // railIndex -> { geo: [{ s0, A, B }] per piece, kept }
   for (const tr of tracks) {
@@ -643,7 +657,24 @@ function layoutRailInfrastructure(network) {
       pieces.push({ railIndex: tr.railIndex, s0, ax: A.x, az: A.z, bx: B.x, bz: B.z, ground: blockAt(mx, mz) ? SW_TOP : 0 });
     }
     for (let i = 0; i < count; i++) if (why[i]) dropped[why[i]]++;
-    // End walls where the bed meets a gap (not at the edge of the detail box)
+    // Level crossings: every run of road-cut pieces with one in reach becomes flush track, which then counts as no gap
+    for (let i = 0; i < count;) {
+      if (why[i] !== 'road') { i++; continue; }
+      let j = i;
+      while (j < count && why[j] === 'road') j++;
+      let atLevel = false;
+      for (let k = i; k < j && !atLevel; k++) atLevel = segNear(geo[k].A, geo[k].B, RAIL_LEVEL_NEAR);
+      if (atLevel) {
+        for (let k = i; k < j; k++) {
+          const { A, B } = geo[k];
+          why[k] = 'level';
+          level.push({ railIndex: tr.railIndex, ax: A.x, az: A.z, bx: B.x, bz: B.z,
+            ground: blockAt((A.x + B.x) / 2, (A.z + B.z) / 2) ? SW_TOP : 0 });
+        }
+      }
+      i = j;
+    }
+    // End walls where the bed meets a gap (not at the edge of the detail box, nor a level crossing)
     for (let i = 0; i < count; i++) {
       if (!kept[i]) continue;
       const { A, B } = geo[i];
@@ -651,8 +682,8 @@ function layoutRailInfrastructure(network) {
       const dx = (B.x - A.x) / len;
       const dz = (B.z - A.z) / len;
       const ground = blockAt((A.x + B.x) / 2, (A.z + B.z) / 2) ? SW_TOP : 0;
-      if (i > 0 && why[i - 1] && why[i - 1] !== 'offLand') ends.push({ x: A.x, z: A.z, dx: -dx, dz: -dz, ground, s: geo[i].s0, inward: 1, tr });
-      if (i + 1 < count && why[i + 1] && why[i + 1] !== 'offLand') ends.push({ x: B.x, z: B.z, dx, dz, ground, s: geo[i + 1].s0, inward: -1, tr });
+      if (i > 0 && why[i - 1] && why[i - 1] !== 'offLand' && why[i - 1] !== 'level') ends.push({ x: A.x, z: A.z, dx: -dx, dz: -dz, ground, s: geo[i].s0, inward: 1, tr });
+      if (i + 1 < count && why[i + 1] && why[i + 1] !== 'offLand' && why[i + 1] !== 'level') ends.push({ x: B.x, z: B.z, dx, dz, ground, s: geo[i + 1].s0, inward: -1, tr });
     }
     keptAt.set(tr.railIndex, kept);
     trackGeo.set(tr.railIndex, { geo, kept });
@@ -995,7 +1026,7 @@ function layoutRailInfrastructure(network) {
       }
     }
   }
-  return { tracks, pieces, dropped, ends, runs, corridor, masts, arms, portals, droppers, footprints, laneDist, roadDist,
+  return { tracks, pieces, dropped, level, ends, runs, corridor, masts, arms, portals, droppers, footprints, laneDist, roadDist,
     tramDist, railDist };
 }
 
@@ -1236,6 +1267,27 @@ function buildTramInfrastructure(scene, network) {
       dummy.position.set(mx - dz * o, bedTop + RAIL_HEAD_H / 2, mz + dx * o);
       dummy.scale.set(len + 0.03, RAIL_HEAD_H, HEAD_W);
       railM.push(M());
+    }
+  }
+  // Level crossings: the heads flush with the road (or the sidewalk) and a flangeway groove inside each, as on the
+  // street-running tram track; no bed
+  for (const pc of rail.level) {
+    const len = Math.hypot(pc.bx - pc.ax, pc.bz - pc.az);
+    const dx = (pc.bx - pc.ax) / len;
+    const dz = (pc.bz - pc.az) / len;
+    const mx = (pc.ax + pc.bx) / 2;
+    const mz = (pc.az + pc.bz) / 2;
+    const top = pc.ground + RAIL_LEVEL_TOP;
+    dummy.rotation.set(0, Math.atan2(-dz, dx), 0);
+    for (const sg of [1, -1]) {
+      const o = sg * (GAUGE / 2 + HEAD_W / 2);
+      dummy.position.set(mx - dz * o, top - 0.025, mz + dx * o);
+      dummy.scale.set(len + 0.03, 0.05, HEAD_W);
+      railM.push(M());
+      const og = sg * (GAUGE / 2 - GROOVE_W / 2);
+      dummy.position.set(mx - dz * og, top - 0.022, mz + dx * og);
+      dummy.scale.set(len + 0.03, 0.04, GROOVE_W);
+      grooveM.push(M());
     }
   }
   // End walls: a 0.5 m concrete wall across the corridor (bed and boundary) at each cut, standing just into the gap, so the cut
