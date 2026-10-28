@@ -312,11 +312,6 @@ const BODY_SPECS = {
   }
 };
 BODY_SPECS.taxi = Object.assign({}, BODY_SPECS.sedan, { name: 'taxi', sign: true });
-for (const spec of Object.values(BODY_SPECS)) {
-  // Kept for code that places lamp flares: lamp heights (front, rear) and centres across the car
-  spec.lamps = [spec.headlight[1], spec.taillight[1]];
-  spec.lampX = [spec.headlight[0], spec.taillight[0]];
-}
 
 const lerp = (a, b, t) => a + (b - a) * t;
 

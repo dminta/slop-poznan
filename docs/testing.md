@@ -13,7 +13,7 @@ No package.json, no npm, no dependencies. The tests use only Node built-ins (`no
 
 ## No rendering tests
 
-No test runs a browser, WebGPU, TSL shader compilation or a screenshot comparison. Tests that touch shader or scene code (`facade-projection`, `smoke-texture`, `vehicle-lights`) re-implement or stub the TSL nodes and check only the math. Any change to geometry, materials, TSL nodes, lighting, post-processing or culling has to be checked by hand: serve the app and look in a WebGPU browser. `WebGPURenderer` falls back to WebGL2 when WebGPU is unavailable, and `js/main.js` branches on `renderer.backend.isWebGPUBackend` (for example for instanced attributes). If you touch that kind of code, check the fallback too. Watch the browser console, because shader and node errors show up only there.
+No test runs a browser, WebGPU, TSL shader compilation or a screenshot comparison. Tests that touch shader or scene code (`facade-projection`, `vehicle-lights`) re-implement or stub the TSL nodes and check only the math. Any change to geometry, materials, TSL nodes, lighting, post-processing or culling has to be checked by hand: serve the app and look in a WebGPU browser. `WebGPURenderer` falls back to WebGL2 when WebGPU is unavailable, and `js/main.js` branches on `renderer.backend.isWebGPUBackend` (for example for instanced attributes). If you touch that kind of code, check the fallback too. Watch the browser console, because shader and node errors show up only there.
 
 ## Three ways tests reach production code
 
@@ -23,7 +23,7 @@ Know which one covers the code you are editing. Two of them are coupled to the e
 2. **Slicing source text.** The test cuts out a function or block with a regex or `indexOf` and runs it in `vm.runInNewContext` with hand-built context variables:
    - `traffic*.test.cjs` match `^  function NAME(` through `\n  }` (two-space indent) in `js/traffic.js`.
    - `teleports.test.cjs` runs the part of `js/main.js` from `  function teleportTo(` to `  const openMapBtn`.
-   - `facade-projection` and `smoke-texture` slice `js/tsl-materials.js` between markers: `const facadeNormalVertex =`, `function facadeCell(`, `let bayWidth`, `const evaluateApartmentInterior`, `const rayWorld =`, `// Slab intersection`, `let _smokeCloudTexture =`, the next `/**`, and the literal text of the `hash` arrow function.
+   - `facade-projection` slices `js/tsl-materials.js` between markers: `const facadeNormalVertex =`, `function facadeCell(`, `let bayWidth`, `const evaluateApartmentInterior`, `const rayWorld =` and `// Slab intersection`.
 
    If you rename, re-indent, reorder or reformat around these markers, the tests break. So do new free variables in a sliced block that the test context does not provide. When that happens, update the test's markers and context in the same change. Keep the tested behaviour as it is.
 3. **Real ESM import.** `teleports`, `signals`, `city-text` and `road-network` tests run `await import('../js/city-config.js')` (signals and road-network also import `geodata.js`; road-network feeds both into a `loadModule`d `road-network.js`), and `geodata.test.mjs` imports a freshly built `geodata.js`. **`js/city-config.js` and `js/geodata.js` must import nothing beyond each other or other Node-loadable relative files.** A bare specifier such as `'three/webgpu'` cannot be resolved in Node, so adding one breaks these tests.

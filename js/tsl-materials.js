@@ -49,7 +49,6 @@ import {
   sign,
   fwidth,
   texture,
-  rotateUV,
   mrt,
   If,
   sqrt,
@@ -2507,204 +2506,11 @@ function createParkLawnMaterial(isMeadow = false) {
   return mat;
 }
 
-/**
- * Synthesizes a 256x256 procedural domain-warped multi-octave turbulent smoke/steam cloud texture
- * for camera-facing SpriteNodeMaterial particles (following webgpu_particles.html):
- * - R: local 3D cloud billow illumination (top-left warm sun catch)
- * - G: vertical hemisphere self-shadowing gradient (1 at top rim, 0 at shadowed belly)
- * - B: inner core vapor density
- * - A: soft, wispy, multi-lobe cloud silhouette that feathers to 0.0 well inside the quad edges
- */
-let _smokeCloudTexture = null;
-function getSmokeCloudTexture() {
-  if (_smokeCloudTexture) return _smokeCloudTexture;
-
-  const size = 256;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  const imgData = ctx.createImageData(size, size);
-  const data = imgData.data;
-
-  // Adjacent texels and fBm samples reuse the same lattice points. Keep full-precision hashes for this bake only.
-  const hashRows = [];
-  const hash = (ix, iy) => {
-    const row = hashRows[iy] || (hashRows[iy] = []);
-    if (row[ix] !== undefined) return row[ix];
-    const s = Math.sin(ix * 127.1 + iy * 311.7 + 19.19) * 43758.5453;
-    return row[ix] = s - Math.floor(s);
-  };
-  const vnoise = (x, y) => {
-    const ix = Math.floor(x);
-    const iy = Math.floor(y);
-    const fx = x - ix;
-    const fy = y - iy;
-    const ux = fx * fx * (3.0 - 2.0 * fx);
-    const uy = fy * fy * (3.0 - 2.0 * fy);
-    const a = hash(ix, iy);
-    const b = hash(ix + 1, iy);
-    const c = hash(ix, iy + 1);
-    const d = hash(ix + 1, iy + 1);
-    return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
-  };
-  const fbm = (x, y) => {
-    let v = 0.0;
-    let amp = 0.52;
-    let freq = 1.0;
-    for (let o = 0; o < 5; o++) {
-      v += vnoise(x * freq, y * freq) * amp;
-      freq *= 2.05;
-      amp *= 0.5;
-    }
-    return v;
-  };
-
-  for (let py = 0; py < size; py++) {
-    const ny = (py / (size - 1)) * 2.0 - 1.0; // -1 (top) to +1 (bottom)
-    for (let px = 0; px < size; px++) {
-      const nx = (px / (size - 1)) * 2.0 - 1.0;
-      const r = Math.hypot(nx, ny);
-      const idx = (py * size + px) * 4;
-
-      if (r >= 0.98) {
-        data[idx] = 255;
-        data[idx + 1] = 255;
-        data[idx + 2] = 255;
-        data[idx + 3] = 0;
-        continue;
-      }
-
-      // Domain-warped coordinates for swirling turbulent vapor tendrils
-      const u = nx * 2.3 + 4.1;
-      const v = ny * 2.3 + 7.3;
-      const wx = fbm(u, v) - 0.5;
-      const wy = fbm(u + 5.2, v + 1.3) - 0.5;
-      const cloud = fbm(u + wx * 2.2, v + wy * 2.2);
-      const fineWisp = fbm((u + wx) * 2.4 + 11.7, (v + wy) * 2.4 + 3.9);
-
-      // Multi-lobe billowy outer boundary so the puff silhouette is organic, never circular or boxy
-      const angle = Math.atan2(ny, nx);
-      const lobeRadius =
-        0.78 +
-        0.11 * Math.sin(angle * 3.0 + wx * 4.0) +
-        0.07 * Math.cos(angle * 5.0 - wy * 4.0);
-      const normR = r / Math.max(0.25, lobeRadius);
-      const radialFalloff = Math.pow(Math.max(0.0, 1.0 - normR * normR), 1.95);
-
-      const density = radialFalloff * Math.max(0.0, Math.min(1.0, (cloud * 0.72 + fineWisp * 0.38 - 0.14) * 1.45));
-
-      // Finite-difference cloud height gradient for 3D puff self-shadowing
-      const cloudUp = fbm(u + wx * 2.2, v - 0.18 + wy * 2.2);
-      const cloudLeft = fbm(u - 0.18 + wx * 2.2, v + wy * 2.2);
-      const dUp = (cloud - cloudUp) * 1.8 - ny * 0.45;
-      const dLeft = (cloud - cloudLeft) * 1.8 - nx * 0.35;
-      const sunLobe = Math.max(0.0, Math.min(1.0, 0.58 + dUp * 0.42 + dLeft * 0.28));
-      const hemiGrad = Math.max(0.0, Math.min(1.0, (1.0 - ny) * 0.5 * 0.75 + cloud * 0.25));
-
-      data[idx] = Math.round(sunLobe * 255);
-      data[idx + 1] = Math.round(hemiGrad * 255);
-      data[idx + 2] = Math.round(radialFalloff * 255);
-      data[idx + 3] = Math.round(Math.min(1.0, density) * 255);
-    }
-  }
-
-  ctx.putImageData(imgData, 0, 0);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.ClampToEdgeWrapping;
-  tex.wrapT = THREE.ClampToEdgeWrapping;
-  tex.needsUpdate = true;
-  _smokeCloudTexture = tex;
-  return tex;
-}
-
-/**
- * Street Steam Stack Volumetric Billowing SpriteNodeMaterial (unused since the port: Poznań has no steam stacks)
- * Modelled after `three.js/examples/webgpu_particles.html`:
- * - Uses `THREE.SpriteNodeMaterial` on an instanced `PlaneGeometry(1, 1)` so every puff is a
- *   camera-facing billboard sprite with zero polygonal facets.
- * - Continuously rises from the stack nozzle (`life = fract(phase + time * speed)`),
- *   expands (`scaleNode`), curls downwind (`positionNode`), and rotates (`rotateUV`) with soft
- *   sunlit top rims and cool urban-canyon self-shadowing.
- */
 // Transparent decal/effect planes & sprites preserve the underlying road/scene G-buffer in MRT (zero RGB & zero alpha on normal & metalRough)
 const _transparentEffectMRT = mrt({
   normal: vec4(0.0, 0.0, 0.0, 0.0),
   metalRough: vec4(0.0, 0.0, 0.0, 0.0)
 });
-
-function createSteamMaterial() {
-  const smokeMap = getSmokeCloudTexture();
-
-  const mat = new THREE.SpriteNodeMaterial({
-    transparent: true,
-    depthWrite: false
-  });
-  mat.mrtNode = _transparentEffectMRT;
-
-  const aOrigin = attribute('aSmokeOrigin', 'vec3');
-  const aWind = attribute('aSmokeWind', 'vec3');
-  const aParams = attribute('aSmokeParams', 'vec4'); // x: phaseOffset, y: spinSpeed, z: curlSeed, w: scaleMul
-
-  const life = fract(aParams.x.add(time.mul(0.16)));
-
-  // World position of each rising, wind-drifted, turbulent steam sprite
-  mat.positionNode = Fn(() => {
-    const l = life.toVar();
-    const lift = pow(l, 0.78).mul(aWind.y);
-    const drift = pow(l, 1.68).mul(4.6);
-    const curlAng = l.mul(5.4).add(aParams.z).add(time.mul(0.85));
-    const curlAmp = pow(l, 1.15).mul(0.68);
-
-    const px = aOrigin.x.add(aWind.x.mul(drift)).sub(aWind.z.mul(sin(curlAng)).mul(curlAmp));
-    const py = aOrigin.y.add(lift).add(cos(curlAng.mul(1.3)).mul(l).mul(0.25));
-    const pz = aOrigin.z.add(aWind.z.mul(drift)).add(aWind.x.mul(cos(curlAng)).mul(curlAmp));
-    return vec3(px, py, pz);
-  })();
-
-  // Billboard sprite scale: tight jet at stack mouth (~0.88m), billowing wide (~4.3m) as it rises
-  mat.scaleNode = Fn(() => {
-    const l = life.toVar();
-    const s = mix(float(0.88), float(4.35), pow(l, 0.72)).mul(aParams.w);
-    return vec2(s, s);
-  })();
-
-  const rotAngle = aParams.z.add(time.mul(aParams.y));
-  const texNode = texture(smokeMap, rotateUV(uv(), rotAngle));
-
-  mat.colorNode = Fn(() => {
-    const l = life.toVar();
-    const tSample = texNode;
-    const billowLight = tSample.r;
-    const hemiLight = tSample.g;
-
-    const cShadowVapor = mix(color(0x8e9baa), cityUniforms.uSkyTopColor, 0.22);
-    const cMidVapor = mix(color(0xdbe2ea), cityUniforms.uSkyHorizonColor, 0.18);
-    const cLitVapor = mix(color(0xffffff), cityUniforms.uSunColor, 0.22);
-
-    // Pressurized wet steam near the stack mouth is bright white; upper plume picks up warm sun & sky shadow
-    const nozzleWhiteness = smoothstep(0.32, 0.0, l).mul(0.32);
-    const shadeFactor = clamp(
-      hemiLight.mul(0.52).add(billowLight.mul(0.48)).add(nozzleWhiteness),
-      0.0,
-      1.0
-    );
-    const baseVapor = mix(cShadowVapor, cMidVapor, smoothstep(0.0, 0.55, shadeFactor));
-    return mix(baseVapor, cLitVapor, smoothstep(0.42, 0.96, shadeFactor));
-  })();
-
-  mat.opacityNode = Fn(() => {
-    const l = life.toVar();
-    const alphaTex = texNode.a;
-    // Smooth fade-in emerging from the stack nozzle and soft dissipation fade-out at top of plume
-    const fadeIn = smoothstep(0.0, 0.08, l);
-    const fadeOut = pow(clamp(float(1.0).sub(l), 0.0, 1.0), 1.45);
-    const nozzleCore = smoothstep(0.30, 0.02, l).mul(0.22).add(1.0);
-    return clamp(alphaTex.mul(fadeIn).mul(fadeOut).mul(nozzleCore).mul(0.44), 0.0, 0.72);
-  })();
-
-  return mat;
-}
 
 /**
  * Soft Rounded-Rectangle Under-Vehicle Contact Shadow (Ambient Occlusion) TSL Material
@@ -2740,34 +2546,6 @@ function createContactShadowMaterial() {
   return mat;
 }
 
-/**
- * Car lamp flares for distant traffic (instanced sprites on a unit quad): a soft round glow with a hot core per lamp,
- * placed and sized per instance (`flarePos` = x, y, z, world size) and tinted (`flareCol` = rgb (+ an unused w, so
- * the attribute needs no padding on upload), already including the lamp's visibility from the camera), lit only at
- * dusk & night. Additive, so no fog (it would add fog colour).
- */
-function createCarFlareMaterial() {
-  const mat = new THREE.SpriteNodeMaterial({
-    transparent: true,
-    depthWrite: false,
-    fog: false,
-    blending: THREE.AdditiveBlending
-  });
-  mat.mrtNode = _transparentEffectMRT;
-  const p = attribute('flarePos', 'vec4');
-  mat.positionNode = p.xyz;
-  mat.scaleNode = vec2(p.w, p.w);
-  mat.colorNode = Fn(() => {
-    const night = smoothstep(0.35, 1.3, cityUniforms.uInteriorGlow);
-    const r = length(uv().sub(0.5)).mul(2.0);
-    const halo = pow(smoothstep(1.0, 0.0, r), 1.5);
-    const core = smoothstep(0.5, 0.0, r);
-    return attribute('flareCol', 'vec4').rgb.mul(halo.add(core.mul(2.0))).mul(night);
-  })();
-  mat.opacityNode = float(1.0);
-  return mat;
-}
-
 export {
   cityUniforms,
   WALL_KINDS,
@@ -2790,8 +2568,6 @@ export {
   createCurbMaterial,
   createWaterMaterial,
   createParkLawnMaterial,
-  createSteamMaterial,
   createContactShadowMaterial,
-  createCarFlareMaterial,
   _transparentEffectMRT as transparentEffectMRT
 };
