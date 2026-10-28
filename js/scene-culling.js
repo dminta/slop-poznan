@@ -1,14 +1,14 @@
 import * as THREE from 'three/webgpu';
 
 // js/scene-culling.js
-// Spatial culling for the island-wide static geometry. Most of Manhattan's street furniture and building massing is
-// built as a handful of instanced meshes spanning the whole island (bounding spheres ~7 km across), which three.js can
-// never cull: every frame the GPU transformed every lamp post, signal and facade box of the island three times (the
+// Spatial culling for the city-wide static geometry. Most of the street furniture and building massing is built as a
+// handful of instanced meshes spanning the whole detail box (bounding spheres several km across), which three.js can
+// never cull: every frame the GPU would transform every lamp post, signal and facade box of the city three times (the
 // view and both sun shadow cascades). This module, run once after the city is built (main.js):
 // 1. Splits the instanced meshes of small props into spatial chunks, each culled by the view frustum and hidden beyond
 //    the distance where its props shrink below a pixel or two (updateSceneCulling, every frame).
-// 2. Gives the big static shadow casters (facade boxes, piers, viaducts...) position-only stand-ins cut into cells, on
-//    a layer only the shadow cascade cameras render (they cull the cells outside the ~300 m the cascades cover); the
+// 2. Gives the big static shadow casters (facade boxes, bridges, landmarks...) position-only stand-ins cut into cells,
+//    on a layer only the shadow cascade cameras render (they cull the cells outside the ~300 m the cascades cover); the
 //    originals stop casting. The stand-ins share one material per face side, so a cell costs one draw.
 // 3. Splits the remaining large batches into cells for view-frustum culling, keeping their full draw distance.
 

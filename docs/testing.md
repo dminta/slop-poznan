@@ -21,7 +21,7 @@ Know which one covers the code you are editing. Two of them are coupled to the e
 
 1. **`loadModule(source, { imports, globals, filename })`** from `tests/helpers/module.cjs`. It reads a whole `js/*.js` file, rewrites its static `import`/`export` declarations, and runs it in a `vm` context. Used by cameras, controllers, city-map, road-network, pedestrian-routes, touch-controls and vehicle-lights tests, and by the benchmark.
 2. **Slicing source text.** The test cuts out a function or block with a regex or `indexOf` and runs it in `vm.runInNewContext` with hand-built context variables:
-   - `traffic*.test.cjs` match `^  function NAME(` through `\n  }` (two-space indent) in `js/traffic.js`, plus a block that starts at `    const pl = entity` and ends at `    } : null;`.
+   - `traffic*.test.cjs` match `^  function NAME(` through `\n  }` (two-space indent) in `js/traffic.js`.
    - `teleports.test.cjs` runs the part of `js/main.js` from `  function teleportTo(` to `  const openMapBtn`.
    - `facade-projection` and `smoke-texture` slice `js/tsl-materials.js` between markers: `const facadeNormalVertex =`, `function facadeCell(`, `let bayWidth`, `const evaluateApartmentInterior`, `const rayWorld =`, `// Slab intersection`, `let _smokeCloudTexture =`, the next `/**`, and the literal text of the `hash` arrow function.
 

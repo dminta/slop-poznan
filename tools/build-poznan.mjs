@@ -68,8 +68,6 @@ const GEO = {
   outskirtsHoles: outskirtsHoles.map((h) => ({ outer: h.outer, ring: flat(h.ring) })),
   districts,
   labels: labels.concat(waterLabels),
-  streets: [],
-  avenues: [],
   // [name, curb-to-curb width, direction (1 one-way along the points, 0 both), lanes, motorway/trunk, flatPts]
   roads,
   // nodes [x, z, ...], links [a, b, name index, width, lanes, dir (1 a -> b, -1 b -> a, 0 both), inner points [x, z, ...],

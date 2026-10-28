@@ -47,8 +47,8 @@ for (const e of load('poz_parks.json').elements) {
   const area = outer.reduce((s, r) => s + Math.abs(ringArea(r)), 0) - inner.reduce((s, r) => s + Math.abs(ringArea(r)), 0);
   parkRings.push({ id: `${e.type}/${e.id}`, name: t.name || '', cat, area_m2: Math.round(area), outer, inner, bb: bbox(outer.flat()) });
 }
-// Coverage counts patches of 1,000 m² and up (NYC's 0.25-acre floor): smaller ones are verges and courtyard lawns that
-// never make a block read as parkland anyway
+// Coverage counts patches of 1,000 m² and up: smaller ones are verges and courtyard lawns that never make a block read
+// as parkland anyway
 const COVER_MIN_M2 = 1000;
 const coverParks = parkRings.filter((p) => p.area_m2 >= COVER_MIN_M2);
 // 250 m buckets over the coverage parks' bboxes, so a block only scans the few parks near it
@@ -92,10 +92,10 @@ function scanPark(p, g, cell) {
     }
   }
 }
-// The geo-extra.mjs pass over a labelled block raster (R: { x0, z0, res, w, h }, lab: label per cell, 0 = no block).
-// Unlike NYC each cell counts once however many parks overlap it (here a wood inside Park Cytadela would otherwise
-// count twice). Returns Map label -> { cells, name }: name is the named park covering most of that label's cells ('' if
-// none); share = cells / block cells, and NYC only keeps the name when share > 0.25.
+// Park coverage over a labelled block raster (R: { x0, z0, res, w, h }, lab: label per cell, 0 = no block). Each cell
+// counts once however many parks overlap it (a wood inside Park Cytadela would otherwise count twice). Returns
+// Map label -> { cells, name }: name is the named park covering most of that label's cells ('' if none); share =
+// cells / block cells, and poz-blocks.mjs only keeps the name when share > 0.25.
 function parkCellsByLabel(R, lab) {
   const g = { x0: R.x0, z0: R.z0, res: R.res, w: R.w, h: R.h };
   const seen = new Uint8Array(g.w * g.h);
@@ -122,7 +122,7 @@ function parkCellsByLabel(R, lab) {
   for (const o of out.values()) delete o._best;
   return out;
 }
-// The same for one block outline ([[x, z], ...]) on its own 1 m grid: { share, name }, name only above 25 % (NYC's rule)
+// The same for one block outline ([[x, z], ...]) on its own 1 m grid: { share, name }, name only above 25 % (as above)
 function parkCoverage(outline, res = 1) {
   const bb = bbox(outline);
   const g = { x0: Math.floor(bb.x0 / res) * res, z0: Math.floor(bb.z0 / res) * res, res };

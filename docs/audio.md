@@ -38,6 +38,7 @@ mix -> DynamicsCompressor -> master(gain, ramps to 0.65) -> destination
 ## Lifecycle, autoplay and unlock
 
 - `main.js` constructs `CityAudioSystem({ controllerManager, trafficSystem, highwayTraffic, tramSystem, streetDetails }, { onStateChange })`.
+  `highwayTraffic` is a stub `{ cars: [] }`: the ambient highway traffic (`createHighwayTraffic`) was removed.
   It calls `update(dt, elapsed, camera, night)` every frame, `honk()` on KeyB, `setEnabled()` on KeyN and the
   `#btn-sound` button, and `dispose()` on `pagehide` (only when the page is not persisted to bfcache).
 - No context exists until a user gesture. `pointerdown`/`keydown` listeners on `document` call `unlock()`, which
@@ -81,7 +82,7 @@ mix -> DynamicsCompressor -> master(gain, ramps to 0.65) -> destination
   over the length, i.e. 1/radius, from R ≈ 80 m to full at R ≈ 30 m) and needs > 1 m/s. `motorParams.squeal` is passed
   to every voice; the others ignore it.
 - Inactive player bicycles are skipped (their stored speed is stale). Inactive player vehicles sound at reduced
-  gain with zero speed/load. Highway cars with `y < -0.05` (lane-end dips, underpasses) are silent.
+  gain with zero speed/load.
 
 ## Simulation couplings (silent breakage risk)
 
@@ -89,8 +90,6 @@ mix -> DynamicsCompressor -> master(gain, ramps to 0.65) -> destination
 freezes. If you rename or remove any of these, update `audio-sources.js` in the same change:
 - street cars/buses (`trafficSystem.cars/buses`): `edge`, `edge.to.signal`, `edge.axisIndex`, `x`, `z`, `speed`,
   `acc`, `driver.a`, `yaw`, `yawOffset`, `isPolice`, `bus`, `isSUV`, `wait`, `gap`, `leaderSpeed`, `conn`, `yielding`.
-- highway cars: `placed`, `x`, `y`, `z`, `yaw`, `v`, `acc`, `kind`. `createHighwayTraffic` writes the pose before
-  any visibility-culling `continue` so that cars behind the camera are still audible. Keep that order.
 - peds: `placed`, `x`, `z`, `ax`, `az`, `ux`, `uz`, `len`, `node`, `v`, `rig.seed`, `rig.phase`, `rig.feet[i].px/py/pz`,
   `conversation` (`{ a, b }`, where `a`/`b` are ped objects and both must point back at the pair).
 - controller entities: `type`, `position`, `speed`, `heading`, `verticalSpeed`, `verticalVel`, `mesh.visible`,

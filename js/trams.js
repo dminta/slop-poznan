@@ -6,8 +6,8 @@ import { buildTramSectionGeometry, buildTramBellowsGeometry, createTramMaterial,
 import { HEADLIGHTS, tramLightSpec, createVehicleHeadlight, placeVehicleHeadlight } from './vehicle-lights.js';
 
 // js/trams.js
-// Poznań trams (docs/poznan-plan.md Phase 9) on the tram track graph from GEO.rail, modelled on createHighwayTraffic in
-// traffic.js: every tram drives its own path of track edges with the IDM, never changes track and is posed from arc
+// Poznań trams (docs/poznan-plan.md Phase 9) on the tram track graph from GEO.rail, modelled on the former ambient
+// highway traffic in traffic.js: every tram drives its own path of track edges with the IDM, never changes track and is posed from arc
 // length. On top of that:
 // - Track graph: the tram chains (cut at every switch and crossing by the geodata build, so chain ends with equal
 //   coordinates are the junctions) become directed edges, one-way chains one way and the others both ways. At a node a
@@ -1597,7 +1597,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     }
     dirtyState.clear();
 
-    // 4. Headlights for the nearest trams in view, faded in at dusk (the highway traffic's ramp)
+    // 4. Headlights for the nearest trams in view, faded in at dusk (the street traffic's ramp)
     lit.length = litCount;
     if (litCount > 1) lit.sort(byEffDist);
     const glow = cityUniforms && cityUniforms.uInteriorGlow ? cityUniforms.uInteriorGlow.value : 0.48;
