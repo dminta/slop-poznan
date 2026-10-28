@@ -17,7 +17,7 @@ function crosswalksOf(edges) {
 
 // The markings road-paint.js lays on a hand-built network, read back from its geometry: one quad per strip
 // (vertices a-, a+, b+, b-), with its colour and dash pattern (paint: phase, period, duty)
-function paintOf(edges, crosswalks = crosswalksOf(edges)) {
+function paintOf(edges, crosswalks = crosswalksOf(edges), railClearance = null) {
   let geometry = null;
   class Color { constructor(hex) { this.r = (hex >> 16) / 255; this.g = ((hex >> 8) & 255) / 255; this.b = (hex & 255) / 255; } }
   class BufferGeometry { constructor() { this.a = {}; geometry = this; } setAttribute(k, v) { this.a[k] = v.array; } setIndex() {} }
@@ -27,7 +27,7 @@ function paintOf(edges, crosswalks = crosswalksOf(edges)) {
     imports: { 'three/webgpu': THREE, './road-network.js': { CROSSWALK: 4.3, STOP_SETBACK: 1.75 }, './tsl-materials.js': { createRoadPaintMaterial: () => ({}) } },
     filename: 'road-paint.js'
   });
-  buildRoadPaint({ add() {} }, { edges, paintEdges: edges }, crosswalks);
+  buildRoadPaint({ add() {} }, { edges, paintEdges: edges }, crosswalks, railClearance);
   const { position: p, color: c, paint } = geometry.a;
   const quads = [];
   for (let v = 0; v < p.length / 3; v += 4) {
@@ -35,6 +35,9 @@ function paintOf(edges, crosswalks = crosswalksOf(edges)) {
       w: Math.hypot(p[v * 3 + 3] - p[v * 3], p[v * 3 + 5] - p[v * 3 + 2]),
       len: Math.hypot(p[v * 3 + 9] - p[v * 3], p[v * 3 + 11] - p[v * 3 + 2]),
       x: (p[v * 3] + p[v * 3 + 3] + p[v * 3 + 6] + p[v * 3 + 9]) / 4,
+      z0: Math.min(p[v * 3 + 2], p[v * 3 + 5], p[v * 3 + 8], p[v * 3 + 11]),
+      z1: Math.max(p[v * 3 + 2], p[v * 3 + 5], p[v * 3 + 8], p[v * 3 + 11]),
+      phase: paint[v * 3],
       white: c[v * 3] > 0.8 && c[v * 3 + 2] > 0.8,
       period: paint[v * 3 + 1],
       duty: paint[v * 3 + 2]
@@ -62,6 +65,22 @@ test('all markings are white, with P-10 zebras 4 m deep in 0.5 m stripes', () =>
   const zebras = quads.filter((q) => q.period === 1 && q.duty === 0.5);
   assert.equal(zebras.length, 2);
   assert.ok(zebras.every((q) => Math.abs(q.w - 4) < 1e-6 && Math.abs(q.len - 14) < 1e-6));
+});
+
+test('zebras stop short of the tram tracks they cross, the stripes lined up either side', () => {
+  // a track down the middle of the road (z = 0): each 14 m zebra splits into two pieces 1.7 m clear of it
+  const edges = road({ half: 7, lanes: [1.8, 5.4], signal: true });
+  const zebras = paintOf(edges, crosswalksOf(edges), (x, z, r) => Math.min(r, Math.abs(z))).filter((q) => q.period === 1 && q.duty === 0.5);
+  assert.equal(zebras.length, 4);
+  for (const q of zebras) {
+    assert.ok(q.z0 >= 1.7 - 1e-6 || q.z1 <= -1.7 + 1e-6, `a piece over the track: ${q.z0.toFixed(2)} to ${q.z1.toFixed(2)}`);
+    assert.ok(q.len > 5.1 && q.len < 5.31, `${q.len.toFixed(2)} m`);
+    // its stripe phase is its distance from the zebra's start, so both pieces keep one pattern
+    assert.ok(Math.abs(q.phase) < 1e-6 || Math.abs(q.phase - (q.z0 + 7)) < 1e-6, `phase ${q.phase}`);
+  }
+  // with no track near, the zebras are whole
+  const whole = paintOf(edges, crosswalksOf(edges), (x, z, r) => r).filter((q) => q.period === 1 && q.duty === 0.5);
+  assert.ok(whole.length === 2 && whole.every((q) => Math.abs(q.len - 14) < 1e-6));
 });
 
 test('opposing lanes: P-4 double solid on multi-lane roads, dashed or nothing on single-lane ones', () => {

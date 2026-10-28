@@ -4,7 +4,7 @@ import { ssr } from 'three/addons/tsl/display/SSRNode.js';
 import { createPostProcessing } from './post-processing.js';
 import { ClusteredLighting } from 'three/addons/lighting/ClusteredLighting.js';
 import { getLocationLabel, STREET_JOIN, districtAt, isTypingInField, formatCount, ROADS, CITY_LANDMARKS, TELEPORT_LOCATIONS } from './city-config.js';
-import { buildCityGrid } from './city-grid.js';
+import { buildCityGrid, railClearance } from './city-grid.js';
 import { buildOutskirts } from './outskirts.js';
 import { buildBridges } from './bridges.js';
 import { buildLandmarks } from './landmarks.js';
@@ -108,7 +108,7 @@ async function initApp() {
   allColliders.push(...streetDetails.colliders);
   // Likewise the square & park benches, lampposts, planters and tree trunks: none on the network's sidewalks
   allColliders.push(...cityGrid.propColliders);
-  buildRoadPaint(scene, trafficSystem.network, trafficSystem.crosswalks);
+  buildRoadPaint(scene, trafficSystem.network, trafficSystem.crosswalks, railClearance);
   markInit('roadPaint');
   // Rails, overhead line and stops, placed clear of the car lanes just built (none of it is a traffic obstacle);
   // the player collides with the poles and stop furniture; with the mainline railway's masts, end walls and fence too,

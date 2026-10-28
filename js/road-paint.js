@@ -22,6 +22,8 @@ const DASH_LONG = 12; // P-1a, above 70 km/h: 4 m dashes, 8 m gaps (annex 2.2.1.
 const FAST = 70 / 3.6 + 0.01;
 const CENTRE_MIN = 5.8; // no lane lines on a two-way carriageway narrower than this (annex 2.2.1)
 const ZEBRA_PERIOD = 1.0; // P-10: 0.5 m stripes, 0.5 m gaps, 4.0 m deep (annex 4.2.1)
+const ZEBRA_RAIL_KEEP = 1.7; // m from a track centreline left unpainted: a tram body's 1.2 m half width and its sway
+const ZEBRA_MIN_PIECE = 1.0; // shorter pieces of a zebra cut by the tracks are not painted
 // P-14: 0.5 m deep, 0.75 m rectangles 0.25 m apart, at least 2 m before the zebra (annex 4.2.5): 0.1 m inside the edge
 // end, which is the edge's setbackTo (STOP_SETBACK 1.75 m) before the CROSSWALK band, whose zebra keeps 0.15 m off its
 // edges, so setbackTo + 0.25 m of asphalt between them. Which approaches get one:
@@ -40,8 +42,9 @@ const STOP_W = 0.5;
 const STOP_PERIOD = 1.0;
 const STOP_DUTY = 0.75;
 
-// crosswalks: pedestrian-routes.js `crosswalks` ({ node, ax, az, bx, bz, ux, uz }: a network node and the zebra's ends)
-function buildRoadPaint(scene, network, crosswalks = []) {
+// crosswalks: pedestrian-routes.js `crosswalks` ({ node, ax, az, bx, bz, ux, uz }: a network node and the zebra's ends);
+// railClearance(x, z, r): city-grid.js's distance to the nearest track centreline, capped at r (none: no tracks)
+function buildRoadPaint(scene, network, crosswalks = [], railClearance = null) {
   const position = [];
   const side = [];
   const paint = [];
@@ -156,7 +159,41 @@ function buildRoadPaint(scene, network, crosswalks = []) {
   // P-10 zebras exactly where pedestrian-routes.js lays its crosswalks, curb to curb next to the intersection (between
   // it and the stop lines): only where both ends reach a curb island, and never on top of one another, so none is
   // painted on the short links inside a junction complex or ending in the roadway, and none where nobody crosses
-  for (const c of crosswalks) strip(c.ax, c.az, c.bx, c.bz, CROSSWALK - 0.3, WHITE, ZEBRA_PERIOD, 0.5);
+  // A zebra stops short of the tram tracks it runs over: the trackway (the rails and ZEBRA_RAIL_KEEP either side of
+  // the centreline, a tram body's swept reach) stays unpainted, as Polish crossings over tram track are mostly left
+  // unmarked. Pieces under ZEBRA_MIN_PIECE (less than a stripe and its gap) are dropped.
+  for (const c of crosswalks) {
+    const len = Math.hypot(c.bx - c.ax, c.bz - c.az);
+    if (!railClearance || len < 0.05 || railClearance((c.ax + c.bx) / 2, (c.az + c.bz) / 2, len / 2 + 4) > len / 2 + 3) {
+      strip(c.ax, c.az, c.bx, c.bz, CROSSWALK - 0.3, WHITE, ZEBRA_PERIOD, 0.5);
+      continue;
+    }
+    const ux = (c.bx - c.ax) / len, uz = (c.bz - c.az) / len;
+    const h = (CROSSWALK - 0.3) / 2;
+    // on the track's reach anywhere across the zebra's depth at s m along it
+    const onTrack = (s) => {
+      for (const d of [-h, 0, h]) {
+        if (railClearance(c.ax + ux * s - uz * d, c.az + uz * s + ux * d, ZEBRA_RAIL_KEEP + 1) < ZEBRA_RAIL_KEEP) return true;
+      }
+      return false;
+    };
+    let start = -1;
+    const steps = Math.ceil(len / 0.1);
+    for (let i = 0; i <= steps; i++) {
+      const s = (len * i) / steps;
+      const blocked = onTrack(s);
+      if (!blocked && start < 0) start = s;
+      if ((blocked || i === steps) && start >= 0) {
+        const end = blocked ? s - len / steps : s;
+        if (end - start >= ZEBRA_MIN_PIECE) {
+          // keep the stripe phase of the whole zebra, so the pieces line up with each other
+          strip(c.ax + ux * start, c.az + uz * start, c.ax + ux * end, c.az + uz * end, CROSSWALK - 0.3, WHITE,
+            ZEBRA_PERIOD, 0.5, start);
+        }
+        start = -1;
+      }
+    }
+  }
 
   // At a simple bend, corresponding offset lines meet at a bounded miter, without an intersection-sized gap.
   for (const roadsAtBend of bends.values()) {
