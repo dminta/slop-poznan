@@ -91,6 +91,87 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
     assert.ok(stops.some((s) => s.name === name), `a stop named ${name}`);
   }
 
+  // The roadway wins over the trackbed: no ballast on an OSM carriageway (the link's width less a tram strip beside
+  // it) or within a lane's 1.8 m, no lane centre under ballast, and street-running track (its centreline on a
+  // carriageway) flush. Sampled on a 0.25 m grid over every bed, independently of tram-infra.js's own lookups.
+  // Measured 2026-10-28 (with curbs as in road-network.test.cjs; this network has none): before (a fixed 2.9 m bed
+  // wherever no lane centre came within 3.5 m of the piece's middle) 297 m² of carriageway and 7 m² of lanes under
+  // ballast, 25 pieces with their centreline on a carriageway; after 0, 0 and 0, with 139 of 7899 ballast pieces made
+  // flush and 61 narrowed (31.0 -> 30.5 km of ballast).
+  {
+    const { beds } = layout;
+    const RG = GEO.roadGraph;
+    const C = 16;
+    const file = (g, s, pad) => {
+      for (let ix = Math.floor((Math.min(s.ax, s.bx) - pad) / C); ix <= Math.floor((Math.max(s.ax, s.bx) + pad) / C); ix++) {
+        for (let iz = Math.floor((Math.min(s.az, s.bz) - pad) / C); iz <= Math.floor((Math.max(s.az, s.bz) + pad) / C); iz++) {
+          const k = ix * 100000 + iz;
+          if (!g.has(k)) g.set(k, []);
+          g.get(k).push(s);
+        }
+      }
+    };
+    const segD = (s, x, z) => {
+      const ex = s.bx - s.ax, ez = s.bz - s.az;
+      const t = Math.max(0, Math.min(1, ((x - s.ax) * ex + (z - s.az) * ez) / (ex * ex + ez * ez || 1)));
+      return Math.hypot(s.ax + ex * t - x, s.az + ez * t - z);
+    };
+    const near = (g, x, z) => g.get(Math.floor(x / C) * 100000 + Math.floor(z / C)) || [];
+    const cars = new Map();
+    for (const [a, b, , w, , , inner, flags] of RG.links) {
+      const pts = [RG.nodes[2 * a], RG.nodes[2 * a + 1], ...inner, RG.nodes[2 * b], RG.nodes[2 * b + 1]];
+      const half = (w > 3 ? w : 9.1) / 2 - (flags & 24 ? 3.25 : 0);
+      for (let k = 0; k + 3 < pts.length; k += 2) file(cars, { ax: pts[k], az: pts[k + 1], bx: pts[k + 2], bz: pts[k + 3], half }, 12);
+    }
+    const onCarriageway = (x, z) => near(cars, x, z).some((s) => segD(s, x, z) < s.half);
+    const lanes = new Map();
+    const laneSegs = [];
+    for (const e of network.paintEdges) {
+      for (const o of e.lanes) {
+        const ax = e.x0 + e.rx * o, az = e.z0 + e.rz * o;
+        const s = { ax, az, bx: ax + e.dx * e.span, bz: az + e.dz * e.span };
+        file(lanes, s, 4);
+        laneSegs.push(s);
+      }
+    }
+    const inLane = (x, z) => near(lanes, x, z).some((s) => segD(s, x, z) < 1.8);
+    let overCar = 0, overLane = 0, streetOnBallast = 0, ballast = 0;
+    const bedGrid = new Map();
+    for (const p of beds) {
+      const mx = (p.ax + p.bx) / 2, mz = (p.az + p.bz) / 2;
+      if (!p.bed) continue;
+      ballast++;
+      assert.ok(p.bed >= 1.2 && p.bed <= 1.45 && !p.ground && GEO.rail[p.railIndex].street !== 1);
+      if (onCarriageway(mx, mz)) streetOnBallast++;
+      const len = Math.hypot(p.bx - p.ax, p.bz - p.az);
+      const dx = (p.bx - p.ax) / len, dz = (p.bz - p.az) / len;
+      file(bedGrid, { ax: p.ax, az: p.az, bx: p.bx, bz: p.bz, dx, dz, len, half: p.bed }, 2);
+      for (let u = 0.125; u < len; u += 0.25) {
+        for (let v = -p.bed + 0.125; v < p.bed; v += 0.25) {
+          const x = p.ax + dx * u - dz * v, z = p.az + dz * u + dx * v;
+          if (onCarriageway(x, z)) overCar += 0.0625;
+          if (inLane(x, z)) overLane += 0.0625;
+        }
+      }
+    }
+    let laneUnder = 0;
+    for (const s of laneSegs) {
+      const L = Math.hypot(s.bx - s.ax, s.bz - s.az) || 1;
+      for (let d = 0; d <= L; d += 1) {
+        const x = s.ax + (s.bx - s.ax) * d / L, z = s.az + (s.bz - s.az) * d / L;
+        if (near(bedGrid, x, z).some((b) => {
+          const u = (x - b.ax) * b.dx + (z - b.az) * b.dz;
+          return u >= 0 && u <= b.len && Math.abs(-(x - b.ax) * b.dz + (z - b.az) * b.dx) < b.half;
+        })) laneUnder++;
+      }
+    }
+    assert.ok(ballast > 7000, `${ballast} ballast pieces`);
+    assert.equal(overCar, 0, `${overCar} m² of carriageway under ballast`);
+    assert.equal(overLane, 0, `${overLane} m² of lanes under ballast`);
+    assert.equal(laneUnder, 0, `${laneUnder} lane centre samples under ballast`);
+    assert.equal(streetOnBallast, 0, `${streetOnBallast} ballast pieces centred on a carriageway`);
+  }
+
   // Mainline railway: pieces only on land, cut clear of every roadway and tram track with an end wall at each cut,
   // masts clear of roads, tram and rail tracks, portals reaching over neither, wires supported
   const rail = layoutRailInfrastructure(network);
