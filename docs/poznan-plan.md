@@ -1187,8 +1187,8 @@ from the 2026-10-27 audit**; grep case-insensitively.
 
 ### Phase 15: Bug fixes and Polish vehicles
 
-**Status: items 1–5 done on 2026-10-28, items 6–10 open** (opened 2026-10-28 from in-browser reports and the agents'
-open items). Everything was checked headless only (222 tests).
+**Status: items 1–5, 7 and 8 done, item 6 partly done (2026-10-29), items 9–10 open** (opened 2026-10-28 from in-browser reports and the agents'
+open items). Everything was checked headless only (230 tests).
 - 15.1: Plac Cyryla Ratajskiego and Plac Wielkopolski are paved round a 2.29 m cut on each side of the track
   (`cutSlab`). Every prop keeps 2 m off any rail (`clearOfRails`); 48 square/park props, 154 street props and 66 street
   trees were removed or moved. Open: 18 signal poles found no free spot and are gone. Platforms sit 1 cm above the slab,
@@ -1274,15 +1274,34 @@ open items). Everything was checked headless only (222 tests).
    - Signal heads move to the left pole when the right curb has no spot, so arms without a head went from 219 to 161.
    - Still open: the central Dworzec node still has no zebras (needs medians and tram strips as blocks in `tools/`).
      One approach at (675, 2738) off Krucza/Zamenhofa has no signal head.
-6. **Traffic gridlock** (found by the 15.5 measurement). Over 5 simulated minutes in 5 districts:
-   - mean car speed is 4.7 km/h;
-   - 65% of cars are stopped;
-   - the longest queue is 34 cars;
-   - the longest waits are 250–260 s.
+6. **Traffic gridlock: deadlocks fixed 2026-10-29; the stop-share target is not met.**
+   - Benchmark: `node tools/bench-traffic.mjs` (`docs/testing.md`).
+   - Over 7 districts × 5 min:
 
-   It is mostly in Jeżyce, Łazarz and Centrum, and crossers make no difference. Find the deadlocks (junction-box
-   blocking, signal phases, turn conflicts, tram waits) and fix them. A tram stuck 90 s behind a "switch" wait near
-   (-1430, 90) predates 15.5. Files: `js/traffic.js`, `js/road-network.js`, `js/trams.js`.
+     | | Before | After |
+     |---|---|---|
+     | Mean speed | 5.0 km/h | 11.6 km/h |
+     | Cars stopped | 67% | 47% |
+     | Longest queue | 36 cars | 11 cars |
+     | Cars held > 120 s | 115 | 35 |
+     | Deadlocks | 3 | 0 |
+
+   - Causes and fixes:
+     - The car pool is now capped at 12 cars per km of nearby lane (sparse districts show 28–81 cars, not about 180).
+     - Unsignalised two-arm bends give right of way both ways.
+     - A held tram blocks only what is under its body.
+     - Pedestrians may cross in front of a tram that is waiting for them.
+     - A zebra courtesy rule: a car that has waited 5 s gets priority.
+   - `tests/traffic-flow.test.mjs` guards against deadlocks.
+   - Open:
+     - Signal timing (26 s green in a 60 s cycle, no offsets) is the main remaining cause. With every signal green, 40%
+       of cars are stopped. Change the timing in `city-config.js` and give coordinated signals offsets.
+     - Two-arm signal nodes whose third OSM arm was dropped (e.g. Wilda (−156, 1992)).
+     - Single-lane give-way approaches block behind a left-turner (Łazarz (−1875, 1299)).
+     - Lanes lie on the opposite tram track at Rynek Jeżycki (a car was held 211 s at (−2023, −448)).
+     - Trams queue back over switches and need a "don't stop on the switch" rule in `js/trams.js` ((−1396, 96),
+       (−851, 1681)).
+     - One tram–pedestrian wait remains at (−854, 46).
 7. **Villa density: done 2026-10-28.** A new `villaBlock` layout builds detached houses steered to each block's real
    share. Blocks that are empty in OSM stay empty, and Chartowo is now an `ESTATE`. On buildable blocks:
 
@@ -1304,6 +1323,16 @@ open items). Everything was checked headless only (222 tests).
    - near Dmowskiego (−2448, 2214), the rails ride up on a 0.22 m curb sliver.
 
    Zebras over ballasted track are still covered by the bed.
+
+   **The actual Hetmańska bug, fixed 2026-10-29.** The street had an 80 m gap under the Górczyn railway bridge
+   (−1855, 2482). OSM maps it as `tunnel=yes` / `layer=-1`, and `poz-roads.mjs` dropped every underground way. The
+   mainline track lay across the gap.
+   - `railwayUnderpasses()` now keeps underground roads and tram ways that cross at-grade mainline track. That also
+     restored Nad Wierzbakiem and two service roads.
+   - Level crossings (`GEO.levelCrossings`, 39 nodes) get flush rails and no ballast, wall or fence on the road.
+   - Covered by `tests/rail-crossings.test.cjs`.
+   - Open: sidewalks stop under rail bridges, because giving them back joined blocks into rings. There is no viaduct
+     deck or raised track, and level crossings have no barriers.
 9. **Re-measure the docs**: the counts in `docs/world.md` and `docs/actors.md` measured before 15.2 and 13.2
    (furniture, stop lines, lane-line km, track km).
 10. **Tram route data**: the Zawady loop and the route ends inside the box (lines 2/7/8/18 at (−3501, −946), 7/12/13 at
