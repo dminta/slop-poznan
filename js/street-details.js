@@ -568,9 +568,11 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         return null;
       };
       const big = a.w >= 14.5 || a.lanes >= 3;
+      let rightPole = false;
       for (const side of [1, -1]) {
         const p = spot(side);
         if (!p) continue;
+        if (side === 1) rightPole = true;
         addPole(p);
         addFootprint(p.x, p.z, 0.3, 0.3, 'signal');
         addCollider(p.x, p.z, 0.08, 0.08, 0.1 + SIGNAL_POLE_H);
@@ -579,8 +581,9 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         dummy.scale.set(0.055, SIGNAL_POLE_H, 0.055);
         dummy.updateMatrix();
         signalPoleMatrices.push(dummy.matrix.clone());
-        // vehicle head facing the arriving traffic (on the left only as a repeater on wide arms)
-        if (a.inbound && (side === 1 || a.w >= 12 || a.lanes >= 3)) {
+        // vehicle head facing the arriving traffic: on the right, and on the left as a repeater on wide arms, or as the
+        // only head where the right curb has no spot for a pole (a tram track or a crosswalk landing in the way)
+        if (a.inbound && (side === 1 || a.w >= 12 || a.lanes >= 3 || !rightPole)) {
           const m = setFacing(p.x + a.ux * 0.18, S1_Y, p.z + a.uz * 0.18, a.ux, a.uz);
           s1Matrices.push(m);
           (group0 ? s1AveMatrices : s1StreetMatrices).push(m);
@@ -1365,7 +1368,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   }
 
   scene.add(group);
-  return { group, footprints, colliders, signalClock, audioSignals, update };
+  return { group, footprints, colliders, signalClock, audioSignals, vehicleHeads: s1Matrices.length, update };
 }
 
 export { buildStreetDetails, plateLabel };
