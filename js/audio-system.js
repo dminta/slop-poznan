@@ -1,5 +1,5 @@
 import { createSynthResources, createMotorVoice, setControlRate } from './audio-synthesis.js';
-import { createEventResources, playEvent, createWindVoice } from './audio-events.js';
+import { createEventResources, playEvent, createWindVoice, SIGNAL_TIMING } from './audio-events.js';
 import { CityAudioSources } from './audio-sources.js';
 import { CityAcoustics } from './audio-acoustics.js';
 
@@ -497,7 +497,7 @@ class CityAudioSystem {
       if (now + 0.12 >= state.signal) {
         const when = Math.max(now, state.signal);
         this.emit('signal', source, { walk: source.walk, intensity: 0.28, when });
-        state.signal = when + (source.walk ? 0.5 : 1);
+        state.signal = when + (source.walk ? SIGNAL_TIMING.walk : SIGNAL_TIMING.wait);
       }
     }
     for (const source of sources.motors) {

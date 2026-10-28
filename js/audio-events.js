@@ -273,16 +273,24 @@ function gustBuffer(ctx) {
   return buffer;
 }
 
+// Polish acoustic pedestrian signals (sygnalizacja akustyczna): a slow, dull locator tick on red so a blind
+// pedestrian can find the pole, and a fast bright rattle on green ("terkot", ~10 clicks a second) for the time they may
+// cross. `wait` and `walk` are the scheduling periods in seconds; a walk buffer holds `walkClicks` clicks, one period.
+const SIGNAL_TIMING = { wait: 1.25, walk: 0.5, walkClicks: 5 };
+
 function signal(ctx, walk) {
   const random = randomSource(84);
-  // NYC's newer APS units use rapid percussive ticks for WALK, with a quiet locator pulse between phases.
-  return makeBuffer(ctx, walk ? 0.5 : 0.09, (t) => {
-    const local = walk ? t % 0.125 : t;
-    if (local > 0.055) return 0;
-    const attack = 1 - Math.exp(-local * 2500);
-    const tone = Math.sin(TAU * 880 * local) + Math.sin(TAU * 1760 * local) * 0.27;
-    return (tone * 0.8 + (random() * 2 - 1) * 0.15) * attack * Math.exp(-local * (walk ? 105 : 85));
-  }, 0.45);
+  const spacing = SIGNAL_TIMING.walk / SIGNAL_TIMING.walkClicks;
+  return makeBuffer(ctx, walk ? SIGNAL_TIMING.walk : 0.07, (t) => {
+    const local = walk ? t % spacing : t;
+    if (local > (walk ? 0.03 : 0.05)) return 0;
+    const attack = 1 - Math.exp(-local * 3000);
+    // green: a short beep-like click near 2.1 kHz; red: a woody tick around 700 Hz with more noise
+    const tone = walk ? Math.sin(TAU * 2100 * local) + Math.sin(TAU * 4200 * local) * 0.22
+      : Math.sin(TAU * 700 * local) + Math.sin(TAU * 1630 * local) * 0.35;
+    const noise = (random() * 2 - 1) * (walk ? 0.12 : 0.3);
+    return (tone * 0.8 + noise) * attack * Math.exp(-local * (walk ? 160 : 110));
+  }, walk ? 0.45 : 0.5);
 }
 
 function bell(ctx) {
@@ -504,3 +512,5 @@ export function createWindVoice(ctx, resources, output) {
     }
   };
 }
+
+export { SIGNAL_TIMING };
