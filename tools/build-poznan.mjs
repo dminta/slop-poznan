@@ -71,8 +71,8 @@ const GEO = {
   // [name, curb-to-curb width, direction (1 one-way along the points, 0 both), lanes, motorway/trunk, flatPts]
   roads,
   // nodes [x, z, ...], links [a, b, name index, width, lanes, dir (1 a -> b, -1 b -> a, 0 both), inner points [x, z, ...],
-  // flags (bit 0 bridge, bit 1 tram on street, bit 2 roundabout, bits 3/4 a painted bike lane right/left of a -> b),
-  // speed limit km/h], names, signals [node index]
+  // flags (bit 0 bridge, bit 1 tram on street, bit 2 roundabout, bits 3/4 the 6.5 m tram strip in the width lies right /
+  // left of a -> b, neither: centred), speed limit km/h], names, signals [node index]
   roadGraph,
   // [{ kind: 'tram'|'rail', street (1 street-running), tracks, oneway (1: runs along pts), pts, routes (tram only) }]; cut
   // at every switch and crossing, so the tram network joins on equal end coordinates. routes: indices into tramRoutes of

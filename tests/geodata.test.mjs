@@ -30,8 +30,11 @@ test('Poznań geodata builds offline with default paths in a checkout containing
     assert.ok(GEO.land.length >= 3, 'west bank, east bank and Ostrów Tumski');
     assert.ok(GEO.water.some((w) => w.name === 'Warta'));
     assert.ok(GEO.roadGraph.links.some((l) => l[7] & 1), 'a bridge link');
-    // painted bike lanes (OSM cycleway=lane): flags bit 3 right of a -> b, bit 4 left; ~270 links on the 2026-10-25 snapshot
-    assert.ok(GEO.roadGraph.links.filter((l) => l[7] & 24).length > 150, 'bike lane links');
+    // flags: bit 0 bridge, 1 tram, 2 roundabout, 3/4 the tram strip right / left of a -> b, beside the carriageway (a
+    // divided road's median tracks; 35 right, 475 left on the 2026-10-25 snapshot), only ever on tram links
+    const links = GEO.roadGraph.links;
+    assert.ok(links.every((l) => (l[7] & ~31) === 0 && (!(l[7] & 24) || ((l[7] & 2) && (l[7] & 24) !== 24))), 'flags');
+    assert.ok(links.filter((l) => l[7] & 24).length > 300, 'tram strips beside their carriageways');
     assert.ok(GEO.roadGraph.signals.length > 100);
     // Speed limits (km/h) on every link: the built-up 50 on most, with many 30/20 zones and a few 70 km/h arteries
     const limits = GEO.roadGraph.links.map((l) => l[8]);

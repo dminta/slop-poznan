@@ -6,9 +6,10 @@
 // and its end node ids give the road graph its topology (poz-roadgraph.mjs) without guessing from coordinates.
 //
 // Exports (world metres, x east, z south):
-//   pieces:         [{ id, wayId, name, cls, w, lanes, dir, bridge, tram, roundabout, kmh, kmhTagged, bike, pts: [[x, z]...],
-//                   nodes: [osmId...] }]; kmh: the speed limit (km/h), kmhTagged: 1 when OSM states it (speedLimit);
-//                   bike: { right, left } painted bike lanes on either side of the points' direction (bikeLanes)
+//   pieces:         [{ id, wayId, name, cls, w, lanes, dir, bridge, tram, roundabout, kmh, kmhTagged, pts: [[x, z]...],
+//                   nodes: [osmId...], tramSide }]; kmh: the speed limit (km/h), kmhTagged: 1 when OSM states it (speedLimit);
+//                   tramSide: +1 / -1 the TRAM_W tram strip in w lies right / left of the points (tracks beside the
+//                   carriageway), 0 centred on them;
 //                   at-grade drivable pieces touching DETAIL_BOX + PIECE_PAD (tunnels and layer < 0 dropped)
 //   plazas:         [{ name, ring: [[x, z]...], holes? }] pedestrian areas and squares, negative shoelace winding;
 //                   holes: a multipolygon's inner rings of PLAZA_HOLE_M2 and up (buildings on the square), positive
@@ -53,24 +54,6 @@ const isOneway = (t) => {
   if ((t.junction === 'roundabout' || t.junction === 'circular') && t.oneway !== 'no') return 1;
   return 0;
 };
-// Painted bike lanes (cycleway=lane and contraflow opposite_lane) on each side of the way, in the way's own direction:
-// { right, left } of its points. `cycleway:left|right|both` win; the plain `cycleway` key means both sides on a two-way
-// road, the side of travel (lane) or the side against it (opposite_lane: a kontrapas, on the drivers' left) on a one-way
-// one. Tracks, shared lanes, bus lanes and `cycleway:lanes` are not painted bike lanes and are left out.
-const BIKE_LANE = /^(lane|opposite_lane)$/;
-function bikeLanes(t, dir) {
-  const side = { right: false, left: false };
-  const c = t.cycleway;
-  if (c === 'lane' || c === 'opposite_lane') {
-    if (!dir) side.right = side.left = true;
-    else side[(c === 'lane') === (dir > 0) ? 'right' : 'left'] = true;
-  }
-  for (const s of ['right', 'left']) {
-    const v = t['cycleway:' + s] ?? t['cycleway:both'];
-    if (v !== undefined) side[s] = BIKE_LANE.test(v);
-  }
-  return side;
-}
 const baseCls = (cls) => cls.replace(/_link$/, '');
 function defaultLanes(cls, dir) {
   const big = ['motorway', 'trunk', 'primary'].includes(baseCls(cls));
@@ -183,7 +166,7 @@ for (const w of drivableWays) {
     wayId: w.id, name: t.name || t.ref || '', cls, w: width, explicitW: explicit, lanes, dir,
     bridge: t.bridge && t.bridge !== 'no' ? 1 : 0, tram: 0,
     roundabout: t.junction === 'roundabout' || t.junction === 'circular' ? 1 : 0,
-    kmh: limit.kmh, kmhTagged: limit.tagged, bike: bikeLanes(t, dir)
+    kmh: limit.kmh, kmhTagged: limit.tagged
   };
   // Cut indices: the ends plus every split node in between
   const cuts = [0];
@@ -308,14 +291,51 @@ function shareAlong(pts, test) {
 // of parallel. 12 m reaches the tracks of a central reservation from either carriageway of a divided road (Królowej
 // Jadwigi, Grunwaldzka: carriageway axis to track ≈ 6-10 m) without reaching tracks behind a building line. Service
 // roads and links are left out: they run beside reservations (tram loops, depot yards) rather than carry the tracks.
+// Such a piece is TRAM_W wider. Where the tracks run beside its carriageway rather than on it (the median of a divided
+// road: Św. Marcin, Roosevelta, Królowej Jadwigi), the tram strip is added on their side only, `tramSide` +1 right or
+// -1 left of the points' direction (0: tracks within the carriageway, the strip centred on it): the median signed
+// offset of the nearest parallel track lies beyond the carriageway's half width. Centred on every piece, the strip put
+// 3.25 m of roadway past the real outer curb, and the lanes looked shifted towards the tracks. Measured on the
+// 2026-10-25 snapshot: 512 tram links beside their tracks (32.2 km), 154 with the tracks on them (6.3 km).
 const TRAM_D = 12;
 const TRAM_COS = 0.9;
 const tramGrid = segGrid(trackWays.filter((t) => t.kind === 'tram').map((t) => t.pts));
+// Median signed offset (right of the points' direction) of the nearest parallel track within TRAM_D, every 4 m
+function trackOffset(pts) {
+  const offs = [];
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
+    const L = Math.hypot(bx - ax, bz - az);
+    if (L < 1e-6) continue;
+    const ux = (bx - ax) / L, uz = (bz - az) / L;
+    for (let s = L / 2 % 4; s < L; s += 4) {
+      const x = ax + ux * s, z = az + uz * s, ix = Math.floor(x / GRID), iz = Math.floor(z / GRID);
+      let best = TRAM_D, off = null;
+      for (let a = ix - 1; a <= ix + 1; a++) {
+        for (let b = iz - 1; b <= iz + 1; b++) {
+          for (const [sx, sz, , , vx, vz, SL] of tramGrid.get(a * 100003 + b) || []) {
+            if (Math.abs(vx * ux + vz * uz) < TRAM_COS) continue;
+            const t = Math.max(0, Math.min(SL, (x - sx) * vx + (z - sz) * vz));
+            const qx = sx + vx * t - x, qz = sz + vz * t - z, d = Math.hypot(qx, qz);
+            if (d < best) { best = d; off = qx * -uz + qz * ux; }
+          }
+        }
+      }
+      if (off !== null) offs.push(off);
+    }
+  }
+  offs.sort((p, q) => p - q);
+  return offs.length ? offs[offs.length >> 1] : 0;
+}
 for (const p of pieces) {
+  p.tramSide = 0;
   if (p.cls === 'service' || /_link$/.test(p.cls)) continue;
   if (shareAlong(p.pts, (x, z, dx, dz) => nearParallel(tramGrid, x, z, dx, dz, TRAM_D, TRAM_COS)) >= 0.6) {
     p.tram = 1;
-    if (!p.explicitW) p.w += TRAM_W;
+    if (p.explicitW) continue;
+    const off = trackOffset(p.pts);
+    if (Math.abs(off) > p.w / 2) p.tramSide = Math.sign(off);
+    p.w += TRAM_W;
   }
 }
 for (const [i, p] of pieces.entries()) {
@@ -544,4 +564,4 @@ log(`rail: ${rail.length} lines (tram ${rail.filter((r) => r.kind === 'tram').le
 }
 log(`roads: ${roads.length} polylines (${roads.reduce((t, r) => t + r[5].length / 2, 0)} pts); tram stops ${tramStops.length}; signal nodes ${signalNodes.length}`);
 
-export { pieces, plazas, pedestrianWays, rail, railCorridors, roads, tramRoutes, tramStops, signalNodes, midOf, lineLen };
+export { TRAM_W, pieces, plazas, pedestrianWays, rail, railCorridors, roads, tramRoutes, tramStops, signalNodes, midOf, lineLen };

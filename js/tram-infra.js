@@ -178,7 +178,8 @@ function segmentGrid(cell = 24) {
 }
 
 // Distance to the nearest car lane centreline (capped at r): every lane of every street the network paints (the drivable
-// set before its connectivity filter, so streets traffic doesn't use count as roadway too)
+// set before its connectivity filter, so streets traffic doesn't use count as roadway too), and the curves traffic
+// turns along through the junctions (8 chords each): poles kept 2 m off the straight lanes alone stood on 15 turns
 function laneDistance(network) {
   const laneGrid = segmentGrid(32);
   for (const e of (network && (network.paintEdges || network.edges)) || []) {
@@ -187,6 +188,23 @@ function laneDistance(network) {
       const ax = e.x0 + e.rx * o;
       const az = e.z0 + e.rz * o;
       laneGrid.add(ax, az, ax + e.dx * span, az + e.dz * span, null);
+    }
+  }
+  if (network && network.connector && network.curvePoint) {
+    const p = { x: 0, z: 0, dx: 0, dz: 0 };
+    for (const e of network.edges) {
+      for (const m of e.moves || []) {
+        for (let i = 0; i < m.out.length; i++) {
+          if (m.out[i] < 0) continue;
+          const c = network.connector(e, i, m.to, m.out[i]);
+          network.curvePoint(c, 0, p);
+          for (let k = 1; k <= 8; k++) {
+            const ax = p.x, az = p.z;
+            network.curvePoint(c, c.len * k / 8, p);
+            laneGrid.add(ax, az, p.x, p.z, null);
+          }
+        }
+      }
     }
   }
   return (x, z, r = 6) => {

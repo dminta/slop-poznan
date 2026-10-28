@@ -35,7 +35,6 @@ function paintOf(edges, crosswalks = crosswalksOf(edges)) {
       w: Math.hypot(p[v * 3 + 3] - p[v * 3], p[v * 3 + 5] - p[v * 3 + 2]),
       len: Math.hypot(p[v * 3 + 9] - p[v * 3], p[v * 3 + 11] - p[v * 3 + 2]),
       x: (p[v * 3] + p[v * 3 + 3] + p[v * 3 + 6] + p[v * 3 + 9]) / 4,
-      red: c[v * 3] > c[v * 3 + 2] + 0.2,
       white: c[v * 3] > 0.8 && c[v * 3 + 2] > 0.8,
       period: paint[v * 3 + 1],
       duty: paint[v * 3 + 2]
@@ -45,21 +44,21 @@ function paintOf(edges, crosswalks = crosswalksOf(edges)) {
 }
 
 // A straight east-west road, 100 m between two junctions (stop lines 10 m in), as road-network.js paintEdges
-function road({ half, lanes, back = lanes, limit = 50 / 3.6, signal = false, bike = [false, false], setback = 1.75, axis = 'st' }) {
+function road({ half, lanes, back = lanes, limit = 50 / 3.6, signal = false, setback = 1.75, axis = 'st' }) {
   const A = { id: 0, x: 0, z: 0, shape: false, signal };
   const B = { id: 1, x: 100, z: 0, shape: false, signal };
-  const edge = (from, to, dx, ln, b) => ({
+  const edge = (from, to, dx, ln) => ({
     from, to, axis, x0: from.x, z0: 0, sx: from.x + dx * 10, sz: 0, dx, dz: 0, rx: 0, rz: dx, span: 100, len: 80, half,
-    setbackFrom: setback, setbackTo: setback, lanes: ln, limit, bike: b
+    setbackFrom: setback, setbackTo: setback, lanes: ln, limit
   });
-  const edges = [edge(A, B, 1, lanes, bike)];
-  if (back) edges.push(edge(B, A, -1, back, [bike[1], bike[0]]));
+  const edges = [edge(A, B, 1, lanes)];
+  if (back) edges.push(edge(B, A, -1, back));
   return edges;
 }
 
-test('all markings are white or red, with P-10 zebras 4 m deep in 0.5 m stripes', () => {
+test('all markings are white, with P-10 zebras 4 m deep in 0.5 m stripes', () => {
   const quads = paintOf(road({ half: 7, lanes: [1.8, 5.4], signal: true }));
-  assert.ok(quads.every((q) => q.white || q.red), 'no yellow');
+  assert.ok(quads.every((q) => q.white), 'no yellow, no red bike lanes');
   const zebras = quads.filter((q) => q.period === 1 && q.duty === 0.5);
   assert.equal(zebras.length, 2);
   assert.ok(zebras.every((q) => Math.abs(q.w - 4) < 1e-6 && Math.abs(q.len - 14) < 1e-6));
@@ -108,15 +107,4 @@ test('P-14 stop lines of 0.75 m rectangles 0.25 m apart at signals and on major 
   for (const gap of gaps(squeezed)) assert.ok(gap > 0.2 && gap < 0.3, `${gap.toFixed(2)} m between P-14 and P-10`);
   assert.equal(stops(paintOf(road({ ...major, setback: 0.6 }))).length, 0);
   assert.equal(zebras(paintOf(road({ ...major, setback: 0.6 }))).length, 2);
-});
-
-test('red bike lanes along tagged curbs where the outer lane leaves room', () => {
-  const red = (qs) => qs.filter((q) => q.red);
-  // one-way, 10 m wide, two lanes centred: 3.2 m from the outer lanes to each curb
-  const oneWay = { half: 5, lanes: [-1.8, 1.8], back: null };
-  assert.equal(red(paintOf(road({ ...oneWay, bike: [false, true] }))).length, 1);
-  assert.equal(red(paintOf(road({ ...oneWay, bike: [true, true] }))).length, 2);
-  assert.equal(red(paintOf(road(oneWay))).length, 0, 'untagged');
-  assert.ok(red(paintOf(road({ ...oneWay, bike: [false, true] }))).every((q) => Math.abs(q.w - 1.5) < 1e-6));
-  assert.equal(red(paintOf(road({ half: 3.5, lanes: [1.75], bike: [true, true] }))).length, 0, 'no room');
 });

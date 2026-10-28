@@ -11,11 +11,9 @@ import { createRoadPaintMaterial } from './tsl-materials.js';
 // requires it there); P-1b/P-1a between single opposing lanes on carriageways 5.8 m or wider outside 30 zones (no
 // centre line at 30 km/h or less is local practice, not the annex); P-10 zebras where pedestrian-routes.js lays its
 // crosswalks (traffic.js hands them over); P-14 stop lines on every signalised approach and on unsignalised ones of
-// major roads with a zebra (see STOP_W); and red bike lanes behind a P-2b line along the curbs OSM tags with
-// cycleway=lane (road-network.js edge.bike) where the outer lane leaves room.
+// major roads with a zebra (see STOP_W). No bike lanes: cyclists ride in the roadway.
 
 const WHITE = new THREE.Color(0xe6e2d6);
-const RED = new THREE.Color(0xa8392c); // bike lanes "may" be red (annex 7.11.1); Poznań paints them red
 const HEIGHT = 0.012; // above the asphalt
 const LINE_W = 0.12; // P-1a/b, P-2a and each line of P-4 (annex 2.2.1); P-4's two lines are 0.12 m apart
 const DASH_DUTY = 1 / 3;
@@ -41,11 +39,6 @@ const ZEBRA_PERIOD = 1.0; // P-10: 0.5 m stripes, 0.5 m gaps, 4.0 m deep (annex 
 const STOP_W = 0.5;
 const STOP_PERIOD = 1.0;
 const STOP_DUTY = 0.75;
-const BIKE_EDGE_W = 0.24; // P-2b, the wide solid line between a bike lane and the traffic lane (annex 2.2.1.7, 7.11.1)
-const BIKE_W = 1.5; // the bike lane at most, and 1 m at least
-const BIKE_CURB = 0.2; // gap from the curb
-const CAR_HALF = 1.0; // a car's half width, which must stay off the bike lane's line
-const NO_BIKE = [false, false];
 
 // crosswalks: pedestrian-routes.js `crosswalks` ({ node, ax, az, bx, bz, ux, uz }: a network node and the zebra's ends)
 function buildRoadPaint(scene, network, crosswalks = []) {
@@ -102,12 +95,16 @@ function buildRoadPaint(scene, network, crosswalks = []) {
   }
   const zebraBefore = (f) => (zebrasAt.get(nodeKey(f.to)) || []).some((c) => c.ux * f.dx + c.uz * f.dz < -0.94);
 
-  // The one or two directed edges of each road between a pair of intersections
+  // The one or two directed edges of each road between a pair of intersections: two only where they run both ways along
+  // one line (a divided road's two roadways keep their own lines, road-network.js 3., and are painted one by one)
   const roads = new Map();
+  const oneLine = (e, f) => Math.hypot(f.x0 - e.x0 - e.dx * e.span, f.z0 - e.z0 - e.dz * e.span) < 0.05 &&
+    Math.hypot(f.x0 + f.dx * f.span - e.x0, f.z0 + f.dz * f.span - e.z0) < 0.05;
   for (const e of network.paintEdges || network.edges) {
     const key = Math.min(e.from.id, e.to.id) * 65536 + Math.max(e.from.id, e.to.id);
-    if (roads.has(key)) roads.get(key).push(e);
-    else roads.set(key, [e]);
+    const road = roads.get(key);
+    if (road && road.length === 1 && oneLine(road[0], e)) road.push(e);
+    else roads.set(road ? `${key}:${roads.size}` : key, [e]);
   }
 
   for (const [e, back] of roads.values()) {
@@ -137,20 +134,6 @@ function buildRoadPaint(scene, network, crosswalks = []) {
       } else if (!slow) {
         along(e, mid, LINE_W, WHITE, dash, DASH_DUTY);
       }
-    }
-
-    // Red bike lanes along the curbs OSM tags with one (e.bike: [left, right] of its way of travel; the left curb of a
-    // two-way road is the right one of the way back), BIKE_CURB off the curb and edged by a P-2b line, as wide as
-    // the room the outer lane leaves (BIKE_W at most): none where a car in it would cover the line
-    const right = (e.bike || NO_BIKE)[1];
-    const left = back ? (back.bike || NO_BIKE)[1] : (e.bike || NO_BIKE)[0];
-    for (const [has, sign, outer] of [[right, 1, lanes[lanes.length - 1].o], [left, -1, lanes[0].o]]) {
-      if (!has) continue;
-      const curb = sign * e.half;
-      const w = Math.min(BIKE_W, (curb - outer) * sign - CAR_HALF - BIKE_EDGE_W - BIKE_CURB);
-      if (w < 1) continue;
-      along(e, curb - sign * (BIKE_CURB + w / 2), w, RED);
-      along(e, curb - sign * (BIKE_CURB + w + BIKE_EDGE_W / 2), BIKE_EDGE_W, WHITE);
     }
 
     // P-14 stop lines across the lanes arriving at each junction, before its zebra, from the centre line (or median) to
