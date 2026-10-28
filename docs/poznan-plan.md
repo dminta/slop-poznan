@@ -11,6 +11,34 @@ Line references are as of commit `46ec12b` and will drift; grep for the named sy
 `actors.md`, `audio.md`, `architecture.md`, `testing.md`) before starting any phase. They hold the repo-wide rules
 (modulepreload + boot count, module syntax, source-sliced tests, generated geodata, CSS `?v=` bump).
 
+## Handoff: where to start (updated 2026-10-29)
+
+`poznan` passes `node --test tests/` (230 tests, about 45 s). Nothing from Phases 7–16 has been checked in a browser yet.
+The user tests in the browser and reports bugs back, so read those reports literally and probe with real coordinates
+before fixing.
+
+**Next task: Phase 16** (signal timing and trams stopping on switches; the full brief is in the Phase 16 section). Its
+inputs are the open items of Phase 15.6.
+
+**Then, in this order:**
+1. Lanes on the opposite tram track at Rynek Jeżycki (15.6 open).
+2. Tram route data (15.10): the Zawady loop and routes that end inside the box.
+3. Re-measure the docs (15.9).
+4. Phase 12.5: the docs rewrite and archiving this plan.
+5. The central Dworzec node zebras (medians and tram strips as blocks in `tools/`).
+6. Optional skips from Phases 4 and 9–11 (listed in the audit section).
+
+**Decisions pending with the user:**
+- Whether to build in the 13 park blocks (15.7). The recommendation is no.
+- The real hejnał melody (12.1). The current one is a generic bugle call.
+
+**Working rules that have paid off:**
+- One worktree agent per disjoint file set.
+- Agents never edit this plan; the coordinator records results here.
+- Never hand-merge `js/geodata.js`; rebuild it from `tools/` after the merge.
+- Every fix gets a headless measurement before and after, plus a regression test.
+- Report in the final message what could not be verified in a browser.
+
 ## Open items from the 2026-10-27 audit
 
 A read-only audit compared every Phase 1–11 deliverable with the code at `a37d2d8`; `node --test tests/` passed (168/168).
@@ -1337,6 +1365,87 @@ open items). Everything was checked headless only (230 tests).
    (furniture, stop lines, lane-line km, track km).
 10. **Tram route data**: the Zawady loop and the route ends inside the box (lines 2/7/8/18 at (−3501, −946), 7/12/13 at
     (696, 2718)). This may need hand-made route extensions in `tools/`.
+
+### Phase 16: Signal timing and trams on switches
+
+**Status: not started** (specified 2026-10-29 from the Phase 15.6 measurements). After 15.6 there are no deadlocks.
+Over 7 districts × 5 min, the mean car speed is 11.6 km/h and 47% of cars are stopped. With every signal forced green,
+stopped falls to about 40%, so signal timing is now the largest single cause.
+
+**How signals work today** (read before changing anything):
+- `SIGNAL_TIMING` in `js/city-config.js` is `{ cycle: 60, avenueAmber: 26, avenueRed: 30, streetAmber: 56, redAmber: 2,
+  walk: 7 }`. Every signal in the city runs on **one global clock**, with no per-junction offset.
+  - Group 0 is the widest road (`isAvenue`, from `road-network.js` `sidesAndGroups`); group 1 is the rest.
+  - Red turns green through 2 s of red-amber (Polish S-1).
+- These read the same clock and the same functions:
+  - `signalPhase(time, isAvenue)` and `walkSignal(time, isAvenue)`;
+  - `js/traffic.js` (`avePhase` / `stPhase` / `aveWalk` / `stWalk`, computed once per frame around line 2434);
+  - `js/trams.js` (around line 1384);
+  - `js/audio-sources.js` (lines 157 and 244: green engines, crossing ticks);
+  - the **signal-head shaders** in `js/street-details.js` (around lines 177–230; TSL `mod(clock, cycle)` on a shared
+    uniform);
+  - `tests/signals.test.cjs` and the `tests/trams.test.cjs` stub.
+
+  Changing the timing means changing all of them together, or the lights you see will disagree with the traffic.
+- `docs/audio.md` warns that audio reads `isAvenue` and car fields directly.
+
+**Work:**
+1. **Per-junction timing.** Give each signal node an `offset` and optionally its own `split` (the group-0 green share),
+   and add a `cycle` per node only if needed.
+   - Thread the values through `signalPhase(time, isAvenue, node)` / `walkSignal(…)`, or precompute per-node phase
+     functions. Keep the per-frame cost flat: today phases are computed once per frame. Use per-node values, or a
+     small table of distinct timings, not a call per vehicle per frame.
+   - **Signal heads:** add a per-instance offset (and split) attribute to the head instanced meshes and use it in the
+     TSL. Keep the vertex-buffer budget in mind: `docs/rendering.md` notes the WebGPU limit of 8 attributes.
+   - **Audio:** pass the node's timing to the crossing-tick source.
+2. **Better timing:**
+   - **Splits:** green by demand proxy (lanes and width of each group, major vs minor). Minimum green 10 s per group;
+     walk ≥ 7 s; clearance (amber 3 s plus all-red 1–2 s) kept.
+   - **Cycles:** 60–90 s; a short cycle (e.g. 40–50 s) where both groups are minor.
+   - **Green waves:** offsets along the main corridors (Św. Marcin, Głogowska, Grunwaldzka, Dąbrowskiego,
+     Królowej Jadwigi, Garbary / Estkowskiego, the Hetmańska / Górecka / Bukowska arterials), computed from the link
+     length and a design speed of about 40 km/h. Elsewhere, deterministic pseudo-random offsets so the city doesn't
+     flash in sync.
+   - **Polish rules to keep:** amber 3 s at 50 km/h roads, red-amber 2 s, pedestrian green then flashing green (the
+     audio already has a fast tick on green), trams on their own S-1 groups as today.
+3. **Two-arm signal nodes** whose third OSM arm was dropped (example: Wilda (−156, 1992)) stop the road for 34 s per
+   cycle for nobody.
+   - If the node has a crosswalk, turn it into a pedestrian-only signal: road green by default, red only after a
+     crosser has spawned and waited (a push-button style request), with a minimum green.
+   - Otherwise drop the signal at build time and give the heads back.
+   - Count these nodes and report them.
+4. **Trams must not stop on switches or level crossings** (Kaponiera (−1396, 96), Rynek Wildecki (−851, 1681)). Trams
+   queue behind a tram dwelling at a busy stop, the queue backs over a switch, and other trams wait at the switch (the
+   `'switch'` wait in `js/trams.js` around lines 1310–1340) until respawned after 90 s (`t.stuck > 90`).
+   - Add a "don't enter unless you can clear" rule. Before passing a switch's `foulEnd` or a crossing, a tram checks
+     that there is room behind the tram ahead (its length + 2 m) beyond the fouling point; otherwise it holds before
+     the switch.
+   - Do the same for a tram stop whose platform is full.
+   - Report the `'switch'` stuck counts before and after.
+5. **Single-lane give-way approaches** block behind a left-turner (Łazarz (−1875, 1299)). If the approach is wide
+   enough (≥ 5.5 m), let straight and right-turning cars pass a waiting left-turner on its right. Otherwise accept it.
+   This is optional; do it only if it is cheap.
+
+**Measure:** `node tools/bench-traffic.mjs --minutes 5` (all districts) before and after each step, plus
+`--no-signals` as the lower bound. Targets:
+- mean speed ≥ 15 km/h;
+- stopped < 40%;
+- no car held > 120 s except at a red longer than the cycle;
+- no tram held > 60 s at a switch.
+
+**Tests:**
+- extend `tests/signals.test.cjs` (per-node phase, splits, clearance and walk invariants for every node);
+- keep `tests/traffic-flow.test.mjs` passing and tighten its limits to the new numbers;
+- add a tram test for "doesn't stop on a switch".
+
+**Files:** `js/city-config.js`, `js/road-network.js` (where signal groups and nodes are built), `js/traffic.js`
+(source-sliced tests: update the markers and stubs), `js/trams.js`, `js/street-details.js` (head shader), and
+`js/audio-sources.js`. Do not touch `tools/` or `js/geodata.js`, which are not needed.
+
+**Browser checks** (for the user):
+- the heads you see match the traffic at a few junctions (Kaponiera, Most Teatralny, Głogowska / Hetmańska);
+- the green wave works along Św. Marcin;
+- the crossing ticks stay in sync with the pedestrian heads.
 
 ---
 
