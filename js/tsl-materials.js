@@ -1674,38 +1674,28 @@ function createTreeMaterial(leafAtlas) {
   return mat;
 }
 
-// Pointy-top hexagon cell of p (in hex units): x = distance to the cell edge (0 at the joint .. 0.5 at the centre),
-// yz = cell id
-const hexCell = Fn(([p]) => {
-  const pv = vec2(p).toVar();
-  const r = vec2(1.0, 1.7320508);
-  const h = vec2(0.5, 0.8660254);
-  const a = mod(pv, r).sub(h).toVar();
-  const b = mod(pv.sub(h), r).sub(h).toVar();
-  const gv = mix(b, a, step(dot(a, a), dot(b, b))).toVar();
-  const q = abs(gv);
-  const edge = float(0.5).sub(max(dot(q, vec2(0.5, 0.8660254)), q.x));
-  return vec3(edge, pv.sub(gv));
+// Granite setts ('kostka granitowa' 9/11, ~10 cm) in courses: each course is shifted by a random fraction of a sett so
+// the head joints never line up, as hand-laid setts on Stary Rynek and Plac Wolności. x = joint mask, y = sett id hash
+const settJoints = Fn(([wx, wz]) => {
+  const row = floor(wz.div(0.1)).toVar();
+  const shift = hash2D(vec2(row, 3.7)).mul(0.1);
+  const joint = max(gridLine(wx.add(shift), 0.1, 0.0055), gridLine(wz, 0.1, 0.0055));
+  return vec2(joint, hash2D(vec2(floor(wx.add(shift).div(0.1)), row)));
 });
 
-// Joint mask (1 in the joints) of the park / plaza paving style at world xz
+// Joint mask (1 in the joints) of the park / square paving style at world xz; the mineral walks (style 0) have none
 const pavingJoints = Fn(([style, wx, wz]) => {
-  const hex = hexCell(vec2(wx, wz).div(0.21));
-  const hexAA = fwidth(hex.x).max(0.0001);
-  const hexJoint = smoothstep(hexAA.add(0.035), float(0.035).sub(hexAA), hex.x);
-  const offG = mod(floor(wz.div(0.45)), 2.0).mul(0.45);
-  const granJoint = max(gridLine(wx.add(offG), 0.9, 0.01), gridLine(wz, 0.45, 0.01));
-  const blueJoint = max(gridLine(wx, 0.6, 0.012), gridLine(wz, 0.6, 0.012));
-  const isGranite = step(0.5, style).mul(float(1.0).sub(step(1.5, style)));
-  return mix(mix(hexJoint, granJoint, isGranite), blueJoint, step(1.5, style));
+  const slabJoint = max(gridLine(wx, 0.5, 0.004), gridLine(wz, 0.5, 0.004));
+  const isSett = step(0.5, style).mul(float(1.0).sub(step(1.5, style)));
+  return mix(settJoints(wx, wz).x.mul(isSett), slabJoint, step(1.5, style));
 });
 
 /**
- * NYC Parks Paths & Pedestrian Plaza Paving TSL Material: one shared material (one batched draw call) whose
- * paving style is picked per mesh through its uv.x:
- * - 0: NYC Parks hexagonal asphalt paver blocks (charcoal 8-inch hexes with sanded joints)
- * - 1: Light-grey granite plaza pavers in running bond with scattered dark pavers (Times Sq, Herald Sq, Flatiron)
- * - 2: Bluestone & granite square slabs (fountain & monument plazas)
+ * Park Walks & Square Paving TSL Material: one shared material (one batched draw call) whose paving style is picked
+ * per mesh through its uv.x:
+ * - 0: mineral park walks ('nawierzchnia mineralna'): compacted buff granite grit, no joints (Cytadela, Park Wilsona)
+ * - 1: granite setts in courses, mostly grey with pinkish and dark setts mixed in (Stary Rynek, Plac Wolności)
+ * - 2: 50 x 50 cm grey concrete slabs (memorial & fountain squares)
  */
 function createParkPavingMaterial() {
   const mat = new THREE.MeshStandardNodeMaterial({
@@ -1721,60 +1711,67 @@ function createParkPavingMaterial() {
     const style = uv().x;
     const camDist = length(positionWorld.sub(cameraPosition));
     const detail = smoothstep(170.0, 12.0, camDist);
+    // World size of a pixel: per-sett tones settle to their mean before they alias
+    const fine = smoothstep(0.06, 0.02, length(fwidth(positionWorld.xz)));
     const grime = noise2D(vec2(wx.mul(0.35), wz.mul(0.35)));
     const grit = noise2D(vec2(wx.mul(13.0), wz.mul(13.0))).sub(0.5).mul(0.06).mul(detail);
     const joints = pavingJoints(style, wx, wz).mul(detail);
 
-    // 0: charcoal hex asphalt pavers with per-block tone
-    const hexTone = hash2D(hexCell(vec2(wx, wz).div(0.21)).yz);
-    const hexCol = mix(color(0x41413e), color(0x5c5b57), hexTone);
+    // 0: buff mineral grit with a coarse grain up close
+    const grainN = noise2D(vec2(wx.mul(38.0), wz.mul(38.0)));
+    const gravelCol = mix(color(0x8e887d), color(0xa59f93), noise2D(vec2(wx.mul(0.7), wz.mul(0.7))))
+      .add(grainN.sub(0.5).mul(0.09).mul(fine));
 
-    // 1: granite running bond, 15% darker pavers
-    const rowG = floor(wz.div(0.45));
-    const idG = vec2(floor(wx.add(mod(rowG, 2.0).mul(0.45)).div(0.9)), rowG);
-    const granCol = mix(
-      mix(color(0x9d9c95), color(0xbab9b1), hash2D(idG)),
-      color(0x6a6964),
-      step(0.85, hash2D(idG.add(vec2(17.3, 5.1))))
+    // 1: granite setts: grey, 12% pinkish, 6% dark; the per-sett tone fades to the mean far away
+    const sett = settJoints(wx, wz).y;
+    const settTone = mix(
+      mix(mix(color(0x7a7873), color(0x939089), sett), color(0x8b7d76), step(0.88, fract(sett.mul(7.13)))),
+      color(0x5f5d59),
+      step(0.94, fract(sett.mul(13.7)))
     );
+    const settCol = mix(color(0x85827c), settTone, fine);
 
-    // 2: bluestone squares
-    const blueCol = mix(color(0x62686d), color(0x878b8c), hash2D(floor(vec2(wx, wz).div(0.6))));
+    // 2: concrete slabs
+    const slabCol = mix(color(0x8a8984), color(0x9e9d97), hash2D(floor(vec2(wx, wz).div(0.5))));
 
-    const isGranite = step(0.5, style).mul(float(1.0).sub(step(1.5, style)));
-    const base = mix(mix(hexCol, granCol, isGranite), blueCol, step(1.5, style));
-    return base.mul(grime.mul(0.18).add(0.91)).add(grit).mul(float(1.0).sub(joints.mul(0.42)));
+    const isSett = step(0.5, style).mul(float(1.0).sub(step(1.5, style)));
+    const base = mix(mix(gravelCol, settCol, isSett), slabCol, step(1.5, style));
+    return base.mul(grime.mul(0.18).add(0.91)).add(grit).mul(float(1.0).sub(joints.mul(0.5)));
   })();
 
   mat.roughnessNode = Fn(() => {
     const style = uv().x;
-    return mix(mix(float(0.9), float(0.72), step(0.5, style)), float(0.78), step(1.5, style));
+    return mix(mix(float(0.95), float(0.74), step(0.5, style)), float(0.84), step(1.5, style));
   })();
 
   mat.normalNode = Fn(() => {
     const wx = positionWorld.x;
     const wz = positionWorld.z;
+    const style = uv().x;
     const camDist = length(positionWorld.sub(cameraPosition));
     const detail = smoothstep(110.0, 10.0, camDist);
-    const grain = noise2D(vec2(wx.mul(5.0), wz.mul(5.0))).sub(0.5).mul(0.0025);
-    return bumpNormal(grain.sub(pavingJoints(uv().x, wx, wz).mul(0.006)).mul(detail));
+    // Loose grit on the walks is coarser than the sawn granite and concrete
+    const grainScale = mix(float(0.004), float(0.0022), step(0.5, style));
+    const grain = noise2D(vec2(wx.mul(9.0), wz.mul(9.0))).sub(0.5).mul(grainScale);
+    return bumpNormal(grain.sub(pavingJoints(style, wx, wz).mul(0.008)).mul(detail));
   })();
 
   return mat;
 }
 
 /**
- * NYC Parks Lamppost Glass Globe: milky white by day, warm glow (bloom) at dusk & night.
+ * Park lamp globe (opal polycarbonate on a black post, as along the walks of Poznań's parks): milky white by day,
+ * a warm-white 3000 K LED glow (bloom) at dusk & night.
  */
 function createParkLampGlobeMaterial() {
   const mat = new THREE.MeshStandardNodeMaterial({
-    color: 0xece8dc,
+    color: 0xeceae4,
     roughness: 0.35,
     metalness: 0.0
   });
   mat.emissiveNode = Fn(() => {
     const night = smoothstep(0.35, 1.3, cityUniforms.uInteriorGlow);
-    return color(0xffd6a0).mul(night.mul(2.6).add(0.05));
+    return color(0xffdcae).mul(night.mul(2.6).add(0.05));
   })();
   return mat;
 }
@@ -1830,7 +1827,7 @@ function roadPuddleField(wx, wz) {
  * Wetness masks over a puddle field, driven by cityUniforms.uRoadWetness (0 = bone dry … 1 = right after a downpour):
  * x = damp stains (darker, satin), y = standing water (mirror-smooth; none on a dry day), z = wet film over everything.
  * Water collects in the field's highest (lowest-lying) spots first, so pools appear, grow & merge as wetness rises;
- * `drainage` raises the water line for better-drained surfaces such as the crowned sidewalk flags.
+ * `drainage` raises the water line for better-drained surfaces such as the crowned sidewalk paving.
  */
 function roadWetMasks(field, drainage = 0.0) {
   const w = cityUniforms.uRoadWetness;
@@ -1857,7 +1854,7 @@ function createRoadSurfaceMaterial() {
 
   const cAsphaltDark = color(0x2b2e33);
   const cAsphaltLight = color(0x464a51);
-  const cManhole = color(0x4a433c);
+  const cManhole = color(0x47423c);
 
   // Puddle field & wetness masks shared by every channel below (each node is generated once per fragment)
   const puddleField = roadPuddleField(positionWorld.x, positionWorld.z);
@@ -1893,16 +1890,22 @@ function createRoadSurfaceMaterial() {
       .mul(float(1.0).sub(oilyStain.mul(0.32)))
       .mul(float(1.0).sub(tarSeam));
 
-    // Circular cast-iron ConEd / NYC Sewer manhole covers scattered over the roadway (one 14 m cell in three)
+    // Round cast-iron sewer manhole covers (Aquanet's D400 class: a 0.6 m lid with a raised grid of studs inside a
+    // plain rim, in a 0.8 m frame) scattered over the roadway, one 14 m cell in three
     const mhCell = floor(vec2(wx, wz).div(14.0));
     const mhCentre = mhCell.add(vec2(hash2D(mhCell.add(13.7)), hash2D(mhCell.add(29.1))).mul(0.6).add(0.2)).mul(14.0);
-    const mhDist = length(vec2(wx, wz).sub(mhCentre));
-    const isManhole = float(1.0).sub(smoothstep(0.52, 0.60, mhDist)).mul(step(0.66, hash2D(mhCell))).mul(detail);
-    const mhRings = sin(mhDist.mul(36.0)).mul(0.15).add(0.85);
+    const mhLocal = vec2(wx, wz).sub(mhCentre);
+    const mhDist = length(mhLocal);
+    const isManhole = float(1.0).sub(smoothstep(0.38, 0.41, mhDist)).mul(step(0.66, hash2D(mhCell))).mul(detail);
+    // Studs (8 cm lattice) inside the lid, the rim ring and the lid's seam in the frame; flat grey once under ~2 cm/px
+    const studs = smoothstep(0.3, 0.2, max(abs(fract(mhLocal.x.mul(12.5)).sub(0.5)), abs(fract(mhLocal.y.mul(12.5)).sub(0.5))));
+    const lid = smoothstep(0.27, 0.25, mhDist);
+    const seam = smoothstep(0.012, 0.0, abs(mhDist.sub(0.3)));
+    const mhPattern = mix(float(0.86), studs.mul(lid).mul(0.3).add(0.78).sub(seam.mul(0.4)), smoothstep(0.03, 0.012, pixelSize));
 
     // Water filling the pores darkens the surface: damp stains & pools most, the overall wet film a little
     const wetDarkening = mix(mix(float(1.0), float(0.72), damp), float(0.6), puddle).mul(mix(float(1.0), float(0.8), film));
-    return mix(baseAsphalt, cManhole.mul(mhRings), isManhole).mul(wetDarkening);
+    return mix(baseAsphalt, cManhole.mul(mhPattern), isManhole).mul(wetDarkening);
   })();
 
   mat.roughnessNode = Fn(() => {
@@ -1927,20 +1930,11 @@ function createRoadSurfaceMaterial() {
     return bumpNormal(coarseGrit.add(fineGrit).mul(float(1.0).sub(puddle)));
   })();
 
+  // The night sky's glow mirrored in the wet asphalt
   mat.emissiveNode = Fn(() => {
-    const wx = positionWorld.x;
-    const wz = positionWorld.z;
-
     const roadFresnel = pow(clamp(float(1.0).sub(abs(viewDir.y)), 0.0, 1.0), 2.3);
-
     const skyMirror = mix(cityUniforms.uSkyHorizonColor, cityUniforms.uSkyTopColor, 0.40).mul(0.10);
-
-    const tsDist = clamp(float(1.0).sub(length(vec2(wx.add(212.0), wz.add(45.0))).div(145.0)), 0.0, 1.0);
-    const neonPatch = noise2D(vec2(wx.mul(0.15), wz.mul(0.15)));
-    const neonCol = mix(color(0xff2a85), color(0x2ad4ff), neonPatch).mul(0.32);
-    const reflectCol = mix(skyMirror, neonCol, tsDist.mul(0.65));
-
-    return reflectCol.mul(max(puddle, film.mul(0.35))).mul(roadFresnel).mul(cityUniforms.uInteriorGlow).mul(0.07);
+    return skyMirror.mul(max(puddle, film.mul(0.35))).mul(roadFresnel).mul(cityUniforms.uInteriorGlow).mul(0.07);
   })();
 
   return mat;
@@ -1996,10 +1990,32 @@ function createRoadPaintMaterial() {
   return mat;
 }
 
+// Herringbone of 20 x 10 cm grey concrete 'holland' pavers (polbruk), the common Polish sidewalk, laid square to the
+// world axes. In 10 cm cells, t = (cx - cz) mod 4 tells the halves apart: 0 and 1 are the two halves of a paver along
+// x, 3 and 2 the lower and upper halves of one along z, so each cell drops the joint on the edge it shares with its
+// other half. x = joint mask (filter-width anti-aliased, settling to its mean coverage), y = paver id hash
+const hollandPavers = Fn(([wx, wz]) => {
+  const p = vec2(wx, wz).div(0.1).toVar();
+  const cell = floor(p).toVar();
+  const f = fract(p).toVar();
+  const t = mod(cell.x.sub(cell.y), 4.0).toVar();
+  const is = (k) => step(abs(t.sub(k)), 0.5);
+  const d = min(
+    min(f.x.add(is(1).mul(9.0)), float(1.0).sub(f.x).add(is(0).mul(9.0))),
+    min(f.y.add(is(2).mul(9.0)), float(1.0).sub(f.y).add(is(3).mul(9.0)))
+  );
+  const hw = float(0.04); // 4 mm chamfered joints
+  const aa = length(fwidth(p)).max(0.0001).toVar();
+  const effHw = max(hw, aa.mul(0.5));
+  const joint = smoothstep(effHw.add(aa), effHw.sub(aa), d).mul(min(float(1.0), hw.div(effHw)));
+  const origin = cell.sub(vec2(is(1), is(2)));
+  return vec2(joint, hash2D(origin));
+});
+
 /**
- * NYC Concrete Sidewalk Flagstones with Filter-Width Anti-Aliased 1.5m Scored Expansion Joints,
- * -12mm `bumpNormal` Groove Relief, Per-Flag Tone Variation & Post-Rain Damp Patches
- * that follow cityUniforms.uRoadWetness like the roadway (better drained: fewer, smaller pools)
+ * Concrete Sidewalk Paving: 20 x 10 cm grey 'holland' pavers in herringbone (hollandPavers) with per-paver tone and
+ * a few newer, lighter replacement pavers, -6 mm `bumpNormal` joints & Post-Rain Damp Patches that follow
+ * cityUniforms.uRoadWetness like the roadway (better drained: fewer, smaller pools)
  * (Ported from SidewalkGenerator.js)
  */
 function createSidewalkMaterial() {
@@ -2008,16 +2024,19 @@ function createSidewalkMaterial() {
     roughness: 0.88
   });
 
-  const cConcreteA = color(0x8e8d85);
-  const cConcreteB = color(0x73726b);
+  const cConcreteA = color(0x8f8e88);
+  const cConcreteB = color(0x75746f);
 
-  // Damp patches & pools on the flags, shared by every channel below (own field; drains better than the roadway)
+  // Damp patches & pools on the paving, shared by every channel below (own field; drains better than the roadway)
   const swField = noise2D(vec2(positionWorld.x.mul(0.14).add(7.4), positionWorld.z.mul(0.14).sub(13.1))).mul(0.65)
     .add(noise2D(vec2(positionWorld.x.mul(0.38), positionWorld.z.mul(0.38))).mul(0.35));
   const swWet = roadWetMasks(swField, 0.06);
   const swPuddle = swWet.y.mul(smoothstep(0.5, 0.9, normalWorldGeometry.y));
   const swFresnel = pow(float(1.0).sub(clamp(normalize(cameraPosition.sub(positionWorld)).y, 0.0, 1.0)), 5.0).mul(0.98).add(0.02);
   const pixelSize = length(fwidth(positionWorld.xz));
+  // Joints & paver ids, shared by colour, roughness and relief; per-paver tones fade out before 10 cm pavers alias
+  const pavers = hollandPavers(positionWorld.x, positionWorld.z);
+  const paverFine = smoothstep(0.05, 0.015, pixelSize);
 
   mat.aoNode = canyonSkyAONode();
 
@@ -2027,43 +2046,41 @@ function createSidewalkMaterial() {
     const camDist = length(positionWorld.sub(cameraPosition));
     const detail = smoothstep(190.0, 16.0, camDist);
 
-    const panel = 1.5; // 5 ft NYC concrete sidewalk flags
-    const panelHash = hash2D(floor(vec2(wx.div(panel), wz.div(panel))));
+    const paverHash = pavers.y;
     const tone = noise2D(vec2(wx.mul(0.48), wz.mul(0.48)));
     const grit = noise2D(vec2(wx.mul(14.0), wz.mul(14.0))).sub(0.5).mul(0.08).mul(detail).mul(smoothstep(0.07, 0.02, pixelSize));
+    const joints = pavers.x.mul(detail);
 
-    // Filter-width anti-aliased 1.5m scored joints
-    const joints = max(gridLine(wx, panel, 0.042), gridLine(wz, panel, 0.042)).mul(detail);
+    // Per-paver tone (+-6%), and one paver in 25 a newer, lighter replacement
+    const paverTone = paverHash.sub(0.5).mul(0.12).add(1.0).add(step(0.96, fract(paverHash.mul(11.3))).mul(0.14));
 
-    // Post-rain damp patches, pools & the overall wet film darken the flags
+    // Post-rain damp patches, pools & the overall wet film darken the paving
     const baseConcrete = mix(cConcreteB, cConcreteA, tone)
-      .mul(panelHash.sub(0.5).mul(0.16).add(1.0))
+      .mul(mix(float(1.0), paverTone, paverFine))
       .add(grit)
       .mul(mix(float(1.0), float(0.72), max(swWet.x, swPuddle)))
       .mul(mix(float(1.0), float(0.8), swWet.z));
 
-    return baseConcrete.mul(float(1.0).sub(joints.mul(0.45)));
+    return baseConcrete.mul(float(1.0).sub(joints.mul(0.4)));
   })();
 
   mat.roughnessNode = Fn(() => {
-    const panelHash = hash2D(floor(vec2(positionWorld.x.div(1.5), positionWorld.z.div(1.5))));
-    const wetRough = mix(float(0.90).sub(panelHash.mul(0.06)), float(0.55), max(swWet.z, swWet.x.mul(0.7)));
+    const wetRough = mix(float(0.90).sub(pavers.y.mul(0.06).mul(paverFine)), float(0.55), max(swWet.z, swWet.x.mul(0.7)));
     return mix(wetRough, float(0.2), swPuddle);
   })();
 
   // Water's Fresnel (F0 = 0.02) on pools & the wet film, as for the roadway
   mat.metalnessNode = clamp(swFresnel.mul(1.6), 0.0, 0.85).mul(max(swPuddle, swWet.z.mul(0.3)));
 
-  // Physical -12mm scored expansion joints + +3mm concrete aggregate grain via bumpNormal
+  // Physical -6mm chamfered paver joints + +3mm concrete grain via bumpNormal
   mat.normalNode = Fn(() => {
     const wx = positionWorld.x;
     const wz = positionWorld.z;
     const camDist = length(positionWorld.sub(cameraPosition));
     const detail = smoothstep(140.0, 14.0, camDist);
 
-    const joints = max(gridLine(wx, 1.5, 0.042), gridLine(wz, 1.5, 0.042));
     const grain = noise2D(vec2(wx.mul(4.5), wz.mul(4.5))).sub(0.5).mul(0.003);
-    const height = grain.sub(joints.mul(0.012)).mul(detail).mul(float(1.0).sub(swPuddle));
+    const height = grain.sub(pavers.x.mul(0.006)).mul(detail).mul(float(1.0).sub(swPuddle));
     return bumpNormal(height);
   })();
 
@@ -2071,9 +2088,9 @@ function createSidewalkMaterial() {
 }
 
 /**
- * NYC Dressed Granite Curbstone TSL Material (ported from SidewalkGenerator.js `createCurbMaterial`)
- * Dense cool grey flamed granite with 1.5m segment joints, grimier road-facing vertical face,
- * and `bumpNormal` granite grain.
+ * Granite Curbstone TSL Material (ported from SidewalkGenerator.js `createCurbMaterial`): the Polish 15 x 30 cm
+ * curb ('krawężnik') of light grey Strzegom granite, black-and-white speckled, in 1 m lengths, its road-facing
+ * face grimier; `bumpNormal` granite grain.
  */
 function createCurbMaterial() {
   const mat = new THREE.MeshStandardNodeMaterial({
@@ -2090,10 +2107,10 @@ function createCurbMaterial() {
     const detail = smoothstep(180.0, 16.0, camDist);
 
     const tone = noise2D(vec2(wx.mul(0.6), wz.mul(0.6)));
-    const speckle = noise2D(vec2(wx.mul(18.0), wz.mul(18.0))).sub(0.5).mul(0.06).mul(detail);
-    const stone = mix(color(0x4c4c45), color(0x63635a), tone).add(speckle);
+    const speckle = noise2D(vec2(wx.mul(30.0), wz.mul(30.0))).sub(0.5).mul(0.1).mul(detail);
+    const stone = mix(color(0x6a6964), color(0x7f7e78), tone).add(speckle);
 
-    const joints = max(gridLine(wx, 1.5, 0.038), gridLine(wz, 1.5, 0.038)).mul(detail);
+    const joints = max(gridLine(wx, 1.0, 0.006), gridLine(wz, 1.0, 0.006)).mul(detail);
     const topFace = smoothstep(0.5, 0.85, normalWorldGeometry.y);
     const wetFilm = smoothstep(0.2, 0.8, cityUniforms.uRoadWetness); // rain-darkened granite, like the roadway's film
     return mix(stone.mul(0.68), stone, topFace).mul(float(1.0).sub(joints.mul(0.42))).mul(mix(float(1.0), float(0.78), wetFilm));
@@ -2602,11 +2619,11 @@ function getSmokeCloudTexture() {
 }
 
 /**
- * ConEd Iconic Street Steam Stack Volumetric Billowing SpriteNodeMaterial
+ * Street Steam Stack Volumetric Billowing SpriteNodeMaterial (unused since the port: Poznań has no steam stacks)
  * Modelled after `three.js/examples/webgpu_particles.html`:
  * - Uses `THREE.SpriteNodeMaterial` on an instanced `PlaneGeometry(1, 1)` so every puff is a
  *   camera-facing billboard sprite with zero polygonal facets.
- * - Continuously rises from the orange-and-white ConEd stack nozzle (`life = fract(phase + time * speed)`),
+ * - Continuously rises from the stack nozzle (`life = fract(phase + time * speed)`),
  *   expands (`scaleNode`), curls downwind (`positionNode`), and rotates (`rotateUV`) with soft
  *   sunlit top rims and cool urban-canyon self-shadowing.
  */

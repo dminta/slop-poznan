@@ -231,7 +231,7 @@ function offsetPolygon(pts, d) {
 
 /**
  * Tags every vertex of a mesh using the shared park paving material with its paving style (uv.x, see
- * createParkPavingMaterial: 0 hex asphalt pavers, 1 light granite plaza pavers, 2 bluestone slabs).
+ * createParkPavingMaterial: 0 mineral park walks, 1 granite setts, 2 concrete slabs).
  */
 function setPavingStyle(geo, style) {
   const uvAttr = geo.attributes.uv;
@@ -646,7 +646,7 @@ function buildCityGrid(scene) {
   //    curb island paved like a park walk, a granite-coped lawn inset from it under scattered trees, lampposts round the
   //    walk, its ponds cut out with a paved path round them
   // =========================================================================
-  const PARK_Y = 0.26; // hex-paver walks (sidewalk tops are at 0.22)
+  const PARK_Y = 0.26; // mineral walks (sidewalk tops are at 0.22)
   const BED_Y = 0.41; // lawn top inside the granite bed copings
   const parkLawnGeos = [];
   for (const b of BLOCKS) {
