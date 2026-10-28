@@ -312,11 +312,6 @@ const BODY_SPECS = {
   }
 };
 BODY_SPECS.taxi = Object.assign({}, BODY_SPECS.sedan, { name: 'taxi', sign: true });
-for (const spec of Object.values(BODY_SPECS)) {
-  // Kept for code that places lamp flares: lamp heights (front, rear) and centres across the car
-  spec.lamps = [spec.headlight[1], spec.taillight[1]];
-  spec.lampX = [spec.headlight[0], spec.taillight[0]];
-}
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
@@ -1386,10 +1381,12 @@ function limbSections(joints, segments = 6, phase = 0) {
 // ============================================================================
 // 4. LOFTED CITY BUS GEOMETRY & TSL MATERIAL
 // ============================================================================
-// A 12 m low-floor city bus (the size of MPK Poznań's rigid Solaris Urbino 12; the body is still the NYC port's) lofted with the car body machinery: rounded plan-view corners, a raked windshield, a
-// tight roof radius and arches over the wheels; bumpers, stalk mirrors and the roof AC &
-// battery pods are separate pieces of the same mesh (partId). Windows, doors, livery & lamps are painted by
-// createLoftedBusMaterial(); destination signs are textured panels (buildBusSignGeometry).
+// A 12 m low-floor city bus shaped after MPK Poznań's rigid Solaris Urbino 12 (12.0 x 2.55 m, 5.9 m wheelbase, three
+// double doors on the curb side, a tall near-vertical windshield) lofted with the car body machinery: rounded plan-view
+// corners, a slightly raked windshield, a tight roof radius and arches over the wheels; bumpers, stalk mirrors and the
+// roof AC & battery pods are separate pieces of the same mesh (partId). Windows, doors, livery & lamps are painted by
+// createLoftedBusMaterial(); destination signs are textured panels (buildBusSignGeometry). The axles stay symmetric
+// (traffic.js places both wheel pairs at ±wheelZ), so the overhangs are 3.05 m each where the Urbino's are 2.7 / 3.4 m.
 const BUS_PARTS = {
   BODY: 0,
   TRIM: 1,
@@ -1399,11 +1396,11 @@ const BUS_PARTS = {
 const BUS_SPEC = {
   name: 'bus',
   headlight: [0.79, 0.8], // midpoint of each pair of white lamps; excludes the outer amber indicator
-  zFront: 5.78,
-  zRear: -5.78,
+  zFront: 6.0,
+  zRear: -6.0,
   wheelRadius: 0.48,
-  wheelZ: 3.6,
-  wheelX: 1.24,
+  wheelZ: 2.95,
+  wheelX: 1.22,
   archGap: 0.09,
   archFlare: 0,
   tuck: 0.05,
@@ -1411,18 +1408,19 @@ const BUS_SPEC = {
   lowerRound: 2.6,
   upperRound: 6,
   upperSamples: [0.3, 0.56, 0.74, 0.88, 1],
-  halfWidth: [[5.78, 1.3], [-5.78, 1.3]],
-  sill: [[5.78, 0.36], [-5.78, 0.36]],
-  shoulder: [[5.78, 1.05], [-5.78, 1.05]],
-  edge: [[5.78, 2.96], [-5.78, 2.96]],
-  crown: [[5.78, 0.045], [-5.78, 0.045]],
-  tumble: [[5.78, 0.17], [-5.78, 0.17]],
+  halfWidth: [[6.0, 1.275], [-6.0, 1.275]],
+  sill: [[6.0, 0.36], [-6.0, 0.36]],
+  shoulder: [[6.0, 1.05], [-6.0, 1.05]],
+  edge: [[6.0, 2.96], [-6.0, 2.96]],
+  crown: [[6.0, 0.045], [-6.0, 0.045]],
+  tumble: [[6.0, 0.17], [-6.0, 0.17]],
   nose: { halfWidth: [0.28, 1.02, 2], edge: [0.24, 2.68, 2], crown: [0.24, 0.005, 2], sill: [0.07, 0.44, 2], shoulder: [0.2, 0.95, 2] },
   tail: { halfWidth: [0.24, 1.06, 2], edge: [0.2, 2.72, 2], crown: [0.2, 0.005, 2], sill: [0.09, 0.46, 2], shoulder: [0.2, 0.95, 2] },
-  rake: 0.15, // how far the top of the windshield leans back
+  rake: 0.12, // how far the top of the windshield leans back
   window: [1.24, 2.44], // side window band (y)
-  frontDoor: [4.36, 5.36], // curb-side (-x) doors (z ranges)
-  rearDoor: [-1.52, -0.5]
+  frontDoor: [4.42, 5.6], // curb-side (-x) double doors (z ranges): ahead of the front axle, mid-wheelbase, rear overhang
+  midDoor: [-0.62, 0.62],
+  rearDoor: [-4.98, -3.8]
 };
 
 // The windshield rake: the upper front leans back by up to BUS_SPEC.rake, fading out along the first metre
@@ -1454,7 +1452,7 @@ function buildLoftedBusBodyGeometry() {
     parts.push(part(stalk, BUS_PARTS.TRIM), part(head, BUS_PARTS.TRIM));
   }
 
-  // Roof equipment: air-conditioning pod at the rear, hybrid battery pod ahead of it
+  // Roof equipment: air-conditioning pod at the rear, battery pod ahead of it (the Urbino 12 electric)
   const roofY = s.edge[0][1] + s.crown[0][1];
   parts.push(part(roundedBox(0.98, 0.15, 2.5, 0.12, 0.05).translate(0, roofY + 0.1, -3.55), BUS_PARTS.POD));
   parts.push(part(roundedBox(0.82, 0.1, 3.0, 0.08, 0.04).translate(0, roofY + 0.06, 1.1), BUS_PARTS.POD));
@@ -1580,9 +1578,9 @@ let _busLoftedMat = null;
 
 /**
  * Creates the TSL procedural material for the city buses:
- * - Wraparound split windshield with gasket & centre post, destination sign band above it; rear window & engine
- *   louvres on the rear face
- * - Continuous side window band with mullions, the driver's window, glazed curb-side front & rear doors
+ * - Tall wraparound windshield with gasket & centre post down to the bumper's lamp line, destination sign band above
+ *   it; rear window & engine louvres on the rear face
+ * - Continuous side window band with mullions, the driver's window, three glazed curb-side double doors
  * - MPK Poznań livery: green with yellow sill stripe, cornice and front, light grey roof, dark skirt
  * - Headlamps, turn signals (per-instance `busState`: brake, left (+x), right (-x), route), tail / brake light
  *   columns, EU plates; black trims & light-grey roof pods
@@ -1605,9 +1603,9 @@ function createLoftedBusMaterial() {
   const side = smoothstep(0.5, 0.75, abs(n.x)).mul(isBody);
   const curb = step(p.x, 0.0);
 
-  // Windshield (wrapping round the corners), sign band, gasket; rear window & engine louvres
-  const frontGlass = roundedRect(vec2(p.x, p.y.sub(1.82)), vec2(1.2, 0.58), 0.14).mul(smoothstep(0.012, 0.024, ax)).mul(front);
-  const frontSeal = roundedRect(vec2(p.x, p.y.sub(1.82)), vec2(1.24, 0.62), 0.16).mul(front);
+  // Tall windshield (wrapping round the corners, 1.0-2.38 m), sign band, gasket; rear window & engine louvres
+  const frontGlass = roundedRect(vec2(p.x, p.y.sub(1.69)), vec2(1.18, 0.69), 0.14).mul(smoothstep(0.012, 0.024, ax)).mul(front);
+  const frontSeal = roundedRect(vec2(p.x, p.y.sub(1.69)), vec2(1.22, 0.73), 0.16).mul(front);
   const signBand = roundedRect(vec2(p.x, p.y.sub(2.55)), vec2(1.02, 0.16), 0.04).mul(front);
   const rearGlass = roundedRect(vec2(p.x, p.y.sub(2.06)), vec2(0.92, 0.36), 0.08).mul(rear);
   const rearSeal = roundedRect(vec2(p.x, p.y.sub(2.06)), vec2(0.96, 0.4), 0.1).mul(rear);
@@ -1618,10 +1616,10 @@ function createLoftedBusMaterial() {
   const [wy0, wy1] = s.window;
   const winMid = (wy0 + wy1) / 2;
   const winHalf = (wy1 - wy0) / 2;
-  const sideBand = roundedRect(vec2(p.z.add(0.5), p.y.sub(winMid)), vec2(4.82, winHalf), 0.08).mul(side);
-  const mullion = smoothstep(0.03, 0.045, abs(fract(p.z.mul(0.8).add(0.35)).sub(0.5).mul(1.25)));
-  const sideSeal = roundedRect(vec2(p.z.add(0.5), p.y.sub(winMid)), vec2(4.86, winHalf + 0.04), 0.1).mul(side);
-  const driverWin = roundedRect(vec2(p.z.sub(4.86), p.y.sub(winMid + 0.04)), vec2(0.5, winHalf + 0.04), 0.1).mul(side).mul(one.sub(curb));
+  const sideBand = roundedRect(vec2(p.z.add(0.5), p.y.sub(winMid)), vec2(4.9, winHalf), 0.08).mul(side);
+  const mullion = smoothstep(0.03, 0.045, abs(fract(p.z.mul(0.72).add(0.35)).sub(0.5).mul(1.39)));
+  const sideSeal = roundedRect(vec2(p.z.add(0.5), p.y.sub(winMid)), vec2(4.94, winHalf + 0.04), 0.1).mul(side);
+  const driverWin = roundedRect(vec2(p.z.sub(5.0), p.y.sub(winMid + 0.04)), vec2(0.55, winHalf + 0.04), 0.1).mul(side).mul(one.sub(curb));
   const door = (z0, z1) => {
     const zc = (z0 + z1) / 2;
     const hw = (z1 - z0) / 2;
@@ -1630,9 +1628,11 @@ function createLoftedBusMaterial() {
     return { frame: frame.mul(side).mul(curb), glass: leaves.mul(side).mul(curb) };
   };
   const d0 = door(s.frontDoor[0], s.frontDoor[1]);
-  const d1 = door(s.rearDoor[0], s.rearDoor[1]);
-  const doorFrame = max(d0.frame, d1.frame);
-  const glass = clamp(max(max(frontGlass, rearGlass), max(max(sideBand.mul(mullion), driverWin), max(d0.glass, d1.glass))), 0.0, 1.0);
+  const d1 = door(s.midDoor[0], s.midDoor[1]);
+  const d2 = door(s.rearDoor[0], s.rearDoor[1]);
+  const doorFrame = max(max(d0.frame, d1.frame), d2.frame);
+  const doorGlass = max(max(d0.glass, d1.glass), d2.glass);
+  const glass = clamp(max(max(frontGlass, rearGlass), max(max(sideBand.mul(mullion), driverWin), doorGlass)), 0.0, 1.0);
   const seal = clamp(max(max(frontSeal, rearSeal), max(max(sideSeal, signBand), doorFrame)), 0.0, 1.0);
 
   // MPK Poznań livery (approximate, the trams' colours): green, a yellow sill stripe under the windows and a yellow
@@ -1641,7 +1641,7 @@ function createLoftedBusMaterial() {
   const yellow = color(0xf3c316);
   const sillStripe = smoothstep(1.06, 1.09, p.y).mul(smoothstep(1.2, 1.17, p.y));
   const cornice = smoothstep(2.48, 2.51, p.y);
-  const frontCap = front.mul(smoothstep(1.24, 1.2, p.y));
+  const frontCap = front.mul(smoothstep(1.02, 0.98, p.y));
   const roofTop = smoothstep(0.55, 0.8, n.y);
   const skirt = smoothstep(0.53, 0.5, p.y);
   let livery = mix(color(0x15703a), yellow, max(max(sillStripe, cornice), frontCap));
@@ -1701,7 +1701,7 @@ function createLoftedBusMaterial() {
 }
 
 // ============================================================================
-// 5. 3D LOFTED MANHATTAN SIGHTSEEING HELICOPTER GEOMETRY & TSL MATERIAL
+// 5. 3D LOFTED LPR AIR AMBULANCE HELICOPTER GEOMETRY & TSL MATERIAL
 // ============================================================================
 const HELI_PARTS = {
   FUSELAGE: 0,
@@ -1764,7 +1764,7 @@ function buildHelicopterBodyGeometry() {
     [2.62, 0.54, 0.72, 1.18, 0.62, 0.48], // Lower nose chin window
     [2.20, 0.88, 0.58, 1.48, 0.72, 0.46], // Lower windshield base
     [1.55, 1.10, 0.52, 1.86, 0.78, 0.44], // Front pilot cabin & wide panoramic windscreen
-    [0.75, 1.16, 0.50, 2.02, 0.80, 0.45], // Main sightseeing passenger cabin (widest section)
+    [0.75, 1.16, 0.50, 2.02, 0.80, 0.45], // Main cabin (widest section)
     [-0.15, 1.14, 0.50, 2.02, 0.80, 0.46], // Rear passenger cabin
     [-0.95, 1.02, 0.54, 1.96, 0.74, 0.50], // Cabin-to-cowling transition
     [-1.65, 0.74, 0.72, 1.84, 0.62, 0.54], // Rear baggage & tapered clamshell bay
@@ -1949,12 +1949,13 @@ function buildHelicopterTailRotorGeometry() {
 let _heliLoftedMat = null;
 
 /**
- * Creates the TSL procedural material for the 3D Lofted Sightseeing Helicopter:
- * - Renders wrap-around panoramic windscreen, chin bubble windows, sightseeing cabin side windows,
+ * Creates the TSL procedural material for the 3D Lofted Helicopter, an EC135 of Lotnicze Pogotowie Ratunkowe (the
+ * Polish air ambulance, with a base at Poznań-Ławica):
+ * - Renders wrap-around panoramic windscreen, chin bubble windows, cabin side windows,
  *   and overhead skylight glass using anti-aliased `roundedRect` SDFs with rubber seals & frame pillars.
- * - Renders a sleek flush executive NYC Sightseeing livery (Pearl Aviation White upper cabin,
- *   Deep Midnight Navy belly/tailboom, and a sweeping Metallic Gold & Crimson accent stripe).
- * - Renders slatted turbine air intakes on the engine cowling and high-visibility yellow tips on rotor blades.
+ * - Renders the LPR livery (approximate): colza yellow (RAL 1021) all over, a traffic-red (RAL 3020) belly and
+ *   cheat line, an ultramarine (RAL 5002) belt along the cabin and red bands on the tail; graphite (RAL 7024) cowling.
+ * - Renders slatted turbine air intakes on the engine cowling and white tips on the rotor blades.
  */
 function createLoftedHelicopterMaterial() {
   if (_heliLoftedMat) return _heliLoftedMat;
@@ -1973,7 +1974,7 @@ function createLoftedHelicopterMaterial() {
     const p = attribute('position', 'vec3').toVar();
     const n = attribute('normal', 'vec3').toVar();
 
-    // 1. Panoramic Wrap-Around Cockpit Windscreen & Sightseeing Side Cabin Windows (on Fuselage)
+    // 1. Panoramic Wrap-Around Cockpit Windscreen & Side Cabin Windows (on Fuselage)
     // Front windscreen: z in [0.95, 2.52], y in [0.98, 1.88], split by narrow center post at x = 0
     const frontGlassOuter = roundedRect(vec2(p.z.sub(1.74), p.y.sub(1.42)), vec2(0.76, 0.42), 0.14)
       .mul(step(0.65, p.z));
@@ -1986,7 +1987,7 @@ function createLoftedHelicopterMaterial() {
       .mul(smoothstep(1.95, 2.15, p.z))
       .mul(smoothstep(2.68, 2.52, p.z));
 
-    // Wide panoramic passenger sightseeing side windows: z in [-0.78, 1.02], y in [1.02, 1.74]
+    // Wide side cabin windows: z in [-0.78, 1.02], y in [1.02, 1.74]
     const sideWindow = roundedRect(vec2(p.z.sub(0.12), p.y.sub(1.38)), vec2(0.88, 0.34), 0.10)
       .mul(step(0.45, abs(n.x)));
 
@@ -2011,14 +2012,18 @@ function createLoftedHelicopterMaterial() {
       .mul(isFuselage)
       .toVar();
 
-    // 2. Flush Executive NYC Sightseeing Livery (Aviation White + Midnight Navy + Sweeping Gold Ribbon)
-    const navyCurveY = float(1.00).add(p.z.mul(-0.085));
+    // 2. LPR livery: yellow over a red belly whose edge sweeps up towards the tail, a thin red cheat line above it, and
+    // the ultramarine belt (where the real one carries LOTNICZE POGOTOWIE RATUNKOWE) between them and the windows
+    const bellyY = float(0.80).add(p.z.mul(-0.085));
     const edgeW = max(fwidth(p.y), 0.008);
-    const isLowerNavy = smoothstep(navyCurveY.add(edgeW), navyCurveY.sub(edgeW), p.y);
-    const goldStripeDist = abs(p.y.sub(navyCurveY.add(0.065)));
-    const isGoldStripe = smoothstep(0.055, 0.038, goldStripeDist);
-    const redPinDist = abs(p.y.sub(navyCurveY.add(0.145)));
-    const isRedPin = smoothstep(0.022, 0.012, redPinDist);
+    const isLowerRed = smoothstep(bellyY.add(edgeW), bellyY.sub(edgeW), p.y);
+    const isBelt = smoothstep(0.075, 0.06, abs(p.y.sub(bellyY.add(0.15)))).mul(step(-0.95, p.z));
+    const isCheatLine = smoothstep(0.02, 0.011, abs(p.y.sub(bellyY.add(0.05))));
+    // Two red bands round the tail boom
+    const isTailBand = max(
+      smoothstep(0.17, 0.15, abs(p.z.add(3.0))),
+      smoothstep(0.17, 0.15, abs(p.z.add(4.0)))
+    );
 
     // Cabin door panel seams & handles
     const doorSeam1 = smoothstep(0.012, 0.004, abs(p.z.sub(1.06)));
@@ -2030,40 +2035,38 @@ function createLoftedHelicopterMaterial() {
       .mul(smoothstep(0.55, 0.62, p.y))
       .mul(smoothstep(1.75, 1.65, p.y));
 
-    const whitePaint = color(0xf4f7fb);
-    const navyPaint = color(0x132c58);
-    const goldPaint = color(0xffbe28);
-    const redPaint = color(0xd8222b);
+    const yellowPaint = color(0xf2c200);
+    const redPaint = color(0xc1121c);
+    const bluePaint = color(0x1f2a6b);
+    const graphitePaint = color(0x45484e);
+    const whitePaint = color(0xf2f3f0);
 
-    const baseLivery = mix(
-      mix(mix(whitePaint, navyPaint, isLowerNavy), goldPaint, isGoldStripe),
-      redPaint,
-      isRedPin
-    ).mul(float(1.0).sub(panelLines.mul(0.45)));
+    const baseLivery = mix(mix(yellowPaint, redPaint, max(max(isLowerRed, isCheatLine), isTailBand)), bluePaint, isBelt)
+      .mul(float(1.0).sub(panelLines.mul(0.45)));
 
     const glassCol = mix(color(0x102234), color(0x1e3c58), clamp(n.y.mul(0.5).add(0.5), 0.0, 1.0));
     const fuselageCol = mix(mix(baseLivery, color(0x14181e), rawSealMask), glassCol, rawWindowMask);
 
-    // 3. Engine Cowling: Aviation White with Dark Slatted Turbine Intake Grille
+    // 3. Engine Cowling: graphite with a yellow lower edge and a dark slatted turbine intake grille
     const intakeGrille = roundedRect(vec2(p.z.sub(-0.45), p.y.sub(2.18)), vec2(0.52, 0.13), 0.04)
       .mul(step(0.35, abs(n.x)));
     const louverSlats = step(0.45, fract(p.y.mul(55.0))).mul(0.4).add(0.35);
     const cowlingCol = mix(
-      mix(whitePaint, goldPaint, smoothstep(2.02, 1.97, p.y)),
+      mix(graphitePaint, yellowPaint, smoothstep(2.02, 1.97, p.y)),
       color(0x181c22).mul(louverSlats),
       intakeGrille
     );
 
-    // 4. Swept Tail Fin & Stabilizer: Deep Navy with Gold Tip Accent
-    const finGoldBand = smoothstep(2.42, 2.45, p.y).mul(smoothstep(2.62, 2.59, p.y));
-    const finCol = mix(navyPaint, goldPaint, finGoldBand);
+    // 4. Swept Tail Fin & Stabilizer: yellow with a red band
+    const finRedBand = smoothstep(2.42, 2.45, p.y).mul(smoothstep(2.62, 2.59, p.y));
+    const finCol = mix(yellowPaint, redPaint, finRedBand);
 
-    // 5. Rotor Blades: Matte Anthracite Carbon with High-Visibility Yellow Safety Tips
+    // 5. Rotor Blades: Matte Anthracite Carbon with white tips
     const radialDist = length(vec2(p.x, p.z));
     const isBladeTip = smoothstep(4.35, 4.42, radialDist).add(
       smoothstep(0.65, 0.68, abs(p.y)).mul(step(radialDist, 0.35))
     );
-    const rotorCol = mix(color(0x1e232a), goldPaint, clamp(isBladeTip, 0.0, 1.0));
+    const rotorCol = mix(color(0x1e232a), whitePaint, clamp(isBladeTip, 0.0, 1.0));
 
     const skidCol = color(0x22272e);
     const exhaustBore = step(0.65, n.z.negate());
