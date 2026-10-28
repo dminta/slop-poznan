@@ -681,7 +681,7 @@ function buildCityBlocks(scene) {
    * Emits building `b`: facade boxes, map footprints, colliders matching each part (boxes up to the eaves), stone
    * cornices under every masonry roof line, roof gear (brick chimney stacks, skylights, a mechanical penthouse on
    * modern roofs), balcony stacks and street-front awnings.
-   * o: { cornice, corniceH, chimneys, skylights, hvac (true | 'small'), hvacH, fireEscapes (balcony stacks), awnings,
+   * o: { cornice, corniceH, chimneys, skylights, hvac (true | 'small'), hvacH, balconies (balcony stacks), awnings,
    *      shops: 'all' | 'none' | probability of 'all' (street fronts with storefronts on the ground floor, the others
    *      get a residential entrance), freestanding, walls (see wallKinds), dormers (share of such buildings with
  *      roofs.js dormers on their pitched tile or slate roofs) }
@@ -825,11 +825,10 @@ function buildCityBlocks(scene) {
       }
     }
 
-    // 3. Balcony stacks (fire-escape records: balconies.js) on the street fronts of the ground-standing parts: one
-    //    stack per ~7 m of front (1-3), all of the building's stacks one slab width and railing style, a balcony on
-    //    every storey from the first floor (from the second over shops, clear of the awnings) up to the one under the
-    //    eaves
-    if (o.fireEscapes) {
+    // 3. Balcony stacks (balconies.js) on the street fronts of the ground-standing parts: one stack per ~7 m of front
+    //    (1-3), all of the building's stacks one slab width and railing style, a balcony on every storey from the first
+    //    floor (from the second over shops, clear of the awnings) up to the one under the eaves
+    if (o.balconies) {
       const bw = range(1.8, 3);
       const style = irange(0, 2);
       for (const p of parts) {
@@ -848,7 +847,7 @@ function buildCityBlocks(scene) {
           const count = Math.min(3, Math.max(1, Math.round(w / 7)));
           for (let k = 0; k < count; k++) {
             const along = (alongX ? p.x0 : p.z0) + (w * (k + 0.5)) / count;
-            blk.fireEscapes.push({
+            blk.balconies.push({
               x: alongX ? along : c + out * 0.55, y: first * storey + 0.1, z: alongX ? c + out * 0.55 : along,
               h: (landings - 1) * storey + 1, storey, landings, facing, w: bw, style
             });
@@ -930,7 +929,7 @@ function buildCityBlocks(scene) {
       mass(b, wings, 0, wf);
     }
     pitch(house, pickW(cfg.roofs), pickW(cfg.roofMats), alongRidge(side), range(32, 42));
-    commit(blk, b, { chimneys: true, skylights: true, shops: cfg.shops, fireEscapes: chance(BALCONY_P), dormers: DORMER_P });
+    commit(blk, b, { chimneys: true, skylights: true, shops: cfg.shops, balconies: chance(BALCONY_P), dormers: DORMER_P });
   }
 
   // Stary Rynek house: a narrow lot (6-9 m) with its steep gable turned to the square, 3-4 storeys of polychrome
@@ -977,7 +976,7 @@ function buildCityBlocks(scene) {
     mass(b, [sideRect(lot, side, 0, L, 0, dep)], 0, k.floors);
     const terrace = range(2.2, 3.2);
     if (dep - terrace >= 6 && chance(0.45)) mass(b, [sideRect(lot, side, 0, L, terrace, dep)], k.floors, k.floors + 1);
-    commit(blk, b, { corniceH: 0.35, skylights: true, shops: 0.5, fireEscapes: chance(BALCONY_P) });
+    commit(blk, b, { corniceH: 0.35, skylights: true, shops: 0.5, balconies: chance(BALCONY_P) });
   }
 
   // Post-war block filling a war gap: a plain slab of 2.8 m storeys on the street line or behind a planted strip, now
@@ -1105,7 +1104,7 @@ function buildCityBlocks(scene) {
       }
     }
     commit(blk, b, {
-      chimneys: true, skylights: true, shops: chance(cfg.cornerShops) ? 'all' : 'none', fireEscapes: chance(BALCONY_P),
+      chimneys: true, skylights: true, shops: chance(cfg.cornerShops) ? 'all' : 'none', balconies: chance(BALCONY_P),
       dormers: rynek ? 0 : DORMER_P
     });
   }
@@ -1387,7 +1386,7 @@ function buildCityBlocks(scene) {
       mass(b, carve(foot, holes, axis), fl, c);
       fl = c;
     });
-    commit(blk, b, { skylights: true, chimneys: chance(0.25), fireEscapes: chance(cfg.feP) });
+    commit(blk, b, { skylights: true, chimneys: chance(0.25), balconies: chance(cfg.balconyP) });
   }
 
   // Works and warehouses (Garbary, Główna, the rail-side quarters): full lot coverage, corner buildings through to
@@ -1665,7 +1664,7 @@ function buildCityBlocks(scene) {
   // Rataje, Chartowo, Winogrady (where they reach the detail box): osiedla of panel slabs, by storeys and weight
   const PROJECTS = { kind: 'projects', types: [[5, 5], [11, 2.5], [16, 1]], setback: [8, 12] };
   // Garbary's warehouses, the breweries and works: brick lofts
-  const LOFT_BASE = { kind: 'loft', lotW: [10, 24], throughP: 0.5, floors: [3, 6], mats: [[F.brick, 5], [F.yellowBrick, 3], [F.cream, 1]], setbackAt: 99, feP: 0 };
+  const LOFT_BASE = { kind: 'loft', lotW: [10, 24], throughP: 0.5, floors: [3, 6], mats: [[F.brick, 5], [F.yellowBrick, 3], [F.cream, 1]], setbackAt: 99, balconyP: 0 };
   // Główna and the rail-side quarters: brick warehouses, sheds and works
   const LOWRISE = { kind: 'lowrise', floors: [1, 4] };
   // Międzynarodowe Targi Poznańskie: exhibition halls 11-18 m tall in a grid of 12-18 m alleys, glass foyers on some,
@@ -1951,7 +1950,7 @@ function buildCityBlocks(scene) {
       chimneys: [], // { x, y, z, w, d, h }: brick stacks standing on the eave line y
       skylights: [], // { x, y, z, w, d } on flat roofs
       hvacUnits: [],
-      fireEscapes: [], // balcony stacks (balconies.js)
+      balconies: [], // balcony stacks (balconies.js)
       awnings: [],
       scaffolds: [], // { x, y, z, w, d, h, ad }: renovation scaffolding, ad = advert wrap theme or -1 (netting)
       footprints: [], // { x0, x1, z0, z1, h, tone } per building part, lowest first (maps; + pts: its world corners when turned)
@@ -2011,7 +2010,7 @@ function buildCityBlocks(scene) {
         b.ry = th;
       }
     });
-    for (const list of [blk.cornices, blk.chimneys, blk.skylights, blk.hvacUnits, blk.fireEscapes, blk.awnings, blk.scaffolds]) {
+    for (const list of [blk.cornices, blk.chimneys, blk.skylights, blk.hvacUnits, blk.balconies, blk.awnings, blk.scaffolds]) {
       for (const o of list) {
         [o.x, o.z] = toWorld(o.x, o.z);
         o.ry = th;
@@ -2370,8 +2369,8 @@ function buildCityBlocks(scene) {
   hvacInst.frustumCulled = false;
   group.add(hvacInst);
 
-  // 5. Balcony stacks (balconies.js, fed the fire-escape records): real geometry nearby, silhouettes in the distance
-  const fireEscapeSystem = createBalconies(group);
+  // 5. Balcony stacks (balconies.js, fed blk.balconies): real geometry nearby, silhouettes in the distance
+  const balconySystem = createBalconies(group);
 
   // 6. Ground-floor retail canvas awnings & illuminated storefront fascia signs
   const awningMat = new THREE.MeshStandardNodeMaterial({ color: 0xffffff, roughness: 0.65 });
@@ -2541,7 +2540,7 @@ function buildCityBlocks(scene) {
     let chimneyCount = 0;
     let skylightCount = 0;
     let hvacCount = 0;
-    fireEscapeSystem.begin();
+    balconySystem.begin();
     let awningCount = 0;
     let netCount = 0;
     const signCounts = signInsts.map(() => 0);
@@ -2591,7 +2590,7 @@ function buildCityBlocks(scene) {
       }
 
       // 5. Balconies
-      for (const fe of blk.fireEscapes) fireEscapeSystem.add(fe, focusX, focusZ);
+      for (const bal of blk.balconies) balconySystem.add(bal, focusX, focusZ);
 
       // 6. Retail awnings & illuminated storefront fascia signs (the sign flat on the wall above the awning, thin
       //    along the wall's normal)
@@ -2647,7 +2646,7 @@ function buildCityBlocks(scene) {
     hvacInst.count = hvacCount;
     flagRange(hvacInst.instanceMatrix, hvacCount);
 
-    fireEscapeSystem.end();
+    balconySystem.end();
 
     awningInst.count = awningCount;
     flagRange(awningInst.instanceMatrix, awningCount);
