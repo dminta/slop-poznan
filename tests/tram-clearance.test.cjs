@@ -43,20 +43,22 @@ test.before(async () => {
   });
   const grid = gridModule.buildCityGrid(inert());
   let trees = [];
-  const { buildStreetDetails } = loadModule(readFileSync(join(__dirname, '../js/street-details.js'), 'utf8'), {
+  const streetDetails = (grid) => loadModule(readFileSync(join(__dirname, '../js/street-details.js'), 'utf8'), {
     imports: {
       'three/webgpu': inert(), 'three/tsl': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert(),
       './city-config.js': config, './road-network.js': { CROSSWALK: 4.3, CROSSWALK_REACH: 3, STOP_SETBACK: 1.5 },
       './tsl-materials.js': inert(),
       './trees.js': { createTreeField: (_scene, sites) => { trees = sites; return { group: inert() }; } },
-      './city-grid.js': gridModule
+      './city-grid.js': grid
     },
     globals: { console: { info() {}, log() {}, warn() {} }, Math, Object, Array, Set, Map, Number, Infinity, JSON, Symbol,
       Float32Array, Uint8Array, Uint16Array, Uint32Array, Int32Array, Float64Array, Promise, String, Error,
       document: inert() },
     filename: 'street-details.js'
-  });
-  const details = buildStreetDetails(inert());
+  }).buildStreetDetails(inert());
+  // the street furniture as it would stand if the tracks were not there (built first: `trees` keeps the last build's)
+  const noRails = streetDetails({ ...gridModule, clearOfRails: () => true });
+  const details = streetDetails(gridModule);
 
   // every GEO.rail segment, bucketed in 32 m cells (an index of its own, not city-grid.js's)
   const cells = new Map();
@@ -86,7 +88,7 @@ test.before(async () => {
     }
     return best;
   };
-  world = { config, GEO, gridModule, grid, details, trees, trackDist, logs };
+  world = { config, GEO, gridModule, grid, details, noRails, trees, trackDist, logs };
 });
 
 // a box's reach from its centre: an oriented box's own half diagonal, else its world AABB's
@@ -123,6 +125,16 @@ test('street furniture, its colliders and the street trees keep 2 m off every tr
   assert.ok(street.length > 5000, `${street.length} street trees`);
   const bad = onTrack(street, (t) => 0.4 * t.scale, (t) => [t.x, t.z]);
   assert.equal(bad.length, 0, `${bad.length} street trees on a track: ${where(bad, (t) => [t.x, t.z])}`);
+});
+
+test('keeping off the tracks costs no signal pole: each finds a spot further along its curb', () => {
+  // one pedestrian head (an audio source) per signal pole; measured 2026-10-28: 865 poles either way, 8 of them moved
+  // 1.2–9.6 m along the curb, so no junction approach loses its heads to the rails
+  const { details, noRails } = world;
+  assert.ok(details.audioSignals.length > 700, `${details.audioSignals.length} signal poles`);
+  assert.equal(details.audioSignals.length, noRails.audioSignals.length);
+  const moved = details.audioSignals.filter((s, i) => s.x !== noRails.audioSignals[i].x || s.z !== noRails.audioSignals[i].z);
+  assert.ok(moved.length < 20, `${moved.length} signal poles moved`);
 });
 
 test('no landmark outline or the Śródka mural square takes in tram track', () => {
