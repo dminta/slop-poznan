@@ -415,3 +415,35 @@ test('Grunwald and Winogrady are labelled over their osiedla, whatever way the r
     assert.ok(DISTRICT_GROUPS[l.name].includes(districtAt(l.x, l.z)), `${l.name} lands in ${districtAt(l.x, l.z)}`);
   }
 });
+
+test('landmark pins that would overlap merge into one dot under the top-ranked pin and split as you zoom in', async () => {
+  const { CityMapSystem } = routeModule();
+  const { CITY_LANDMARKS } = await import('../js/city-config.js');
+  const groupsAt = (s) => CityMapSystem.clusterPins(CITY_LANDMARKS.map((lm) => ({ lm, lx: lm.x * s, ly: lm.z * s })));
+  const ids = (g) => Array.from(g.members, (l) => l.id);
+  for (const s of [0.05, 0.1, 0.2, 0.5, 1, 2]) {
+    const groups = groupsAt(s);
+    assert.equal(groups.reduce((n, g) => n + g.members.length, 0), CITY_LANDMARKS.length, 'every pin is drawn once');
+    for (const g of groups) {
+      assert.equal(g.lm, g.members[0], 'a group is drawn at its top-ranked pin');
+      for (const l of g.members) assert.ok(CITY_LANDMARKS.indexOf(l) >= CITY_LANDMARKS.indexOf(g.lm));
+    }
+    // no two dots drawn closer than their halos
+    for (let i = 0; i < groups.length; i++) {
+      for (let j = i + 1; j < groups.length; j++) {
+        const d = Math.hypot(groups[i].lx - groups[j].lx, groups[i].ly - groups[j].ly);
+        assert.ok(d >= 14, `${groups[i].lm.id} and ${groups[j].lm.id} ${d.toFixed(1)} px apart at ${s} px/m`);
+      }
+    }
+  }
+  // City-wide: Stary Rynek is one Ratusz dot, the Andersia group one Andersia dot
+  const rynek = groupsAt(0.1).find((g) => g.lm.id === 'ratusz');
+  for (const id of ['domki', 'wieza']) assert.ok(ids(rynek).includes(id), `${id} merges into the Ratusz`);
+  const andersia = groupsAt(0.1).find((g) => g.lm.id === 'andersia');
+  for (const id of ['and2', 'pfc']) assert.ok(ids(andersia).includes(id), `${id} merges into Andersia`);
+  // further out the whole group, Novotel too, is one dot (with the higher-ranked Stary Browar, 160 m off)
+  const towers = groupsAt(0.05).find((g) => g.members.some((l) => l.id === 'andersia'));
+  for (const id of ['and2', 'pfc', 'novotel']) assert.ok(ids(towers).includes(id), `${id} merges at 0.05 px/m`);
+  // Close in, every landmark has its own dot
+  assert.equal(groupsAt(1).length, CITY_LANDMARKS.length);
+});

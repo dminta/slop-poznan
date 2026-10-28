@@ -925,7 +925,10 @@ class CityMapSystem {
           const wPos = this.screenToWorld(mx, my, rect.width, rect.height);
           this.hoverWorld = wPos;
           if (this.elHoverInfo) {
-            this.elHoverInfo.textContent = `${getLocationLabel(wPos.x, wPos.z)} · Click to teleport here`;
+            // over a pin, name it (a merged group names all its landmarks)
+            const pin = this.pinAt(wPos.x, wPos.z);
+            const label = pin ? pin.members.map((l) => l.name).join(', ') : getLocationLabel(wPos.x, wPos.z);
+            this.elHoverInfo.textContent = `${label} · Click to teleport here`;
           }
         }
       });
@@ -1536,6 +1539,39 @@ class CityMapSystem {
     ctx.restore();
   }
 
+  /**
+   * Landmark pins whose dots would overlap on screen merge into one (Stary Rynek's Ratusz, Domki Budnicze and Wieża
+   * Wójtowska stand 45–90 m apart, the Andersia group's four towers within 125 m). In CITY_LANDMARKS order, which is
+   * the ranking, each pin joins the nearest group whose dot is within `radius` px (so no two 7 px halos touch), else
+   * starts its own (AND2 goes with Andersia, 62 m off, rather than with the higher-ranked Stary Browar, 125 m). A group is drawn at its top-ranked pin with that pin's label and a count ("Andersia +3"); zooming
+   * in splits it. `pins`: [{ lm, lx, ly }] (screen px) in rank order. Returns [{ lm, lx, ly, members: [lm, ...] }].
+   */
+  static clusterPins(pins, radius = 14) {
+    const groups = [];
+    for (const { lm, lx, ly } of pins) {
+      let g = null;
+      let best = radius;
+      for (const c of groups) {
+        const d = Math.hypot(c.lx - lx, c.ly - ly);
+        if (d < best) {
+          best = d;
+          g = c;
+        }
+      }
+      if (g) g.members.push(lm);
+      else groups.push({ lm, lx, ly, members: [lm] });
+    }
+    return groups;
+  }
+
+  // The pin (or merged group) the last full-map render drew under world (x, z), if any
+  pinAt(x, z) {
+    for (const g of this.pinClusters || []) {
+      if (Math.hypot(g.lm.x - x, g.lm.z - z) * this.viewZoom < 9) return g;
+    }
+    return null;
+  }
+
   renderFullMapStatic(ctx, v) {
     const { w, h, s } = v;
     ctx.save();
@@ -1554,17 +1590,23 @@ class CityMapSystem {
     // 3. Iconic Landmark Pins & Collision-Free Labels (placed first: their boxes keep the other names clear)
     ctx.font = `700 11px ${FONT}`;
     const placed = [];
-    const pins = [];
+    const inView = [];
     for (const lm of CITY_LANDMARKS) {
       const lx = toX(lm.x);
       const ly = toY(lm.z);
       if (Math.abs(lx) > w * 0.48 || Math.abs(ly) > h * 0.48) continue;
-      const labelW = this.textWidth(ctx, lm.short) + 6;
+      inView.push({ lm, lx, ly });
+    }
+    const pins = CityMapSystem.clusterPins(inView);
+    this.pinClusters = pins;
+    for (const pin of pins) {
+      const { lx, ly } = pin;
+      pin.label = pin.members.length > 1 ? `${pin.lm.short} +${pin.members.length - 1}` : pin.lm.short;
+      const labelW = this.textWidth(ctx, pin.label) + 6;
       const box = [lx + 6, ly - 8, lx + 8 + labelW, ly + 7];
-      const showLabel = !overlaps(placed, box);
-      placed.push([lx - 6, ly - 6, lx + 6, ly + 6]);
-      if (showLabel) placed.push(box);
-      pins.push({ lm, lx, ly, showLabel });
+      pin.showLabel = !overlaps(placed, box);
+      placed.push([lx - 7, ly - 7, lx + 7, ly + 7]);
+      if (pin.showLabel) placed.push(box);
     }
 
     // 4. District, quarter, neighbourhood & water watermark titles (wherever they fit, larger kinds first),
@@ -1595,21 +1637,30 @@ class CityMapSystem {
 
     ctx.font = `700 11px ${FONT}`;
     ctx.textAlign = 'left';
-    for (const { lm, lx, ly, showLabel } of pins) {
+    for (const { lx, ly, members, label, showLabel } of pins) {
+      const group = members.length > 1;
       ctx.fillStyle = MAP.halo;
       ctx.beginPath();
-      ctx.arc(lx, ly, 6.5, 0, Math.PI * 2);
+      ctx.arc(lx, ly, group ? 7.5 : 6.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.arc(lx, ly, 4.2, 0, Math.PI * 2);
+      ctx.arc(lx, ly, group ? 3.4 : 4.2, 0, Math.PI * 2);
       ctx.fill();
+      if (group) {
+        // a ring round the dot marks a merged group
+        ctx.lineWidth = 1.4;
+        ctx.strokeStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(lx, ly, 5.8, 0, Math.PI * 2);
+        ctx.stroke();
+      }
       if (showLabel) {
         ctx.lineWidth = 3;
         ctx.strokeStyle = MAP.halo;
-        ctx.strokeText(lm.short, lx + 9, ly + 4);
+        ctx.strokeText(label, lx + 9, ly + 4);
         ctx.fillStyle = '#ffffff';
-        ctx.fillText(lm.short, lx + 9, ly + 4);
+        ctx.fillText(label, lx + 9, ly + 4);
       }
     }
 

@@ -211,6 +211,11 @@ Physics notes:
 - Layers, bottom up: outskirts land, the core, water (with island holes), parks, blocks, plazas, rail (dashed grey),
   bridges, trams (thin red, above the decks), landmarks. The furthest zoom-out (`minZoom()`) fits the whole city outline
   to the canvas; "fit all" (`#map-view-all`) fits the detail box (`CITY_BOUNDS`).
+- Landmark pins on the full map are decluttered by `CityMapSystem.clusterPins`: in `CITY_LANDMARKS` order (the ranking)
+  each pin joins the nearest group dot within 14 px, so overlapping dots merge into one ringed dot at the top-ranked pin,
+  labelled with a count ("Ratusz +2", "Andersia +2" city-wide), and split as you zoom in (all 25 apart from 1 px/m).
+  Hovering a pin (`pinAt`, 9 px) names its landmarks in the hover line; a click still teleports to the point. The radar's
+  small blips are not grouped.
 - The legend (`#fullmap-legend`, static items in `index.html`) wraps to a second row rather than run under the centred
   status pill, and hides below 1360 px. Its Bridge, Tram and Rail swatches read `--map-bridge`/`--map-tram`/`--map-rail`,
   which the `CityMapSystem` constructor sets from `MAP`, so they follow the palette the map draws with. There is no
