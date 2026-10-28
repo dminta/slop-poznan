@@ -1179,7 +1179,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     return gap;
   }
   // The player this frame (set in update; active as traffic.js has it: on the ground and not flying)
-  const player = { active: false, entity: null, x: 0, z: 0, heading: 0, vx: 0, vz: 0, halfW: 0.86, halfL: 2.18 };
+  const player = { active: false, entity: null, x: 0, z: 0, heading: 0, vx: 0, vz: 0, halfW: 0.86, halfL: 2.23 };
 
   function drive(t, elapsed) {
     const path = t.path;
@@ -1516,7 +1516,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       player.vx = Math.sin(heading) * speed + (playerEntity.vx || 0);
       player.vz = Math.cos(heading) * speed + (playerEntity.vz || 0);
       player.halfW = activeMode === 'cyclist' ? 0.35 : activeMode === 'person' ? 0.32 : 0.86;
-      player.halfL = activeMode === 'cyclist' ? 0.85 : activeMode === 'person' ? 0.32 : 2.18;
+      player.halfL = activeMode === 'cyclist' ? 0.85 : activeMode === 'person' ? 0.32 : 2.23;
     }
 
     // 1. Population: retire trams far from the focus, stuck ones and those waiting at a buffer stop out of view;
