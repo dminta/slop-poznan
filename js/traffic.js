@@ -359,7 +359,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
 
   const buses = [];
   for (let i = 0; i < NUM_BUSES; i++) {
-    buses.push(Object.assign(createVehicle(true, 6.0, 1.3, 3.6, BUS_DRIVER, 0.7 + (i % 3) * 0.05, 50 / 3.6), { route: i % BUS_ROUTES.length }));
+    buses.push(Object.assign(createVehicle(true, BUS_SPEC.zFront, 1.3, BUS_SPEC.wheelZ, BUS_DRIVER, 0.7 + (i % 3) * 0.05, 50 / 3.6), { route: i % BUS_ROUTES.length }));
   }
   const vehicles = [...cars, ...buses];
   group.add(busBodyInst, busHeaderInst, busWheelLeftInst, busWheelRightInst);
