@@ -4,8 +4,9 @@ Status: **Phases 1–11 done, with open items** (each phase heading carries its 
 Kaponiera portals and the Combino; Phase 10 the articulated bus, the S-2 arrow and the taxi crest; Phase 11
 the S-2 arrow, signal countdowns, "BUS" lane text, a 4th tree species and real OSM tree positions). The 2026-10-27 audit
 found further gaps; its six functional gaps were fixed on 2026-10-28, the rest is listed in **Open items from the
-2026-10-27 audit** below. Phase 15 (bug fixes and Polish vehicles) is open. Phase 12 is partly done (teleports, tram sounds,
-the `nyc-sound` key); the rest is not started.
+2026-10-27 audit** below. Phase 12 is done except the docs rewrite and the
+archiving in 12.5. Phase 15 items 1–4 are done (2026-10-28); item 5 is open. None of the 2026-10-28 work has been
+checked in a browser yet.
 Line references are as of commit `46ec12b` and will drift; grep for the named symbol if a line no longer matches. Read `AGENTS.md` and the topic docs (`geodata.md`, `world.md`, `rendering.md`,
 `actors.md`, `audio.md`, `architecture.md`, `testing.md`) before starting any phase. They hold the repo-wide rules
 (modulepreload + boot count, module syntax, source-sliced tests, generated geodata, CSS `?v=` bump).
@@ -1025,7 +1026,21 @@ crosswalks (1887 of 1928 tracks) and the connected set.
 
 ### Phase 12: Audio, lighting, cameras, teleports, cleanup
 
-**Status: partly done.** Already done ahead of this phase: the teleports (12.4 table, `TELEPORT_LOCATIONS`, the Ratusz
+**Status: done except the 12.5 docs rewrite and the archiving of this plan** (2026-10-28; checked headless, not yet
+seen or heard in a browser).
+- 12.1 audio: Polish two-tone siren with a fast wail 6 s in every 30 s; slow red tick and fast green rattle at
+  crossings; Fara and Katedra bells on the hour from the in-game clock (`js/city-clock.js`); the noon show at the
+  Ratusz under the Midday preset. The hejnał is a generic natural-trumpet call, **not** Poznań's real melody.
+- 12.2 lighting: `sunPosition()` (NOAA/Meeus) at 52.41 N, 16.93 E; each preset carries a `when` time. Twilight and
+  night raise the rendered sun (`minElevation`). The far plane went from 60 to 32 km. Golden hour is now a real 8° sun,
+  so its shadows are much longer.
+- 12.3 cameras: the eight place views (`PLACE_VIEWS`) and the drone at 125–155 m. Open: the katedra view hovers over the
+  Cybina because Most Jordana is not in the snapshot, and no test checks line of sight.
+- 12.5 cleanup: the NYC dead code, names, comments, materials (sidewalks, curbs, park paving, manholes), the
+  billboard, the steam stack, the LPR helicopter livery and the Urbino-like bus are done. The `nyc-*` localStorage
+  migrations are kept on purpose. Still to do: the full `docs/*.md` rewrite and archiving this plan.
+
+Done earlier, ahead of this phase: the teleports (12.4 table, `TELEPORT_LOCATIONS`, the Ratusz
 test; the `dworzec` sub-label reads "Most Dworcowy · Łazarz"), the tram motor hum, wheel squeal and bell (Phase 9.3),
 and the `nyc-sound` → Poznań key rename with migration. 12.5 must also cover the unlisted NYC leftovers in **Open items
 from the 2026-10-27 audit**; grep case-insensitively.
@@ -1139,9 +1154,25 @@ from the 2026-10-27 audit**; grep case-insensitively.
 
 ### Phase 15: Bug fixes and Polish vehicles
 
-**Status: not started** (opened 2026-10-28 from in-browser reports and the agents' open items). Each item lists the
-files it touches so the items can run in parallel. 15.3 waits for the NYC-visuals cleanup of `actor-models.js` (Phase
-12.5) to land.
+**Status: items 1–4 done on 2026-10-28, item 5 open** (opened 2026-10-28 from in-browser reports and the agents' open
+items). Everything was checked headless only (211 tests).
+- 15.1: Plac Cyryla Ratajskiego and Plac Wielkopolski are paved round a 2.29 m cut on each side of the track
+  (`cutSlab`). Every prop keeps 2 m off any rail (`clearOfRails`); 48 square/park props, 154 street props and 66 street
+  trees were removed or moved. Open: 18 signal poles found no free spot and are gone. Platforms sit 1 cm above the slab,
+  which may flicker.
+- 15.2 root causes:
+  - lanes aimed into merged junction centres;
+  - divided roads forced onto one centreline;
+  - the tram strip added to both sides when the tracks run on one side (now link bits 3/4: 35 right, 475 left);
+  - kinks where the lane count changes;
+  - 6 stale stop lines.
+
+  Lane centres off their carriageway: Św. Marcin 4.3% → 0.3%, Roosevelta 1.4% → 0.2%. Zebras 1388 → 1602. Open:
+  two-way streets with tracks down the middle keep lanes on the tracks, and some docs numbers were not re-measured.
+- 15.3: five classes (Corolla-class taxi, hatch, estate incl. Policja, crossover, high-roof van incl. PRM and PSP) and
+  per-car EU plates (PO/PY/PZ) from one glyph texture. There are 15 instanced meshes instead of 11. Open: the PSP is a
+  van rather than a truck, and the plate font depends on Arial Narrow/Arial being installed.
+- 15.4: bike lanes and their flags are removed. The cyclist player mode stays.
 
 1. **Trams drive through square furniture and their rails vanish on squares** (reported at Plac Cyryla Ratajskiego).
    Cause, measured: `pavedPlazas()` (`js/city-grid.js`) drops only the place outlines with more than 30 m of `ROADS`
