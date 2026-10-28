@@ -977,7 +977,11 @@ function buildRoadNetwork(sidewalks, obstacles) {
   for (const e of edges) {
     e.inSide = e.inArm.side; // the side of e.to it arrives over
     e.outSide = e.outArm.side; // the side of e.from it leaves over
-    e.axisIndex = e.inArm.group; // its right-of-way group at e.to
+    // its right-of-way group at e.to. An unsignalised node with two arms is a bend (or a change of width): nothing
+    // crosses there, so both ways are group 0. With the arms more than 35 degrees off straight they were two roads, and
+    // one way round each of the 387 bends gave way to the other, crawled at 5 m/s and kept out of the box while the
+    // other way was in it (tools/bench-traffic.mjs)
+    e.axisIndex = e.to.sideCount < 3 && !e.to.signal ? 0 : e.inArm.group;
     // lateral axis of its road, the same both ways (+x across north-south roads, +z across east-west ones)
     const flip = e.rx < -1e-6 || (Math.abs(e.rx) <= 1e-6 && e.rz < 0);
     e.clx = flip ? -e.rx : e.rx;

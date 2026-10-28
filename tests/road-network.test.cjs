@@ -463,3 +463,17 @@ test('lanes keep to their roadways, off curbs, medians and tram strips, without 
       'the stop line where traffic stops');
   }
 });
+
+test('an unsignalised bend is no junction: both ways through it have the right of way (group 0)', () => {
+  // a 9 m street round a 120 m square: every corner a 90 degree bend
+  const nodes = [0, 0, 120, 0, 120, 120, 0, 120];
+  const links = [0, 1, 2, 3].map((i) => [i, (i + 1) % 4, 0, 9, 2, 0, []]);
+  const net = buildPureGraph({ nodes, links, names: ['RING ST'] });
+  assert.equal(net.nodes.length, 4);
+  for (const n of net.nodes) {
+    assert.ok(n.sideCount === 2 && !n.signal);
+    assert.equal(new Set(n.arms.map((a) => a.group)).size, 2, 'its arms are more than 35 degrees off straight: two roads');
+  }
+  assert.equal(net.edges.length, 4, 'one way round (no U-turns): the largest strongly connected set');
+  assert.ok(net.edges.every((e) => e.axisIndex === 0), 'neither way round a bend gives way to the other');
+});
