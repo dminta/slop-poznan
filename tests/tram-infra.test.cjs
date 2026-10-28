@@ -203,19 +203,84 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
     byRail.get(p.railIndex).push(p);
   }
   const wallAt = (x, z) => rail.ends.some((e) => Math.hypot(e.x - x, e.z - z) < 0.05);
+  const corridor0 = rail.corridor;
+  const levelFrom = (railIndex, x, z) => rail.level.some((p) => p.railIndex === railIndex && Math.hypot(p.ax - x, p.az - z) < 0.05);
   let cuts = 0;
+  let levelGaps = 0;
   for (const tr of rail.tracks) {
     const list = byRail.get(tr.railIndex) || [];
     for (let k = 0; k + 1 < list.length; k++) {
       const a = list[k];
       const b = list[k + 1];
       if (Math.hypot(b.ax - a.bx, b.az - a.bz) < 0.05) continue;
+      if (levelFrom(tr.railIndex, a.bx, a.bz)) {
+        // a level crossing: flush rails across the road, the bed and fence simply end, no abutment
+        levelGaps++;
+        assert.ok(!wallAt(a.bx, a.bz) && !wallAt(b.ax, b.az), `no end walls at the level crossing at ${a.bx}, ${a.bz}`);
+        continue;
+      }
       // a gap between two kept pieces: both sides inside the detail box, so both get a wall
       cuts++;
       assert.ok(wallAt(a.bx, a.bz) && wallAt(b.ax, b.az), `end walls on both sides of the cut at ${a.bx}, ${a.bz}`);
     }
   }
   assert.ok(cuts > 20 && rail.ends.length >= 2 * cuts, `${cuts} cuts, ${rail.ends.length} end walls`);
+
+  // Level crossings (GEO.levelCrossings, the nodes a road shares with a mainline track): every one on a network roadway
+  // has its flush rails, and only there; the rail bridges and underpasses (every other crossing) keep their walled gap
+  assert.ok(levelGaps >= 15 && rail.level.length > 40, `${levelGaps} level crossing gaps, ${rail.level.length} flush pieces`);
+  const lx = GEO.levelCrossings;
+  let onRoad = 0;
+  for (let k = 0; k < lx.length; k += 2) {
+    if (rail.roadDist(lx[k], lx[k + 1]) >= 0) continue;
+    onRoad++;
+    assert.ok(rail.level.some((p) => Math.hypot((p.ax + p.bx) / 2 - lx[k], (p.az + p.bz) / 2 - lx[k + 1]) < 6),
+      `flush rails at the level crossing at ${lx[k]}, ${lx[k + 1]}`);
+  }
+  assert.ok(onRoad >= 25, `${onRoad} level crossings on a roadway`);
+  for (const p of rail.level) {
+    let best = Infinity;
+    for (let k = 0; k < lx.length; k += 2) best = Math.min(best, Math.hypot((p.ax + p.bx) / 2 - lx[k], (p.az + p.bz) / 2 - lx[k + 1]));
+    assert.ok(best < 40, `flush piece at ${p.ax}, ${p.az} is ${best.toFixed(0)} m from a level crossing`);
+    // (a flush piece's off-road end may lie in a neighbouring track's keep-out, as in the Franowo yard)
+    const mx = (p.ax + p.bx) / 2;
+    const mz = (p.az + p.bz) / 2;
+    if (rail.roadDist(mx, mz) < 0) assert.ok(!corridor0.has(mx, mz), 'the road over a level crossing stays open');
+  }
+
+  // Hetmańska under the Górczyn line (a rail bridge; the street is mapped as an underpass): every mainline track over it
+  // is cut with an end wall on both sides, and no bed, wall, fence or keep-out lies on its carriageways
+  const HX = -1855;
+  const HZ = 2482;
+  const hetmanska = network.edges.filter((e) => {
+    const mx = e.x0 + (e.dx * e.span) / 2;
+    const mz = e.z0 + (e.dz * e.span) / 2;
+    return Math.hypot(mx - HX, mz - HZ) < 50 && e.lanes.length >= 3;
+  });
+  assert.ok(hetmanska.length >= 2, `${hetmanska.length} Hetmańska edges under the railway`);
+  const segDist = (x, z, p) => {
+    const ex = p.bx - p.ax;
+    const ez = p.bz - p.az;
+    const t = Math.max(0, Math.min(1, ((x - p.ax) * ex + (z - p.az) * ez) / (ex * ex + ez * ez || 1)));
+    return Math.hypot(p.ax + ex * t - x, p.az + ez * t - z);
+  };
+  const hetPieces = rail.pieces.filter((p) => Math.hypot(p.ax - HX, p.az - HZ) < 90);
+  let hetSamples = 0;
+  for (const e of hetmanska) {
+    for (let d = 0; d <= e.span; d += 1) {
+      for (const o of e.lanes) {
+        const x = e.x0 + e.dx * d + e.rx * o;
+        const z = e.z0 + e.dz * d + e.rz * o;
+        hetSamples++;
+        assert.ok(!corridor0.has(x, z), `Hetmańska lane at ${x.toFixed(1)}, ${z.toFixed(1)} is open`);
+        assert.ok(hetPieces.every((p) => segDist(x, z, p) > 2.5 + 1.75), `no bed on Hetmańska at ${x.toFixed(1)}, ${z.toFixed(1)}`);
+      }
+    }
+  }
+  assert.ok(hetSamples > 300, `${hetSamples} Hetmańska lane samples`);
+  const hetEnds = rail.ends.filter((e) => Math.hypot(e.x - HX, e.z - HZ) < 40);
+  assert.ok(hetEnds.length >= 6, `${hetEnds.length} end walls by Hetmańska`);
+  for (const e of hetEnds) assert.ok(rail.roadDist(e.x, e.z) >= 3.5, 'the abutments stand off the carriageway');
   assert.ok(rail.masts.length > 500 && rail.arms.length > 400 && rail.portals.length > 20, `${rail.masts.length} masts`);
   for (const q of rail.masts) {
     assert.ok(rail.roadDist(q.x, q.z) >= 2 && rail.tramDist(q.x, q.z) >= 3, `mast at ${q.x}, ${q.z} clear of roads and trams`);
@@ -282,6 +347,25 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
     }
   }
   assert.ok(roadSamples > 500 && roadBlocked === 0, `${roadBlocked} of ${roadSamples} roadway points at the cuts blocked`);
+  // ...and nowhere else: no lane of any street (painted or driven) runs into the keep-out, nor a bed or wall over it
+  let laneSamples = 0;
+  const laneBlocked = [];
+  for (const e of network.paintEdges || network.edges) {
+    for (let d = 0; d <= e.span; d += 2) {
+      for (const o of e.lanes) {
+        const x = e.x0 + e.dx * d + e.rx * o;
+        const z = e.z0 + e.dz * d + e.rz * o;
+        if (!config.isLand(x, z)) continue;
+        laneSamples++;
+        if (corridor.has(x, z)) laneBlocked.push(`${x.toFixed(0)}, ${z.toFixed(0)}`);
+      }
+    }
+  }
+  assert.ok(laneSamples > 100000, `${laneSamples} lane samples`);
+  assert.deepEqual(laneBlocked, [], 'no lane runs into the railway keep-out');
+  for (const e of rail.ends) {
+    assert.ok(rail.roadDist(e.x, e.z) >= 3.5 && rail.laneDist(e.x, e.z) >= 1.75 + 1, `end wall at ${e.x}, ${e.z} off the road`);
+  }
   let outside = 0;
   let outsideBlocked = 0;
   for (const r of rail.runs) {

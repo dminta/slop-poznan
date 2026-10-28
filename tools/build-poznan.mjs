@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { log, llAffine, LAT0, LON0, BEARING_DEG, DETAIL_BOX, inDetailBox } from './poz-base.mjs';
 import { r1, Raster } from './geo-util.mjs';
-import { pieces, plazas, rail, roads, signalNodes, tramRoutes, tramStops } from './poz-roads.mjs';
+import { levelCrossings, pieces, plazas, rail, roads, signalNodes, tramRoutes, tramStops } from './poz-roads.mjs';
 import { water, land, landHoles, outskirts, outskirtsHoles } from './poz-water.mjs';
 import { parks, landmarks, districts, labels } from './poz-extra.mjs';
 import { blocks, STRIP, SIDEWALK } from './poz-blocks.mjs';
@@ -81,6 +81,9 @@ const GEO = {
   rail: rail.map((r) => (r.routes
     ? { kind: r.kind, street: r.street, tracks: r.tracks, oneway: r.oneway, pts: flat(r.pts), routes: r.routes }
     : { kind: r.kind, street: r.street, tracks: r.tracks, oneway: r.oneway, pts: flat(r.pts) })),
+  // [x, z, ...] level crossings inside the detail box: nodes a road shares with a mainline track (every other road and
+  // mainline crossing is grade-separated)
+  levelCrossings: flat(levelCrossings),
   // [{ ref, from, to }] tram line routes (OSM route=tram, PTv2, one per direction): line number, first and last stop
   tramRoutes: tramRoutes.map((r) => ({ ref: r.ref, from: r.from, to: r.to })),
   // [{ name, x, z }] railway=tram_stop nodes inside the detail box (one per stop position, usually on the track)
