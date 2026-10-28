@@ -84,13 +84,12 @@ class NearestSources {
 // Read at audio's control rate (10 Hz), after simulation updates. Snapshots remain valid until the next collect().
 // IDs are the simulation objects, independent of pooled record order, so voices survive ranking changes/recycling.
 class CityAudioSources {
-  constructor({ controllerManager, trafficSystem, highwayTraffic, tramSystem = null, streetDetails }) {
+  constructor({ controllerManager, trafficSystem, tramSystem = null, streetDetails }) {
     this.controllers = controllerManager;
     this.players = Object.values(controllerManager.entities);
     this.cars = trafficSystem.cars;
     this.buses = trafficSystem.buses;
     this.peds = trafficSystem.peds;
-    this.highwayCars = highwayTraffic.cars;
     this.tramList = tramSystem ? tramSystem.trams : [];
     this.signalSites = streetDetails.audioSignals;
     this.motors = new NearestSources(10);
@@ -222,16 +221,6 @@ class CityAudioSources {
 
     this.streetVehicles(this.cars, elapsed, 100);
     this.streetVehicles(this.buses, elapsed, 1000);
-    for (let i = 0; i < this.highwayCars.length; i++) {
-      const car = this.highwayCars[i];
-      // Lane ends sink into the road and the Battery tunnel is underground; neither should sound above ground.
-      if (!car.placed || car.y < -0.05) continue;
-      const d2 = this.distanceSq(car.x, car.y + 0.7, car.z);
-      if (!Number.isFinite(d2) || d2 > MOTOR_RANGE * MOTOR_RANGE) continue;
-      this.snapshot.traffic += (1 - d2 / (MOTOR_RANGE * MOTOR_RANGE)) * (0.2 + 0.8 * unit(car.v / 12));
-      this.motor(car, car.kind === 'suv' ? 'suv' : 'sedan', car.x, car.y + 0.7, car.z,
-        car.v, roadLoad(car.v, car.acc, 1.6), car.yaw, false, false, seedAt(2000 + i), car.v < 0.5);
-    }
     this.tramSources();
     this.snapshot.traffic = unit(this.snapshot.traffic / 16);
 

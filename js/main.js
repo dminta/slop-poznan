@@ -153,10 +153,7 @@ async function initApp() {
   const cameraSystem = new CameraSystem(renderer.domElement, controllerManager);
   const touchControls = new TouchControls(controllerManager);
   const soundButton = document.getElementById('btn-sound');
-  // audio-sources.js still reads a highway car list; Poznań has no ambient highway traffic, so it gets an empty one
-  const audioSystem = new CityAudioSystem({
-    controllerManager, trafficSystem, highwayTraffic: { cars: [] }, tramSystem, streetDetails
-  }, {
+  const audioSystem = new CityAudioSystem({ controllerManager, trafficSystem, tramSystem, streetDetails }, {
     onStateChange: updateSoundButton
   });
   function updateSoundButton() {
@@ -726,7 +723,7 @@ async function initApp() {
     landmarks.update(dt, elapsed, lightingSystem.activePresetId);
     lightingSystem.update(cameraSystem.currentPos);
     mapSystem.update();
-    audioSystem.update(dt, elapsed, cameraSystem.camera, lightingSystem.activePresetId === 'midnight');
+    audioSystem.update(dt, elapsed, cameraSystem.camera, lightingSystem.activePresetId);
     if (warmedUp) updateSceneCulling(cameraSystem.camera.position); // the warm-up frame draws every chunk
 
     // Render frame via TSL RenderPipeline (SSR + Bloom)

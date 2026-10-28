@@ -2,7 +2,7 @@
 
 All sound is synthesized at runtime with Web Audio. The repo has no audio asset files: every buffer (engine
 firing loops, rotor, ratchet, chain, noise, impulse response, footsteps, speech syllables, horns, crash layers,
-signal ticks, wind gusts) is computed sample by sample in `createSynthResources` / `createEventResources` when the
+signal ticks, wind gusts, church bell, hejnał, goat knocks) is computed sample by sample in `createSynthResources` / `createEventResources` when the
 `AudioContext` is first created. Keep it that way: add new sounds as generator functions, not files.
 
 ## Map
@@ -11,8 +11,12 @@ signal ticks, wind gusts) is computed sample by sample in `createSynthResources`
   budgets, pooling, event emission, crash gating, footstep/conversation/signal/horn scheduling.
 - `audio-synthesis.js`: shared buffers plus `createMotorVoice` (continuous voices: `sedan`, `suv`, `bus`,
   `helicopter`, `cyclist`, `siren`, `tram`). Also exports `setControlRate`.
-- `audio-events.js`: one-shot buffers, `playEvent` (`footstep`, `talk`, `horn`, `signal`, `crash`, `bell`) and the
-  non-spatial `createWindVoice`.
+- `audio-events.js`: one-shot buffers, `playEvent` (`footstep`, `talk`, `horn`, `signal`, `crash`, `bell`, `church`,
+  `hejnal`, `goats`), `SIGNAL_TIMING` and the non-spatial `createWindVoice`.
+- `city-clock.js` (pure, no audio): the in-game clock (`PRESET_CLOCK`, `clockMinutes`, `fullHourIn`, `hourStrokes`),
+  the church bells (`CHURCH_BELLS`, `CHURCH_PEAL`), the Ratusz noon show's timetable (`GOAT_SHOW`, `goatShowTime`,
+  `GOAT_BUTT_TIMES`, shared with the goats' animation in `landmarks-rynek.js`) and the hejnał score (`HEJNAL`).
+  Tested in `tests/city-clock.test.cjs`, which also bakes the event buffers with a fake context.
 - `audio-sources.js` (`CityAudioSources`): reads simulation objects into reused snapshot records. This is the
   only place that knows simulation field names.
 - `audio-acoustics.js` (`CityAcoustics`): obstruction and street enclosure from collider bounds.
@@ -37,9 +41,9 @@ mix -> DynamicsCompressor -> master(gain, ramps to 0.65) -> destination
 
 ## Lifecycle, autoplay and unlock
 
-- `main.js` constructs `CityAudioSystem({ controllerManager, trafficSystem, highwayTraffic, tramSystem, streetDetails }, { onStateChange })`.
-  `highwayTraffic` is a stub `{ cars: [] }`: the ambient highway traffic (`createHighwayTraffic`) was removed.
-  It calls `update(dt, elapsed, camera, night)` every frame, `honk()` on KeyB, `setEnabled()` on KeyN and the
+- `main.js` constructs `CityAudioSystem({ controllerManager, trafficSystem, tramSystem, streetDetails }, { onStateChange })`.
+  It calls `update(dt, elapsed, camera, presetId)` every
+  frame (`presetId` is `lightingSystem.activePresetId`: `'midnight'` quietens the wind and the preset sets the clock), `honk()` on KeyB, `setEnabled()` on KeyN and the
   `#btn-sound` button, and `dispose()` on `pagehide` (only when the page is not persisted to bfcache).
 - No context exists until a user gesture. `pointerdown`/`keydown` listeners on `document` call `unlock()`, which
   lazily runs `initialize()` and then `resume()`. The listeners stay attached for the system's whole lifetime
@@ -57,7 +61,9 @@ mix -> DynamicsCompressor -> master(gain, ramps to 0.65) -> destination
 ## Update cadence and source selection
 
 - `update` runs at about 10 Hz: an accumulator, with `dt` clamped to 0.25. Crashes are the exception. They arrive
-  synchronously from physics, between ticks.
+  synchronously from physics, between ticks. `trackClock` is the other: it runs every frame before any early return
+  (even muted), so a preset change starts the clock and the noon show on the same frame and `elapsed` as the goats'
+  animation does.
 - `CityAudioSources.collect()` keeps the N nearest candidates per category with `NearestSources` (bounded insertion,
   reused records): motors 10, sirens 2, trams 3, people 6, signals 2. The player passes score `-1`, so it is always
   included. Records are overwritten on the next `collect()`. Copy any field you need to keep (`emit` copies
@@ -73,7 +79,9 @@ mix -> DynamicsCompressor -> master(gain, ramps to 0.65) -> destination
 - Per-source distance fade: emitter gain uses a smoothstep over the last 30 % of `source.range`. `emit()` drops
   an event outright if it is beyond its kind's range (crash range scales with severity).
 - Emergency vehicles (`isPolice`: Policja, ambulances, fire service) get two records: a normal motor and a `siren`
-  (in `sources.sirens`, its own pool and range).
+  (in `sources.sirens`, its own pool and range). The `siren` voice is the Polish two-tone hi-lo (435 / 580 Hz, 0.55 s
+  each, a stepped square control wave through `resources.sirenTwoTone`) with a fast wail (650–1450 Hz, 2 sweeps a
+  second) for 6 s in every 30 s, offset per vehicle (`SIREN`, `sirenWailing`; `tests/audio-siren.test.cjs`).
 - Trams are their own category (`sources.trams`, pool `this.trams`, range 220 m, ref distance 7), never mixed into
   the motors. The `tram` voice: a baked traction loop (`resources.traction`, 250 Hz reference) pitched 0.55–2.45× over
   0–18 m/s and loud with `load` (|acc|: regenerative braking whines too), rail rumble (low-passed noise rising with
@@ -117,13 +125,29 @@ freezes. If you rename or remove any of these, update `audio-sources.js` in the 
   `atStop` goes false (departure, doors closed), and every 4–6 s while its `waitReason` is `'player'`. Per-tram state
   (`tramStopped`, `bell`) is in `this.states`. Bells follow the tram (`follow`), ref 9, range 160, and are never
   evicted for a crash, like horns.
-- Horns: automatic horns go off when an NPC is `blocked` for more than 8 s (Polish drivers honk less than New York's),
+- Horns: automatic horns go off when an NPC is `blocked` for more than 8 s (Polish drivers rarely honk),
   with a 3 s global gap and a 30-50 s per-car gap. `honk()` handles the player's KeyB and works for `type === 'car'`
   only.
 - Conversations: only the pair's `a` member drives turns, and only while both peds are nearly still. The next turn
   starts at `voice.endTime` plus a pause, so the speakers never overlap.
-- Signals: tick and walk patterns are scheduled ahead with `when`. A phase change removes the pending events for
-  that pole.
+- Signals: Polish acoustic signals, a dull ~700 Hz tick every 1.25 s on red and a bright ~2.1 kHz rattle of 10 clicks a
+  second on green (`SIGNAL_TIMING`; one walk buffer is 0.5 s of five clicks). They are scheduled ahead with `when`. A
+  phase change removes the pending events for that pole.
+- Clock: the time of day is the active lighting preset's (`PRESET_CLOCK`, matching the "· HH:MM" in the
+  `TIME_PRESETS` names; keep them in step if a preset's time changes) running on in real time from the moment it was
+  chosen. A preset that starts on the hour (23:00) counts as reaching it at once.
+- Church bells: when the clock reaches a full hour, the Fara (site centre, 30 m up) and the Katedra (west towers, 40 m,
+  a lower bell, 2.6 s later) strike the hour on the 12-hour dial: one `church` event per church carrying all the
+  strokes (2.6 s apart), ref 45, range 520 (Stary Rynek hears the Fara ≈ 260 m away, not the Katedra ≈ 1 km).
+- Noon show: on the `midday` preset the Ratusz goats come out at once and every 120 s (`goatShowTime`, the same
+  timetable as their animation). The trumpeter plays the hejnał twice from the tower gallery (`hejnal`, 38 m, ref 20,
+  range 380), then the goats knock heads 12 times on the east-front ledge (`goats`, at `GOAT_BUTT_TIMES`, ref 3, range
+  120). The hejnał is a generic natural-trumpet bugle call, not a transcription of Poznań's hejnał.
+- Joining late: each peal or show event is emitted once per peal/show, when the listener is within range, with an
+  `offset` into it; `playEvent` leaves out the strokes, calls or knocks already over and starts one still ringing
+  mid-buffer. `reset()` clears the played flags, so after an unmute or a teleport a peal or show still under way
+  resumes part-way. Bells, the hejnał and the goats are `keep` kinds in `EVENT_SPACE`: a crash never evicts them.
+  Their option objects and source records are built once; nothing allocates until an event actually fires.
 
 ## Acoustics
 
@@ -142,8 +166,8 @@ freezes. If you rename or remove any of these, update `audio-sources.js` in the 
 
 - Call `setControlRate(...)` on every AudioParam of each new BiquadFilter, PannerNode and the listener, including
   ones you never automate (`detune`, `gain` on a lowpass). Any a-rate param left over forces per-sample filter or
-  HRTF math. Oscillator frequency modulation and gain envelopes stay a-rate on purpose (the siren sweep drives
-  `siren.frequency` and `sirenGain.gain`).
+  HRTF math. Oscillator frequency modulation and gain envelopes stay a-rate on purpose (the siren's two control
+  oscillators drive `siren.frequency`, the wail also `sirenGain.gain`).
 - Use `smoothParameter` (one in each of synthesis and events) for voice controls. It skips changes below an
   epsilon and cancels scheduled values first, so the automation timeline stays short.
 - Precompute periodic content into looping buffers (turbine tones, rotor envelope, engine banks) instead of stacking
@@ -167,4 +191,6 @@ it. Trigger it from `update()` (using per-source `state()`) or from a public met
 **New simulation source type**: read it in `CityAudioSources` (constructor and `collect`), give it a stable object
 `id`, and pass the owning system through the constructor object built in `main.js`.
 
-No tests cover audio. Verify changes in the browser after a click or keypress has unlocked the context.
+Only the pure parts are tested: the siren control wave (`tests/audio-siren.test.cjs`) and the clock, schedules and baked
+event buffers (`tests/city-clock.test.cjs`). Nothing tests the Web Audio graph, mixing or spatialisation: verify changes in
+the browser after a click or keypress has unlocked the context.

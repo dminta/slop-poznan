@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { fitToSite, addMesh, box, cylinder, lathe, pitchedRoof, profileSlab, collider, site } from './landmark-kit.js';
+import { GOAT_SHOW, goatShowPhases, goatShowTime } from './city-clock.js';
 
 // js/landmarks-rynek.js
 // Stary Rynek's central block: the Ratusz with its loggia, attic and tower (and the koziołki, the noon goats), the
@@ -123,21 +124,9 @@ function buildArcadedHouseRow(parent, M, {
 }
 
 // -------------------------------------------------------------------------------------------------------------------
-// Koziołki: two goats come out above the Ratusz clock at noon and butt heads 12 times. A show starts when the
-// lighting preset becomes 'midday' and repeats every SHOW_PERIOD while it stays there (real clocks run it once a
-// day; two minutes keeps it findable without being constant). Timeline in seconds from the start of a show:
+// Koziołki: two goats come out above the Ratusz clock at noon and butt heads 12 times. The show's timetable (when it
+// starts and repeats, and how long each stage takes) is city-clock.js GOAT_SHOW, shared with the audio's knocks.
 // -------------------------------------------------------------------------------------------------------------------
-const SHOW_PERIOD = 120;
-const GOAT_SHOW = {
-  doorsOpen: 1.5, // doors swing open 0 → 90°
-  slideOut: 4.0, // goats roll out onto the ledge
-  turnIn: 5.0, // and turn to face each other
-  butts: 12,
-  buttPeriod: 1.25, // rear back (70 %), lunge (30 %)
-  turnOut: 1.0,
-  slideIn: 2.5,
-  doorsClose: 1.5
-};
 // Goat pivot positions (Ratusz local metres): u in the wall → on the ledge; w ± apart while facing each other
 const GOAT_U_IN = 17.4;
 const GOAT_U_OUT = 18.55;
@@ -356,15 +345,15 @@ function buildRatusz({ group, dynamic, colliders, M }) {
 // no allocation per frame
 function createGoatShow(doors, goats) {
   const S = GOAT_SHOW;
-  const tOpen = S.doorsOpen;
-  const tOut = tOpen + S.slideOut;
-  const tTurn = tOut + S.turnIn;
-  const tButts = tTurn + S.butts * S.buttPeriod;
-  const tTurnBack = tButts + S.turnOut;
-  const tIn = tTurnBack + S.slideIn;
-  const tClose = tIn + S.doorsClose;
-  let wasMidday = false;
-  let start = 0;
+  const phases = goatShowPhases();
+  const tOpen = phases.open;
+  const tOut = phases.out;
+  const tTurn = phases.turn;
+  const tButts = phases.butts;
+  const tTurnBack = phases.turnBack;
+  const tIn = phases.slideIn;
+  const tClose = phases.close;
+  const show = { midday: false, start: 0 };
   let idle = false;
 
   const pose = (door, slide, turn, wOff, rear, visible) => {
@@ -381,11 +370,8 @@ function createGoatShow(doors, goats) {
   };
 
   return (dt, elapsed, presetId) => {
-    const midday = presetId === 'midday';
-    if (midday && !wasMidday) start = elapsed;
-    wasMidday = midday;
-    const t = midday ? (elapsed - start) % SHOW_PERIOD : tClose;
-    if (t >= tClose) {
+    const t = goatShowTime(show, elapsed, presetId);
+    if (t < 0 || t >= tClose) {
       if (!idle) pose(0, 0, 0, GOAT_W_REST, 0, false);
       idle = true;
       return;
