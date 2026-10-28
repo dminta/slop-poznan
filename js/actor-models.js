@@ -4,6 +4,7 @@ import {
   Fn,
   float,
   vec2,
+  vec4,
   color,
   attribute,
   sin,
@@ -18,6 +19,8 @@ import {
   smoothstep,
   length,
   fwidth,
+  dFdx,
+  dFdy,
   uniform,
   texture,
   time,
@@ -30,8 +33,9 @@ import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometr
 // Realistic 3D Lofted Vehicle Geometry + TSL Materials (the skinned, animated people are in pedestrians.js)
 // Ported and adapted from Three.js webgpu_generator_city:
 // - LoftGeometry.js (skinning 3D cross-section rings with arc-length UVs, smooth seam normals & Newell caps)
-// - CarGenerator.js (lofted sedan/taxi/SUV/police bodies with circular wheel arches, curved cabin windscreens,
-//   crowned roofs, LatheGeometry tyres & recessed 5-spoke alloy wheels, side mirrors, roof signs & TSL fascia/seams)
+// - CarGenerator.js (lofted car bodies with circular wheel arches, curved cabin windscreens, crowned roofs,
+//   LatheGeometry tyres & recessed 5-spoke alloy wheels, side mirrors, roof signs & TSL fascia/seams), reshaped here
+//   into the saloon, hatchback, estate, crossover and van classes common in Poland
 
 const _vector = new THREE.Vector3();
 const _down = new THREE.Vector3(0, -1, 0);
@@ -214,104 +218,276 @@ const CAR_PARTS = {
 };
 
 // Design tables. Curves are [z, value] control points (z = +front); nose / tail entries are [length, tip value,
-// superellipse exponent] roundings of the same quantities into the tips.
+// superellipse exponent] roundings of the same quantities into the tips. The bodies are generic classes common on
+// Polish streets, proportioned after the class and never after one model's design (no badges, no signature grilles):
+// - saloon: a Corolla-class C-segment saloon, 4.60 x 1.78 x 1.44 m, 2.70 m wheelbase (the taxi body: most Poznań taxis
+//   are saloons of this class);
+// - hatch: a Golf / Fabia / Yaris-class five-door hatchback, 4.24 x 1.78 x 1.47 m, 2.60 m wheelbase;
+// - estate: an Octavia-class kombi, 4.68 x 1.82 x 1.47 m, 2.69 m wheelbase (also the Policja car);
+// - crossover: a Sportage / Duster-class compact SUV, 4.46 x 1.85 x 1.66 m, 2.68 m wheelbase;
+// - van: a Ducato / Sprinter / Crafter-class high-roof panel van, 5.60 x 2.02 x 2.50 m, 3.44 m wheelbase (delivery
+//   vans, the PRM ambulance and the PSP light rescue van).
+// Optional keys: sideGlassRear (z behind which the side glass is panelled over: a hatch's thick C pillar, a van's
+// cargo box), glassTop (y above which there is no glass: the high roof over a van's windscreen and doors), backlight
+// (false: no rear window), panelVan (door and rear-door seams on the upper body too), band ([y0, y1] of the livery
+// band), letterZ (centre of the livery lettering), barT (where along the roof the light bar stands, 0 front .. 1 rear).
 const BODY_SPECS = {
-  sedan: {
-    name: 'sedan',
-    zFront: 2.25,
-    zRear: -2.25,
-    wheelRadius: 0.35,
-    wheelZ: 1.38,
-    wheelX: 0.83,
-    archGap: 0.065, // wheel arch radius = wheelRadius + archGap
-    archFlare: 0.02, // extra half-width over the wheels
-    tuck: 0.075, // sill tucked in from the widest point
-    halfWidth: [[2.25, 0.91], [1.38, 0.922], [0, 0.928], [-1.38, 0.926], [-2.25, 0.915]],
-    sill: [[2.25, 0.29], [1.2, 0.265], [-1.2, 0.265], [-2.25, 0.3]],
-    shoulder: [[2.25, 0.66], [0, 0.7], [-2.25, 0.76]],
-    edge: [[2.1, 0.79], [1.5, 0.85], [0.85, 0.935], [0.55, 0.955], [-1.0, 0.985], [-1.62, 0.975], [-2.1, 0.91]],
-    crown: [[2.1, 0.035], [0.95, 0.03], [0.66, 0.004], [-1.56, 0.004], [-1.78, 0.016], [-2.25, 0.012]],
-    tumble: [[2.25, 0.11], [0.9, 0.09], [-1.6, 0.085], [-2.25, 0.105]],
-    nose: { halfWidth: [0.3, 0.7, 3], edge: [0.12, 0.77, 3], crown: [0.12, 0.01, 2], sill: [0.13, 0.33, 2], shoulder: [0.2, 0.59, 2.4] },
-    tail: { halfWidth: [0.3, 0.72, 2.6], edge: [0.11, 0.905, 3], crown: [0.11, 0.008, 2], sill: [0.14, 0.35, 2], shoulder: [0.2, 0.69, 2.4] },
+  saloon: {
+    name: 'saloon',
+    zFront: 2.3,
+    zRear: -2.3,
+    wheelRadius: 0.32,
+    wheelZ: 1.35,
+    wheelX: 0.775,
+    archGap: 0.06, // wheel arch radius = wheelRadius + archGap
+    archFlare: 0.015, // extra half-width over the wheels
+    tuck: 0.07, // sill tucked in from the widest point
+    halfWidth: [[2.3, 0.85], [1.35, 0.868], [0, 0.874], [-1.35, 0.872], [-2.3, 0.86]],
+    sill: [[2.3, 0.28], [1.2, 0.25], [-1.2, 0.25], [-2.3, 0.29]],
+    shoulder: [[2.3, 0.64], [0, 0.68], [-2.3, 0.74]],
+    edge: [[2.15, 0.76], [1.55, 0.82], [0.95, 0.91], [0.65, 0.94], [-1.0, 0.975], [-1.7, 0.975], [-2.15, 0.92]],
+    crown: [[2.15, 0.035], [1.0, 0.03], [0.72, 0.004], [-1.62, 0.004], [-1.84, 0.016], [-2.3, 0.012]],
+    tumble: [[2.3, 0.11], [0.9, 0.09], [-1.6, 0.085], [-2.3, 0.1]],
+    nose: { halfWidth: [0.32, 0.64, 3], edge: [0.12, 0.74, 3], crown: [0.12, 0.01, 2], sill: [0.13, 0.32, 2], shoulder: [0.2, 0.57, 2.4] },
+    tail: { halfWidth: [0.3, 0.68, 2.6], edge: [0.11, 0.9, 3], crown: [0.11, 0.008, 2], sill: [0.14, 0.34, 2], shoulder: [0.2, 0.67, 2.4] },
     cabin: {
-      cowl: 0.86,
-      roofFront: 0.0,
+      cowl: 0.95,
+      roofFront: 0.02,
       roofRear: -1.0,
-      deck: -1.68,
-      roofY: [[0.0, 1.435], [-0.5, 1.455], [-1.0, 1.42]],
-      rail: [0.645, 0.625], // roof rail half-width at the front & rear of the roof
+      deck: -1.78,
+      roofY: [[0.02, 1.415], [-0.45, 1.435], [-1.0, 1.4]],
+      rail: [0.6, 0.58], // roof rail half-width at the front & rear of the roof
       inset: 0.035, // side glass base inset from the body's top edge
       bulge: 0.012, // side glass outward curvature
       roofEdge: 0.05, // roof rail rounding height
       roofCrown: 0.035,
       roofRound: 4,
-      pillars: [-0.3] // B (and C) pillar centres
+      pillars: [-0.28] // B (and C) pillar centres
     },
-    doors: [0.84, -0.3, -1.02], // door shut lines
-    handles: [-0.13, -0.86],
-    headlight: [0.59, 0.69, 0.23, 0.055], // centre |x|, y, half-width, half-height
-    taillight: [0.575, 0.795, 0.255, 0.064],
-    grille: [0.68, 0.31, 0.06], // upper grille between the headlights: y, half-width, half-height
-    intake: [0.37, 0.46, 0.045], // lower grille
-    plates: [0.555, 0.68], // front / rear plate centre heights
-    bumperLine: [0.775, 0.565], // hood / bumper and trunk / bumper shut lines on the nose & tail
-    bumpers: [[0.46, 0.03], [0.49, 0.035]], // front / rear trim: centre height, half-height
+    doors: [0.92, -0.28, -1.08], // door shut lines
+    handles: [-0.11, -0.92],
+    headlight: [0.56, 0.68, 0.24, 0.05], // centre |x|, y, half-width, half-height
+    taillight: [0.56, 0.8, 0.25, 0.055],
+    grille: [0.66, 0.26, 0.04], // upper grille between the headlights: y, half-width, half-height
+    intake: [0.36, 0.5, 0.06], // lower grille
+    plates: [0.54, 0.66], // front / rear plate centre heights
+    bumperLine: [0.76, 0.56], // hood / bumper and trunk / bumper shut lines on the nose & tail
+    bumpers: [[0.44, 0.03], [0.47, 0.035]], // front / rear trim: centre height, half-height
     chrome: true, // chrome strip along the side windows' sills
-    cladding: 0, // height of the unpainted lower body cladding (SUVs)
+    cladding: 0, // height of the unpainted lower body cladding (crossovers, vans)
     sign: false,
     rails: false,
     rearWiper: false
   },
-  suv: {
-    name: 'suv',
-    zFront: 2.3,
-    zRear: -2.3,
-    wheelRadius: 0.39,
-    wheelZ: 1.4,
-    wheelX: 0.87,
-    archGap: 0.075,
+  hatch: {
+    name: 'hatch',
+    zFront: 2.12,
+    zRear: -2.12,
+    wheelRadius: 0.315,
+    wheelZ: 1.3,
+    wheelX: 0.77,
+    archGap: 0.06,
+    archFlare: 0.015,
+    tuck: 0.07,
+    halfWidth: [[2.12, 0.85], [1.3, 0.868], [0, 0.874], [-1.3, 0.872], [-2.12, 0.862]],
+    sill: [[2.12, 0.28], [1.15, 0.255], [-1.15, 0.255], [-2.12, 0.31]],
+    shoulder: [[2.12, 0.66], [0, 0.7], [-2.12, 0.76]],
+    edge: [[1.98, 0.78], [1.45, 0.84], [0.85, 0.93], [0.6, 0.955], [-1.0, 0.985], [-1.8, 1.0], [-2.12, 1.0]],
+    crown: [[1.98, 0.035], [0.9, 0.03], [0.66, 0.004], [-2.12, 0.004]],
+    tumble: [[2.12, 0.11], [0.9, 0.09], [-2.12, 0.1]],
+    nose: { halfWidth: [0.3, 0.66, 3], edge: [0.12, 0.76, 3], crown: [0.12, 0.01, 2], sill: [0.13, 0.32, 2], shoulder: [0.2, 0.6, 2.4] },
+    tail: { halfWidth: [0.22, 0.74, 2.6], edge: [0.07, 0.96, 3], crown: [0.07, 0, 2], sill: [0.13, 0.36, 2], shoulder: [0.16, 0.72, 2.4] },
+    cabin: {
+      cowl: 0.86,
+      roofFront: 0.0,
+      roofRear: -1.48,
+      deck: -1.98,
+      roofY: [[0.0, 1.45], [-0.75, 1.47], [-1.48, 1.41]],
+      rail: [0.62, 0.58],
+      inset: 0.035,
+      bulge: 0.012,
+      roofEdge: 0.05,
+      roofCrown: 0.03,
+      roofRound: 4,
+      pillars: [-0.36]
+    },
+    sideGlassRear: -1.38,
+    doors: [0.84, -0.36, -1.32],
+    handles: [-0.18, -1.12],
+    headlight: [0.56, 0.74, 0.24, 0.055],
+    taillight: [0.64, 0.92, 0.2, 0.06],
+    grille: [0.73, 0.3, 0.04],
+    intake: [0.4, 0.46, 0.06],
+    plates: [0.55, 0.72],
+    bumperLine: [0.78, 0.6],
+    bumpers: [[0.45, 0.03], [0.47, 0.035]],
+    chrome: false,
+    cladding: 0,
+    sign: false,
+    rails: false,
+    rearWiper: true
+  },
+  estate: {
+    name: 'estate',
+    zFront: 2.34,
+    zRear: -2.34,
+    wheelRadius: 0.33,
+    wheelZ: 1.345,
+    wheelX: 0.79,
+    archGap: 0.062,
+    archFlare: 0.015,
+    tuck: 0.07,
+    halfWidth: [[2.34, 0.87], [1.345, 0.888], [0, 0.895], [-1.345, 0.893], [-2.34, 0.88]],
+    sill: [[2.34, 0.29], [1.2, 0.26], [-1.2, 0.26], [-2.34, 0.31]],
+    shoulder: [[2.34, 0.66], [0, 0.7], [-2.34, 0.76]],
+    edge: [[2.18, 0.78], [1.6, 0.84], [1.0, 0.93], [0.7, 0.955], [-1.0, 0.99], [-2.0, 1.0], [-2.34, 1.0]],
+    crown: [[2.18, 0.035], [1.05, 0.03], [0.78, 0.004], [-2.34, 0.004]],
+    tumble: [[2.34, 0.11], [0.9, 0.09], [-2.34, 0.1]],
+    nose: { halfWidth: [0.32, 0.66, 3], edge: [0.12, 0.76, 3], crown: [0.12, 0.01, 2], sill: [0.13, 0.33, 2], shoulder: [0.2, 0.6, 2.4] },
+    tail: { halfWidth: [0.22, 0.76, 2.6], edge: [0.07, 0.97, 3], crown: [0.07, 0, 2], sill: [0.13, 0.37, 2], shoulder: [0.16, 0.73, 2.4] },
+    cabin: {
+      cowl: 0.98,
+      roofFront: 0.1,
+      roofRear: -1.98,
+      deck: -2.2,
+      roofY: [[0.1, 1.445], [-0.9, 1.47], [-1.98, 1.455]],
+      rail: [0.63, 0.61],
+      inset: 0.035,
+      bulge: 0.012,
+      roofEdge: 0.05,
+      roofCrown: 0.03,
+      roofRound: 4,
+      pillars: [-0.26, -1.24]
+    },
+    doors: [0.95, -0.26, -1.24],
+    handles: [-0.08, -1.04],
+    headlight: [0.58, 0.74, 0.25, 0.055],
+    taillight: [0.7, 0.93, 0.15, 0.065],
+    grille: [0.72, 0.32, 0.05],
+    intake: [0.4, 0.48, 0.06],
+    plates: [0.55, 0.68],
+    bumperLine: [0.78, 0.6],
+    bumpers: [[0.45, 0.03], [0.48, 0.035]],
+    chrome: true,
+    cladding: 0,
+    sign: false,
+    rails: true,
+    rearWiper: true
+  },
+  crossover: {
+    name: 'crossover',
+    zFront: 2.23,
+    zRear: -2.23,
+    wheelRadius: 0.36,
+    wheelZ: 1.34,
+    wheelX: 0.8,
+    archGap: 0.07,
     archFlare: 0.03,
     tuck: 0.07,
-    halfWidth: [[2.3, 0.948], [1.4, 0.96], [0, 0.966], [-1.4, 0.964], [-2.3, 0.956]],
-    sill: [[2.3, 0.39], [1.2, 0.35], [-1.2, 0.35], [-2.3, 0.41]],
-    shoulder: [[2.3, 0.8], [0, 0.84], [-2.3, 0.88]],
-    edge: [[2.1, 0.99], [1.5, 1.045], [0.85, 1.1], [0.6, 1.12], [-1.0, 1.145], [-2.0, 1.175], [-2.3, 1.18]],
-    crown: [[2.1, 0.035], [0.9, 0.03], [0.6, 0.004], [-2.3, 0.004]],
-    tumble: [[2.3, 0.1], [0.9, 0.08], [-2.3, 0.08]],
-    nose: { halfWidth: [0.27, 0.76, 3], edge: [0.13, 0.96, 3], crown: [0.13, 0.01, 2], sill: [0.12, 0.42, 2], shoulder: [0.2, 0.74, 2.4] },
-    tail: { halfWidth: [0.24, 0.8, 2.6], edge: [0.08, 1.13, 3], crown: [0.08, 0, 2], sill: [0.14, 0.44, 2], shoulder: [0.18, 0.84, 2.4] },
+    halfWidth: [[2.23, 0.87], [1.34, 0.888], [0, 0.895], [-1.34, 0.893], [-2.23, 0.885]],
+    sill: [[2.23, 0.38], [1.15, 0.35], [-1.15, 0.35], [-2.23, 0.41]],
+    shoulder: [[2.23, 0.78], [0, 0.82], [-2.23, 0.86]],
+    edge: [[2.05, 0.96], [1.45, 1.03], [1.0, 1.08], [0.75, 1.1], [-1.0, 1.135], [-1.9, 1.17], [-2.23, 1.17]],
+    crown: [[2.05, 0.035], [1.05, 0.03], [0.8, 0.004], [-2.23, 0.004]],
+    tumble: [[2.23, 0.1], [0.9, 0.08], [-2.23, 0.08]],
+    nose: { halfWidth: [0.27, 0.72, 3], edge: [0.13, 0.93, 3], crown: [0.13, 0.01, 2], sill: [0.12, 0.41, 2], shoulder: [0.2, 0.72, 2.4] },
+    tail: { halfWidth: [0.22, 0.76, 2.6], edge: [0.08, 1.12, 3], crown: [0.08, 0, 2], sill: [0.14, 0.44, 2], shoulder: [0.18, 0.82, 2.4] },
     cabin: {
-      cowl: 0.8,
-      roofFront: 0.08,
-      roofRear: -1.96,
-      deck: -2.2,
-      roofY: [[0.08, 1.735], [-0.9, 1.76], [-1.96, 1.745]],
-      rail: [0.71, 0.7],
+      cowl: 0.98,
+      roofFront: 0.12,
+      roofRear: -1.6,
+      deck: -2.05,
+      roofY: [[0.12, 1.645], [-0.75, 1.665], [-1.6, 1.61]],
+      rail: [0.68, 0.64],
       inset: 0.035,
       bulge: 0.012,
       roofEdge: 0.055,
       roofCrown: 0.03,
       roofRound: 4,
-      pillars: [-0.3, -1.18]
+      pillars: [-0.3]
     },
-    doors: [0.78, -0.3, -1.18],
-    handles: [-0.13, -1.0],
-    headlight: [0.64, 0.86, 0.235, 0.065],
-    taillight: [0.745, 0.985, 0.105, 0.13],
-    grille: [0.83, 0.36, 0.095],
-    intake: [0.465, 0.44, 0.04],
-    plates: [0.66, 0.82],
-    bumperLine: [0.965, 0.655],
+    sideGlassRear: -1.42,
+    doors: [0.96, -0.3, -1.26],
+    handles: [-0.15, -1.04],
+    headlight: [0.6, 0.86, 0.23, 0.06],
+    taillight: [0.72, 0.98, 0.1, 0.12],
+    grille: [0.84, 0.36, 0.085],
+    intake: [0.48, 0.44, 0.05],
+    plates: [0.67, 0.8],
+    bumperLine: [0.94, 0.66],
     bumpers: [[0.56, 0.04], [0.56, 0.04]],
     chrome: false,
     cladding: 0.5,
     sign: false,
     rails: true,
     rearWiper: true
+  },
+  van: {
+    name: 'van',
+    zFront: 2.8,
+    zRear: -2.8,
+    wheelRadius: 0.355,
+    wheelZ: 1.72,
+    wheelX: 0.88,
+    archGap: 0.075,
+    archFlare: 0.012,
+    tuck: 0.05,
+    halfWidth: [[2.8, 0.92], [2.2, 0.985], [1.72, 0.995], [0, 1.0], [-2.8, 1.0]],
+    sill: [[2.8, 0.42], [1.5, 0.4], [-1.5, 0.4], [-2.8, 0.44]],
+    shoulder: [[2.8, 0.8], [1.5, 0.95], [-2.8, 0.95]],
+    edge: [[2.62, 0.98], [2.2, 1.06], [1.8, 1.16], [1.55, 1.2], [-2.8, 1.2]],
+    crown: [[2.62, 0.04], [1.9, 0.03], [1.7, 0.0], [-2.8, 0.0]],
+    tumble: [[2.8, 0.05], [1.5, 0.018], [-2.8, 0.018]],
+    nose: { halfWidth: [0.4, 0.76, 2.6], edge: [0.16, 0.9, 3], crown: [0.16, 0.01, 2], sill: [0.12, 0.46, 2], shoulder: [0.24, 0.72, 2.4] },
+    tail: { halfWidth: [0.07, 0.95, 3], edge: [0.05, 1.16, 3], crown: [0.05, 0, 2], sill: [0.08, 0.48, 2], shoulder: [0.06, 0.93, 2.4] },
+    cabin: {
+      cowl: 1.78,
+      roofFront: 0.95,
+      roofRear: -2.74,
+      deck: -2.79,
+      roofY: [[0.95, 2.48], [-1.0, 2.5], [-2.74, 2.5]],
+      rail: [0.92, 0.95],
+      inset: 0.006,
+      bulge: 0.004,
+      roofEdge: 0.1,
+      roofCrown: 0.03,
+      roofRound: 6,
+      pillars: []
+    },
+    sideGlassRear: 0.84,
+    glassTop: 2.0,
+    backlight: false,
+    panelVan: true,
+    doors: [1.3, 0.78, 0.66, -0.66],
+    handles: [0.9, -0.5],
+    headlight: [0.66, 0.98, 0.2, 0.09],
+    taillight: [0.89, 0.95, 0.06, 0.22],
+    grille: [0.82, 0.5, 0.11],
+    intake: [0.42, 0.6, 0.05],
+    plates: [0.63, 0.64],
+    bumperLine: [0.95, 0.74],
+    bumpers: [[0.5, 0.06], [0.5, 0.06]],
+    chrome: false,
+    cladding: 0.44,
+    band: [0.8, 1.04],
+    letterZ: -0.6,
+    barT: 0.03,
+    sign: false,
+    rails: false,
+    rearWiper: false
   }
 };
-BODY_SPECS.taxi = Object.assign({}, BODY_SPECS.sedan, { name: 'taxi', sign: true });
+BODY_SPECS.taxi = Object.assign({}, BODY_SPECS.saloon, { name: 'taxi', sign: true });
+
+// Overall footprint of a body spec for traffic (lane spacing, collisions, contact shadows): the half length, the widest
+// half-width over the wheel flares, the wheel offset from the centre and the roof height
+function carDimensions(spec) {
+  if (spec._dims) return spec._dims;
+  const halfWidth = Math.max(...spec.halfWidth.map((p) => p[1])) + spec.archFlare;
+  const roof = Math.max(...spec.cabin.roofY.map((p) => p[1]));
+  spec._dims = { half: (spec.zFront - spec.zRear) / 2, halfWidth, axle: spec.wheelZ, roof };
+  return spec._dims;
+}
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
@@ -856,14 +1032,20 @@ function buildCarProxyGeometry(spec) {
   return mergeGeometries(parts);
 }
 
-// Emergency roof light bar (Policja, PRM, PSP: blue on both halves) for a body spec's roof, lit by
-// createLightbarMaterial. On a body with roof rails (the SUV) it stands on them, 4.5 cm higher.
-function buildLightbarGeometry(spec = BODY_SPECS.sedan) {
+// Where a body's emergency light bar stands: z along the roof (spec.barT, a third of the way back by default, at the
+// front of a van's roof) and y, the top of the roof there (on the rails of a body that has them, 4.5 cm higher)
+function lightbarPlacement(spec) {
   const L = carLayout(spec);
   const cab = spec.cabin;
-  const z = lerp(cab.roofFront, cab.roofRear, 0.32);
+  const z = lerp(cab.roofFront, cab.roofRear, spec.barT ?? 0.32);
   const c = L.cabin(z);
-  const y = c.railY + c.h + (spec.rails ? 0.045 : 0);
+  return { z, y: c.railY + c.h + (spec.rails ? 0.045 : 0) };
+}
+
+// Emergency roof light bar (Policja, PRM, PSP: blue on both halves) for a body spec's roof, lit by
+// createLightbarMaterial
+function buildLightbarGeometry(spec) {
+  const { z, y } = lightbarPlacement(spec);
   const bar = roundedBox(0.13, 0.045, 1.12, 0.04, 0.02).rotateY(Math.PI / 2).translate(0, y + 0.075, z);
   const parts = [part(bar, CAR_PARTS.SIGN)];
   for (const side of [-1, 1]) {
@@ -953,9 +1135,68 @@ const _carMaterialCache = new Map();
 let _carPlateTexture;
 let _carLetteringTexture;
 
-// EU plates (520 x 114 mm): white with the blue "PL" strip on the left, Poznań city (PO) and county (PZ) numbers
+// EU plates (520 x 114 mm): white with the blue EU strip on the left, then a two-letter district code and the
+// five-character individual part, front and rear (the rear one with the round registration sticker in the gap).
+// Every car gets its own made-up registration from a seed: PO and PY are Poznań city's two series, PZ the county.
+// The individual part follows the Polish layouts for two-letter districts (digits D, letters L; the letters skip
+// B, D, I, O, Z, which read like digits). The material draws the glyphs from one 32-cell atlas.
 const PLATE = { hw: 0.26, hh: 0.057 };
-const PLATE_LABELS = ['PO 7K351', 'PO 2NT48', 'PZ 41806', 'PO 93LC6'];
+const PLATE_GLYPHS = '0123456789ACEFGHJKLMNPRSTUVWXYOZ';
+const PLATE_LETTERS = 'ACEFGHJKLMNPRSTUVWXY';
+const PLATE_DISTRICTS = [['PO', 0.55], ['PZ', 0.3], ['PY', 0.15]];
+const PLATE_LAYOUTS = ['DDDDD', 'DDDDL', 'DDDLL', 'DLDDD', 'DLLDD', 'LDDDD', 'LLDDD'];
+
+// A made-up registration such as 'PO 1AB23' or 'PZ 12345', the same for the same seed (mulberry32)
+function polishRegistration(seed) {
+  let t = (seed * 2654435761) >>> 0;
+  const rand = () => {
+    t = (t + 0x6d2b79f5) >>> 0;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+  let u = rand();
+  let district = PLATE_DISTRICTS[0][0];
+  for (const [code, share] of PLATE_DISTRICTS) {
+    district = code;
+    if ((u -= share) < 0) break;
+  }
+  const layout = PLATE_LAYOUTS[Math.floor(rand() * PLATE_LAYOUTS.length)];
+  let rest = '';
+  for (let k = 0; k < layout.length; k++) {
+    if (layout[k] === 'L') rest += PLATE_LETTERS[Math.floor(rand() * PLATE_LETTERS.length)];
+    else rest += String(k === 0 ? 1 + Math.floor(rand() * 9) : Math.floor(rand() * 10));
+  }
+  return `${district} ${rest}`;
+}
+
+// Packs a registration's seven glyphs into the per-instance `plateCode` vec4 the car material reads: two atlas indices
+// per component (first * 32 + second; w holds the last one * 32), exact in float32
+function encodeRegistration(text, out = new Float32Array(4)) {
+  const glyphs = text.replace(' ', '');
+  const index = (k) => Math.max(0, PLATE_GLYPHS.indexOf(glyphs[k] || '0'));
+  for (let c = 0; c < 4; c++) out[c] = index(2 * c) * 32 + (2 * c + 1 < 7 ? index(2 * c + 1) : 0);
+  return out;
+}
+
+// One row of 32 glyph cells (40 x 64 px) in a narrow bold face, white on black (the material uses it as a mask)
+function carPlateGlyphTexture() {
+  if (_carPlateTexture) return _carPlateTexture;
+  const canvas = document.createElement('canvas');
+  canvas.width = 40 * PLATE_GLYPHS.length;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 62px "Arial Narrow", Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (let k = 0; k < PLATE_GLYPHS.length; k++) fitText(ctx, PLATE_GLYPHS[k], k * 40 + 20, 34, 29);
+  _carPlateTexture = new THREE.CanvasTexture(canvas);
+  _carPlateTexture.anisotropy = 4;
+  return _carPlateTexture;
+}
 
 // Fits a line of text into a box: centred, squeezed horizontally when it would be wider
 function fitText(ctx, text, cx, cy, maxWidth) {
@@ -966,36 +1207,6 @@ function fitText(ctx, text, cx, cy, maxWidth) {
   ctx.scale(k, 1);
   ctx.fillText(text, 0, 0);
   ctx.restore();
-}
-
-// One small generated atlas serves every rear plate (four rows at the plate's aspect), with mipmaps for distant traffic.
-function carPlateTexture() {
-  if (_carPlateTexture) return _carPlateTexture;
-  const canvas = document.createElement('canvas');
-  const rowH = 56;
-  canvas.width = 256;
-  canvas.height = rowH * PLATE_LABELS.length;
-  const ctx = canvas.getContext('2d');
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  PLATE_LABELS.forEach((label, row) => {
-    const y = row * rowH;
-    ctx.fillStyle = '#16191d';
-    ctx.fillRect(0, y, 256, rowH);
-    ctx.fillStyle = '#f4f5f1';
-    ctx.fillRect(2, y + 2, 252, rowH - 4);
-    ctx.fillStyle = '#1f3f99';
-    ctx.fillRect(2, y + 2, 22, rowH - 4);
-    ctx.fillStyle = '#f4f5f1';
-    ctx.font = 'bold 13px Arial, sans-serif';
-    ctx.fillText('PL', 13, y + rowH - 13);
-    ctx.fillStyle = '#16191d';
-    ctx.font = 'bold 40px Arial, sans-serif';
-    fitText(ctx, label, 140, y + rowH / 2 + 1, 220);
-  });
-  _carPlateTexture = new THREE.CanvasTexture(canvas);
-  _carPlateTexture.colorSpace = THREE.SRGBColorSpace;
-  return _carPlateTexture;
 }
 
 // Livery lettering as a mask (white on black), one row each, read by createLoftedCarMaterial: carState.w - 1 picks
@@ -1020,11 +1231,45 @@ function carLetteringTexture() {
 }
 
 /**
+ * Paint of an EU plate (PLATE size, centred on x = 0 at height plateY) on a nose (atFront 1) or tail (0), for the car
+ * and bus materials: the blue strip with its ring of stars on the viewer's left, then the registration packed in
+ * plateCode (encodeRegistration; null: blank) in eight cells: district, a gap (the round registration sticker on the
+ * rear plate), five characters. One glyph-atlas sample, whose gradients come from the continuous cell coordinate, so
+ * the jumps between glyph cells pick no wrong mip level.
+ */
+function plateColor(p, plateY, atFront, plateCode) {
+  const one = float(1.0);
+  const plateU = p.x.mul(atFront.mul(2.0).sub(1.0)).div(2 * PLATE.hw).add(0.5);
+  const plateV = p.y.sub(plateY).div(2 * PLATE.hh).add(0.5);
+  const euStrip = step(plateU, 0.085);
+  const starRing = length(vec2(plateU.sub(0.0425).mul(2 * PLATE.hw), plateV.sub(0.62).mul(2 * PLATE.hh)));
+  const stars = smoothstep(0.004, 0.0015, abs(starRing.sub(0.0125)));
+  let col = mix(mix(color(0xeceeea), color(0x1c3d9a), euStrip), color(0xf2c81a), stars.mul(euStrip));
+  if (plateCode) {
+    const cellU = plateU.sub(0.11).div(0.108);
+    const cell = floor(cellU);
+    const inText = step(0.0, cellU).mul(step(cellU, 8.0)).mul(one.sub(step(abs(cell.sub(2.0)), 0.5)));
+    const glyphSlot = cell.sub(step(2.5, cell));
+    const pair = floor(glyphSlot.mul(0.5));
+    const packed = mix(mix(plateCode.x, plateCode.y, step(0.5, pair)), mix(plateCode.z, plateCode.w, step(2.5, pair)), step(1.5, pair));
+    const high = floor(packed.div(32.0));
+    const glyphIndex = mix(high, packed.sub(high.mul(32.0)), glyphSlot.sub(pair.mul(2.0)));
+    const glyphGrad = vec2(cellU.div(PLATE_GLYPHS.length), plateV);
+    const ink = texture(carPlateGlyphTexture(), vec2(glyphIndex.add(fract(cellU)).div(PLATE_GLYPHS.length), plateV))
+      .grad(dFdx(glyphGrad), dFdy(glyphGrad)).r.mul(inText);
+    col = mix(col, color(0x15171a), ink);
+  }
+  const stickerDist = length(vec2(plateU.sub(0.11 + 2.5 * 0.108).mul(2 * PLATE.hw), plateV.sub(0.5).mul(2 * PLATE.hh)));
+  const sticker = smoothstep(0.024, 0.021, stickerDist).mul(one.sub(atFront));
+  return mix(col, mix(color(0xb8262c), color(0xe6e1d6), smoothstep(0.017, 0.015, stickerDist)), sticker);
+}
+
+/**
  * Creates the TSL material for lofted vehicles.
  * Instanced traffic reads the per-instance `paintColor` (vec3) and `carState` (vec4: brake, left (+x) & right (-x)
- * turn signal, livery: 0 none, 1 Policja, 2 PRM ambulance, 3 PSP fire) attributes; with a fixed `fixedColorHex` (the
- * player's taxi, wheels) the state is the
- * `material.userData.carState` uniform instead.
+ * turn signal, livery: 0 none, 1 Policja, 2 PRM ambulance, 3 PSP fire) and `plateCode` (vec4, encodeRegistration)
+ * attributes; with a fixed `fixedColorHex` (the player's taxi, wheels) the state is the `material.userData.carState`
+ * uniform instead and the painted plates are blank (the player's car carries its own plate meshes).
  * Every mask is built once and shared by the colour, roughness, metalness & emissive graphs (TSL turns nodes used
  * more than once into temporaries), so the fragment shader evaluates each SDF a single time.
  */
@@ -1091,16 +1336,29 @@ function createLoftedCarMaterial(spec, fixedColorHex = null) {
   const under = smoothstep(-0.25, -0.55, n.y).mul(isBody);
   const belt = mix(float(bd.y), float(bc.y), clamp(p.z.sub(cab.deck).div(cab.cowl - cab.deck), 0.0, 1.0));
 
-  // Glasshouse: side windows (minus the B / C pillars), windshield & backlight, their black seals, chrome sill strip
+  // Glasshouse: side windows (minus the B / C pillars), windshield & backlight, their black seals, chrome sill strip.
+  // A hatch's thick C pillar and a van's cargo box panel the side glass over behind sideGlassRear; a van's high roof
+  // has no glass above glassTop.
   let sideG = polygonDistance(p.z, p.y, sideGlassPlanes, 0.07);
+  let sideS = polygonDistance(p.z, p.y, sideSealPlanes, 0.07);
   for (const zp of cab.pillars) sideG = max(sideG, float(0.036).sub(abs(p.z.sub(zp))));
-  const backlight = coverage(polygonDistance(ax, p.z, rearGlassPlanes, 0.09)).mul(isWindow);
-  const glass = max(max(coverage(sideG), coverage(polygonDistance(ax, p.z, frontGlassPlanes, 0.09))), backlight.div(max(isWindow, 1e-4)))
-    .mul(isWindow);
-  const seal = max(
-    coverage(polygonDistance(p.z, p.y, sideSealPlanes, 0.07)),
-    max(coverage(polygonDistance(ax, p.z, frontSealPlanes, 0.09)), coverage(polygonDistance(ax, p.z, rearSealPlanes, 0.09)))
-  ).mul(isWindow);
+  if (spec.sideGlassRear !== undefined) {
+    sideG = max(sideG, float(spec.sideGlassRear).sub(p.z));
+    sideS = max(sideS, float(spec.sideGlassRear - 0.016).sub(p.z));
+  }
+  let frontG = polygonDistance(ax, p.z, frontGlassPlanes, 0.09);
+  let frontS = polygonDistance(ax, p.z, frontSealPlanes, 0.09);
+  if (spec.glassTop !== undefined) {
+    sideG = max(sideG, p.y.sub(spec.glassTop));
+    sideS = max(sideS, p.y.sub(spec.glassTop + 0.016));
+    frontG = max(frontG, p.y.sub(spec.glassTop));
+    frontS = max(frontS, p.y.sub(spec.glassTop + 0.016));
+  }
+  const hasBacklight = spec.backlight !== false;
+  const backlight = hasBacklight ? coverage(polygonDistance(ax, p.z, rearGlassPlanes, 0.09)).mul(isWindow) : float(0.0);
+  const glass = max(max(coverage(sideG), coverage(frontG)), backlight.div(max(isWindow, 1e-4))).mul(isWindow);
+  const rearSeal = hasBacklight ? coverage(polygonDistance(ax, p.z, rearSealPlanes, 0.09)) : float(0.0);
+  const seal = max(coverage(sideS), max(coverage(frontS), rearSeal)).mul(isWindow);
   const chromeBelt = spec.chrome
     ? smoothstep(0.003, 0.006, p.y.sub(belt))
       .mul(smoothstep(0.016, 0.012, p.y.sub(belt)))
@@ -1137,7 +1395,7 @@ function createLoftedCarMaterial(spec, fixedColorHex = null) {
     .mul(smoothstep(0.02, 0.25, n.z.negate()))
     .mul(step(p.z, rearZone))
     .mul(isBody);
-  // Sedans use horizontal lenses; taller SUV lamps stack their three sections vertically.
+  // Wide lamps use horizontal lenses; tall ones (crossover, van) stack their three sections vertically.
   const tailAxis = tlH > tlW ? tlUV.y.div(tlH) : tlUV.x.div(tlW);
   const tailDivider = coverage(min(abs(tailAxis.sub(0.52)), abs(tailAxis.add(0.55))).sub(0.025));
   const tailLens = roundedRect(tlUV, vec2(tlW - 0.006, tlH - 0.006), 0.017)
@@ -1204,7 +1462,9 @@ function createLoftedCarMaterial(spec, fixedColorHex = null) {
   // Liveries (carState.w; the paint comes from traffic.js): a reflective band along the sides with a pinstripe above
   // it and the lettering inside it over both doors, read left to right from either side. 1 Policja: blue band, white
   // POLICJA, light-blue pin; 2 PRM ambulance: red band, white AMBULANS, blue pin; 3 PSP: white band, red STRAŻ, white
-  // pin. On a body with lower cladding (the SUV) the band sits 5 cm higher, clear of it.
+  // pin. The band runs at spec.band (a van's higher up, over the cargo box), by default 0.5-0.64 m, 5 cm higher on a
+  // body with lower cladding. Vans in PRM and PSP livery also carry red-and-white / red-and-yellow chevrons on the
+  // rear doors (approximated: no crests or emblems anywhere).
   const livery = state.w;
   const police = step(0.5, livery).mul(step(livery, 1.5));
   const ambulance = step(1.5, livery).mul(step(livery, 2.5));
@@ -1212,14 +1472,16 @@ function createLoftedCarMaterial(spec, fixedColorHex = null) {
   const pick = (a, b, c) => color(a).mul(police).add(color(b).mul(ambulance)).add(color(c).mul(fire));
   const onLivery = step(0.5, livery).mul(isSide).mul(isBody);
   const lift = spec.cladding > 0 ? 0.05 : 0;
+  const [band0, band1] = spec.band || [0.5 + lift, 0.64 + lift];
   const along = smoothstep(spec.zRear + 0.22, spec.zRear + 0.3, p.z).mul(smoothstep(spec.zFront - 0.28, spec.zFront - 0.36, p.z));
-  const band = smoothstep(0.495 + lift, 0.5 + lift, p.y).mul(smoothstep(0.645 + lift, 0.64 + lift, p.y)).mul(along);
-  const pin = smoothstep(0.663 + lift, 0.667 + lift, p.y).mul(smoothstep(0.687 + lift, 0.683 + lift, p.y)).mul(along);
-  // Lettering box: 8:1 like an atlas row, centred on the band and on the doors
-  const letterZ = (spec.doors[0] + spec.doors[2]) / 2;
+  const band = smoothstep(band0 - 0.005, band0, p.y).mul(smoothstep(band1 + 0.005, band1, p.y)).mul(along);
+  const pin = smoothstep(band1 + 0.023, band1 + 0.027, p.y).mul(smoothstep(band1 + 0.047, band1 + 0.043, p.y)).mul(along);
+  // Lettering box: 8:1 like an atlas row, 80% of the band's height, centred on the band and on the doors
+  const letterZ = spec.letterZ ?? (spec.doors[0] + spec.doors[spec.doors.length - 1]) / 2;
+  const letterH = (band1 - band0) * 0.8;
   const facing = step(0.0, n.x).mul(-2.0).add(1.0); // +x side: the text runs towards -z
-  let letterU = p.z.sub(letterZ).mul(facing).div(0.96).add(0.5);
-  let letterV = p.y.sub(0.5725 + lift).div(0.12).add(0.5);
+  let letterU = p.z.sub(letterZ).mul(facing).div(letterH * 8).add(0.5);
+  let letterV = p.y.sub((band0 + band1) / 2).div(letterH).add(0.5);
   let letterRow = clamp(livery.sub(1.0), 0.0, 2.0);
   if (spec.sign) {
     // The roof lamp's TAXI faces front and back: a box 75% of the lamp's height at the atlas rows' 8:1 aspect (the word
@@ -1256,7 +1518,7 @@ function createLoftedCarMaterial(spec, fixedColorHex = null) {
     painted = mix(painted, color(0x121417), number);
   }
 
-  // Panel shading: soft occlusion low down & under the arch lips; unpainted cladding (SUVs); door shut lines &
+  // Panel shading: soft occlusion low down & under the arch lips; unpainted cladding (crossovers, vans); door shut lines &
   // handles; trunk / hood shut lines; black cowl panel under the windshield
   const archLip = smoothstep(archR + 0.05, archR - 0.005, wheelDist).mul(smoothstep(0.6, 0.9, ax));
   const ao = smoothstep(0.2, 0.62, p.y).mul(0.22).add(0.78).mul(one.sub(archLip.mul(0.55)));
@@ -1266,9 +1528,29 @@ function createLoftedCarMaterial(spec, fixedColorHex = null) {
   for (const zh of spec.handles) {
     seams = max(seams, roundedRect(vec2(p.z.sub(zh), p.y.sub(belt.sub(0.095))), vec2(0.06, 0.011), 0.008));
   }
+  // A panel van's upper body is the glasshouse loft: carry the door shut lines up it, and split the rear doors
+  let vanSeams = float(0.0);
+  let chevrons = float(0.0);
+  let vanStop = float(0.0);
+  if (spec.panelVan) {
+    const roofTop = L.rail.mid.y;
+    const rearFace = smoothstep(0.12, 0.38, n.z.negate()).mul(step(p.z, rearZone)).mul(max(isBody, isWindow));
+    const doorEdge = tlX - tlW - 0.025;
+    const upper = step(p.y, roofTop - 0.06).mul(step(spec.bumperLine[1], p.y));
+    const rearSeams = max(smoothstep(0.009, 0.003, ax), smoothstep(0.009, 0.003, abs(ax.sub(doorEdge)))).mul(upper).mul(rearFace);
+    vanSeams = max(rearSeams, seams.mul(isSide).mul(isWindow).mul(step(p.y, roofTop - 0.06)).mul(step(p.z, spec.doors[0] - 0.02)));
+    chevrons = step(1.5, livery).mul(rearFace).mul(step(ax, doorEdge - 0.02))
+      .mul(step(spec.bumperLine[1] + 0.06, p.y)).mul(step(p.y, spec.bumperLine[1] + 0.56));
+    vanStop = roundedRect(vec2(p.x, p.y.sub(roofTop - 0.12)), vec2(0.12, 0.018), 0.008).mul(rearFace).mul(isWindow);
+  }
+  // Chevrons point up the middle: red, alternating with white (PSP) or yellow (PRM), 10 cm stripes
+  const chevronCol = mix(color(0xc8161e), mix(color(0xf2e33a), color(0xf1f2f0), fire), step(0.5, fract(ax.add(p.y).div(0.2))));
+
   let body = mix(painted.mul(ao), color(0x1e2124), cladding);
   body = body.mul(one.sub(seams.mul(onDoors).mul(0.55))).mul(one.sub(panelSeam.mul(0.5)));
   body = mix(body, color(0x15181b), cowlPanel);
+  body = mix(body, chevronCol, chevrons.mul(isBody));
+  body = body.mul(one.sub(vanSeams.mul(isBody).mul(0.55)));
 
   // Nose: slatted grilles and broad divided reflectors inside squared lamp housings, with outer amber indicators.
   const slats = step(0.5, fract(p.y.mul(42.0))).mul(0.4).add(0.6);
@@ -1288,19 +1570,22 @@ function createLoftedCarMaterial(spec, fixedColorHex = null) {
   body = mix(body, body.mul(pocketShade), platePocket);
   body = mix(body, color(0x303438), trunkHandle);
   body = mix(body, color(0x24292d), plateRecess);
-  // Front plates are plain white with the EU strip (on the viewer's left, -x); rear plates read the number atlas
-  const euStrip = step(p.x, 0.022 - PLATE.hw);
-  body = mix(body, mix(color(0xe9ebe6), color(0x1f3f99), euStrip), plateFront);
-  const plateVariant = floor(fract(paint.r.mul(7).add(paint.g.mul(13)).add(paint.b.mul(17))).mul(PLATE_LABELS.length));
-  const plateUV = vec2(p.x.div(-2 * PLATE.hw).add(0.5), p.y.sub(plateR).div(2 * PLATE.hh).add(0.5));
-  const plateColor = texture(carPlateTexture(), vec2(plateUV.x, plateUV.y.add(plateVariant).div(PLATE_LABELS.length))).rgb;
-  body = mix(body, plateColor, plateRear);
+  // EU plates, front and rear, each car with its own registration (blank on the fixed-colour variant)
+  const atFront = step(0.0, p.z);
+  const plateCode = fixed ? null : attribute('plateCode', 'vec4');
+  body = mix(body, plateColor(p, mix(float(plateR), float(plateF), atFront), atFront, plateCode), plates);
   body = mix(body, color(0x0e1013), under);
 
-  // Glasshouse: tinted glass, black seals & B / C pillars, painted roof & A pillars, chrome sill strip, CHMSL
+  // Glasshouse: tinted glass, black seals & B / C pillars, painted roof & A pillars, chrome sill strip, CHMSL; on a
+  // van the painted upper body with its seams, rear chevrons and the high stop lamp
   const glassCol = mix(color(0x0a1016), color(0x1a2632), smoothstep(0.2, 0.9, n.y));
   let windowCol = mix(mix(mix(mix(paint, color(0x111315), seal), glassCol, glass), color(0xc9ced3), chromeBelt), color(0x6a0a0e), chmsl);
   windowCol = mix(windowCol, color(0x15181b), rearWiper);
+  if (spec.panelVan) {
+    windowCol = mix(windowCol, chevronCol, chevrons);
+    windowCol = windowCol.mul(one.sub(vanSeams.mul(one.sub(glass)).mul(0.55)));
+    windowCol = mix(windowCol, color(0x6a0a0e), vanStop);
+  }
 
   // Mirror caps (paint, glass facing back), taxi roof light, trims, alloys & tyres
   const mirrorCol = mix(paint, color(0x7c8a94), mirrorGlass);
@@ -1341,7 +1626,7 @@ function createLoftedCarMaterial(spec, fixedColorHex = null) {
     .mul(nightHeadlamp)
     .mul(one.sub(turnFront.mul(blink)));
   const tail = color(0xff0a12).mul(redLens.mul(tailShade).mul(brake.mul(2.1).add(nightHeadlamp.mul(0.4))));
-  const stop = color(0xff0a12).mul(chmsl.mul(brake).mul(2.1));
+  const stop = color(0xff0a12).mul(max(chmsl, vanStop).mul(brake).mul(2.1));
   const turn = color(0xff9a14).mul(max(turnFront, turnRear).mul(blink).mul(2.2));
   const sign = color(0xffe28a).mul(signFace.mul(one.sub(signGlyph.mul(0.9))).mul(1.65));
 
@@ -1663,10 +1948,8 @@ function createLoftedBusMaterial() {
   const plateFront = roundedRect(vec2(p.x, p.y.sub(0.77)), vec2(PLATE.hw, PLATE.hh), 0.008).mul(front).mul(step(ax, 0.3));
   const plateRear = roundedRect(vec2(p.x, p.y.sub(0.77)), vec2(PLATE.hw, PLATE.hh), 0.008).mul(rear);
   const plate = max(plateFront, plateRear);
-  // The rear plate reads the cars' number atlas (first row); the front one is white with the EU strip on the left
-  const plateUV = vec2(p.x.div(-2 * PLATE.hw).add(0.5), p.y.sub(0.77).div(2 * PLATE.hh).add(0.5));
-  const rearPlate = texture(carPlateTexture(), vec2(plateUV.x, plateUV.y.div(PLATE_LABELS.length))).rgb;
-  const frontPlate = mix(color(0xe9ebe6), color(0x1f3f99), step(p.x, 0.022 - PLATE.hw));
+  // The cars' EU plates, one made-up Poznań registration shared by the fleet
+  const busPlate = plateColor(p, float(0.77), step(0.0, p.z), vec4(...encodeRegistration(polishRegistration(9001))));
 
   let body = mix(livery, color(0x15191e), seal);
   body = mix(body, color(0x1a1e23).mul(slats), louvres);
@@ -1675,8 +1958,7 @@ function createLoftedBusMaterial() {
   body = mix(body, color(0x9a0d14), tailLamp);
   body = mix(body, color(0xc8641a), turnRear);
   body = mix(body, color(0xe8eef2), reverse);
-  body = mix(body, frontPlate, plateFront);
-  body = mix(body, rearPlate, plateRear);
+  body = mix(body, busPlate, plate);
   const glassTint = mix(color(0x0e1a26), color(0x1b3046), clamp(p.y.sub(1.3).mul(0.8), 0.0, 1.0));
   body = mix(body, glassTint, glass);
 
@@ -2382,6 +2664,9 @@ function createTramMaterial(signMap = null, rows = 1) {
 export {
   CAR_PARTS,
   BODY_SPECS,
+  carDimensions,
+  polishRegistration,
+  encodeRegistration,
   carLayout,
   carBodyHalfWidthAt,
   buildCarSidePatch,
@@ -2389,6 +2674,7 @@ export {
   buildCarGeometry,
   buildCarProxyGeometry,
   createLoftedCarMaterial,
+  lightbarPlacement,
   buildLightbarGeometry,
   createLightbarMaterial,
   BUS_SPEC,

@@ -29,8 +29,8 @@ const { HEADLIGHTS, tramLightSpec, createVehicleHeadlight, placeVehicleHeadlight
   { imports: { 'three/webgpu': { SpotLight } } }
 );
 const specs = {
-  sedan: { headlight: [0.56, 0.705], zFront: 2.25 },
-  suv: { headlight: [0.6, 0.9], zFront: 2.3 },
+  saloon: { headlight: [0.56, 0.68], zFront: 2.3 }, // copies of BODY_SPECS numbers
+  van: { headlight: [0.66, 0.98], zFront: 2.8 },
   bus: { headlight: [0.79, 0.8], zFront: 6.0 },
   tram: { headlight: [0.82, 0.9], zFront: 5.76 } // Moderus Gamma front cab, 11.8 m
 };
@@ -42,7 +42,7 @@ test('the shared profile creates ordinary unshadowed spots with no cookie or cus
   for (const key of ['color', 'distance', 'angle', 'penumbra', 'decay']) assert.equal(spot[key], HEADLIGHTS[key]);
   assert.equal(spot.decay, 2);
   assert.ok(spot.penumbra >= 0 && spot.penumbra <= 1);
-  placeVehicleHeadlight(spot, specs.sedan, 1);
+  placeVehicleHeadlight(spot, specs.saloon, 1);
   assert.equal(spot.map, null);
   assert.equal(spot.colorNode, null);
   assert.equal(spot.castShadow, false);
@@ -73,8 +73,8 @@ test('lamp and target follow both yaw and slope at elevated road height', () => 
   const pitch = -Math.atan(0.1), s = Math.sin(pitch), c = Math.cos(pitch);
   const matrix = { elements: [0, 0, -1, 0, s, c, 0, 0, c, -s, 0, 0, 30, 7.6, -10, 1] };
   const local = createVehicleHeadlight(), world = createVehicleHeadlight();
-  placeVehicleHeadlight(local, specs.suv, -1);
-  placeVehicleHeadlight(world, specs.suv, -1, matrix);
+  placeVehicleHeadlight(local, specs.van, -1);
+  placeVehicleHeadlight(world, specs.van, -1, matrix);
   for (const [a, b] of [[local.position, world.position], [local.target.position, world.target.position]]) {
     close(b.x, 30 + s * a.y + c * a.z);
     close(b.y, 7.6 + c * a.y - s * a.z);
@@ -87,7 +87,7 @@ test('lamp and target follow both yaw and slope at elevated road height', () => 
   const horizontal = Math.sqrt(dx * dx + dy * dy + dz * dz - vertical * vertical);
   assert.ok(Math.atan2(-vertical, horizontal) > world.angle, 'the transformed cone stays below the road-relative horizon');
   // Reusing a pooled light must reset local coordinates instead of accumulating the prior matrix transform.
-  placeVehicleHeadlight(world, specs.suv, -1);
+  placeVehicleHeadlight(world, specs.van, -1);
   assert.deepEqual(world.position, local.position);
   assert.deepEqual(world.target.position, local.target.position);
 });

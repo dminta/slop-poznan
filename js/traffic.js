@@ -7,10 +7,14 @@ import { HEADLIGHTS, createVehicleHeadlight, placeVehicleHeadlight } from './veh
 import {
   BODY_SPECS,
   BUS_SPEC,
+  carDimensions,
+  polishRegistration,
+  encodeRegistration,
   buildCarGeometry,
   buildCarProxyGeometry,
   buildSteerableWheelGeo,
   createLoftedCarMaterial,
+  lightbarPlacement,
   buildLightbarGeometry,
   createLightbarMaterial,
   buildLoftedBusBodyGeometry,
@@ -24,7 +28,7 @@ import { PersonCrowd, PersonRig } from './pedestrians.js';
 
 // js/traffic.js
 // City traffic and pedestrians on the road graph road-network.js derives from the city as built:
-// - 200 cars (taxis, sedans, SUVs, Policja, ambulances, fire service) and 12 MPK buses keep to their lanes and follow the vehicle
+// - 200 cars (taxis, private cars and vans, Policja, PRM, PSP) and 12 MPK buses keep to their lanes and follow the vehicle
 //   ahead (Intelligent Driver Model), change lanes to overtake or to reach a turn lane, turn into other streets,
 //   stop for the signals street-details.js shows, give way to oncoming traffic when turning left, to the widest road at
 //   unsignalized corners and to pedestrians on crosswalks, and never enter an intersection they can't clear.
@@ -166,7 +170,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   };
 
   // =========================================================================
-  // 1. 3D LOFTED TAXIS, SEDANS, SUVS & EMERGENCY VEHICLES (200 VEHICLES)
+  // 1. 3D LOFTED CARS, TAXIS, VANS & EMERGENCY VEHICLES (200 VEHICLES)
   // =========================================================================
   // pace: the driver's desired speed as a share of the posted limit; vmax: the most it drives at anywhere
   function createVehicle(bus, half, halfWidth, axle, driver, pace, vmax) {
@@ -182,96 +186,116 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     };
   }
 
-  // Build 3 distinct 3D LoftGeometry vehicle classes (Taxi, Sedan/Policja, SUV/ambulance/fire) with separate spinning
-  // 3D wheels
-  const taxiGeo = buildCarGeometry(BODY_SPECS.taxi, false);
-  const sedanGeo = buildCarGeometry(BODY_SPECS.sedan, false);
-  const suvGeo = buildCarGeometry(BODY_SPECS.suv, false);
-  const carWheelLeftGeo = buildSteerableWheelGeo(BODY_SPECS.sedan, -1);
-  const carWheelRightGeo = buildSteerableWheelGeo(BODY_SPECS.sedan, 1);
+  // The five lofted body classes common on Polish streets (BODY_SPECS in actor-models.js: the Corolla-class taxi
+  // saloon, hatchback, estate, crossover and panel van), with one shared set of separately instanced spinning wheels
+  // scaled to each body's wheel radius
+  const CAR_KINDS = ['taxi', 'hatch', 'estate', 'crossover', 'van'];
+  const WHEEL_SPEC = BODY_SPECS.hatch;
+  const carWheelLeftGeo = buildSteerableWheelGeo(WHEEL_SPEC, -1);
+  const carWheelRightGeo = buildSteerableWheelGeo(WHEEL_SPEC, 1);
+  const carWheelMat = createLoftedCarMaterial(WHEEL_SPEC, 0x8a9096); // neutral steel hub grey
 
-  const taxiMat = createLoftedCarMaterial(BODY_SPECS.taxi);
-  const sedanMat = createLoftedCarMaterial(BODY_SPECS.sedan);
-  const suvMat = createLoftedCarMaterial(BODY_SPECS.suv);
-  const carWheelMat = createLoftedCarMaterial(BODY_SPECS.sedan, 0x8a9096); // neutral steel hub grey
-
-  // Polish taxis come in any colour (no yellow cabs), so they draw from the sedans' palette
-  const sedanPalette = [
-    new THREE.Color(0x1c2026), // Black
-    new THREE.Color(0xcfd6de), // Metallic silver
-    new THREE.Color(0x1d3b6c), // Deep navy
-    new THREE.Color(0x52575e), // Graphite grey
-    new THREE.Color(0x6e1f24), // Burgundy
-    new THREE.Color(0xeef1f4)  // White
+  // Private cars and taxis (Polish taxis come in any colour, no yellow cabs): mostly greys, whites, blacks and silvers,
+  // some blue and red, as on Polish roads; delivery vans are mostly white. Repeats weight the pick.
+  const carPalette = [
+    new THREE.Color(0xeceff1), // White
+    new THREE.Color(0xf4f4f0), // Pure white
+    new THREE.Color(0x16181c), // Black
+    new THREE.Color(0x202328), // Black metallic
+    new THREE.Color(0x4a4f56), // Graphite grey
+    new THREE.Color(0x4a4f56),
+    new THREE.Color(0x7b8189), // Moon grey
+    new THREE.Color(0x7b8189),
+    new THREE.Color(0xc3c9cf), // Silver
+    new THREE.Color(0xa9b0b7), // Dark silver
+    new THREE.Color(0x1f3558), // Navy
+    new THREE.Color(0x2c5aa0), // Blue
+    new THREE.Color(0x9e1b22), // Red
+    new THREE.Color(0x5c1a20), // Burgundy
+    new THREE.Color(0x2b3d33), // Dark green
+    new THREE.Color(0x8a7660)  // Brown-beige
   ];
-  const suvPalette = [
-    new THREE.Color(0x16191e), // Black
-    new THREE.Color(0xf0f3f7), // Pearl white
-    new THREE.Color(0x3a434d), // Slate metallic
-    new THREE.Color(0x28382e), // Forest green
-    new THREE.Color(0xbec6cf)  // Silver
+  const vanPalette = [
+    new THREE.Color(0xeceff1),
+    new THREE.Color(0xf4f4f0),
+    new THREE.Color(0xeceff1),
+    new THREE.Color(0xc3c9cf),
+    new THREE.Color(0x7b8189),
+    new THREE.Color(0x1f3558)
   ];
-  // Emergency liveries (carState.w, painted by createLoftedCarMaterial): 1 Policja on a sedan, 2 PRM ambulance and 3
-  // PSP fire service on the SUV body (the nearest to a PSP command car; PRM's vans have no body here yet)
-  const LIVERY_PAINT = [null, new THREE.Color(0xe6e9ec), new THREE.Color(0xf0d418), new THREE.Color(0xb3121b)];
+  // Emergency liveries (carState.w, painted by createLoftedCarMaterial): 1 Policja (silver-white with the blue band) on
+  // the estate, 2 PRM ambulance (yellow) and 3 PSP light rescue van (red) on the van
+  const LIVERY_PAINT = [null, new THREE.Color(0xe6e9ec), new THREE.Color(0xf0dc2a), new THREE.Color(0xb3121b)];
   // Golden-ratio pick: the mix rules below tie each body type to fixed index residues, which `i % length` would map
   // onto only part of a palette
   const pick = (palette, i) => palette[Math.floor(((i * 0.6180339887) % 1) * palette.length)];
+  // Shares of the private cars (all but taxis and emergency vehicles), picked by a second low-discrepancy sequence of
+  // the index (the plastic number, so it does not follow the paint pick)
+  const PRIVATE_MIX = [['hatch', 0.38], ['estate', 0.24], ['crossover', 0.28], ['van', 0.1]];
 
   const cars = [];
-  let taxiCount = 0;
-  let sedanCount = 0;
-  let suvCount = 0;
-  let sedanBars = 0;
-  let suvBars = 0;
+  const bodyCounts = { taxi: 0, hatch: 0, estate: 0, crossover: 0, van: 0 };
+  const barCounts = { estate: 0, van: 0 };
 
   for (let i = 0; i < NUM_CARS; i++) {
-    // 5 Policja, 4 ambulances, 2 fire service cars; none of these indices is a multiple of 5 (taxis)
+    // 5 Policja, 4 ambulances, 2 fire service vans; the livery wins over the taxi rule (index 168)
     const livery = (i % 40) === 6 ? 1 : (i % 50) === 18 ? 2 : (i % 100) === 42 ? 3 : 0;
     // Every emergency vehicle uses its siren and the police signal privileges (isPolice: traffic.js signal logic,
     // audio-sources.js siren)
     const isPolice = livery > 0;
-    const isTaxi = !isPolice && (i % 5) === 0;
-    const isSUV = livery > 1 || (!isPolice && !isTaxi && (i % 2 === 0));
+    const isTaxi = !isPolice && (i % 8) === 0;
 
-    let bodyType = 'sedan';
-    let col;
-
-    if (isTaxi) {
-      bodyType = 'taxi';
-      taxiCount++;
-      col = pick(sedanPalette, i);
-    } else if (isSUV) {
-      bodyType = 'suv';
-      suvCount++;
-      col = livery ? LIVERY_PAINT[livery] : pick(suvPalette, i);
-      if (livery) suvBars++;
-    } else {
-      sedanCount++;
-      col = livery ? LIVERY_PAINT[livery] : pick(sedanPalette, i);
-      if (livery) sedanBars++;
+    let bodyType;
+    if (livery === 1) bodyType = 'estate';
+    else if (livery > 1) bodyType = 'van';
+    else if (isTaxi) bodyType = 'taxi';
+    else {
+      let u = (i * 0.7548776662 + 0.31) % 1;
+      for (const [kind, share] of PRIVATE_MIX) {
+        bodyType = kind;
+        if ((u -= share) < 0) break;
+      }
     }
+    bodyCounts[bodyType]++;
+    if (livery) barCounts[bodyType]++;
+    const col = livery ? LIVERY_PAINT[livery] : pick(bodyType === 'van' ? vanPalette : carPalette, i);
+    // isSUV: the bigger engine sound (audio-sources.js) and the heavier push against the player
+    const isSUV = bodyType === 'crossover' || bodyType === 'van';
 
-    const car = createVehicle(false, isSUV ? 2.3 : 2.25, isSUV ? 0.92 : 0.86, isSUV ? 1.4 : 1.38, CAR_DRIVER, 0.9 + (i % 5) * 0.05, 80 / 3.6);
-    // paint as float32 values, so renderCar() can tell whether an instance slot's paint changes by comparing
+    const spec = BODY_SPECS[bodyType];
+    const dims = carDimensions(spec);
+    const pace = 0.9 + (i % 5) * 0.05;
+    const car = createVehicle(false, dims.half, dims.halfWidth - 0.03, dims.axle, CAR_DRIVER, pace, 80 / 3.6);
+    // paint and plate as float32 values, so renderCar() can tell whether a slot's attributes change by comparing
     const paint = [Math.fround(col.r), Math.fround(col.g), Math.fround(col.b)];
-    Object.assign(car, { isTaxi, isPolice, isSUV, livery, bodyType, paint });
+    const plate = encodeRegistration(polishRegistration(i + 1));
+    const bar = lightbarPlacement(spec);
+    Object.assign(car, {
+      isTaxi, isPolice, isSUV, livery, bodyType, paint, plate,
+      hitW: dims.halfWidth - 0.03, hitL: dims.half - 0.07, // player collision box (collideWithPlayer)
+      shadowW: dims.halfWidth * 2 + 0.36, shadowL: dims.half * 2 + 0.55, // contact shadow
+      barY: bar.y + 0.4, barZ: bar.z // where the light bar's blue point light flashes
+    });
     cars.push(car);
   }
 
   // Per body type: the full model (with separately instanced spinning wheels near the camera) and, beyond
-  // CAR_PROXY_DISTANCE, the ~250-triangle stand-in. Instance slots are handed out every frame to the cars the camera
-  // can see (or whose shadow it may see), see renderCar(). Per-instance paint & lamp / livery state the car material
-  // reads: brake lights, left (+x) & right (-x) turn signals, livery (car.livery: 1 Policja, 2 ambulance, 3 fire).
+  // CAR_PROXY_DISTANCE, the ~500-triangle stand-in. Instance slots are handed out every frame to the cars the camera
+  // can see (or whose shadow it may see), see renderCar(). Per-instance paint, registration (plateCode) & lamp / livery
+  // state the car material reads: brake lights, left (+x) & right (-x) turn signals, livery (car.livery: 1 Policja,
+  // 2 ambulance, 3 fire).
   const bodies = {};
-  for (const [kind, geo, count, mat] of [['taxi', taxiGeo, taxiCount, taxiMat], ['sedan', sedanGeo, sedanCount, sedanMat], ['suv', suvGeo, suvCount, suvMat]]) {
-    const n = Math.max(1, count);
+  for (const kind of CAR_KINDS) {
+    const spec = BODY_SPECS[kind];
+    const mat = createLoftedCarMaterial(spec);
+    const n = Math.max(1, bodyCounts[kind]);
     const lodMesh = (g) => {
       g.setAttribute('paintColor', new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3));
       g.setAttribute('carState', new THREE.InstancedBufferAttribute(new Float32Array(n * 4), 4));
+      g.setAttribute('plateCode', new THREE.InstancedBufferAttribute(new Float32Array(n * 4), 4));
       return new THREE.InstancedMesh(g, mat, n);
     };
-    bodies[kind] = { near: lodMesh(geo), far: lodMesh(buildCarProxyGeometry(BODY_SPECS[kind])) };
+    bodies[kind] = { near: lodMesh(buildCarGeometry(spec, false)), far: lodMesh(buildCarProxyGeometry(spec)) };
   }
   const bodyMeshes = Object.values(bodies).flatMap((b) => [b.near, b.far]);
 
@@ -309,15 +333,20 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     }
   }
 
-  // Blue emergency roof light bars, one mesh per body that carries them (the liveries are painted by the body
-  // materials from the instance's carState)
-  const policeLightbarInst = new THREE.InstancedMesh(buildLightbarGeometry(BODY_SPECS.sedan), createLightbarMaterial(), Math.max(1, sedanBars));
-  const suvLightbarInst = new THREE.InstancedMesh(buildLightbarGeometry(BODY_SPECS.suv), createLightbarMaterial(), Math.max(1, suvBars));
+  // Blue emergency roof light bars, one mesh per body that carries them (the estate's Policja, the van's PRM and PSP;
+  // the liveries are painted by the body materials from the instance's carState). `drawn` counts the slots per frame.
+  const lightbars = {};
+  for (const kind of Object.keys(barCounts)) {
+    const inst = new THREE.InstancedMesh(buildLightbarGeometry(BODY_SPECS[kind]), createLightbarMaterial(), Math.max(1, barCounts[kind]));
+    inst.castShadow = true;
+    lightbars[kind] = { inst, drawn: 0 };
+  }
+  const lightbarList = Object.values(lightbars);
+  const lightbarMeshes = lightbarList.map((b) => b.inst);
   const carShadowInst = new THREE.InstancedMesh(unitPlane, contactShadowMat, NUM_CARS);
   carShadowInst.renderOrder = 998;
 
   for (const m of bodyMeshes) m.castShadow = m.receiveShadow = true;
-  policeLightbarInst.castShadow = suvLightbarInst.castShadow = true;
   carWheelLeftInst.castShadow = carWheelLeftInst.receiveShadow = true;
   carWheelRightInst.castShadow = carWheelRightInst.receiveShadow = true;
 
@@ -326,8 +355,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     carWheelLeftInst,
     carWheelRightInst,
     sparkInst,
-    policeLightbarInst,
-    suvLightbarInst
+    ...lightbarMeshes
   );
 
   // =========================================================================
@@ -453,7 +481,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   }
 
   // Nothing shows until it has been placed
-  const carInstances = [...bodyMeshes, carWheelLeftInst, carWheelRightInst, policeLightbarInst, suvLightbarInst, carShadowInst];
+  const carInstances = [...bodyMeshes, carWheelLeftInst, carWheelRightInst, ...lightbarMeshes, carShadowInst];
   const busInstances = [busBodyInst, busHeaderInst, busWheelLeftInst, busWheelRightInst, busShadowInst];
   for (const inst of [...carInstances, ...busInstances, sparkInst]) {
     inst.frustumCulled = false;
@@ -1981,8 +2009,6 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   let litVehicleCount = 0;
   let wheelCars = 0;
   let visibleCars = 0;
-  let policeDrawn = 0;
-  let suvBarsDrawn = 0;
   let visibleBuses = 0;
   let updates = 0;
 
@@ -1993,7 +2019,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   }
 
   // 3D spinning alloy wheels & tires (left & right, front & rear), exact 1:1 ground rolling, steering front wheels.
-  // The wheel geometry is modelled at baseRadius (the sedan's 0.35 m car wheel), scaled to the vehicle's radius
+  // The wheel geometry is modelled at baseRadius (WHEEL_SPEC's car wheel), scaled to the vehicle's radius
   function placeWheels(v, i, rotY, roll, radius, halfTrack, halfBase, leftInst, rightInst, baseRadius = 0.35) {
     const sinY = Math.sin(rotY);
     const cosY = Math.cos(rotY);
@@ -2041,21 +2067,28 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     dummy.updateMatrix();
     bodyInst.setMatrixAt(slot, dummy.matrix);
     if (c.livery) {
-      if (c.isSUV) suvLightbarInst.setMatrixAt(suvBarsDrawn++, dummy.matrix);
-      else policeLightbarInst.setMatrixAt(policeDrawn++, dummy.matrix);
+      const bar = lightbars[c.bodyType];
+      bar.inst.setMatrixAt(bar.drawn++, dummy.matrix);
     }
 
+    // Paint and registration only change when the slot goes to another car (both flagged through dirtyPaint)
     const attrs = bodyInst.geometry.attributes;
     const paint = attrs.paintColor.array;
+    const plate = attrs.plateCode.array;
     const o3 = slot * 3;
-    if (paint[o3] !== c.paint[0] || paint[o3 + 1] !== c.paint[1] || paint[o3 + 2] !== c.paint[2]) {
+    const o4 = slot * 4;
+    if (paint[o3] !== c.paint[0] || paint[o3 + 1] !== c.paint[1] || paint[o3 + 2] !== c.paint[2] ||
+      plate[o4] !== c.plate[0] || plate[o4 + 1] !== c.plate[1] || plate[o4 + 2] !== c.plate[2] || plate[o4 + 3] !== c.plate[3]) {
       paint[o3] = c.paint[0];
       paint[o3 + 1] = c.paint[1];
       paint[o3 + 2] = c.paint[2];
+      plate[o4] = c.plate[0];
+      plate[o4 + 1] = c.plate[1];
+      plate[o4 + 2] = c.plate[2];
+      plate[o4 + 3] = c.plate[3];
       dirtyPaint.add(bodyInst);
     }
     const state = attrs.carState.array;
-    const o4 = slot * 4;
     const blinkOn = c.blink !== 0 && (clock + c.blinkPhase) % 0.8 <= 0.4;
     const b0 = c.acc < -0.8 || c.speed < 0.3 ? 1 : 0;
     const b1 = blinkOn && c.blink < 0 ? 1 : 0;
@@ -2073,7 +2106,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     const visIdx = visibleCars++;
     dummy.rotation.set(0, rotY, 0, 'YXZ');
     dummy.position.set(c.x, 0.018, c.z);
-    dummy.scale.set(2.22, 1.0, 5.05);
+    dummy.scale.set(c.shadowW, 1.0, c.shadowL);
     dummy.updateMatrix();
     carShadowInst.setMatrixAt(visIdx, dummy.matrix);
 
@@ -2095,7 +2128,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     }
 
     if (near) {
-      placeWheels(c, wheelCars++, rotY, c.roll, spec.wheelRadius, spec.wheelX, spec.wheelZ, carWheelLeftInst, carWheelRightInst);
+      placeWheels(c, wheelCars++, rotY, c.roll, spec.wheelRadius, spec.wheelX, spec.wheelZ, carWheelLeftInst, carWheelRightInst,
+        WHEEL_SPEC.wheelRadius);
     }
   }
 
@@ -2201,7 +2235,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     }
 
     // 1. Emergency roof light bar flashes (blue 360° PointLights pulsing from side to side on nearby emergency
-    // vehicles, above the bar: higher on the SUV body)
+    // vehicles, above the bar, at the bar's place along the body: barY, barZ)
     let policeLightsUsed = 0;
     for (let i = 0; i < litVehicleCount && policeLightsUsed < POLICE_LIGHT_POOL_SIZE; i++) {
       const v = litVehicles[i];
@@ -2212,7 +2246,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       const pulse = 0.35 + 0.65 * Math.abs(wave);
       const side = wave >= 0 ? -0.36 : 0.36;
       const pt = policeLightPool[policeLightsUsed++];
-      pt.position.set(v.x + side * v._cosY - 0.25 * v._sinY, v.isSUV ? 2.15 : 1.85, v.z - side * v._sinY - 0.25 * v._cosY);
+      pt.position.set(v.x + side * v._cosY + v.barZ * v._sinY, v.barY, v.z - side * v._sinY + v.barZ * v._cosY);
       pt.distance = 12.0;
       pt.intensity = 42.0 * tailScale * fade * pulse;
     }
@@ -2332,8 +2366,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     litVehicleCount = 0;
     wheelCars = 0;
     visibleCars = 0;
-    policeDrawn = 0;
-    suvBarsDrawn = 0;
+    for (const bar of lightbarList) bar.drawn = 0;
     visibleBuses = 0;
     for (let i = 0; i < vehicles.length; i++) {
       const v = vehicles[i];
@@ -2346,7 +2379,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       locate(v);
       knock(v, dt);
       pose(v, dt);
-      if (player.active) collideWithPlayer(v, v.yaw + v.yawOffset, v.bus ? 1.30 : v.isSUV ? 0.92 : 0.86, v.bus ? 5.72 : v.isSUV ? 2.22 : 2.18);
+      if (player.active) collideWithPlayer(v, v.yaw + v.yawOffset, v.bus ? 1.30 : v.hitW, v.bus ? 5.72 : v.hitL);
       if (v.vx * v.vx + v.vz * v.vz > 0.36) knockOn(v);
 
       if (v.bus) renderBus(v);
@@ -2366,7 +2399,10 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
         continue;
       }
       flagRange(m.instanceMatrix, n);
-      if (dirtyPaint.has(m)) flagRange(m.geometry.attributes.paintColor, n);
+      if (dirtyPaint.has(m)) {
+        flagRange(m.geometry.attributes.paintColor, n);
+        flagRange(m.geometry.attributes.plateCode, n);
+      }
       if (dirtyState.has(m)) flagRange(m.geometry.attributes.carState, n);
     }
     dirtyPaint.clear();
@@ -2388,8 +2424,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     };
     syncInst(carWheelLeftInst, wheelCars * 2);
     syncInst(carWheelRightInst, wheelCars * 2);
-    syncInst(policeLightbarInst, policeDrawn);
-    syncInst(suvLightbarInst, suvBarsDrawn);
+    for (const bar of lightbarList) syncInst(bar.inst, bar.drawn);
     syncInst(carShadowInst, visibleCars);
     syncInst(busBodyInst, visibleBuses);
     syncInst(busHeaderInst, visibleBuses);
