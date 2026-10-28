@@ -1,24 +1,69 @@
 import * as THREE from 'three/webgpu';
+import { LANDMARK_SITES, LL } from './city-config.js';
 
 // js/cameras.js
 // Multi-camera system supporting Third-Person Chase (with mouse/touch orbit + zoom),
-// Low-Angle Action Cam, POV/Cockpit Cam, 7 fixed scenic cameras and the Auto-Director Drone.
+// Low-Angle Action Cam, POV/Cockpit Cam, 8 fixed views of Poznań places and the Auto-Director Drone.
 
-// The scenic ids are the Manhattan ones (index.html's camera buttons and the HUD key bindings name them); the views are
-// rough Poznań stand-ins until Phase 12 re-authors them.
 const CAMERA_PRESETS = [
-  { id: 'chase',       name: '3rd-Person Chase',         short: 'Chase',       category: 'follow', fov: 56 },
-  { id: 'action',      name: 'Low-Angle Action',         short: 'Action',      category: 'follow', fov: 60 },
-  { id: 'pov',         name: 'First-Person / Cockpit',   short: 'POV / Dash',  category: 'follow', fov: 68 },
-  { id: 'centralPark', name: 'Park Cytadela',            short: 'Cytadela',    category: 'scenic', fov: 52 },
-  { id: 'fifthAve',    name: 'Św. Marcin & Zamek',       short: 'Św. Marcin',  category: 'scenic', fov: 48 },
-  { id: 'timesSquare', name: 'Stary Rynek & Ratusz',     short: 'Stary Rynek', category: 'scenic', fov: 58 },
-  { id: 'chryslerGCT', name: 'Ostrów Tumski & Katedra',  short: 'Katedra',     category: 'scenic', fov: 50 },
-  { id: 'observatory', name: 'AND2 Rooftop',             short: 'AND2 Roof',   category: 'scenic', fov: 52 },
-  { id: 'bryantPark',  name: 'Plac Wolności',            short: 'Pl. Wolności', category: 'scenic', fov: 52 },
-  { id: 'waterfront',  name: 'Warta & Old Town',         short: 'Warta',       category: 'scenic', fov: 46 },
-  { id: 'drone',       name: 'Auto-Director Aerial',     short: 'Director',    category: 'scenic', fov: 50 }
+  { id: 'chase',    name: '3rd-Person Chase',                short: 'Chase',       category: 'follow', fov: 56 },
+  { id: 'action',   name: 'Low-Angle Action',                short: 'Action',      category: 'follow', fov: 60 },
+  { id: 'pov',      name: 'First-Person / Cockpit',          short: 'POV / Dash',  category: 'follow', fov: 68 },
+  { id: 'rynek',    name: 'Stary Rynek & Ratusz',            short: 'Stary Rynek', category: 'scenic', fov: 58 },
+  { id: 'katedra',  name: 'Ostrów Tumski from Most Jordana', short: 'Katedra',     category: 'scenic', fov: 50 },
+  { id: 'zamek',    name: 'Zamek Cesarski from Św. Marcin',  short: 'Zamek',       category: 'scenic', fov: 48 },
+  { id: 'cytadela', name: 'Park Cytadela',                   short: 'Cytadela',    category: 'scenic', fov: 52 },
+  { id: 'malta',    name: 'Jezioro Maltańskie',              short: 'Malta',       category: 'scenic', fov: 50 },
+  { id: 'warta',    name: 'Warta Riverside',                 short: 'Warta',       category: 'scenic', fov: 50 },
+  { id: 'baltyk',   name: 'Bałtyk Terrace',                  short: 'Bałtyk',      category: 'scenic', fov: 54 },
+  { id: 'dworzec',  name: 'Poznań Główny & Avenida',         short: 'Dworzec',     category: 'scenic', fov: 52 },
+  { id: 'drone',    name: 'Auto-Director Aerial',            short: 'Director',    category: 'scenic', fov: 50 }
 ];
+
+// A point `y` m up at a landmark's site centre, or at (u, w) in its turned site frame: the frame fitToSite
+// (landmark-kit.js) builds the models in, world = (x + u cos + w sin, z - u sin + w cos)
+function onSite(name, y, u = 0, w = 0) {
+  const s = LANDMARK_SITES[name];
+  const c = Math.cos(s.ang || 0);
+  const n = Math.sin(s.ang || 0);
+  return { x: s.x + u * c + w * n, y, z: s.z - u * n + w * c };
+}
+
+// The fixed views of real places (world frame: x east, z south, 1 unit = 1 m; the Ratusz is the origin). `eye` drifts
+// by `drift` = [dx, dz, rate] (m, rad/s) on a sine, `look` pans by `pan` the same way. Eye heights stay well under the
+// 116 m skyline top (AND2); tests/cameras.test.cjs checks that every eye stands on land or over water, outside the
+// building blocks, and looks at its place.
+const PLACE_VIEWS = {
+  // The east side of the square, by the Domki Budnicze, looking north-north-west at the Ratusz's tower and loggia
+  rynek: { eye: { x: 22, y: 7, z: 58 }, look: onSite('Ratusz', 30), drift: [0, 4, 0.3] },
+  // Most Biskupa Jordana (52.41158 N, 16.95088 E) over the Cybina, looking west at the cathedral's apse and towers
+  katedra: { eye: { x: 1148, y: 8, z: -336 }, look: onSite('Katedra', 34), drift: [0, 3, 0.22] },
+  // Św. Marcin at Kościuszki, looking west-north-west across the castle forecourt at the 75 m tower on its south-west
+  // corner
+  zamek: { eye: { x: -1000, y: 6.5, z: 150 }, look: { x: -1088, y: 42, z: 90 }, drift: [4, 0, 0.25] },
+  // Over the park's northern lawns, 26 m up, looking south over its centre (52.4215 N, 16.9349 E) towards the Old Town
+  cytadela: { eye: { x: 60, y: 26, z: -1690 }, look: { ...LL(16.9349, 52.4215), y: 2 }, drift: [6, 0, 0.12] },
+  // The finish end of the regatta course, looking east-south-east down the 2.2 km lake
+  malta: { eye: { x: 1700, y: 12, z: 340 }, look: { x: 2690, y: 4, z: 726 }, drift: [0, 8, 0.1] },
+  // The west-bank boulevard below Chwaliszewo, looking north up the Warta to Most Chrobrego and Ostrów Tumski
+  warta: { eye: { x: 745, y: 4.5, z: 15 }, look: { x: 752, y: 6, z: -220 }, drift: [0, 3, 0.15] },
+  // Bałtyk's 15th-floor terrace (59 m deck, the east end of the south-west staircase), looking east-north-east over
+  // Rondo Kaponiera at the Zamek Cesarski and the centre beyond
+  baltyk: { eye: onSite('Bałtyk', 15 * 67 / 17 + 1.65, 10, -9.5), look: onSite('Zamek Cesarski', 30), pan: [0, 60, 0.18] },
+  // Most Dworcowy over the tracks, looking south-east at the station hall with Avenida behind it
+  dworzec: { eye: { x: -1518, y: 7, z: 557 }, look: onSite('Poznań Główny', 6), drift: [3, 0, 0.2] }
+};
+
+// Where a place view's camera is and looks at `elapsed` s
+function placeView(view, elapsed, pos, look) {
+  const [dx, dz, rate] = view.drift || [0, 0, 0];
+  const d = Math.sin(elapsed * rate);
+  pos.set(view.eye.x + dx * d, view.eye.y, view.eye.z + dz * d);
+  const [px, pz, panRate] = view.pan || [0, 0, 0];
+  const p = Math.sin(elapsed * panRate);
+  look.set(view.look.x + px * p, view.look.y, view.look.z + pz * p);
+}
+
 
 // The far plane reaches every corner of the outskirts (the city boundary, x -13.8…9.4 km, z -11.2…13.0 km) from
 // anywhere the helicopter may fly (6 km past the detail box): 31.2 km at most. The horizon filler goes on to 40 km, but
@@ -262,75 +307,24 @@ class CameraSystem {
         break;
       }
 
-      // Fixed views placed from LANDMARK_SITES (Ratusz ≈ (0, 0), Zamek Cesarski (-1041, 60), Katedra (1001, -337), AND2
-      // (-607, 810), 116 m and the tallest building), with eye heights scaled to Poznań's ≈ 18-25 m roofline.
-      case 'centralPark': {
-        // The south edge of Park Cytadela looking north across its lawns
-        const sway = Math.sin(elapsed * 0.22) * 3.5;
-        desiredPos.set(100.0 + sway, 14.0, -1450.0);
-        desiredLook.set(104.0, 6.5, -1616.0);
-        break;
-      }
-
-      case 'fifthAve': {
-        // Święty Marcin looking west along the street toward the Zamek Cesarski
-        const sway = Math.sin(elapsed * 0.25) * 1.8;
-        desiredPos.set(-880.0, 6.5, 125.0 + sway);
-        desiredLook.set(-1041.0, 30.0, 70.0);
-        break;
-      }
-
-      case 'timesSquare': {
-        // The south-west corner of the Stary Rynek looking up at the Ratusz tower
-        const sway = Math.sin(elapsed * 0.3) * 3.0;
-        desiredPos.set(-55.0 + sway, 5.5, 45.0);
-        desiredLook.set(0.0, 32.0, 0.0);
-        break;
-      }
-
-      case 'chryslerGCT': {
-        // The Ostrów Tumski bank of the Warta looking east at the cathedral towers
-        const sway = Math.cos(elapsed * 0.22) * 2.5;
-        desiredPos.set(800.0 + sway, 9.5, -260.0);
-        desiredLook.set(1000.0, 40.0, -337.0);
-        break;
-      }
-
-      case 'observatory': {
-        // The AND2 roof looking north-east across the centre to the Old Town
-        const pan = Math.sin(elapsed * 0.18) * 80.0;
-        desiredPos.set(-607.0, 120.0, 810.0);
-        desiredLook.set(-200.0 + pan, 20.0, 0.0);
-        break;
-      }
-
-      case 'bryantPark': {
-        // The west end of Plac Wolności looking east along the square
-        const sway = Math.sin(elapsed * 0.25) * 1.5;
-        desiredPos.set(-505.0, 1.9, 52.0 + sway);
-        desiredLook.set(-340.0, 12.0, 50.0);
-        break;
-      }
-
-      case 'waterfront': {
-        // Over the Warta by Most Chrobrego looking west across the river to the Old Town
-        const drift = Math.sin(elapsed * 0.15) * 40.0;
-        desiredPos.set(745.0, 35.0, -150.0 + drift);
-        desiredLook.set(0.0, 25.0, 0.0);
-        break;
-      }
-
       case 'drone': {
-        // Circles the centre between the Old Town and the AND2/Andersia cluster, just above the 116 m skyline top
+        // Circles the centre between the Old Town and the AND2/Andersia cluster at 125-155 m, just over the 116 m
+        // skyline top (AND2, 486 m from the centre, stays inside the 580-860 m radius anyway)
         const angle = elapsed * 0.07 + 0.65;
         const radius = 720.0 + Math.sin(elapsed * 0.23) * 140.0;
-        const alt = 190.0 + Math.cos(elapsed * 0.19) * 50.0;
+        const alt = 140.0 + Math.cos(elapsed * 0.19) * 15.0;
         desiredPos.set(
           Math.cos(angle) * radius - 450.0,
           alt,
           Math.sin(angle) * radius + 350.0
         );
-        desiredLook.set(-450.0, 40.0, 350.0);
+        desiredLook.set(-450.0, 30.0, 350.0);
+        break;
+      }
+
+      default: {
+        const view = PLACE_VIEWS[this.activePresetId];
+        if (view) placeView(view, elapsed, desiredPos, desiredLook);
         break;
       }
     }
@@ -372,4 +366,4 @@ class CameraSystem {
   }
 }
 
-export { CAMERA_PRESETS, CameraSystem };
+export { CAMERA_PRESETS, PLACE_VIEWS, placeView, CameraSystem };

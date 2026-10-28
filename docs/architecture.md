@@ -6,8 +6,10 @@
   `build*`/`create*` factory that returns an object with `update()` and data such as `colliders` and `footprints`.
 - `js/controllers.js` owns the four player entities (`entities.person|car|cyclist|helicopter`), `activeMode`, the merged input
   `keys`, ground height, building collisions and teleport placement. `js/cameras.js` owns the render camera, `CAMERA_PRESETS` and
-  the orbit/zoom state. The scenic preset ids (`centralPark`, `fifthAve`, …) are still the Manhattan ones, because the
-  `index.html` buttons (whose labels already name the Poznań views), a `main.js` shortcut and `tests/cameras.test.cjs` name them; their views are rough Poznań stand-ins until Phase 12. `js/city-config.js` holds static world data and helpers (`TELEPORT_LOCATIONS`, `SPAWN`, `getLocationLabel`,
+  the orbit/zoom state. The scenic places (`rynek`, `katedra`, `zamek`, `cytadela`, `malta`, `warta`, `baltyk`, `dworzec`)
+  are data in `PLACE_VIEWS`: eye and look points from `LANDMARK_SITES` or measured world coordinates. A place id also
+  lives in the `index.html` `data-camera` buttons and, for `8`/`9`/`0`, the `main.js` shortcuts; `tests/cameras.test.cjs`
+  checks every eye against the land, water and block data. `js/city-config.js` holds static world data and helpers (`TELEPORT_LOCATIONS`, `SPAWN`, `getLocationLabel`,
   `isTypingInField`, `isLand`, `clampToLand`, ...).
 
 ## Module graph and registering a new module

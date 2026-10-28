@@ -554,13 +554,13 @@ async function initApp() {
         selectCamera('pov', true);
         break;
       case 'Digit8':
-        selectCamera('fifthAve', true);
+        selectCamera('rynek', true);
         break;
       case 'Digit9':
-        selectCamera('timesSquare', true);
+        selectCamera('katedra', true);
         break;
       case 'Digit0':
-        selectCamera('chryslerGCT', true);
+        selectCamera('zamek', true);
         break;
       case 'KeyV':
         cycleCamera(e.shiftKey ? -1 : 1);

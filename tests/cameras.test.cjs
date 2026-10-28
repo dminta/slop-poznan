@@ -5,6 +5,12 @@ const test = require('node:test');
 const { loadModule } = require('./helpers/module.cjs');
 
 const source = readFileSync(join(__dirname, '../js/cameras.js'), 'utf8');
+let cityConfig;
+let GEO;
+test.before(async () => {
+  cityConfig = await import('../js/city-config.js');
+  ({ GEO } = await import('../js/geodata.js'));
+});
 
 class Vector3 {
   constructor(x = 0, y = 0, z = 0) { this.set(x, y, z); }
@@ -59,7 +65,7 @@ function cameraHarness(entity = {
   window.innerHeight = 900;
   const { CameraSystem } = loadModule(source, {
     globals: { window, document },
-    imports: { 'three/webgpu': { Vector3, PerspectiveCamera } }
+    imports: { 'three/webgpu': { Vector3, PerspectiveCamera }, './city-config.js': cityConfig }
   });
   const camera = new CameraSystem(canvas, { getActiveEntity: () => entity });
   return {
@@ -181,7 +187,7 @@ test('mouse orbit and wheel zoom retain their behavior and bounds', () => {
   close(h.camera.zoomMultiplier, 2.4);
 });
 
-for (const preset of ['chase', 'observatory', 'drone']) {
+for (const preset of ['chase', 'baltyk', 'drone']) {
   test(`teleport after driving, orbiting and ${preset} snaps to a fresh chase view`, () => {
     const h = cameraHarness();
     h.entity.speed = 45;
@@ -239,4 +245,91 @@ test('teleport releases every camera pointer and ignores old gestures before acc
   h.pointer(h.canvas, 'pointermove', 3, 610);
   close(h.camera.orbitYawOffset, -0.065);
   assert.equal(h.camera.isDragging, true);
+});
+
+function inRing(ring, x, z) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 2; i < ring.length; j = i, i += 2) {
+    const ax = ring[i], az = ring[i + 1], bx = ring[j], bz = ring[j + 1];
+    if ((az > z) !== (bz > z) && x < ((bx - ax) * (z - az)) / (bz - az) + ax) inside = !inside;
+  }
+  return inside;
+}
+
+// What each place view must look at: a LANDMARK_SITES footprint, a named park or a named water body
+const PLACES = {
+  rynek: { site: 'Ratusz' },
+  katedra: { site: 'Katedra' },
+  zamek: { site: 'Zamek Cesarski' },
+  cytadela: { park: 'Park Cytadela' },
+  malta: { water: 'Jezioro Maltańskie' },
+  warta: { water: 'Warta' },
+  baltyk: { site: 'Zamek Cesarski', standsOn: 'Bałtyk' },
+  dworzec: { site: 'Poznań Główny' }
+};
+
+test('the camera buttons and digit shortcuts name existing presets', () => {
+  const ids = [...readFileSync(join(__dirname, '../index.html'), 'utf8').matchAll(/data-camera="([^"]+)"/g)].map((m) => m[1]);
+  const { CAMERA_PRESETS } = loadModule(source, {
+    globals: { window: {}, document: {} },
+    imports: { 'three/webgpu': { Vector3, PerspectiveCamera }, './city-config.js': cityConfig }
+  });
+  assert.deepEqual(ids, [...CAMERA_PRESETS.map((p) => p.id)]);
+  const main = readFileSync(join(__dirname, '../js/main.js'), 'utf8');
+  const bound = [...main.matchAll(/selectCamera\('([^']+)', true\)/g)].map((m) => m[1]);
+  assert.ok(bound.includes('rynek') && bound.includes('katedra') && bound.includes('zamek'));
+  for (const id of bound) assert.ok(ids.includes(id), id);
+  const scenic = CAMERA_PRESETS.filter((p) => p.category === 'scenic' && p.id !== 'drone').map((p) => p.id);
+  assert.deepEqual([...scenic].sort(), Object.keys(PLACES).sort());
+});
+
+test('every place view stands on land or over water, outside buildings, and looks at its place', () => {
+  const { LANDMARK_SITES, isLand, isWater, waterAt, blockAt } = cityConfig;
+  const h = cameraHarness();
+  for (const [id, want] of Object.entries(PLACES)) {
+    h.camera.setCameraPreset(id, true);
+    for (let t = 0; t < 60; t += 0.5) {
+      h.camera.update(1 / 60, t);
+      const eye = h.camera.camera.position;
+      const look = h.camera.camera.target;
+      const where = `${id} at t = ${t}`;
+      assert.ok(isLand(eye.x, eye.z) || isWater(eye.x, eye.z) || waterAt(eye.x, eye.z), `${where}: eye on land or water`);
+      const dist = Math.hypot(look.x - eye.x, look.z - eye.z);
+      assert.ok(dist > 40 && dist < 1200, `${where}: looks ${dist.toFixed(0)} m away`);
+      if (want.standsOn) {
+        // A terrace view: on the landmark's outline, below its top
+        const s = LANDMARK_SITES[want.standsOn];
+        assert.ok(inRing(s.ring, eye.x, eye.z), `${where}: on ${want.standsOn}`);
+        assert.ok(eye.y > 55 && eye.y < s.h, `${where}: terrace height ${eye.y}`);
+      } else {
+        assert.ok(eye.y >= 3 && eye.y <= 40, `${where}: eye height ${eye.y}`);
+        const block = blockAt(eye.x, eye.z);
+        assert.ok(!block || block.park >= 0.5, `${where}: eye outside building blocks`);
+        for (const [name, s] of Object.entries(LANDMARK_SITES)) {
+          if (s.ring) assert.ok(!inRing(s.ring, eye.x, eye.z), `${where}: eye inside ${name}`);
+        }
+      }
+      if (want.site) {
+        const s = LANDMARK_SITES[want.site];
+        const off = Math.hypot(look.x - s.x, look.z - s.z);
+        assert.ok(off < Math.max(s.w, s.d) / 2 + 10, `${where}: looks ${off.toFixed(0)} m off ${want.site}`);
+        assert.ok(look.y > 0 && look.y < s.h, `${where}: look height`);
+      } else if (want.water) {
+        assert.equal(waterAt(look.x, look.z)?.name, want.water, `${where}: looks over ${want.water}`);
+      } else {
+        const park = GEO.parks.find((p) => p.name === want.park);
+        assert.ok(park.rings.some((r) => inRing(r, look.x, look.z)), `${where}: looks into ${want.park}`);
+      }
+    }
+  }
+});
+
+test('the drone circles just above the 116 m skyline top', () => {
+  const h = cameraHarness();
+  h.camera.setCameraPreset('drone', true);
+  for (let t = 0; t < 200; t += 0.5) {
+    h.camera.update(1 / 60, t);
+    const y = h.camera.camera.position.y;
+    assert.ok(y > 116 + 8 && y < 160, `drone at ${y}`);
+  }
 });
