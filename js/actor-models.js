@@ -1386,10 +1386,12 @@ function limbSections(joints, segments = 6, phase = 0) {
 // ============================================================================
 // 4. LOFTED CITY BUS GEOMETRY & TSL MATERIAL
 // ============================================================================
-// A 12 m low-floor city bus (the size of MPK Poznań's rigid Solaris Urbino 12; the body is still the NYC port's) lofted with the car body machinery: rounded plan-view corners, a raked windshield, a
-// tight roof radius and arches over the wheels; bumpers, stalk mirrors and the roof AC &
-// battery pods are separate pieces of the same mesh (partId). Windows, doors, livery & lamps are painted by
-// createLoftedBusMaterial(); destination signs are textured panels (buildBusSignGeometry).
+// A 12 m low-floor city bus shaped after MPK Poznań's rigid Solaris Urbino 12 (12.0 x 2.55 m, 5.9 m wheelbase, three
+// double doors on the curb side, a tall near-vertical windshield) lofted with the car body machinery: rounded plan-view
+// corners, a slightly raked windshield, a tight roof radius and arches over the wheels; bumpers, stalk mirrors and the
+// roof AC & battery pods are separate pieces of the same mesh (partId). Windows, doors, livery & lamps are painted by
+// createLoftedBusMaterial(); destination signs are textured panels (buildBusSignGeometry). The axles stay symmetric
+// (traffic.js places both wheel pairs at ±wheelZ), so the overhangs are 3.05 m each where the Urbino's are 2.7 / 3.4 m.
 const BUS_PARTS = {
   BODY: 0,
   TRIM: 1,
@@ -1399,11 +1401,11 @@ const BUS_PARTS = {
 const BUS_SPEC = {
   name: 'bus',
   headlight: [0.79, 0.8], // midpoint of each pair of white lamps; excludes the outer amber indicator
-  zFront: 5.78,
-  zRear: -5.78,
+  zFront: 6.0,
+  zRear: -6.0,
   wheelRadius: 0.48,
-  wheelZ: 3.6,
-  wheelX: 1.24,
+  wheelZ: 2.95,
+  wheelX: 1.22,
   archGap: 0.09,
   archFlare: 0,
   tuck: 0.05,
@@ -1411,18 +1413,19 @@ const BUS_SPEC = {
   lowerRound: 2.6,
   upperRound: 6,
   upperSamples: [0.3, 0.56, 0.74, 0.88, 1],
-  halfWidth: [[5.78, 1.3], [-5.78, 1.3]],
-  sill: [[5.78, 0.36], [-5.78, 0.36]],
-  shoulder: [[5.78, 1.05], [-5.78, 1.05]],
-  edge: [[5.78, 2.96], [-5.78, 2.96]],
-  crown: [[5.78, 0.045], [-5.78, 0.045]],
-  tumble: [[5.78, 0.17], [-5.78, 0.17]],
+  halfWidth: [[6.0, 1.275], [-6.0, 1.275]],
+  sill: [[6.0, 0.36], [-6.0, 0.36]],
+  shoulder: [[6.0, 1.05], [-6.0, 1.05]],
+  edge: [[6.0, 2.96], [-6.0, 2.96]],
+  crown: [[6.0, 0.045], [-6.0, 0.045]],
+  tumble: [[6.0, 0.17], [-6.0, 0.17]],
   nose: { halfWidth: [0.28, 1.02, 2], edge: [0.24, 2.68, 2], crown: [0.24, 0.005, 2], sill: [0.07, 0.44, 2], shoulder: [0.2, 0.95, 2] },
   tail: { halfWidth: [0.24, 1.06, 2], edge: [0.2, 2.72, 2], crown: [0.2, 0.005, 2], sill: [0.09, 0.46, 2], shoulder: [0.2, 0.95, 2] },
-  rake: 0.15, // how far the top of the windshield leans back
+  rake: 0.12, // how far the top of the windshield leans back
   window: [1.24, 2.44], // side window band (y)
-  frontDoor: [4.36, 5.36], // curb-side (-x) doors (z ranges)
-  rearDoor: [-1.52, -0.5]
+  frontDoor: [4.42, 5.6], // curb-side (-x) double doors (z ranges): ahead of the front axle, mid-wheelbase, rear overhang
+  midDoor: [-0.62, 0.62],
+  rearDoor: [-4.98, -3.8]
 };
 
 // The windshield rake: the upper front leans back by up to BUS_SPEC.rake, fading out along the first metre
@@ -1454,7 +1457,7 @@ function buildLoftedBusBodyGeometry() {
     parts.push(part(stalk, BUS_PARTS.TRIM), part(head, BUS_PARTS.TRIM));
   }
 
-  // Roof equipment: air-conditioning pod at the rear, hybrid battery pod ahead of it
+  // Roof equipment: air-conditioning pod at the rear, battery pod ahead of it (the Urbino 12 electric)
   const roofY = s.edge[0][1] + s.crown[0][1];
   parts.push(part(roundedBox(0.98, 0.15, 2.5, 0.12, 0.05).translate(0, roofY + 0.1, -3.55), BUS_PARTS.POD));
   parts.push(part(roundedBox(0.82, 0.1, 3.0, 0.08, 0.04).translate(0, roofY + 0.06, 1.1), BUS_PARTS.POD));
@@ -1580,9 +1583,9 @@ let _busLoftedMat = null;
 
 /**
  * Creates the TSL procedural material for the city buses:
- * - Wraparound split windshield with gasket & centre post, destination sign band above it; rear window & engine
- *   louvres on the rear face
- * - Continuous side window band with mullions, the driver's window, glazed curb-side front & rear doors
+ * - Tall wraparound windshield with gasket & centre post down to the bumper's lamp line, destination sign band above
+ *   it; rear window & engine louvres on the rear face
+ * - Continuous side window band with mullions, the driver's window, three glazed curb-side double doors
  * - MPK Poznań livery: green with yellow sill stripe, cornice and front, light grey roof, dark skirt
  * - Headlamps, turn signals (per-instance `busState`: brake, left (+x), right (-x), route), tail / brake light
  *   columns, EU plates; black trims & light-grey roof pods
@@ -1605,9 +1608,9 @@ function createLoftedBusMaterial() {
   const side = smoothstep(0.5, 0.75, abs(n.x)).mul(isBody);
   const curb = step(p.x, 0.0);
 
-  // Windshield (wrapping round the corners), sign band, gasket; rear window & engine louvres
-  const frontGlass = roundedRect(vec2(p.x, p.y.sub(1.82)), vec2(1.2, 0.58), 0.14).mul(smoothstep(0.012, 0.024, ax)).mul(front);
-  const frontSeal = roundedRect(vec2(p.x, p.y.sub(1.82)), vec2(1.24, 0.62), 0.16).mul(front);
+  // Tall windshield (wrapping round the corners, 1.0-2.38 m), sign band, gasket; rear window & engine louvres
+  const frontGlass = roundedRect(vec2(p.x, p.y.sub(1.69)), vec2(1.18, 0.69), 0.14).mul(smoothstep(0.012, 0.024, ax)).mul(front);
+  const frontSeal = roundedRect(vec2(p.x, p.y.sub(1.69)), vec2(1.22, 0.73), 0.16).mul(front);
   const signBand = roundedRect(vec2(p.x, p.y.sub(2.55)), vec2(1.02, 0.16), 0.04).mul(front);
   const rearGlass = roundedRect(vec2(p.x, p.y.sub(2.06)), vec2(0.92, 0.36), 0.08).mul(rear);
   const rearSeal = roundedRect(vec2(p.x, p.y.sub(2.06)), vec2(0.96, 0.4), 0.1).mul(rear);
@@ -1618,10 +1621,10 @@ function createLoftedBusMaterial() {
   const [wy0, wy1] = s.window;
   const winMid = (wy0 + wy1) / 2;
   const winHalf = (wy1 - wy0) / 2;
-  const sideBand = roundedRect(vec2(p.z.add(0.5), p.y.sub(winMid)), vec2(4.82, winHalf), 0.08).mul(side);
-  const mullion = smoothstep(0.03, 0.045, abs(fract(p.z.mul(0.8).add(0.35)).sub(0.5).mul(1.25)));
-  const sideSeal = roundedRect(vec2(p.z.add(0.5), p.y.sub(winMid)), vec2(4.86, winHalf + 0.04), 0.1).mul(side);
-  const driverWin = roundedRect(vec2(p.z.sub(4.86), p.y.sub(winMid + 0.04)), vec2(0.5, winHalf + 0.04), 0.1).mul(side).mul(one.sub(curb));
+  const sideBand = roundedRect(vec2(p.z.add(0.5), p.y.sub(winMid)), vec2(4.9, winHalf), 0.08).mul(side);
+  const mullion = smoothstep(0.03, 0.045, abs(fract(p.z.mul(0.72).add(0.35)).sub(0.5).mul(1.39)));
+  const sideSeal = roundedRect(vec2(p.z.add(0.5), p.y.sub(winMid)), vec2(4.94, winHalf + 0.04), 0.1).mul(side);
+  const driverWin = roundedRect(vec2(p.z.sub(5.0), p.y.sub(winMid + 0.04)), vec2(0.55, winHalf + 0.04), 0.1).mul(side).mul(one.sub(curb));
   const door = (z0, z1) => {
     const zc = (z0 + z1) / 2;
     const hw = (z1 - z0) / 2;
@@ -1630,9 +1633,11 @@ function createLoftedBusMaterial() {
     return { frame: frame.mul(side).mul(curb), glass: leaves.mul(side).mul(curb) };
   };
   const d0 = door(s.frontDoor[0], s.frontDoor[1]);
-  const d1 = door(s.rearDoor[0], s.rearDoor[1]);
-  const doorFrame = max(d0.frame, d1.frame);
-  const glass = clamp(max(max(frontGlass, rearGlass), max(max(sideBand.mul(mullion), driverWin), max(d0.glass, d1.glass))), 0.0, 1.0);
+  const d1 = door(s.midDoor[0], s.midDoor[1]);
+  const d2 = door(s.rearDoor[0], s.rearDoor[1]);
+  const doorFrame = max(max(d0.frame, d1.frame), d2.frame);
+  const doorGlass = max(max(d0.glass, d1.glass), d2.glass);
+  const glass = clamp(max(max(frontGlass, rearGlass), max(max(sideBand.mul(mullion), driverWin), doorGlass)), 0.0, 1.0);
   const seal = clamp(max(max(frontSeal, rearSeal), max(max(sideSeal, signBand), doorFrame)), 0.0, 1.0);
 
   // MPK Poznań livery (approximate, the trams' colours): green, a yellow sill stripe under the windows and a yellow
@@ -1641,7 +1646,7 @@ function createLoftedBusMaterial() {
   const yellow = color(0xf3c316);
   const sillStripe = smoothstep(1.06, 1.09, p.y).mul(smoothstep(1.2, 1.17, p.y));
   const cornice = smoothstep(2.48, 2.51, p.y);
-  const frontCap = front.mul(smoothstep(1.24, 1.2, p.y));
+  const frontCap = front.mul(smoothstep(1.02, 0.98, p.y));
   const roofTop = smoothstep(0.55, 0.8, n.y);
   const skirt = smoothstep(0.53, 0.5, p.y);
   let livery = mix(color(0x15703a), yellow, max(max(sillStripe, cornice), frontCap));
