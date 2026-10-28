@@ -104,7 +104,7 @@ const personGround = (controllers, x, z) => controllers.getGroundHeight(x, z, 'p
 function collisionBody(mode, radius, heading, margin = 0) {
   const car = mode === 'car';
   const sin = Math.sin(heading), cos = Math.cos(heading);
-  const hx = 0.86 + margin, hz = 2.18 + margin;
+  const hx = 0.86 + margin, hz = 2.23 + margin;
   return {
     car, sin, cos, hx, hz, radius: radius + margin,
     extX: car ? Math.abs(cos) * hx + Math.abs(sin) * hz : radius + margin,
@@ -650,7 +650,7 @@ class ThirdPersonControllerManager {
     }
 
     // 5. Soft Under-Car Contact Shadow (AO) + Clustered Dual LED Headlight SpotLights & Rear Brake PointLight
-    const carShadowGeo = new THREE.PlaneGeometry(2.22, 5.05);
+    const carShadowGeo = new THREE.PlaneGeometry(2.14, 5.15);
     carShadowGeo.rotateX(-Math.PI * 0.5);
     const carShadow = new THREE.Mesh(carShadowGeo, createContactShadowMaterial());
     carShadow.position.set(0, 0.02, 0.0);
@@ -1029,7 +1029,7 @@ class ThirdPersonControllerManager {
           const sin = carEntity ? sinH : Math.sin(entity.heading);
           const cos = carEntity ? cosH : Math.cos(entity.heading);
           const approachSpeed = -((sin * entity.speed + (entity.vx || 0)) * nx + (cos * entity.speed + (entity.vz || 0)) * nz);
-          const support = carEntity ? Math.abs(nx * cos - nz * sin) * 0.86 + Math.abs(nx * sin + nz * cos) * 2.18 : radius;
+          const support = carEntity ? Math.abs(nx * cos - nz * sin) * 0.86 + Math.abs(nx * sin + nz * cos) * 2.23 : radius;
           this.reportCollision(entity, c, 'building', pos.x - nx * support, pos.y + (heli ? 1.1 : 0.56), pos.z - nz * support,
             nx, 0, nz, approachSpeed);
         }

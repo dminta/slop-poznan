@@ -503,7 +503,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   const phaseOf = (e) => (e.axisIndex === 0 ? avePhase : stPhase);
   let focusX = 0;
   let focusZ = 140;
-  const player = { active: false, entity: null, x: 0, z: 0, vx: 0, vz: 0, halfW: 0.86, halfL: 2.18, push: 0.5 };
+  const player = { active: false, entity: null, x: 0, z: 0, vx: 0, vz: 0, halfW: 0.86, halfL: 2.23, push: 0.5 };
 
   // Lane lists hold pooled { v, s } entries sorted by position s along the lane, rebuilt every frame
   const pool = [];
@@ -2346,7 +2346,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       player.vz = Math.cos(heading) * speed + (playerEntity.vz || 0);
     }
     player.halfW = activeMode === 'cyclist' ? 0.35 : activeMode === 'person' ? 0.32 : 0.86;
-    player.halfL = activeMode === 'cyclist' ? 0.85 : activeMode === 'person' ? 0.32 : 2.18;
+    player.halfL = activeMode === 'cyclist' ? 0.85 : activeMode === 'person' ? 0.32 : 2.23;
     player.push = activeMode === 'cyclist' ? 0.82 : activeMode === 'person' ? 0.88 : 0.50;
 
     // 1. Cars & buses
