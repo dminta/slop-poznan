@@ -283,11 +283,166 @@ function coverRects(ring) {
   return out;
 }
 
+// --- Tram and railway track clearance --------------------------------------------------------------------------------
+// Trams do not collide with props, so every piece of square, park and street furniture keeps its footprint
+// RAIL_PROP_KEEP from every GEO.rail centreline (a 2.4 m tram body is 1.2 m either side of it, plus its sway and the
+// overhang on curves). Squares crossed by tram track are paved round it: the slab is cut TRAM_CUT either side of each
+// track (half the 1435 mm gauge, the 70 mm heads and 1.5 m of clearance), so the rails, laid flush on the deck by
+// tram-infra.js, stay in sight instead of under the 0.24 m slab.
+const RAIL_PROP_KEEP = 2.0;
+const TRAM_CUT = 0.7175 + 0.07 + 1.5;
+const RAIL_CELL = 32;
+let _railCells = null;
+function railCells() {
+  if (_railCells) return _railCells;
+  _railCells = new Map();
+  for (const r of GEO.rail || []) {
+    const p = r.pts;
+    for (let i = 0; i + 3 < p.length; i += 2) {
+      const seg = { ax: p[i], az: p[i + 1], bx: p[i + 2], bz: p[i + 3] };
+      for (let ix = Math.floor(Math.min(seg.ax, seg.bx) / RAIL_CELL); ix <= Math.floor(Math.max(seg.ax, seg.bx) / RAIL_CELL); ix++) {
+        for (let iz = Math.floor(Math.min(seg.az, seg.bz) / RAIL_CELL); iz <= Math.floor(Math.max(seg.az, seg.bz) / RAIL_CELL); iz++) {
+          const k = ix * 100003 + iz;
+          if (!_railCells.has(k)) _railCells.set(k, []);
+          _railCells.get(k).push(seg);
+        }
+      }
+    }
+  }
+  return _railCells;
+}
+
+/** Distance from (x, z) to the nearest GEO.rail centreline (tram or mainline), capped at `r` */
+function railClearance(x, z, r = 8) {
+  const cells = railCells();
+  let best = r;
+  for (let ix = Math.floor((x - r) / RAIL_CELL); ix <= Math.floor((x + r) / RAIL_CELL); ix++) {
+    for (let iz = Math.floor((z - r) / RAIL_CELL); iz <= Math.floor((z + r) / RAIL_CELL); iz++) {
+      for (const s of cells.get(ix * 100003 + iz) || []) {
+        const ex = s.bx - s.ax, ez = s.bz - s.az;
+        const L2 = ex * ex + ez * ez;
+        const t = L2 > 0 ? Math.min(1, Math.max(0, ((x - s.ax) * ex + (z - s.az) * ez) / L2)) : 0;
+        best = Math.min(best, Math.hypot(s.ax + ex * t - x, s.az + ez * t - z));
+      }
+    }
+  }
+  return best;
+}
+
+/** Is a prop whose footprint reaches `radius` from (x, z) at least RAIL_PROP_KEEP from every track? */
+function clearOfRails(x, z, radius) {
+  return railClearance(x, z, RAIL_PROP_KEEP + radius + 1) >= RAIL_PROP_KEEP + radius;
+}
+
+/** Twice the signed area of triangle a, b, c: positive when it turns left in (x, z) */
+function cross2(a, b, c) {
+  return (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x);
+}
+
+/**
+ * Ear-clipped triangles of a simple ring ({x, z} list, either winding, no holes), each turning left; collinear and
+ * repeated vertices are dropped on the way
+ */
+function triangulateRing(ring) {
+  const pts = ring.filter((p, i) => {
+    const q = ring[(i + ring.length - 1) % ring.length];
+    return Math.abs(p.x - q.x) + Math.abs(p.z - q.z) > 1e-6;
+  });
+  const s = polygonCentroidArea(pts) > 0 ? 1 : -1;
+  const idx = pts.map((_, i) => i);
+  const tris = [];
+  // on the boundary counts: a reflex vertex on the diagonal a-c makes a-b-c no ear
+  const inside = (p, a, b, c) => cross2(a, b, p) * s >= -1e-9 && cross2(b, c, p) * s >= -1e-9 && cross2(c, a, p) * s >= -1e-9;
+  while (idx.length > 3) {
+    let cut = -1;
+    for (let k = 0; k < idx.length && cut < 0; k++) {
+      const a = pts[idx[(k + idx.length - 1) % idx.length]], b = pts[idx[k]], c = pts[idx[(k + 1) % idx.length]];
+      if (cross2(a, b, c) * s <= 1e-9) continue; // reflex or flat
+      if (idx.some((j) => pts[j] !== a && pts[j] !== b && pts[j] !== c && inside(pts[j], a, b, c))) continue;
+      tris.push(s > 0 ? [a, b, c] : [c, b, a]);
+      cut = k;
+    }
+    if (cut < 0) {
+      // no ear left: only flat vertices (or a self-touching ring) remain; drop the flattest one
+      let flat = 0, least = Infinity;
+      for (let k = 0; k < idx.length; k++) {
+        const v = Math.abs(cross2(pts[idx[(k + idx.length - 1) % idx.length]], pts[idx[k]], pts[idx[(k + 1) % idx.length]]));
+        if (v < least) { least = v; flat = k; }
+      }
+      cut = flat;
+    }
+    idx.splice(cut, 1);
+  }
+  if (idx.length === 3 && Math.abs(cross2(pts[idx[0]], pts[idx[1]], pts[idx[2]])) > 1e-9) {
+    const [a, b, c] = idx.map((j) => pts[j]);
+    tris.push(cross2(a, b, c) > 0 ? [a, b, c] : [c, b, a]);
+  }
+  return tris;
+}
+
+/** The part of convex polygon `poly` left of the line a -> b (right of it when `left` is false) */
+function clipHalfPlane(poly, a, b, left) {
+  const out = [];
+  const f = (p) => cross2(a, b, p) * (left ? 1 : -1);
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i], q = poly[(i + 1) % poly.length];
+    const fp = f(p), fq = f(q);
+    if (fp >= 0) out.push(p);
+    if ((fp >= 0) !== (fq >= 0)) {
+      const t = fp / (fp - fq);
+      out.push({ x: p.x + (q.x - p.x) * t, z: p.z + (q.z - p.z) * t });
+    }
+  }
+  return out;
+}
+
+/**
+ * A slab outline with the track corridors cut out, as convex pieces: the ring is ear-clipped, then every piece loses
+ * each corridor quad (a track segment widened by `half` either side and lengthened by `half` at both ends, so the
+ * corridor stays closed round bends). Subtracting a convex quad from a convex piece leaves at most four convex pieces,
+ * one per quad edge, so every step is plain half-plane clipping. Slivers under 0.02 m² are dropped.
+ */
+function cutSlab(ring, segs, half) {
+  let pieces = triangulateRing(ring);
+  const area = (p) => polygonCentroidArea(p);
+  for (const [ax, az, bx, bz] of segs) {
+    const len = Math.hypot(bx - ax, bz - az);
+    if (len < 1e-6) continue;
+    const ux = ((bx - ax) / len) * half, uz = ((bz - az) / len) * half;
+    // left-turning: along u, then across to the left (-uz, ux) side
+    const quad = [
+      { x: ax - ux + uz, z: az - uz - ux }, { x: bx + ux + uz, z: bz + uz - ux },
+      { x: bx + ux - uz, z: bz + uz + ux }, { x: ax - ux - uz, z: az - uz + ux }
+    ];
+    if (cross2(quad[0], quad[1], quad[2]) < 0) quad.reverse();
+    let qx0 = Infinity, qx1 = -Infinity, qz0 = Infinity, qz1 = -Infinity;
+    for (const q of quad) { qx0 = Math.min(qx0, q.x); qx1 = Math.max(qx1, q.x); qz0 = Math.min(qz0, q.z); qz1 = Math.max(qz1, q.z); }
+    const next = [];
+    for (const piece of pieces) {
+      if (piece.every((p) => p.x < qx0) || piece.every((p) => p.x > qx1) || piece.every((p) => p.z < qz0) ||
+        piece.every((p) => p.z > qz1)) {
+        next.push(piece);
+        continue;
+      }
+      let rest = piece;
+      for (let i = 0; i < 4 && rest.length >= 3; i++) {
+        const outside = clipHalfPlane(rest, quad[i], quad[(i + 1) % 4], false);
+        if (outside.length >= 3 && area(outside) > 0.01) next.push(outside);
+        rest = clipHalfPlane(rest, quad[i], quad[(i + 1) % 4], true);
+      }
+    }
+    pieces = next;
+  }
+  return pieces;
+}
+
 /**
  * The squares worth paving: PLAZAS with the duplicate rings dropped (OSM often maps a square both as a named place and
  * as the pedestrian area around its buildings: the copy with the building holes wins and takes the name), minus the
  * place outlines that take in real streets (more than 30 m of ROADS centreline inside them, e.g. Rynek Wschodni or Plac
- * Andersa), which a paving slab at curb height would bury.
+ * Andersa), which a paving slab at curb height would bury. Tram track is not a street here: a square with tram track
+ * inside (Plac Cyryla Ratajskiego 146 m, Plac Wielkopolski 366 m) keeps its paving with the track cut out of it, and
+ * carries the tram segments near it as `tramSegs` ([ax, az, bx, bz]; null on the others).
  */
 function pavedPlazas() {
   const key = (p) => {
@@ -312,23 +467,43 @@ function pavedPlazas() {
     list.push({ name: p.name, ring: p.ring, holes: p.holes, ...k });
   }
   const STEP = 2;
-  return list.filter((p) => {
+  // centreline length of the segments a -> b inside the square (not in a building on it)
+  const lengthInside = (p, a, b) => {
+    if (Math.max(a.x, b.x) < p.minX || Math.min(a.x, b.x) > p.maxX || Math.max(a.z, b.z) < p.minZ || Math.min(a.z, b.z) > p.maxZ) return 0;
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    const n = Math.max(1, Math.round(len / STEP));
+    let inside = 0;
+    for (let k = 0; k < n; k++) {
+      const t = (k + 0.5) / n;
+      const x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t;
+      if (pointInPolygonXZ(p.ring, x, z) && !p.holes.some((h) => pointInPolygonXZ(h, x, z))) inside += len / n;
+    }
+    return inside;
+  };
+  const kept = list.filter((p) => {
     let inside = 0;
     for (const r of ROADS) {
-      for (let i = 0; i + 1 < r.pts.length; i++) {
-        const a = r.pts[i], b = r.pts[i + 1];
-        if (Math.max(a.x, b.x) < p.minX || Math.min(a.x, b.x) > p.maxX || Math.max(a.z, b.z) < p.minZ || Math.min(a.z, b.z) > p.maxZ) continue;
-        const len = Math.hypot(b.x - a.x, b.z - a.z);
-        const n = Math.max(1, Math.round(len / STEP));
-        for (let k = 0; k < n; k++) {
-          const t = (k + 0.5) / n;
-          const x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t;
-          if (pointInPolygonXZ(p.ring, x, z) && !p.holes.some((h) => pointInPolygonXZ(h, x, z))) inside += len / n;
-        }
-      }
+      for (let i = 0; i + 1 < r.pts.length; i++) inside += lengthInside(p, r.pts[i], r.pts[i + 1]);
     }
     return inside <= 30;
   });
+  for (const p of kept) {
+    let inside = 0;
+    const segs = [];
+    const m = TRAM_CUT * 2;
+    for (const r of GEO.rail || []) {
+      if (r.kind !== 'tram') continue;
+      for (let i = 0; i + 3 < r.pts.length; i += 2) {
+        const a = { x: r.pts[i], z: r.pts[i + 1] }, b = { x: r.pts[i + 2], z: r.pts[i + 3] };
+        if (Math.max(a.x, b.x) < p.minX - m || Math.min(a.x, b.x) > p.maxX + m || Math.max(a.z, b.z) < p.minZ - m ||
+          Math.min(a.z, b.z) > p.maxZ + m) continue;
+        segs.push([a.x, a.z, b.x, b.z]);
+        inside += lengthInside(p, a, b);
+      }
+    }
+    p.tramSegs = inside > 0 ? segs : null;
+  }
+  return kept;
 }
 
 function buildCityGrid(scene) {
@@ -559,13 +734,27 @@ function buildCityGrid(scene) {
     return s - Math.floor(s);
   };
 
-  function addPavedPlaza(pts, style, topY = PLAZA_Y, holes = []) {
-    group.add(createExtrudedPolygonMesh(pts, 0.0, topY - 0.04, curbMat, true, false, holes));
+  const cutPlazas = []; // { name, curb, top }: the convex slab pieces of the squares paved round tram track
+  function addPavedPlaza(pts, style, topY = PLAZA_Y, holes = [], tramSegs = null, name = '') {
+    pavedRects.push(...coverRects(pts));
     const inner = offsetPolygonInward(pts, 0.3) || pts;
+    if (tramSegs) {
+      // the curb-stone rim runs along the cut edges too: the paving keeps 0.3 m back from them as from the outline
+      const curb = cutSlab(pts, tramSegs, TRAM_CUT);
+      const top = cutSlab(inner, tramSegs, TRAM_CUT + 0.3);
+      for (const piece of curb) group.add(createExtrudedPolygonMesh(piece, 0.0, topY - 0.04, curbMat));
+      for (const piece of top) {
+        const mesh = createExtrudedPolygonMesh(piece, 0.0, topY, pavingMat);
+        setPavingStyle(mesh.geometry, style);
+        group.add(mesh);
+      }
+      cutPlazas.push({ name, curb, top });
+      return;
+    }
+    group.add(createExtrudedPolygonMesh(pts, 0.0, topY - 0.04, curbMat, true, false, holes));
     const top = createExtrudedPolygonMesh(inner, 0.0, topY, pavingMat, true, false, holes.filter((h) => ringInside(inner, h)));
     setPavingStyle(top.geometry, style);
     group.add(top);
-    pavedRects.push(...coverRects(pts));
   }
   function addBox(mat, x, y, z, w, h, d, rotY = 0, cast = true) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
@@ -581,26 +770,38 @@ function buildCityGrid(scene) {
     addBox(medianHedgeMat, x, baseY + 0.55, z, w - 0.35, 0.3, d - 0.35, 0, false);
     addPropCollider(x, z, w * 0.5, d * 0.5, baseY + 0.85); // granite box and its clipped hedge
   }
+  // Each add* below returns false (and places nothing) where the prop would stand within RAIL_PROP_KEEP of a track
+  let offTrack = 0;
+  const railClear = (x, z, radius) => clearOfRails(x, z, radius) || (offTrack++, false);
   function addPlanterTree(x, z, species = 1, scale = 0.85) {
+    if (!railClear(x, z, 1.7)) return false; // the 2.4 m planter's corner
     addPlanter(x, z, 2.4, 2.4);
     treeSites.push({ x, y: PLAZA_Y + 0.55, z, scale, species });
+    return true;
   }
   function addBench(x, y, z, rotY) {
+    if (!railClear(x, z, 1.0)) return false;
     dummy.position.set(x, y, z);
     dummy.rotation.set(0, rotY, 0);
     dummy.scale.set(1, 1, 1);
     dummy.updateMatrix();
     benchMatrices.push(dummy.matrix.clone());
     addPropCollider(x, z, 0.95, 0.27, y + 0.92, rotY); // 1.9 m of slats, the back's top at 0.91 m
+    return true;
   }
   function addLamp(x, y, z) {
+    if (!railClear(x, z, 0.3)) return false;
     lampMatrices.push(new THREE.Matrix4().makeTranslation(x, y, z));
     addPropCollider(x, z, 0.2, 0.2, y + 4.45); // the 0.4 m cast base up to the globe
+    return true;
   }
 
   for (const pl of pavedPlazas()) {
     const holes = pl.holes.filter((h) => h.length >= 3 && ringInside(pl.ring, h));
-    addPavedPlaza(pl.ring, 1, PLAZA_Y, holes);
+    // cutSlab has no holes: a square with both buildings and tram track on it (none so far) is left unpaved rather
+    // than burying the rails
+    if (pl.tramSegs && holes.length) continue;
+    addPavedPlaza(pl.ring, 1, PLAZA_Y, holes, pl.tramSegs, pl.name || '');
     // furniture keeps 2 m in from the plaza's edge and 2.5 m off the buildings on it
     const edge = offsetPolygonInward(pl.ring, 2.0);
     if (!edge) continue;
@@ -618,7 +819,7 @@ function buildCityGrid(scene) {
       for (let t = 6 + ((len - 12) % 30) * 0.5; t < len - 5; t += 30, k++) {
         const px = a.x + tx * t, pz = a.z + tz * t;
         if (!clear(px, pz) || !pointInPolygonXZ(pl.ring, px, pz)) continue;
-        addLamp(px, PLAZA_Y, pz);
+        if (!addLamp(px, PLAZA_Y, pz)) continue;
         // the bench 2.4 m along the edge from the lamp, its back to the edge
         const bx = px + nx * 1.0 + tx * 2.4, bz = pz + nz * 1.0 + tz * 2.4;
         if (k % 2 === 0 && clear(bx, bz)) addBench(bx, PLAZA_Y, bz, Math.atan2(nx, nz));
@@ -794,7 +995,11 @@ function buildCityGrid(scene) {
   }
 
   // Trunk colliders for every park & plaza tree laid out above (planters, park beds, part-park lawns): a box about the
-  // trunk's flared root (trees.js trunk radii 0.25-0.36 m, scaled), tall enough that a jump off a planter can't clear it
+  // trunk's flared root (trees.js trunk radii 0.25-0.36 m, scaled), tall enough that a jump off a planter can't clear it.
+  // The park and lawn trees on a track's way are dropped first (planter trees were checked with their planters).
+  let kept = 0;
+  for (const s of treeSites) if (railClear(s.x, s.z, 0.4 * s.scale)) treeSites[kept++] = s;
+  treeSites.length = kept;
   for (const s of treeSites) addPropCollider(s.x, s.z, 0.28 * s.scale, 0.28 * s.scale, s.y + 3.0);
 
   // Park & plaza tree and lamp sites, read by street-details.js after the city grid is built
@@ -813,13 +1018,20 @@ function buildCityGrid(scene) {
   const sidewalks = roadSidewalks;
   const colliders = [];
   console.info(`[cityGrid] ${benchMatrices.length} benches, ${lampMatrices.length} lampposts, ` +
-    `${treeSites.length} park & plaza trees; ${propColliders.length} player colliders`);
-  return { group, sidewalks, footprints, colliders, propColliders };
+    `${treeSites.length} park & plaza trees; ${propColliders.length} player colliders; ${offTrack} props kept off the ` +
+    `tracks; ${cutPlazas.length} squares paved round tram track`);
+  return { group, sidewalks, footprints, colliders, propColliders, cutPlazas };
 }
 
 export {
   buildCityGrid,
   batchStaticGroupMeshes,
+  pavedPlazas,
+  cutSlab,
+  railClearance,
+  clearOfRails,
+  RAIL_PROP_KEEP,
+  TRAM_CUT,
   parkTreeSites,
   parkLampSites,
   pavedPlazaRects,
