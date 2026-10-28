@@ -36,8 +36,6 @@ const MAJOR_WIDTH = 14.5;
 const isMajorRoad = (width, lanes) => width >= MAJOR_WIDTH || lanes >= 3;
 // km/h: the Polish built-up limit, for a link without one (the geodata gives every Poznań link its OSM or class limit)
 const DEFAULT_KMH = 50;
-const BIKE_RIGHT = 8; // GEO.roadGraph link flags: a painted bike lane right / left of the link's a -> b direction
-const BIKE_LEFT = 16;
 // Signal sites (OSM traffic_signals nodes) further than this from the junction they belong to are not one of its own:
 // the graph merges a divided road's corners into one junction up to ~14 m across (2.)
 const SIGNAL_REACH = 12;
@@ -141,7 +139,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
     for (let i = 0; i < RG.nodes.length; i += 2) pos.push({ x: RG.nodes[i], z: RG.nodes[i + 1] });
     const links = [];
     const roads = new Map(); // street name -> { len, majorLen, widths: [[w, len]], width, major }
-    for (const [a, b, ni, w, lanes, dir, inner, flags, kmh] of RG.links) {
+    for (const [a, b, ni, w, lanes, dir, inner, , kmh] of RG.links) {
       const pts = [pos[a]];
       for (let k = 0; k < inner.length; k += 2) pts.push({ x: inner[k], z: inner[k + 1] });
       pts.push(pos[b]);
@@ -154,9 +152,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
         r.widths.push([w, len]);
         if (isMajorRoad(w, lanes)) r.majorLen += len;
       } else if (lanes >= 3) r.majorLen += len;
-      // painted bike lanes (OSM cycleway=lane, flags bits 3/4) along the right and left curbs, looking from a to b
-      const bike = [!!(flags & BIKE_LEFT), !!(flags & BIKE_RIGHT)];
-      links.push({ a, b, name: RG.names[ni], w, lanes, dir, pts, len, limit: (kmh || DEFAULT_KMH) / 3.6, bike });
+      links.push({ a, b, name: RG.names[ni], w, lanes, dir, pts, len, limit: (kmh || DEFAULT_KMH) / 3.6 });
     }
     // Each named road's links: their length-weighted median width stands in where a link has none, and a road that is
     // major over most of its length is major throughout, so that its narrower stretches keep its buses
@@ -211,13 +207,13 @@ function buildRoadNetwork(sidewalks, obstacles) {
       if (l.dir !== 0) {
         const n = Math.max(1, Math.min(l.lanes || 1, Math.floor((half - LANE_CLEAR) / (LANE_W / 2)) + 1));
         const lanes = Array.from({ length: n }, (_, k) => (k - (n - 1) / 2) * LANE_W);
-        return { half, axis, major, limit: l.limit, bike: l.bike, fwd: l.dir > 0 ? lanes : [], back: l.dir < 0 ? lanes : [] };
+        return { half, axis, major, limit: l.limit, fwd: l.dir > 0 ? lanes : [], back: l.dir < 0 ? lanes : [] };
       }
       const n = Math.max(1, Math.min(Math.round((l.lanes || 2) / 2), Math.floor((half - LANE_CLEAR + LANE_W / 2) / LANE_W)));
       // a road too narrow for a full lane each way (two-way service roads and lanes from ~3.3 m) keeps both to it
       const first = Math.min(LANE_W / 2, half / 2);
       const each = Array.from({ length: n }, (_, k) => first + k * LANE_W);
-      return { half, axis, major, limit: l.limit, bike: l.bike, fwd: each, back: each };
+      return { half, axis, major, limit: l.limit, fwd: each, back: each };
     }
     const DEG = Math.PI / 180;
     for (const l of links) {
@@ -297,7 +293,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
     }
     return true;
   };
-  function addEdge(from, to, axis, major, lanes, half, divided, limit, bike) {
+  function addEdge(from, to, axis, major, lanes, half, divided, limit) {
     const x0 = from.x;
     const z0 = from.z;
     const span = Math.hypot(to.x - x0, to.z - z0);
@@ -306,7 +302,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
     const dz = (to.z - z0) / span;
     const open = lanes.filter((o) => laneOpen(x0, z0, dx, dz, span, o));
     if (!open.length) return;
-    edges.push({ from, to, axis, major, x0, z0, dx, dz, rx: -dz, rz: dx, span, half, lanes: open.sort((p, q) => p - q), moves: [], cand: lanes, divided: !!divided, limit, bike });
+    edges.push({ from, to, axis, major, x0, z0, dx, dz, rx: -dz, rz: dx, span, half, lanes: open.sort((p, q) => p - q), moves: [], cand: lanes, divided: !!divided, limit });
   }
   // A divided road drawn as two one-way roadways between the same two junctions runs both ways
   // along one centreline here: each way keeps to the right of it, as on a two-way street, and the road is as wide as
@@ -330,7 +326,6 @@ function buildRoadNetwork(sidewalks, obstacles) {
       if (q.fwd.length) q.fwd = right;
       else q.back = right;
       q.divided = true;
-      q.bike = q.fwd.length ? [false, q.bike[1]] : [q.bike[0], false]; // its left curb is the median now
     }
     r.half = o.half = r.half + o.half;
     if (2 * r.half >= MAJOR_WIDTH) {
@@ -339,9 +334,8 @@ function buildRoadNetwork(sidewalks, obstacles) {
     }
   }
   for (const r of genRuns) {
-    // bike: [left, right] curb of each direction of travel
-    if (r.fwd.length) addEdge(r.from, r.to, r.axis, r.major, r.fwd, r.half, r.divided, r.limit, r.bike);
-    if (r.back.length) addEdge(r.to, r.from, r.axis, r.major, r.back, r.half, r.divided, r.limit, [r.bike[1], r.bike[0]]);
+    if (r.fwd.length) addEdge(r.from, r.to, r.axis, r.major, r.fwd, r.half, r.divided, r.limit);
+    if (r.back.length) addEdge(r.to, r.from, r.axis, r.major, r.back, r.half, r.divided, r.limit);
   }
   // Two edges from one node to the same next one (a service road whose ends were drawn onto its main road's junctions)
   // would drive through each other: keep the one with the most lanes
@@ -407,7 +401,6 @@ function buildRoadNetwork(sidewalks, obstacles) {
     for (const [e, other] of partner) {
       e.lanes = e.cand.map((o) => o - e.cand[0] + 1.8).filter((o) => laneOpen(e.x0, e.z0, e.dx, e.dz, e.span, o));
       e.half += other;
-      e.bike = [false, e.bike[1]];
       if (2 * e.half >= MAJOR_WIDTH) {
         e.axis = 'ave';
         e.major = true;
@@ -598,9 +591,9 @@ function buildRoadNetwork(sidewalks, obstacles) {
   // (`signal` is filled in at 6.)
   const paintNodes = new Map(nodes.map((n, id) => [n, { id, x: n.x, z: n.z, shape: n.shape, signal: false }]));
   const paintEdges = edges.map(({ from, to, axis, x0, z0, sx, sz, dx, dz, rx, rz, span, len, setbackFrom, setbackTo, half, lanes,
-    limit, bike }) => ({
+    limit }) => ({
     from: paintNodes.get(from), to: paintNodes.get(to), axis, x0, z0, sx, sz, dx, dz, rx, rz, span, len, setbackFrom,
-    setbackTo, half, lanes, limit, bike
+    setbackTo, half, lanes, limit
   }));
 
   // 4. Movements at each intersection (no U-turns) and the lane each lane leads to, along obstacle-free curves:

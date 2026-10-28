@@ -102,19 +102,6 @@ test('edges carry their link\'s speed limit, 50 km/h where it has none', () => {
   assert.ok(along(net, 0).every((e) => near(e.limit, 50 / 3.6)));
 });
 
-test('bike lane flags reach both directions\' curbs and the paint edges', () => {
-  const graph = syntheticGraph();
-  for (const l of graph.links) if (l[2] === 1) l.push(8, 50); // SIDE ST: a bike lane right of a -> b (east)
-  const net = buildPureGraph(graph);
-  const side = along(net, 120);
-  const east = side.filter((e) => e.dx > 0);
-  const west = side.filter((e) => e.dx < 0);
-  assert.ok(east.length && east.every((e) => !e.bike[0] && e.bike[1]), 'eastbound: on its right');
-  assert.ok(west.length && west.every((e) => e.bike[0] && !e.bike[1]), 'westbound: on its left');
-  assert.ok(net.paintEdges.filter((e) => near(e.dz, 0) && near(e.z0, 120)).every((e) => e.bike[0] !== e.bike[1]));
-  assert.ok(net.edges.filter((e) => near(e.dx, 0)).every((e) => !e.bike[0] && !e.bike[1]));
-});
-
 test('three travel lanes make a narrow road major', () => {
   const graph = syntheticGraph();
   for (const l of graph.links) if (l[2] === 1) l[4] = 3;

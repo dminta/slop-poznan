@@ -6,9 +6,8 @@
 // junction and its end node ids give the road graph its topology (poz-roadgraph.mjs) without guessing from coordinates.
 //
 // Exports (world metres, x east, z south):
-//   pieces:         [{ id, wayId, name, cls, w, lanes, dir, bridge, tram, roundabout, kmh, kmhTagged, bike, pts: [[x, z]...],
+//   pieces:         [{ id, wayId, name, cls, w, lanes, dir, bridge, tram, roundabout, kmh, kmhTagged, pts: [[x, z]...],
 //                   nodes: [osmId...] }]; kmh: the speed limit (km/h), kmhTagged: 1 when OSM states it (speedLimit);
-//                   bike: { right, left } painted bike lanes on either side of the points' direction (bikeLanes)
 //                   at-grade drivable pieces touching DETAIL_BOX + PIECE_PAD (tunnels and layer < 0 dropped)
 //   plazas:         [{ name, ring: [[x, z]...], holes? }] pedestrian areas and squares, negative shoelace winding;
 //                   holes: a multipolygon's inner rings of PLAZA_HOLE_M2 and up (buildings on the square), positive
@@ -53,24 +52,6 @@ const isOneway = (t) => {
   if ((t.junction === 'roundabout' || t.junction === 'circular') && t.oneway !== 'no') return 1;
   return 0;
 };
-// Painted bike lanes (cycleway=lane and contraflow opposite_lane) on each side of the way, in the way's own direction:
-// { right, left } of its points. `cycleway:left|right|both` win; the plain `cycleway` key means both sides on a two-way
-// road, the side of travel (lane) or the side against it (opposite_lane: a kontrapas, on the drivers' left) on a one-way
-// one. Tracks, shared lanes, bus lanes and `cycleway:lanes` are not painted bike lanes and are left out.
-const BIKE_LANE = /^(lane|opposite_lane)$/;
-function bikeLanes(t, dir) {
-  const side = { right: false, left: false };
-  const c = t.cycleway;
-  if (c === 'lane' || c === 'opposite_lane') {
-    if (!dir) side.right = side.left = true;
-    else side[(c === 'lane') === (dir > 0) ? 'right' : 'left'] = true;
-  }
-  for (const s of ['right', 'left']) {
-    const v = t['cycleway:' + s] ?? t['cycleway:both'];
-    if (v !== undefined) side[s] = BIKE_LANE.test(v);
-  }
-  return side;
-}
 const baseCls = (cls) => cls.replace(/_link$/, '');
 function defaultLanes(cls, dir) {
   const big = ['motorway', 'trunk', 'primary'].includes(baseCls(cls));
@@ -183,7 +164,7 @@ for (const w of drivableWays) {
     wayId: w.id, name: t.name || t.ref || '', cls, w: width, explicitW: explicit, lanes, dir,
     bridge: t.bridge && t.bridge !== 'no' ? 1 : 0, tram: 0,
     roundabout: t.junction === 'roundabout' || t.junction === 'circular' ? 1 : 0,
-    kmh: limit.kmh, kmhTagged: limit.tagged, bike: bikeLanes(t, dir)
+    kmh: limit.kmh, kmhTagged: limit.tagged
   };
   // Cut indices: the ends plus every split node in between
   const cuts = [0];

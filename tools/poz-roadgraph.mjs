@@ -4,8 +4,7 @@
 //
 //   nodes:   [x0, z0, x1, z1, ...] (0.1 m)
 //   links:   [[a, b, nameIdx, w, lanes, dir, innerFlat, flags, kmh]]; dir 1 = a→b, -1 = b→a, 0 = both;
-//            flags bit 0 bridge, bit 1 tram on street, bit 2 roundabout, bit 3 a painted bike lane on the right of a→b,
-//            bit 4 one on its left (poz-roads.mjs bikeLanes); kmh the speed limit (poz-roads.mjs speedLimit)
+//            flags bit 0 bridge, bit 1 tram on street, bit 2 roundabout; kmh the speed limit (poz-roads.mjs speedLimit)
 //   names:   display names (diacritics as signed; '' for unnamed)
 //   signals: [nodeIdx] sorted, unique
 import { log, inDetailBox } from './poz-base.mjs';
@@ -20,7 +19,7 @@ const SIGNAL_SNAP = 25; // m: straight-line snap of a signal node to a junction 
 const SIGNAL_ALONG = 40; // m: the same along the road, from a stop-line node on a graph piece
 const CROSSING_SNAP = 12; // m: a pure pedestrian-crossing signal farther from a junction is a mid-block crossing
 
-const BRIDGE = 1, TRAM = 2, ROUNDABOUT = 4, BIKE_RIGHT = 8, BIKE_LEFT = 16;
+const BRIDGE = 1, TRAM = 2, ROUNDABOUT = 4;
 
 function midOf(pts) {
   let total = 0;
@@ -80,8 +79,7 @@ export function buildRoadGraph(pieces, signalNodes, { service = false } = {}) {
     const a = nodeAt(p.nodes[0], ...p.pts[0]);
     const b = nodeAt(p.nodes[p.nodes.length - 1], ...p.pts[p.pts.length - 1]);
     if (a === b) continue;
-    const flags = (p.bridge ? BRIDGE : 0) | (p.tram ? TRAM : 0) | (p.roundabout ? ROUNDABOUT : 0) |
-      (p.bike.right ? BIKE_RIGHT : 0) | (p.bike.left ? BIKE_LEFT : 0);
+    const flags = (p.bridge ? BRIDGE : 0) | (p.tram ? TRAM : 0) | (p.roundabout ? ROUNDABOUT : 0);
     links.push([a, b, nameId(p.name), p.w, p.lanes, p.dir, rdp(p.pts, 0.4), flags, p.kmh]);
     linkPieces.push(p);
   }
@@ -183,20 +181,18 @@ export function buildRoadGraph(pieces, signalNodes, { service = false } = {}) {
   for (const [a] of outLinks) compLinks.set(find(a), (compLinks.get(find(a)) || 0) + 1);
   const largest = Math.max(...compLinks.values());
   const nFlag = (bit) => outLinks.filter((l) => l[7] & bit).length;
-  log(`road graph: ${outNodes.length / 2} nodes, ${outLinks.length} links, ${names.length} names; bridge ${nFlag(BRIDGE)}, tram ${nFlag(TRAM)}, roundabout ${nFlag(ROUNDABOUT)}, bike lane right ${nFlag(BIKE_RIGHT)}, left ${nFlag(BIKE_LEFT)} links`);
+  log(`road graph: ${outNodes.length / 2} nodes, ${outLinks.length} links, ${names.length} names; bridge ${nFlag(BRIDGE)}, tram ${nFlag(TRAM)}, roundabout ${nFlag(ROUNDABOUT)} links`);
   log(`road graph: ${compLinks.size} components, the largest holds ${largest} links (${((100 * largest) / outLinks.length).toFixed(1)}%)`);
   // Speed limits by length: the share OSM states, and the length per limit
-  let tagLen = 0, allLen = 0, bikeLen = 0;
+  let tagLen = 0, allLen = 0;
   const byKmh = {};
   linkPieces.forEach((p, li) => {
     const L = adj[links[li][0]].find((q) => q[2] === li)[1];
     allLen += L;
     if (p.kmhTagged) tagLen += L;
-    bikeLen += L * ((p.bike.right ? 1 : 0) + (p.bike.left ? 1 : 0));
     byKmh[p.kmh] = (byKmh[p.kmh] || 0) + L;
   });
   log(`road graph: speed limits tagged on ${((100 * tagLen) / allLen).toFixed(1)}% of ${(allLen / 1000).toFixed(1)} km; ${Object.entries(byKmh).sort((p, q) => p[0] - q[0]).map(([k, L]) => `${k} km/h ${(L / 1000).toFixed(1)} km`).join(', ')}`);
-  log(`road graph: painted bike lanes along ${(bikeLen / 1000).toFixed(1)} km (each side counted)`);
   log(`road graph: ${signals.length} signalled junctions from ${signalNodes.length} signal nodes (${byNode} on the junction, ${byAlong} along a piece, ${byNear} nearest; ${missed} unsnapped in the box, ${outside} outside)`);
   return { nodes: outNodes, links: outLinks, names, signals };
 }
