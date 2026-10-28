@@ -322,15 +322,25 @@ const { SIGNAL_SITES, LANE_GUIDE, JUNCTIONS } = (() => {
     return null;
   };
   const oneWays = new Map(); // street name -> its one-way links: { pts (the way traffic goes), mid, len }
-  for (const [a, b, ni, w, , dir, inner] of g.links) {
+  for (const [a, b, ni, w, , dir, inner, flags] of g.links) {
     if (find(a) === find(b)) continue;
     // a lane keeps LANE_CLEAR 1.2 m free either side of it, which on the narrowest roads reaches past the curbs: one
     // lane down the middle of a one-way, one each way at a quarter of the width on a two-way (road-network.js lanesOf)
     const road = (w > 3 ? w : widthOf.get(g.names[ni]) || 9.1) / 2;
     const half = Math.max(road, dir !== 0 ? 1.2 : road / 2 + 1.2);
-    const pts = [centre(a)];
+    let pts = [centre(a)];
     for (let k = 0; k < inner.length; k += 2) pts.push([inner[k], inner[k + 1]]);
     pts.push(centre(b));
+    // a tram strip beside the carriageway (flags bit 3 right, bit 4 left of a -> b): the roadway runs 3.25 m (half the
+    // 6.5 m strip) to its side, as road-network.js lays it out
+    const strip = flags & 8 ? 3.25 : flags & 16 ? -3.25 : 0;
+    if (strip) {
+      pts = pts.map((p, k) => {
+        const q = pts[Math.max(0, k - 1)], r = pts[Math.min(pts.length - 1, k + 1)];
+        const L = Math.hypot(r[0] - q[0], r[1] - q[1]) || 1;
+        return [p[0] - (r[1] - q[1]) / L * strip, p[1] + (r[0] - q[0]) / L * strip];
+      });
+    }
     let len = 0;
     for (let k = 0; k + 1 < pts.length; k++) {
       guide.push([pts[k][0], pts[k][1], pts[k + 1][0], pts[k + 1][1], half]);

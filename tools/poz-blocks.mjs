@@ -21,7 +21,7 @@
 // winding; rects / frames as geo-blocks.mjs), STRIP, SIDEWALK, blockRaster, blockLabels.
 import { log, DETAIL_BOX } from './poz-base.mjs';
 import { Raster, rdpRing, ringArea } from './geo-util.mjs';
-import { pieces, plazas, pedestrianWays, railCorridors } from './poz-roads.mjs';
+import { TRAM_W, pieces, plazas, pedestrianWays, railCorridors } from './poz-roads.mjs';
 import { isLandAt } from './poz-water.mjs';
 import { parkCellsByLabel } from './poz-extra.mjs';
 
@@ -131,9 +131,18 @@ const plazaMask = new Uint8Array(W * H);
 
 // --- Roadways, walking streets, rail land ------------------------------------------------------------------------
 let stamped = 0, service = 0;
+// A piece whose tram strip lies beside it (poz-roads.mjs tramSide) is stamped about the middle of carriageway and strip
 for (const p of pieces) {
   if (p.cls === 'service' && !p.name) { service++; continue; }
-  stampLine(p.pts, p.w / 2, null);
+  if (!p.tramSide) stampLine(p.pts, p.w / 2, null);
+  else {
+    const o = p.tramSide * TRAM_W / 2;
+    for (let n = 0; n + 1 < p.pts.length; n++) {
+      const [ax, az] = p.pts[n], [bx, bz] = p.pts[n + 1];
+      const L = Math.hypot(bx - ax, bz - az) || 1, rx = -(bz - az) / L * o, rz = (bx - ax) / L * o;
+      stampSegment(ax + rx, az + rz, bx + rx, bz + rz, p.w / 2, 0, null);
+    }
+  }
   stamped++;
 }
 for (const p of pedestrianWays) stampLine(p.pts, p.w / 2, plazaMask);

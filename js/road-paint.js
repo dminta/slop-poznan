@@ -95,12 +95,16 @@ function buildRoadPaint(scene, network, crosswalks = []) {
   }
   const zebraBefore = (f) => (zebrasAt.get(nodeKey(f.to)) || []).some((c) => c.ux * f.dx + c.uz * f.dz < -0.94);
 
-  // The one or two directed edges of each road between a pair of intersections
+  // The one or two directed edges of each road between a pair of intersections: two only where they run both ways along
+  // one line (a divided road's two roadways keep their own lines, road-network.js 3., and are painted one by one)
   const roads = new Map();
+  const oneLine = (e, f) => Math.hypot(f.x0 - e.x0 - e.dx * e.span, f.z0 - e.z0 - e.dz * e.span) < 0.05 &&
+    Math.hypot(f.x0 + f.dx * f.span - e.x0, f.z0 + f.dz * f.span - e.z0) < 0.05;
   for (const e of network.paintEdges || network.edges) {
     const key = Math.min(e.from.id, e.to.id) * 65536 + Math.max(e.from.id, e.to.id);
-    if (roads.has(key)) roads.get(key).push(e);
-    else roads.set(key, [e]);
+    const road = roads.get(key);
+    if (road && road.length === 1 && oneLine(road[0], e)) road.push(e);
+    else roads.set(road ? `${key}:${roads.size}` : key, [e]);
   }
 
   for (const [e, back] of roads.values()) {
