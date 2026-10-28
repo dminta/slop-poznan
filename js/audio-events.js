@@ -1,4 +1,5 @@
 import { setControlRate } from './audio-synthesis.js';
+import { CHURCH_PEAL, GOAT_BUTT_TIMES, HEJNAL, hejnalLength, hejnalNotes } from './city-clock.js';
 
 const TAU = Math.PI * 2;
 const finite = (value, fallback = 0) => Number.isFinite(value) ? value : fallback;
@@ -16,18 +17,20 @@ function randomSource(seed) {
   };
 }
 
-function makeBuffer(ctx, duration, synthesize, peak = 0.6) {
-  const buffer = ctx.createBuffer(1, Math.ceil(duration * ctx.sampleRate), ctx.sampleRate);
+// `rate` lets long, mostly low-pitched buffers (church bell, hejnał) render at a lower sample rate: the context
+// resamples on playback, and a 22.05 kHz buffer takes half the time and memory to bake.
+function makeBuffer(ctx, duration, synthesize, peak = 0.6, rate = ctx.sampleRate) {
+  const buffer = ctx.createBuffer(1, Math.ceil(duration * rate), rate);
   const samples = buffer.getChannelData(0);
   let maximum = 0, mean = 0;
   for (let i = 0; i < samples.length; i++) {
-    samples[i] = synthesize(i / ctx.sampleRate, i);
+    samples[i] = synthesize(i / rate, i);
     mean += samples[i];
   }
   mean /= samples.length;
   for (let i = 0; i < samples.length; i++) {
     // A short endpoint fade removes clicks even when a pitched component ends between zero crossings.
-    const fade = Math.min(1, i / (ctx.sampleRate * 0.002), (samples.length - 1 - i) / (ctx.sampleRate * 0.012));
+    const fade = Math.min(1, i / (rate * 0.002), (samples.length - 1 - i) / (rate * 0.012));
     samples[i] = (samples[i] - mean) * fade;
     maximum = Math.max(maximum, Math.abs(samples[i]));
   }
@@ -306,6 +309,88 @@ function bell(ctx) {
   }, 0.6);
 }
 
+function churchBell(ctx) {
+  // One stroke of a large swinging church bell, prime at 290 Hz (the Fara's; the Katedra's plays it lower): the minor-
+  // third bell's partials (hum, prime, tierce, quint, nominal and the upper ones) as [ratio, amplitude, decay s], the
+  // hum longest. Each partial beats slowly against a split twin (the "warble" of a real casting), and the clapper adds
+  // a short metallic clank.
+  const random = randomSource(1201);
+  const rate = 22050;
+  const partials = [
+    [0.5, 0.55, 4.2], [1, 0.5, 2.6], [1.2, 0.7, 2.1], [1.5, 0.22, 1.2], [2, 0.65, 1.7],
+    [2.5, 0.25, 0.9], [2.67, 0.2, 0.8], [3, 0.18, 0.6], [4, 0.1, 0.4], [5.33, 0.06, 0.25]
+  ].map(([ratio, amplitude, decay]) => ({ frequency: 290 * ratio, amplitude, decay,
+    split: 0.4 + random() * 1.2, phase: random() * TAU }));
+  const clankCoefficient = 1 - Math.exp(-TAU * 2400 / rate);
+  let low = 0;
+  return makeBuffer(ctx, 6.5, (t) => {
+    let tone = 0;
+    for (const p of partials) {
+      const beat = Math.cos(TAU * p.split * 0.5 * t);
+      tone += Math.sin(TAU * p.frequency * t + p.phase) * p.amplitude * Math.exp(-t / p.decay) * (0.75 + 0.25 * beat);
+    }
+    const noise = random() * 2 - 1;
+    low += (noise - low) * clankCoefficient;
+    const clank = (noise - low) * Math.exp(-t / 0.012) * 0.6;
+    return (tone + clank) * (1 - Math.exp(-t / 0.002));
+  }, 0.6, rate);
+}
+
+function hejnal(ctx) {
+  // A natural trumpet playing city-clock.js HEJNAL once: additive brass partials that brighten with loudness, a
+  // tongued attack that scoops up into pitch, a little breath, and a slow vibrato on the held notes.
+  const random = randomSource(1301);
+  const rate = 22050;
+  const notes = hejnalNotes().map((note) => ({ ...note, phase: 0 }));
+  const last = notes[notes.length - 1];
+  const attack = 0.035, release = HEJNAL.release;
+  const breathCoefficient = 1 - Math.exp(-TAU * 1800 / rate);
+  let breath = 0;
+  return makeBuffer(ctx, hejnalLength() + 0.1, (t) => {
+    const noise = random() * 2 - 1;
+    breath += (noise - breath) * breathCoefficient;
+    let out = 0;
+    for (const note of notes) {
+      const local = t - note.start;
+      // notes are tongued apart: each ends a few hundredths before its written length, except the last
+      const end = note.duration - (note === last ? 0 : 0.03);
+      if (local < 0 || local > end + release) continue;
+      const rise = Math.min(1, local / attack);
+      const fall = local > end ? Math.max(0, 1 - (local - end) / release) : 1;
+      const level = rise * rise * (3 - 2 * rise) * fall * (1 - 0.08 * Math.min(1, local / 1.5));
+      const scoop = 1 - 0.025 * Math.exp(-local / 0.02);
+      const vibrato = note.duration > 0.6
+        ? 1 + 0.005 * Math.sin(TAU * 5.4 * local) * Math.min(1, Math.max(0, local - 0.3) / 0.3) : 1;
+      note.phase += note.frequency * scoop * vibrato / rate;
+      // Brass: louder is brighter. Each partial is `bright` times the one below (2nd and 3rd a little stronger),
+      // capped under 9.5 kHz
+      const bright = 0.42 + 0.3 * level;
+      let tone = 0, amplitude = 1;
+      for (let k = 1; k <= 12 && k * note.frequency < 9500; k++) {
+        tone += Math.sin(TAU * k * note.phase) * amplitude * (k === 2 || k === 3 ? 1.25 : 1);
+        amplitude *= bright;
+      }
+      const tongue = Math.exp(-local / 0.012);
+      out += (tone * level + (noise - breath) * 0.25 * tongue) * 0.5 + breath * 0.04 * level;
+    }
+    return out;
+  }, 0.6, rate);
+}
+
+function goatKnock(ctx, seed) {
+  // The goats' wooden heads meeting: a hollow block knock (a few inharmonic wood modes, fast decays) with a dry click
+  const random = randomSource(seed);
+  const modes = [[540, 0.045, 1], [1310, 0.022, 0.6], [2480, 0.012, 0.35]].map(([frequency, decay, amplitude]) => ({
+    frequency: frequency * (0.94 + random() * 0.12), decay, amplitude
+  }));
+  return makeBuffer(ctx, 0.22, (t) => {
+    let knock = 0;
+    for (const m of modes) knock += Math.sin(TAU * m.frequency * t) * m.amplitude * Math.exp(-t / m.decay);
+    const click = (random() * 2 - 1) * Math.exp(-t / 0.0015) * 0.7;
+    return (knock + click) * (1 - Math.exp(-t / 0.0005));
+  }, 0.6);
+}
+
 export function createEventResources(ctx, resources) {
   const speakers = [
     { pitch: 99, formants: 0.88, breath: 0.06 }, { pitch: 119, formants: 0.94, breath: 0.10 },
@@ -325,7 +410,10 @@ export function createEventResources(ctx, resources) {
     gusts: gustBuffer(ctx),
     signalTick: signal(ctx, false),
     signalWalk: signal(ctx, true),
-    bell: bell(ctx)
+    bell: bell(ctx),
+    churchBell: churchBell(ctx),
+    hejnal: hejnal(ctx),
+    goatKnocks: [goatKnock(ctx, 1401), goatKnock(ctx, 1402)]
   };
 }
 
@@ -333,7 +421,8 @@ export function playEvent(ctx, resources, kind, output, options = {}) {
   const random = randomSource(options.seed);
   const start = Math.max(ctx.currentTime, finite(options.when, ctx.currentTime));
   const intensity = clamp(finite(options.intensity, 1));
-  const levels = { footstep: 0.22, talk: 0.065, horn: 0.23, signal: 0.13, crash: 0.35, bell: 0.2 };
+  const levels = { footstep: 0.22, talk: 0.065, horn: 0.23, signal: 0.13, crash: 0.35, bell: 0.2, church: 0.34,
+    hejnal: 0.24, goats: 0.3 };
   if (!Object.hasOwn(levels, kind) || intensity === 0) return { endTime: start, dispose() {} };
   const gain = ctx.createGain();
   gain.gain.value = intensity * levels[kind];
@@ -367,7 +456,8 @@ export function playEvent(ctx, resources, kind, output, options = {}) {
       if (!fade) for (const source of sources.keys()) release(source);
     }
   };
-  const play = (buffer, when, rate = 1, volume = 1) => {
+  // `skip`: seconds of the buffer to leave out at its start (a peal or show joined part-way)
+  const play = (buffer, when, rate = 1, volume = 1, skip = 0) => {
     const source = ctx.createBufferSource();
     const envelope = ctx.createGain();
     source.buffer = buffer;
@@ -376,9 +466,9 @@ export function playEvent(ctx, resources, kind, output, options = {}) {
     source.connect(envelope).connect(gain);
     sources.set(source, envelope);
     source.onended = () => release(source);
-    const end = when + buffer.duration / rate;
+    const end = when + (buffer.duration - skip) / rate;
     event.endTime = Math.max(event.endTime, end);
-    source.start(when);
+    source.start(when, skip);
     source.stop(end);
     return end;
   };
@@ -405,6 +495,29 @@ export function playEvent(ctx, resources, kind, output, options = {}) {
     const pitch = 0.97 + random() * 0.06;
     play(resources.bell, start, pitch);
     play(resources.bell, start + 0.24, pitch * 0.84, 0.9);
+  } else if (kind === 'church' || kind === 'hejnal') {
+    // `offset` (s) joins a running peal or show part-way: strokes or calls already over are left out, one under way
+    // starts mid-buffer. church: `strokes` (1-12) at CHURCH_PEAL.interval, `pitch` the bell's playback rate; hejnal:
+    // the calls at HEJNAL.plays, offset in show seconds.
+    const church = kind === 'church';
+    const buffer = church ? resources.churchBell : resources.hejnal;
+    const rate = church ? clamp(finite(options.pitch, 1), 0.5, 2) : 1;
+    const offset = Math.max(0, finite(options.offset));
+    const count = church ? Math.round(clamp(finite(options.strokes, 1), 1, 12)) : HEJNAL.plays.length;
+    for (let i = 0; i < count; i++) {
+      const at = (church ? i * CHURCH_PEAL.interval : HEJNAL.plays[i]) - offset;
+      const skip = Math.max(0, -at) * rate;
+      if (skip >= buffer.duration - 0.05) continue;
+      play(buffer, start + Math.max(0, at), rate, church ? 1 : i ? 0.75 : 1, skip);
+    }
+  } else if (kind === 'goats') {
+    // the 12 butts of the Ratusz goats, at GOAT_BUTT_TIMES show seconds; `offset` is the show time now
+    const offset = finite(options.offset);
+    for (let i = 0; i < GOAT_BUTT_TIMES.length; i++) {
+      const at = GOAT_BUTT_TIMES[i] - offset;
+      if (at < 0) continue;
+      play(resources.goatKnocks[i % 2], start + at, 0.95 + random() * 0.1, 0.8 + random() * 0.2);
+    }
   } else if (kind === 'crash') {
     const severity = clamp(finite(options.severity, intensity));
     const variant = Math.floor(random() * resources.crashes.body.length);
