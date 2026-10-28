@@ -3,7 +3,9 @@ import { CROSSWALK, CROSSWALK_REACH } from './road-network.js';
 // Small, lazily connected sidewalk tracks. Junctions only connect points on the same curb island;
 // crossing the roadway is a separate, signal-controlled track owned by traffic.js, on the crosswalks laid out here once
 // for the whole network (the zebras road-paint.js paints).
-function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt) {
+// `railClearance(x, z, r)` (city-grid.js: the distance to the nearest track centreline, capped at r) keeps the places
+// people wait on a split crossing's strip clear of the trams; without it every strip has room.
+function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt, railClearance = null) {
   const sidewalks = new Map(), crossings = new Map(), junctions = new Map(), connections = new WeakMap();
   const point = (track, end) => ({ x: track.ax + track.ux * track.len * end, z: track.az + track.uz * track.len * end });
   const segment = (a, b, extra = {}) => {
@@ -68,8 +70,23 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt) {
   // strip from the other side (STRIP_OFFSET m along the road at most), the two tracks linked over the strip (`links`),
   // where people wait for the second roadway as at any curb. The tracks go STRIP_LAND onto the strip, so the curb
   // queue (traffic.js KERB, 1.6 m along a track) stands on it.
+  // A tram strip is the trams' way: a strip end has room to wait (`stand`) only where its curb and the STRIP_LAND
+  // behind it keep RAIL_KEEP from every track (a tram body reaches ~1.7 m from the centreline with its sway, plus a
+  // person). Where only one end of a pair has room, the people bound over the other roadway wait at that end, short
+  // of the rails, and cross the tracks and the second roadway in one go (the refuge's `hold`; the cramped end is
+  // `track.cramped[end]`, where nobody is spawned waiting); a pair with no room at either end is no split crossing.
+  // Measured on the furnished network: of the 16 strip ends paired, 9 lay within 2 m of a track (4 within 0.6 m).
   const ZEBRA_HALF = (CROSSWALK - 0.3) / 2; // the painted zebra, 0.15 m inside the CROSSWALK band
   const STRIP_MIN = 3.2, STRIP_MAX = 14, STRIP_RUN = 15, STRIP_OFFSET = 12, STRIP_LAND = 1.6;
+  const RAIL_KEEP = 2.0;
+  // Room to wait at a strip end: from its curb at (x, z) inward along (wx, wz), STRIP_LAND clear of RAIL_KEEP
+  const roomToWait = (x, z, wx, wz) => {
+    if (!railClearance) return true;
+    for (let d = 0; d <= STRIP_LAND + 1e-6; d += 0.2) {
+      if (railClearance(x + wx * d, z + wz * d, RAIL_KEEP + 1) < RAIL_KEEP) return false;
+    }
+    return true;
+  };
   const PARALLEL = Math.cos(30 * Math.PI / 180);
   function reach(x, z, dx, dz) {
     for (let d = 0; d <= CROSSWALK_REACH; d += 0.25) if (blockAt(x + dx * d, z + dz * d)) return d;
@@ -255,12 +272,18 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt) {
       }
     }
     // the walks over the strip, track end to track end
+    // (each line to the nearest line across: the walks of a two-line crosswalk cut across each other otherwise, and the
+    // people on them wait for each other's way to clear for good, traffic.js walk)
     const strand = (p) => {
       const out = [];
       for (const a of p.c.tracks) {
+        const pa = point(a, p.k);
+        let best = null, least = Infinity;
         for (const b of p.mate.c.tracks) {
-          if (clear(point(a, p.k), point(b, p.mate.k))) out.push({ a, b });
+          const pb = point(b, p.mate.k), d = Math.hypot(pb.x - pa.x, pb.z - pa.z);
+          if (d < least && clear(pa, pb)) { best = b; least = d; }
         }
+        if (best) out.push({ a, b: best });
       }
       return out;
     };
@@ -280,6 +303,8 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt) {
             continue;
           }
           if (!strand(end).length) group.ok = false;
+          end.stand = roomToWait(end.x, end.z, end.wx, end.wz);
+          if (!end.stand && !roomToWait(end.mate.x, end.mate.z, end.mate.wx, end.mate.wz)) group.ok = false;
           if (!groups.has(end.mate.c)) {
             groups.set(end.mate.c, group);
             queue.push(end.mate.c);
@@ -299,8 +324,9 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt) {
           if (!end.mate) continue;
           for (const { a, b } of strand(end)) {
             if (!a.refuge) a.refuge = [null, null];
-            (a.refuge[end.k] || (a.refuge[end.k] = [])).push({ track: b, end: end.mate.k });
+            (a.refuge[end.k] || (a.refuge[end.k] = [])).push({ track: b, end: end.mate.k, hold: !end.mate.stand });
           }
+          if (!end.stand) for (const a of c.tracks) (a.cramped || (a.cramped = [false, false]))[end.k] = true;
         }
       }
     }
@@ -350,11 +376,13 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt) {
     const n = end ? track.to : track.from;
     if (!n) return result;
     const a = point(track, end);
-    // on a split crossing's strip: over it to the crosswalk on the other roadway (and on along the island, if any)
-    for (const { track: next, end: nextEnd } of track.refuge?.[end] || []) {
+    // on a split crossing's strip: over it to the crosswalk on the other roadway (and on along the island, if any); a
+    // `hold` path's first leg names the crosswalk walkers wait here for (traffic.js), its own end having no room
+    for (const { track: next, end: nextEnd, hold } of track.refuge?.[end] || []) {
       const b = point(next, nextEnd), path = [];
       if (Math.hypot(b.x - a.x, b.z - a.z) > 0.01) path.push({ track: segment(a, b), dir: 1 });
       path.push({ track: next, dir: nextEnd ? -1 : 1 });
+      if (hold) path[0].hold = next;
       result.push(path);
     }
     const block = blockAt(a.x, a.z);

@@ -25,6 +25,7 @@ import {
   createLoftedBusMaterial
 } from './actor-models.js';
 import { PersonCrowd, PersonRig } from './pedestrians.js';
+import { railClearance } from './city-grid.js';
 
 // js/traffic.js
 // City traffic and pedestrians on the road graph road-network.js derives from the city as built:
@@ -424,6 +425,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       coord: 0,
       line: 0, // its line over the crosswalk, off the centre line
       waiting: false,
+      through: false, // crossing on from a split crossing's strip with no room to wait (no stop at the next curb)
       speed: 1.22 + (i % 5) * 0.1 + hash(i, 3) * 0.08, // preferred walking speed
       v: 0, // current speed, easing up to it and down to stops
       pause: 0,
@@ -1679,7 +1681,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // 7. PEDESTRIANS
   // =========================================================================
   const KERB = 1.6; // how far along a crosswalk track pedestrians wait to cross (the curb is 2 m along)
-  const pedRoutes = createPedestrianRoutes(network, blockAt);
+  const pedRoutes = createPedestrianRoutes(network, blockAt, railClearance);
   // Every junction with a crosswalk, signalised or not, where crossing pedestrians may start (refreshNear). At an
   // unsignalised one they always have the WALK and vehicles yield to them (walkOn, mayCross, pedestrianOn).
   const crossingNodes = nodes.filter((n) => pedRoutes.across(n).length > 0);
@@ -1736,10 +1738,13 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       if (d < rMin || d > rMax || (protectView && nearView(x, z, 2, PED_SPAWN_DISTANCE))) continue;
       if (player.active && Math.hypot(x - player.x, z - player.z) < 10) continue;
       if (crosswalk && track.node.curb.some((q) => Math.hypot(q.x - x, q.z - z) < QUEUE_GAP)) continue;
+      // not waiting at a split crossing's strip end next to the rails (pedestrian-routes.js `cramped`)
+      if (crosswalk && track.route && track.route.cramped && track.route.cramped[t < track.len * 0.5 ? 0 : 1]) continue;
       if (p.conversation) endConversation(p.conversation);
       Object.assign(p, track);
       p.t = t;
       p.dir = t < track.len * 0.5 ? 1 : -1;
+      p.through = false;
       p.x = x;
       p.z = z;
       p.v = crosswalk ? 0 : p.speed;
@@ -1763,7 +1768,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   const walkOn = (p) => !p.node.signal || (p.group === 0 ? stWalk : aveWalk);
 
   // May p step off the curb onto its crosswalk? On the WALK (early in the parallel traffic's green, so red for the
-  // traffic arriving over it), once no vehicle is crossing it or committed to, and none is too close to stop
+  // traffic arriving over it), once no vehicle is crossing it or committed to, and none is too close to stop. Reads only
+  // `node, side, group`, so a crosswalk track will do for p (the strip ends people hold at, walk()).
   function mayCross(p) {
     const n = p.node;
     if (!walkOn(p) || n.crossing[p.side] > 0) return false;
@@ -1787,11 +1793,29 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     if (crossings === undefined) crossings = route.tramCrossings = tramCrossings(route);
     let room = Infinity;
     for (const c of crossings) {
-      const before = (c.t - p.t) * p.dir - c.clear;
-      if (before < -0.3 || before > 25) continue;
-      if (tramNear(c.edge, c.s, PED_TRAM_TIME)) room = Math.min(room, Math.max(0, before));
+      let before = (c.t - p.t) * p.dir - c.clear;
+      if (before > 25 || before < -2 * c.clear || !tramNear(c.edge, c.s, PED_TRAM_TIME)) continue;
+      // Short of a track inside the reach of another one (between the two tracks of a line, ~3 m apart) is no place
+      // to wait: short of that one instead, or, already on it, walk on (two passes settle a pair in any order)
+      for (let pass = 0; pass < 2; pass++) {
+        for (const o of crossings) {
+          const enter = (o.t - p.t) * p.dir - o.clear;
+          if (enter < before && before < enter + 2 * o.clear) before = enter;
+        }
+      }
+      if (before >= -0.3) room = Math.min(room, Math.max(0, before));
     }
     return room;
+  }
+
+  // Is p within a tram's reach of the rails its track crosses?
+  function onRails(p) {
+    const route = p.route;
+    if (!route || !tramGraph) return false;
+    let crossings = route.tramCrossings;
+    if (crossings === undefined) crossings = route.tramCrossings = tramCrossings(route);
+    for (const c of crossings) if (Math.abs(c.t - p.t) < c.clear) return true;
+    return false;
   }
 
   // Where a walking track (a, along u for len) crosses the tram tracks: [{ t (m along it), edge, s (along that tram
@@ -1864,9 +1888,10 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     let vMax = p.pause > 0 || p.conversation ? 0 : p.speed;
     if (!p.nextRoute) vMax = Math.min(vMax, Math.sqrt(2 * PED_BRAKE * ahead));
     let room = Infinity;
-    if (!p.node && p.nextRoute) {
+    if (!p.node && p.nextRoute && !onRails(p)) {
       // A queue can reach back onto the sidewalk. Keep clear before entering its track, including short corner
-      // segments; actual separation matters where the approach meets the crossing at an angle.
+      // segments; actual separation matters where the approach meets the crossing at an angle. Not on the rails
+      // (a split crossing's walk over a tram strip, its queue full): there p closes up rather than stand in a tram's way.
       const crossing = p.nextRoute.find((leg, i) => i >= p.nextLeg && leg.track.node);
       if (crossing) {
         const entranceX = crossing.track.ax + (crossing.dir < 0 ? crossing.track.ux * crossing.track.len : 0);
@@ -1903,15 +1928,21 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       }
     }
     if (p.node) {
-      // room to walk before standing: up to the curb unless p may cross, and up to the back of whoever is ahead
+      // room to walk before standing: up to the curb unless p may cross (or crosses on from a strip with no room to
+      // wait), and up to the back of whoever is ahead
       const s = curbProgress(p);
-      room = s <= KERB && !mayCross(p) ? KERB - s : Infinity;
+      room = s <= KERB && !p.through && !mayCross(p) ? KERB - s : Infinity;
       for (const q of p.node.curb) {
         if (q === p || q.node !== p.node || q.side !== p.side || q.dir !== p.dir || Math.abs(q.line - p.line) > 0.55) continue;
         const gap = curbProgress(q) - s;
         if (gap > 0) room = Math.min(room, Math.max(0, gap - QUEUE_GAP));
       }
     }
+    // At a split crossing's strip end whose far end has no room to wait (next to the rails: pedestrian-routes.js
+    // `hold`), wait here, short of the tracks, until the crosswalk over the far roadway may be crossed
+    const hold = p.nextRoute && p.nextLeg < p.nextRoute.length ? p.nextRoute[p.nextLeg].hold : null;
+    const held = !!hold && !mayCross(hold);
+    if (held) room = Math.min(room, ahead);
     room = Math.min(room, tramRoom(p));
     vMax = Math.min(vMax, Math.sqrt(2 * PED_BRAKE * room));
     p.v += Math.max(-2 * PED_BRAKE * dt, Math.min(PED_ACCEL * dt, vMax - p.v));
@@ -1919,15 +1950,17 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     if (p.v * dt > room) p.v = 0;
     let t = p.t + p.dir * movement;
     const reachesCurb = !!p.node && curbProgress(p) <= KERB && (p.dir > 0 ? t : p.len - t) >= KERB - 1e-6;
-    p.waiting = reachesCurb && !mayCross(p);
+    p.waiting = reachesCurb && !p.through && !mayCross(p);
     if (p.waiting) {
       t = p.dir > 0 ? Math.min(t, KERB) : Math.max(t, p.len - KERB);
       p.v = 0;
     }
-    if (p.dir > 0 ? t >= p.len : t <= 0) {
+    if ((p.dir > 0 ? t >= p.len : t <= 0) && !held) {
       t = p.dir > 0 ? p.len : 0;
       if (p.nextRoute) {
         const leg = p.nextRoute[p.nextLeg++];
+        // committed from the hold over the strip and the far roadway; done once off a crosswalk
+        p.through = !!leg.hold || (p.through && !p.node);
         Object.assign(p, leg.track);
         p.route = leg.track;
         p.dir = leg.dir;
@@ -1939,6 +1972,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
         p.dir = -p.dir;
         p.v = 0;
         p.pause = TURN_TIME;
+        p.through = false;
       }
     }
     p.t = t;

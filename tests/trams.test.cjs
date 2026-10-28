@@ -391,6 +391,31 @@ test('trams brake for the player on the track, but not for a car facing them (it
   }
 });
 
+test('trams brake for a pedestrian within ~1.7 m of the track ahead, not for one further off', () => {
+  const { createTramSystem } = load();
+  for (const [offset, stops] of [[1.4, true], [2.2, false]]) {
+    // standing beside the eastbound track at x = 1500 until t = 100 s
+    const ped = { placed: true, x: 1500, z: offset, ux: 1, uz: 0, dir: 1, v: 0 };
+    const sys = createTramSystem(inert(), { network: { nodes: [], edges: [] }, rail: [tram([0, 0, 3000, 0])], stops: [],
+      traffic: { cars: [], buses: [], peds: [ped] } });
+    const seen = new Set();
+    let passed = 0;
+    for (let f = 0, time = 0; f < 15 * 160; f++) {
+      time += 1 / 15;
+      if (time > 100) ped.z = 30;
+      sys.update(1 / 15, time, { x: 1500, z: 0 }, inert());
+      for (const t of sys.trams) {
+        const rearX = t.sections[t.sections.length - 1].rx;
+        if (stops && time < 100 && rearX < 1490) assert.ok(t.frontX < 1499.5, `tram ${t.id} runs into the pedestrian`);
+        if (time < 100 && t.frontX > 1480 && t.frontX < 1500) seen.add(t.waitReason);
+        if (rearX < 1490 && t.frontX > 1505) passed++;
+      }
+    }
+    assert.equal(seen.has('pedestrian'), stops, `pedestrian ${offset} m off the track`);
+    assert.ok(passed > 0, 'trams pass');
+  }
+});
+
 test('a tram path follows its line route at switches, rejoins it across a gap and turns at its terminus', () => {
   const { buildTrackGraph, TramPath } = load();
   const routed = (pts, routes) => Object.assign(tram(pts), { routes });

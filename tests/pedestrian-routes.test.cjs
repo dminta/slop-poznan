@@ -125,7 +125,7 @@ test('where the zebras of a junction complex overlap, those of the longer roads 
 
 // A divided road along z: two roadways 4 m half wide at x = -gap/2 - 4 and x = gap/2 + 4, the strip between them no
 // curb island, each roadway's node with a side street leaving it west / east; the sidewalks are off all the roads
-function dividedRoad(gap) {
+function dividedRoad(gap, railClearance = null) {
   const off = gap / 2 + 4;
   const n1 = { x: -off, z: 0, signal: false, arms: [] };
   const n2 = { x: off, z: 0, signal: false, arms: [] };
@@ -134,9 +134,31 @@ function dividedRoad(gap) {
   const block = { poly: [] };
   const edges = [n1, n2].flatMap((n) => n.arms.flatMap((a) => [a.in, a.out]));
   const routes = createPedestrianRoutes({ nodes: [n1, n2], edges, walkable: () => true },
-    (x, z) => (Math.abs(x) > off + 4 && Math.abs(z) > 4 ? block : null));
+    (x, z) => (Math.abs(x) > off + 4 && Math.abs(z) > 4 ? block : null), railClearance);
   return { n1, n2, routes };
 }
+
+// Tram tracks along z down the strip at the given x (distance to the nearest, capped at r)
+const tracksAt = (...xs) => (x, z, r) => Math.min(r, ...xs.map((t) => Math.abs(x - t)));
+
+test('on a tram strip people wait only where the rails leave room, and cross on in one go from the other end', () => {
+  // an 8 m strip (x -4 to 4) with one track 1 m off its east curb: the east end has no room to wait
+  const { n1, n2, routes } = dividedRoad(8, tracksAt(3));
+  const [a] = routes.across(n1).filter((t) => t.side === 0 && t.line > 0);
+  const b = routes.across(n2).filter((t) => t.side === 0);
+  assert.ok(a && b.length, 'still a split crossing');
+  for (const t of b) assert.deepEqual(Array.from(t.cramped), [true, false], 'nobody waits at the east end');
+  // westbound walkers wait at the west end (2.4 m from the track) for the east roadway's crosswalk, then cross on
+  const path = routes.next(a, 1, 100, 20);
+  assert.ok(b.includes(path[0].hold), 'the walk over the strip holds for the east crosswalk');
+  assert.ok(path[0].track.len > 4, 'one walk per line, over the strip');
+  // and the walk back from the east end needs no hold: the west end has room
+  const back = routes.next(b[0], -1, -100, 20);
+  assert.equal(back[0].hold, undefined);
+  // with a second track 1 m off the west curb neither end has room: no split crossing
+  const both = dividedRoad(8, tracksAt(3, -3));
+  assert.equal(both.routes.crosswalks.filter((c) => c.side === 0).length, 0);
+});
 
 test('a divided road whose strip is no curb island gets a split crossing, one zebra over each roadway', () => {
   const { n1, n2, routes } = dividedRoad(8);

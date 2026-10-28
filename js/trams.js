@@ -66,6 +66,9 @@ const TRAM_SPOT_POOL = 8; // 2 per lit tram
 const TRAM_LIGHT_DIST = 110;
 const OBSTACLE_REACH = 70; // furthest a tram looks for cars and the player on its track
 const SWEEP_STEP = 2;
+// A pedestrian counts as in the way within TRAM_HALF_WIDTH + PED_REACH (1.7 m) of the centreline: the body's 1.2 m,
+// its sway and overhang, and the person (a square PED_REACH half wide, so 1.7–1.9 m whatever its heading)
+const PED_REACH = 0.5;
 const SWEEP_N = Math.ceil(OBSTACLE_REACH / SWEEP_STEP) + 1;
 
 // Articulated models (z = +front). Sections are listed front to rear; `cab` +1 has the driver's cab at +z (the front
@@ -1268,6 +1271,20 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
         gapMin = Math.min(gapMin, gap);
         if (gap < obstacleGapMin) t.obstacle = player.entity;
         consider(idm(Math.max(gap, 0.1), _obsV), 'player');
+      }
+    }
+    // Pedestrians in the way ahead: people wait for trams before the rails (traffic.js tramRoom), so this is the same
+    // safety braking, for whoever is still within the body's swept envelope (half width + PED_REACH, ~1.7 m from the
+    // centreline): crossing as the tram comes, or standing on a strip next to the rails
+    const peds = traffic && traffic.peds;
+    if (peds) {
+      for (let i = 0; i < peds.length; i++) {
+        const p = peds[i];
+        if (!p.placed) continue;
+        const gap = obstacleGap(p.x, p.z, 0, PED_REACH, PED_REACH, p.ux * p.dir * p.v, p.uz * p.dir * p.v, true);
+        if (gap === Infinity) continue;
+        gapMin = Math.min(gapMin, gap);
+        consider(idm(Math.max(gap, 0.1), _obsV), 'pedestrian');
       }
     }
     t.gap = gapMin;
