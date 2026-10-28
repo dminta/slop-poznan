@@ -57,6 +57,13 @@ const URBAN_LIMIT = 50 / 3.6;
 const VEHICLE_RADIUS = 380;
 const PED_RADIUS = 320;
 const NEAR_RADIUS = 350;
+const PED_COURTESY = 5; // s a driver waits for people crossing at an unsignalised zebra before they let it go
+// Vehicles per km of lane within NEAR_RADIUS (both ways counted: a two-way street with a lane each way is 2 km per
+// km). The pool used to fill up regardless, so the sparse single-lane grids (Wilda, Łazarz, Jeżyce: 2.9-5 lane-km)
+// carried 40-70 per lane-km, jam density, and 62% of cars stood still even without pedestrians or trams
+// (tools/bench-traffic.mjs). MIN_VEHICLES keeps a few anywhere.
+const VEHICLE_DENSITY = 12;
+const MIN_VEHICLES = 30;
 const VEHICLE_SPAWN_DISTANCE = 250;
 const PED_SPAWN_DISTANCE = 150;
 
@@ -179,7 +186,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       bus, half, halfWidth, axle, driver, pace, vmax, v0: Math.min(vmax, pace * URBAN_LIMIT),
       edge: null, lane: 0, s: 0, speed: 0, acc: 0, gap: Infinity, leaderSpeed: 0,
       move: null, out: 0, conn: null, cs: 0, trail: null, commit: null, claimed: false, yielding: false, yieldAt: 0,
-      wait: 0, waitReason: '', held: '', leader: null, laneTimer: Math.random() * 0.5,
+      wait: 0, pedWait: 0, waitReason: '', held: '', leader: null, laneTimer: Math.random() * 0.5,
       dl: 0, dlv: 0, blink: 0, blinkPhase: Math.random() * 0.8,
       x: 0, z: 0, prevX: 0, prevZ: 0, tx: 0, tz: 1, nose: 0, yaw: 0, yawRate: 0, steer: 0,
       pitch: 0, roll: 0, pitchVel: 0, rollVel: 0, vx: 0, vz: 0, yawOffset: 0, yawVel: 0,
@@ -571,6 +578,19 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     v.yielding = false;
   }
 
+  // At an unsignalised zebra people have the right of way, and they stepped off whenever the car at the line could
+  // stop, which it always can: with a few people arriving a minute, a car waited for a gap that never came (the head
+  // of 20-35% of the stopped cars in Jeżyce, Wilda and at Kaponiera; up to 260 s). A driver held up for them
+  // PED_COURTESY seconds gets its turn: it counts as crossing the crosswalks it passes, so whoever is still at the curb
+  // waits (mayCross) while those already on the zebra clear it. The car behind starts its own count at the line.
+  function courtesy(v) {
+    const n = v.edge.to;
+    if (n.signal) return;
+    touchNode(n);
+    if (!v.conn) n.crossing[v.edge.inSide]++;
+    n.crossing[v.move.to.outSide]++;
+  }
+
   function buildOccupancy() {
     for (const list of filled) list.length = 0;
     filled.length = 0;
@@ -596,8 +616,10 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
         if (side) occupy(e.occ[v.lane + side], v, v.s);
         if (v.commit === e.to) claim(v);
         if (v.s < v.half - e.setbackFrom) touchNode(e.from).crossing[e.outSide]++; // its tail still over the crosswalk behind it
+        if (v.waitReason === 'pedestrian' && v.pedWait > PED_COURTESY) courtesy(v);
       } else {
         claim(v);
+        if (v.waitReason === 'pedestrian' && v.pedWait > PED_COURTESY) courtesy(v);
         occupy(e.occ[v.lane], v, e.len + v.cs); // until it is out of the intersection, still ahead of those behind it
       }
     }
@@ -646,6 +668,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // pedestrians on
   const nearEdges = [];
   const nearCrossings = [];
+  let nearLanes = 0; // metres of lane within NEAR_RADIUS of the focus
+  let nearTarget = 0; // how many vehicles drive there (VEHICLE_DENSITY)
   let nearX = Infinity;
   let nearZ = Infinity;
   function refreshNear() {
@@ -654,11 +678,19 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     nearZ = focusZ;
     nearEdges.length = 0;
     nearCrossings.length = 0;
+    nearLanes = 0;
     for (const e of edges) {
-      const s = clamp((focusX - e.sx) * e.dx + (focusZ - e.sz) * e.dz, 0, e.len);
+      const along = (focusX - e.sx) * e.dx + (focusZ - e.sz) * e.dz;
+      const s = clamp(along, 0, e.len);
       const dx = e.sx + e.dx * s - focusX, dz = e.sz + e.dz * s - focusZ;
-      if (dx * dx + dz * dz < NEAR_RADIUS * NEAR_RADIUS) nearEdges.push(e);
+      if (dx * dx + dz * dz >= NEAR_RADIUS * NEAR_RADIUS) continue;
+      nearEdges.push(e);
+      // the length of its lanes inside the circle
+      const off = (focusX - e.sx) * e.dz - (focusZ - e.sz) * e.dx;
+      const half = Math.sqrt(Math.max(0, NEAR_RADIUS * NEAR_RADIUS - off * off));
+      nearLanes += Math.max(0, Math.min(e.len, along + half) - Math.max(0, along - half)) * e.lanes.length;
     }
+    nearTarget = Math.min(vehicles.length, Math.max(MIN_VEHICLES, Math.round((nearLanes / 1000) * VEHICLE_DENSITY)));
     for (const n of crossingNodes) {
       const dx = n.x - focusX, dz = n.z - focusZ;
       if (dx * dx + dz * dz < NEAR_RADIUS * NEAR_RADIUS) nearCrossings.push(n);
@@ -987,8 +1019,10 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     if ((n.signal ? v.isPolice && phase !== 'green' : e.axisIndex !== 0) && yieldToCrossTraffic(v, n)) return refuse(v, 'crossing');
     // nobody on the crosswalks while it passes over them, on the way in and on the way out, and a free place to
     // clear the intersection to, taking turns with lanes merging into it
-    if (pedestrianOn(n, e.inSide, laneCoord(e, v.lane, e.inArm), 0, timeTo(v, d + e.setbackTo + CROSSWALK + 2 * v.half))) return refuse(v, 'pedestrian');
-    if (wait < 0 && pedestrianOn(n, f.outSide, laneCoord(f, j, f.outArm), timeTo(v, d + c.len - shortOfZebra(f)), timeTo(v, d + c.len - f.setbackFrom + 2 * v.half))) return refuse(v, 'pedestrian');
+    // (once its turn has come at an unsignalised zebra, people still at the curb wait for it: see courtesy)
+    const turn = v.pedWait > PED_COURTESY && !n.signal;
+    if (pedestrianOn(n, e.inSide, laneCoord(e, v.lane, e.inArm), 0, timeTo(v, d + e.setbackTo + CROSSWALK + 2 * v.half), turn)) return refuse(v, 'pedestrian');
+    if (wait < 0 && pedestrianOn(n, f.outSide, laneCoord(f, j, f.outArm), timeTo(v, d + c.len - shortOfZebra(f)), timeTo(v, d + c.len - f.setbackFrom + 2 * v.half), turn)) return refuse(v, 'pedestrian');
     const vs = v.s - e.len - c.len; // where on f it would be now
     if (!room(f, j, v)) return refuse(v, 'room');
     if (alongside(f, j, v, vs, m.turn !== 'S') || mergingAhead(v, f, j)) return refuse(v, 'merge');
@@ -1190,6 +1224,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     }
     v.acc = Math.max(-9, (v.speed - speed) / dt); // as driven, for the body to pitch with: none standing still
     v.wait = v.speed < 0.5 ? v.wait + dt : 0;
+    // how long it has stood held up by people crossing (kept while it stands for anything else)
+    v.pedWait = v.speed >= 0.5 ? 0 : v.waitReason === 'pedestrian' ? v.pedWait + dt : v.pedWait;
     if (!v.conn) {
       v.s += ds;
       if (v.s + v.half >= v.edge.len) enter(v);
@@ -1480,9 +1516,13 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       const path = t.path;
       const rear = path.u - t.length;
       // lanes running its way: the body and just ahead of it; lanes against or across it, and junction curves: up to
-      // a few seconds ahead, but no further than the body while it waits for a car (let the cars ahead clear its way)
+      // a few seconds ahead, but no further than the body while it stands held by anything but a curve: waiting for
+      // a car (let the cars ahead clear its way), at a stop or a red, behind another tram or at a switch. Holding the
+      // curves ahead of a tram that can't go kept the cars of a green approach waiting behind it, and on a busy tram
+      // junction (Most Teatralny) the cars there waited for a tram on their green and their red alike, 240 s
+      const held = t.waitReason === 'car' || t.atStop || (t.speed < 1 && t.waitReason !== '' && t.waitReason !== 'curve');
       const near = path.u + 4 + t.speed;
-      const far = path.u + (t.waitReason === 'car' ? 2 : Math.min(TRAM_REACH, 8 + t.speed * 6));
+      const far = path.u + (held ? 2 : Math.min(TRAM_REACH, 8 + t.speed * 6));
       for (let i = 0; i < path.n; i++) {
         const te = path.edges[i];
         const base = path.start[i];
@@ -1662,7 +1702,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     v.trail = null;
     v.commit = null;
     v.yielding = false;
-    v.wait = 0;
+    v.wait = v.pedWait = 0;
     v.v0 = desiredOn(v, e);
     v.speed = v.v0 * 0.5;
     v.acc = 0;
@@ -1675,6 +1715,15 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     v.yawRate = v.steer = 0;
     v.move = chooseMove(v, false);
     occupy(e.occ[lane], v, s);
+  }
+
+  // Take v off the road until it is placed again; far off the map, so the radar draws no stale blip
+  function park(v) {
+    v.edge = null;
+    v.conn = null;
+    v.commit = null;
+    v.speed = 0;
+    v.x = v.z = v.prevX = v.prevZ = 1e6;
   }
 
   // Put v in a free lane around the focus. Normal replenishment protects the near view; teleports can fill it.
@@ -1869,7 +1918,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   }
 
   // Is a tram's body over point s of tram edge te (either way along that track), or its front due there within
-  // `time` seconds?
+  // `time` seconds (unless it stands waiting for pedestrians)?
   function tramNear(te, s, time) {
     for (const t of trams) {
       const path = t.path;
@@ -1878,6 +1927,9 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
         const at = e === te ? s : e === te.reverse ? te.len - s : -1;
         if (at < 0) continue;
         const d = path.start[i] + at - path.u;
+        // a tram standing short of the crossing for the people in its way lets them cross: waiting for it there
+        // locked both up for good (trams held 90 s by someone 2 m off their front, then respawned)
+        if (d > 0 && t.speed < 0.5 && t.waitReason === 'pedestrian') continue;
         if (d > -t.length - 1.5 && d < 3 + t.speed * time) return true;
       }
     }
@@ -2409,6 +2461,16 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     // 1. Cars & buses
     // Limit attempted placements, not just successes, and rotate through the pool so an awkward location
     // cannot monopolize a frame. Previous-frame lane lists protect spawn spacing; rebuild before driving.
+    // Only as many drive as the lanes around the focus carry at VEHICLE_DENSITY: the rest are parked (no edge) as
+    // they leave, and placed again when more road comes into reach
+    let active = 0;
+    for (const v of vehicles) if (v.edge) active++;
+    for (let i = 0; jump && i < vehicles.length && active > nearTarget; i++) {
+      if (vehicles[i].edge) {
+        park(vehicles[i]);
+        active--;
+      }
+    }
     let budget = jump ? vehicles.length : 4;
     for (let scanned = 0; scanned < vehicles.length && budget > 0; scanned++) {
       const v = vehicles[vehicleCursor];
@@ -2416,7 +2478,11 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       const d = v.edge ? Math.hypot(v.x - focusX, v.z - focusZ) : Infinity;
       if (d <= (jump ? NEAR_RADIUS : VEHICLE_RADIUS)) continue;
       budget--;
-      spawnVehicle(v, jump ? 0 : 100, NEAR_RADIUS, !jump);
+      if (v.edge) {
+        park(v);
+        active--;
+      }
+      if (active < nearTarget && spawnVehicle(v, jump ? 0 : 100, NEAR_RADIUS, !jump)) active++;
     }
     buildOccupancy();
     for (const m of bodyMeshes) m.count = 0;

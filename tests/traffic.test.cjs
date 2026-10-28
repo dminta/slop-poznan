@@ -41,7 +41,8 @@ function intersectionHarness() {
     alongside: () => false,
     mergingAhead: () => null,
     tramBlocks: () => state.tram,
-    refuse: (v, why) => { v.held = why; return false; }
+    refuse: (v, why) => { v.held = why; return false; },
+    PED_COURTESY: 5
   };
   return { car, state, mayEnter: trafficFunction('mayEnter', context), signalAhead: trafficFunction('signalAhead', context) };
 }
@@ -131,6 +132,7 @@ function populationContext() {
     focusX: 0, focusZ: 0, player: { active: false },
     clock: 0,
     VEHICLE_SPAWN_DISTANCE: 250, PED_SPAWN_DISTANCE: 150, NEAR_RADIUS: 350,
+    VEHICLE_DENSITY: 20, MIN_VEHICLES: 30, vehicles: new Array(212), nearLanes: 0, nearTarget: 0,
     nearEdges: [], nearCrossings: [], track: {}, KERB: 1.6, QUEUE_GAP: 0.62,
     atCurb: () => {}, laneClear: () => true, nearTram: () => false,
     place: (v, e, lane, s) => Object.assign(v, { edge: e, lane, s })
@@ -197,6 +199,24 @@ test('long roads are available near their ends and spawn only in the local secti
   assert.equal(trafficFunction('spawnVehicle', context)(car, 0, 350, false), true);
   assert.ok(edge.sz + car.s <= 350);
   assert.ok(car.s >= car.half + 5);
+});
+
+test('as many vehicles drive as the lanes within reach carry at VEHICLE_DENSITY, within the pool', () => {
+  const context = populationContext();
+  // 2 km of road from z = -1000: 700 m of it inside the 350 m circle; two lanes, then four
+  const edge = Object.assign(straightEdge(-1000, 2000), { lanes: [0, 3.5] });
+  Object.assign(context, { edges: [edge], crossingNodes: [], nearX: Infinity, nearZ: Infinity });
+  trafficFunction('refreshNear', context)();
+  assert.ok(Math.abs(context.nearLanes - 1400) < 1e-6);
+  assert.equal(context.nearTarget, 30, 'never below MIN_VEHICLES');
+  edge.lanes = [0, 3.5, 7, 10.5, 14, 17.5];
+  Object.assign(context, { nearX: Infinity, nearZ: Infinity });
+  trafficFunction('refreshNear', context)();
+  assert.equal(context.nearTarget, 84);
+  context.edges = Array.from({ length: 4 }, () => edge);
+  Object.assign(context, { nearX: Infinity, nearZ: Infinity });
+  trafficFunction('refreshNear', context)();
+  assert.equal(context.nearTarget, 212, 'never above the pool');
 });
 
 test('crossing pedestrians start at nearby zebras whether signalised or not', () => {
@@ -400,6 +420,80 @@ test('pedestrians stop short of a tram track while a tram is over it or coming',
   t.path.edges[0].len = 100;
   t.path.u = 30; // on the reverse edge, its front at 30 = x 70: heading for x 50
   assert.ok(tramRoom(p) < 7, 'a tram the other way on the same track');
+});
+
+// Gridlock regressions (Phase 15.6, tools/bench-traffic.mjs): each pattern below once held cars or trams 90-260 s
+test('a tram standing short of a crosswalk for the people on it lets them cross; its body over it never does', () => {
+  // the deadlock: someone stopped 1.8 m off the rails for a tram 2 m short of the crosswalk, which waited for them
+  const te = { pts: new Float64Array([0, 0, 100, 0]), cum: new Float64Array([0, 100]), len: 100, box: [0, 100, 0, 0], flip: false, reverse: null };
+  const route = { ax: 50, az: -10, ux: 0, uz: 1, len: 20 };
+  const t = tramOn(te, 48, 0);
+  const context = { trams: [t], tramGraph: { edges: [te] }, PED_TRAM_TIME: 6, Math, Infinity };
+  context.tramCrossings = trafficFunction('tramCrossings', context);
+  context.tramNear = trafficFunction('tramNear', context);
+  const tramRoom = trafficFunction('tramRoom', context);
+  const p = { route, t: 7, dir: 1 };
+  t.waitReason = 'signal';
+  assert.ok(tramRoom(p) < 2, 'a tram 2 m off held by its signal: wait for it');
+  t.waitReason = 'pedestrian';
+  assert.equal(tramRoom(p), Infinity, 'it waits for the people in its way: they cross');
+  t.speed = 2;
+  assert.ok(tramRoom(p) < 2, 'unless it is moving');
+  t.speed = 0;
+  t.path.u = 70;
+  assert.ok(tramRoom(p) < 2, 'its body over the crossing: wait, whatever it waits for');
+});
+
+test('a tram held at a stop, a red or behind another tram holds only the junction curves under its body', () => {
+  const road = { occ: [[]] };
+  const te = {
+    len: 300, lanes: [],
+    // a junction curve 6 m ahead of the front (at 100)
+    junctions: [{ s0: 106, s1: 110, held: -1, by: null }]
+  };
+  const t = tramOn(te, 100, 0);
+  const context = tramLaneContext([t]);
+  for (const [reason, atStop, held] of [['', false, true], ['curve', false, true], ['signal', false, false], ['tram', false, false],
+    ['switch', false, false], ['', true, false]]) {
+    t.waitReason = reason;
+    t.atStop = atStop;
+    context.tramFrame++;
+    context.occupyTrams();
+    assert.equal(te.junctions[0].held === context.tramFrame, held, `${reason || 'free'}${atStop ? ' at a stop' : ''}`);
+  }
+  assert.equal(road.occ[0].length, 0);
+});
+
+test('a driver kept waiting at an unsignalised zebra gets its turn: people still at the curb no longer hold it', () => {
+  const { car } = intersectionHarness();
+  car.edge.to.signal = false;
+  // pedestrianOn stand-in: someone waiting at the curb, who counts unless the car's turn has come (onIt)
+  const match = source.match(/  function mayEnter\([^]*?\n  \}/)[0];
+  const calls = [];
+  const enter = vm.runInNewContext(`(${match.trim()})`, {
+    LOOKAHEAD: 70, CROSSWALK: 4.3, PED_COURTESY: 5, shortOfZebra: () => 6.55, phaseOf: () => 'green', canStopBefore: () => true,
+    stopAt: () => -3, boxBusy: () => false, ahead: () => null, connector: () => ({ len: 20 }), yieldToCrossTraffic: () => false,
+    pedestrianOn: (n, side, coord, t0, t1, onIt) => (calls.push(onIt), !onIt), laneCoord: () => 0, timeTo: () => 1, room: () => true,
+    alongside: () => false, mergingAhead: () => null, tramBlocks: () => false, refuse: (v, why) => ((v.held = why), false)
+  });
+  car.speed = 0;
+  car.pedWait = 3;
+  assert.equal(enter(car, 0), false);
+  assert.equal(car.held, 'pedestrian');
+  car.pedWait = 6;
+  assert.equal(enter(car, 0), true, 'after PED_COURTESY seconds it goes once the zebra is clear');
+  car.edge.to.signal = true;
+  car.commit = null;
+  assert.equal(enter(car, 0), false, 'at a signal the WALK decides, not courtesy');
+  assert.deepEqual(calls.slice(0, 2), [false, true], 'the turn is passed on as onIt');
+  const courtesy = source.match(/  function courtesy\([^]*?\n  \}/);
+  assert.ok(courtesy, 'courtesy() marks the crosswalks it passes as crossed, so people at the curb wait');
+  const n = { signal: false, crossing: [0, 0, 0] };
+  const touched = [];
+  const mark = vm.runInNewContext(`(${courtesy[0].trim()})`, { touchNode: (node) => touched.push(node) });
+  mark({ edge: { to: n, inSide: 0 }, move: { to: { outSide: 2 } }, conn: null });
+  assert.deepEqual(n.crossing.slice(), [1, 0, 1]);
+  assert.equal(touched[0], n);
 });
 
 test('drivers aim at their pace times the posted limit, within the vehicle top speed', () => {
