@@ -1,14 +1,14 @@
 // tools/poz-water.mjs — land and water for the Poznań build (docs/poznan-plan.md D3, D6, §4.2). Poznań is not an island:
 // the Warta (with Ostrów Tumski between its arms), the Cybina, the Stare koryto Warty and Jezioro Maltańskie cut the
-// core into several land pieces, so land is traced from a raster as every component above a size floor instead of
-// Manhattan's keepLargest.
+// core into several land pieces, so land is traced from a raster as every component above a size floor, not just the
+// largest one.
 //
 // Input: tools/data/poz_water.json (natural=water incl. untagged ponds, waterway=riverbank, waterway=river|stream|canal
 // centrelines, relation 7550595 Malta), tools/data/poz_admin.json (relation 165941, the admin_level=8 city boundary).
 //
 // Exports (world metres, x = east, z = south; every ring is an open [[x, z], ...] list rounded to 0.1 m):
 // - water: [{ name, kind: 'river'|'lake'|'canal'|'pond', ring, holes? }] — the water polygons whose bbox reaches the
-//   detail box padded by WATER_PAD, rdp-simplified at 1 m, negative shoelace winding (as the NYC rings). A multipolygon
+//   detail box padded by WATER_PAD, rdp-simplified at 1 m, negative shoelace winding (as land and plazas). A multipolygon
 //   gives one entry per outer ring; its inner rings (islands in the water) above WATER_MIN_M2 go in `holes`, wound
 //   positive. Unnamed river polygons take the name of the waterway centreline running inside them (way 27942106 → Warta).
 // - waterRings: the same water as raw (unsimplified) outer rings, for burning water cells; islands are not in it, so use

@@ -1,9 +1,9 @@
 // tools/poz-roads.mjs — OSM highways, rails and squares → road pieces, plazas, rail lines and the merged GEO.roads
-// polylines, in the Poznań frame (poz-base.mjs). Work happens at import time, like the geo-*.mjs modules.
+// polylines, in the Poznań frame (poz-base.mjs). Work happens at import time, like the other poz-*.mjs modules.
 //
-// OSM ways are not pre-split like the NYC CSCL: a way runs through many junctions, and a junction is any node two
-// drivable ways share. Every way is cut at those nodes (and at its own repeated nodes), so each piece runs junction to
-// junction and its end node ids give the road graph its topology (poz-roadgraph.mjs) without guessing from coordinates.
+// OSM ways are not split at junctions: a way runs through many junctions, and a junction is any node two drivable
+// ways share. Every way is cut at those nodes (and at its own repeated nodes), so each piece runs junction to junction
+// and its end node ids give the road graph its topology (poz-roadgraph.mjs) without guessing from coordinates.
 //
 // Exports (world metres, x east, z south):
 //   pieces:         [{ id, wayId, name, cls, w, lanes, dir, bridge, tram, roundabout, kmh, kmhTagged, bike, pts: [[x, z]...],

@@ -1,6 +1,6 @@
-// tools/poz-blocks.mjs — Poznań curb islands, lot rects and frontage frames for tools/build-poznan.mjs: the
-// geo-blocks.mjs pass (1 m raster, roadways stamped as capsules at their curb-to-curb width, 4-connected labelling,
-// sidewalk erosion, greedy lot rects, frontage frames) over the detail box. Work happens at import time.
+// tools/poz-blocks.mjs — Poznań curb islands, lot rects and frontage frames for tools/build-poznan.mjs: a 1 m raster
+// of the detail box with the roadways stamped as capsules at their curb-to-curb width, 4-connected labelling, sidewalk
+// erosion, greedy lot rects and frontage frames. Work happens at import time.
 //
 // What is not a block cell (in stamping order):
 // - water and anything outside DETAIL_BOX (poz-water isLandAt), plus a STRIP-wide riverside strip;
@@ -18,7 +18,8 @@
 // 300-2,000 m²: 289 against 143). The default road graph leaves service roads out too.
 //
 // Exports: blocks [{ id, poly, area, bbox, rect, rects, frames, park, parkName }] (poly an open [[x, z]] ring, negative
-// winding; rects / frames as geo-blocks.mjs), STRIP, SIDEWALK, blockRaster, blockLabels.
+// winding; rects [[x0, x1, z0, z1]] axis-aligned lots; frames [[θ, px, pz, rects]] lots in the block's frame turned by θ
+// about (px, pz), or null), STRIP, SIDEWALK, blockRaster, blockLabels.
 import { log, DETAIL_BOX } from './poz-base.mjs';
 import { Raster, rdpRing, ringArea } from './geo-util.mjs';
 import { pieces, plazas, pedestrianWays, railCorridors } from './poz-roads.mjs';
@@ -29,7 +30,7 @@ import { parkCellsByLabel } from './poz-extra.mjs';
 // promenade and green between the water and the first street. 10 m keeps a walkable bank where a block would otherwise
 // reach the waterline, and still leaves the narrow Chwaliszewo strip its riverside block.
 const STRIP = 10;
-const SIDEWALK = 4.6; // property line in from the curb, as NYC (Poznań sidewalks are ≈ 3-5 m)
+const SIDEWALK = 4.6; // property line in from the curb (Poznań sidewalks are ≈ 3-5 m)
 const RES = 1;
 const T0 = Date.now();
 const [BX0, BX1, BZ0, BZ1] = DETAIL_BOX;
@@ -174,7 +175,7 @@ const comps = [];
 }
 log(`blocks: ${comps.length} curb islands labelled`);
 
-// --- Contour of one component (corner walk keeping the component on the right, as geo-blocks.mjs) ----------------
+// --- Contour of one component (corner walk keeping the component on the right) --------------------------------------
 function traceComponent(c) {
   const at = (i, j) => (i >= 0 && j >= 0 && i < W && j < H && lab[j * W + i] === c.id ? 1 : 0);
   const si = c.start % W, sj = (c.start - si) / W;
@@ -255,7 +256,7 @@ const prop = new Uint8Array(W * H);
   }
 }
 
-// --- Greedy axis-aligned lot rects (largest rectangle in a histogram), as geo-blocks.mjs ----------------------------
+// --- Greedy axis-aligned lot rects (largest rectangle in a histogram) ----------------------------------------------
 function maskRects(m, w, h, maxRects = 8, minSide = 8) {
   let total = 0;
   for (let k = 0; k < w * h; k++) total += m[k];
@@ -309,10 +310,14 @@ function lotRects(c, maxRects = 8) {
   };
 }
 
-// --- Frontage frames (geo-blocks.mjs blockFrames, see its comment) -----------------------------------------------
-// With bearing 0 nearly every Poznań block takes this path. The one change: an island cell looks for its nearest
-// outline edge only among the edges whose bbox, grown by the best distance found so far, can still beat it (edges sorted
-// by bbox x0 and scanned from the cell outwards), which keeps big park and rail-side islands with hundreds of edges cheap.
+// --- Frontage frames -------------------------------------------------------------------------------------------------
+// A block whose outline is not an axis-aligned rect gets up to 3 frames, one per dominant street direction: outline
+// edges cluster by direction (mod 90°, within 7°; a later cluster needs 12% of the perimeter), each island cell goes
+// to the cluster of its nearest edge, and lot rects are packed in each cluster's turned raster, its own region first,
+// then whatever the other frames left. Null when the only direction is within 2° of the axes. With bearing 0 nearly
+// every Poznań block takes this path. The nearest-edge search scans the edges by their z-distance from the cell's row
+// and stops once that alone can't beat the best distance found, which keeps big park and rail-side islands with
+// hundreds of edges cheap.
 const DEG = Math.PI / 180;
 const wrap90 = (a) => ((((a + Math.PI / 4) % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2)) - Math.PI / 4;
 function blockFrames(c, poly) {
@@ -482,7 +487,7 @@ for (const c of comps) {
 }
 const T2 = Date.now();
 
-// --- Park share (geo-extra.mjs rule: share of the block's cells under park land, the name above 25 %) -------------
+// --- Park share (share of the block's cells under park land, the park's name above 25 %) ---------------------------
 {
   const byLabel = parkCellsByLabel(R, lab);
   let named = 0;
