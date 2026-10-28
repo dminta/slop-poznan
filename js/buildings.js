@@ -34,7 +34,7 @@ import {
 } from './tsl-materials.js';
 import { createRoofs } from './roofs.js';
 import { GEO } from './geodata.js';
-import { keepClearBoxes, pavedPlazaRects, parkTreeSites, sidewalkBlocks } from './city-grid.js';
+import { pavedPlazaRects, parkTreeSites, sidewalkBlocks } from './city-grid.js';
 
 // js/buildings.js
 // Generates the city's generic blocks of buildings (city-config.js BLOCKS), indexed by a spatial 2D quadtree that
@@ -401,9 +401,8 @@ function buildCityBlocks(scene) {
   // plans, extruded storey by storey, tiers stacked on whole storeys
   // ============================================================================
   // Bridge decks and overpasses (city-config.js BRIDGES: the GEO.roadGraph links flagged bridge, flags bit 0, chained
-  // per name): no building may stand on a deck or within 3 m of it, nor in city-grid.js's keep-clear boxes. Oriented
-  // boxes { cx, cz, ux, uz, hl, hw } (u = along the deck), one per link segment, run 4 m past its ends so the abutments
-  // stay clear too.
+  // per name): no building may stand on a deck or within 3 m of it. Oriented boxes { cx, cz, ux, uz, hl, hw } (u = along
+  // the deck), one per link segment, run 4 m past its ends so the abutments stay clear too.
   const bridgeCorridors = [];
   for (const bridge of BRIDGES) {
     for (const link of bridge.links) {
@@ -417,9 +416,6 @@ function buildCityBlocks(scene) {
         });
       }
     }
-  }
-  for (const o of keepClearBoxes || []) {
-    bridgeCorridors.push({ cx: (o.minX + o.maxX) * 0.5, cz: (o.minZ + o.maxZ) * 0.5, ux: 1, uz: 0, hl: (o.maxX - o.minX) * 0.5, hw: (o.maxZ - o.minZ) * 0.5 });
   }
   // Separating-axis test of the rect [x0, x1] x [z0, z1] (of the current frame) against every corridor box
   function hitsBridgeCorridor(x0, x1, z0, z1) {
