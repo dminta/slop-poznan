@@ -10,7 +10,7 @@ import { buildBridges } from './bridges.js';
 import { buildLandmarks } from './landmarks.js';
 import { buildCityBlocks } from './buildings.js';
 import { buildStreetDetails, plateLabel } from './street-details.js';
-import { createTrafficSystem, createHighwayTraffic } from './traffic.js';
+import { createTrafficSystem } from './traffic.js';
 import { createTramSystem } from './trams.js';
 import { buildRoadPaint } from './road-paint.js';
 import { buildTramInfrastructure } from './tram-infra.js';
@@ -108,7 +108,6 @@ async function initApp() {
   allColliders.push(...streetDetails.colliders);
   // Likewise the square & park benches, lampposts, planters and tree trunks: none on the network's sidewalks
   allColliders.push(...cityGrid.propColliders);
-  const highwayTraffic = createHighwayTraffic(scene, cityGrid.highwayLanes);
   buildRoadPaint(scene, trafficSystem.network, trafficSystem.crosswalks);
   markInit('roadPaint');
   // Rails, overhead line and stops, placed clear of the car lanes just built (none of it is a traffic obstacle);
@@ -154,7 +153,7 @@ async function initApp() {
   const cameraSystem = new CameraSystem(renderer.domElement, controllerManager);
   const touchControls = new TouchControls(controllerManager);
   const soundButton = document.getElementById('btn-sound');
-  const audioSystem = new CityAudioSystem({ controllerManager, trafficSystem, highwayTraffic, tramSystem, streetDetails }, {
+  const audioSystem = new CityAudioSystem({ controllerManager, trafficSystem, tramSystem, streetDetails }, {
     onStateChange: updateSoundButton
   });
   function updateSoundButton() {
@@ -714,7 +713,6 @@ async function initApp() {
       controllerManager.activeMode,
       cameraSystem.camera
     );
-    highwayTraffic.update(dt, cameraSystem.camera, controllerManager.getActiveEntity(), controllerManager.activeMode);
     if (!document.hidden && now >= nextPlayerSave) {
       savePlayerState();
       nextPlayerSave = now + 5000;
@@ -725,7 +723,7 @@ async function initApp() {
     landmarks.update(dt, elapsed, lightingSystem.activePresetId);
     lightingSystem.update(cameraSystem.currentPos);
     mapSystem.update();
-    audioSystem.update(dt, elapsed, cameraSystem.camera, lightingSystem.activePresetId === 'midnight');
+    audioSystem.update(dt, elapsed, cameraSystem.camera, lightingSystem.activePresetId);
     if (warmedUp) updateSceneCulling(cameraSystem.camera.position); // the warm-up frame draws every chunk
 
     // Render frame via TSL RenderPipeline (SSR + Bloom)

@@ -22,7 +22,7 @@
 ## Boot order (inside `initApp`)
 1. `renderer.init()`, then `LightingSystem`.
 2. City builders, in this order: `buildCityGrid`, `buildOutskirts`, `buildBridges`, `buildLandmarks`, `buildCityBlocks`,
-   `buildStreetDetails`, `createTrafficSystem`, `createHighwayTraffic`, `buildRoadPaint`. The order matters because of the
+   `buildStreetDetails`, `createTrafficSystem`, `buildRoadPaint`. The order matters because of the
    live `let` exports below ([`world.md`](world.md#build-order-mainjs-initapp-and-why-it-is-fixed)).
 3. `ThirdPersonControllerManager(scene, allColliders)`. Saved player state is restored right after it is constructed.
 4. Then `CameraSystem`, `TouchControls`, `CityAudioSystem`, `setupSceneCulling`, the WebGPU-only instanced-matrix swap, the
@@ -40,7 +40,7 @@
   3. **Mutable exported singletons:**
      - `cityUniforms` in `tsl-materials.js`. `lighting.js` writes it; `controllers.js` and the materials read it, for example
        `uInteriorGlow` drives headlight intensity.
-     - Exported `let` bindings that a builder fills in: `sidewalkBlocks`, `pavedPlazaRects`, `keepClearBoxes`, ...
+     - Exported `let` bindings that a builder fills in: `sidewalkBlocks`, `pavedPlazaRects`, `parkTreeSites`, ...
        (`city-grid.js`). These stay `undefined` until their builder runs, so read them at
        call time, never at module top level.
      - The test harness snapshots imports as plain values, so tests pass these as stub values.
@@ -55,13 +55,12 @@ The loop runs these in order:
 4. `signalClock`
 5. `tramSystem.update` (camera position, camera, active entity and mode)
 6. `trafficSystem.update` (receives the camera position, active entity, mode and camera)
-7. `highwayTraffic.update`
-8. a throttled save
-9. the building, street-detail and lighting updates (these use `cameraSystem.currentPos`)
-10. `mapSystem.update`
-11. `audioSystem.update`
-12. `updateSceneCulling` (skipped on the warm-up frame)
-13. `renderPipeline.render()`
+7. a throttled save
+8. the building, street-detail and lighting updates (these use `cameraSystem.currentPos`)
+9. `mapSystem.update`
+10. `audioSystem.update`
+11. `updateSceneCulling` (skipped on the warm-up frame)
+12. `renderPipeline.render()`
 
 Why the order matters:
 - Trams run before the street traffic: the cars put this frame's trams into their lanes and the player collides with

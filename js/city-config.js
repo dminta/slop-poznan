@@ -687,7 +687,7 @@ const formatCount = (n) => n.toLocaleString('pl');
 
 // Traffic signal cycle shared by the signal heads (street-details.js) and the traffic (traffic.js), in seconds. A signal
 // runs two groups (road-network.js sidesAndGroups): group 0, the widest road at the junction, and group 1, the other
-// roads. The `avenue*` timings and `isAvenue` flags mean group 0 (names kept from the Manhattan grid, and audio reads
+// roads. The `avenue*` timings and `isAvenue` flags mean group 0 (names that predate the Poznań port, and audio reads
 // `isAvenue`): it is green until avenueAmber, amber until avenueRed; group 1 is green from avenueRed until streetAmber,
 // amber until the end of the cycle. As in Poland, red turns green through `redAmber` seconds of red and amber together
 // (S-1: "prepare to go"), the last of the red: group 0 at the end of the cycle, group 1 just before avenueRed. Traffic

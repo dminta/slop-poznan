@@ -19,14 +19,14 @@ function eventTarget() {
   };
 }
 
-function keyboardHarness(nyc = {}) {
+function keyboardHarness(cityConfig = {}) {
   const window = eventTarget();
   const document = { ...eventTarget(), hidden: false };
   const config = {
     SPAWN: { x: 0, z: 0, heading: 0 },
     isTypingInField: (event) => ['INPUT', 'SELECT'].includes(event.target?.tagName),
     RAISED_GROUND: [],
-    ...nyc
+    ...cityConfig
   };
   const { ThirdPersonControllerManager } = loadModule(source, {
     globals: { window, document },

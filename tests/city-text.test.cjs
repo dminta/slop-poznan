@@ -16,7 +16,7 @@ test('map text helpers fold Polish letters, sort and upper-case in Polish', asyn
   assert.equal(foldText('Święty Marcin'), 'swiety marcin');
   assert.equal(foldText('Łazarz, Głogowska'), 'lazarz, glogowska');
   assert.equal(foldText('Żeromskiego ŹRÓDŁO'), 'zeromskiego zrodlo');
-  assert.equal(foldText('Broadway'), 'broadway');
+  assert.equal(foldText('Garbary'), 'garbary');
   const sorted = ['Żabikowo', 'Łazarz', 'Zielona', 'Lipowa', 'Śródka', 'Sołacz', 'Ogrody', 'Ostrów Tumski']
     .sort(compareNames);
   assert.deepEqual(sorted, ['Lipowa', 'Łazarz', 'Ogrody', 'Ostrów Tumski', 'Sołacz', 'Śródka', 'Zielona', 'Żabikowo']);

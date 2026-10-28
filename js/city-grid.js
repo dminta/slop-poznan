@@ -22,12 +22,10 @@ import {
 } from './tsl-materials.js';
 
 // Live construction data consumed by the building and street-detail builders after buildCityGrid().
-let parkClearings;
 let parkTreeSites;
 let parkLampSites;
 let pavedPlazaRects;
 let sidewalkBlocks;
-let keepClearBoxes;
 
 // js/city-grid.js
 // Builds the city's ground: the Warta and the ponds at CITY_BOUNDS.waterLevel, the street-level land deck (LAND_RINGS
@@ -231,7 +229,7 @@ function offsetPolygon(pts, d) {
 
 /**
  * Tags every vertex of a mesh using the shared park paving material with its paving style (uv.x, see
- * createParkPavingMaterial: 0 hex asphalt pavers, 1 light granite plaza pavers, 2 bluestone slabs).
+ * createParkPavingMaterial: 0 mineral park walks, 1 granite setts, 2 concrete slabs).
  */
 function setPavingStyle(geo, style) {
   const uvAttr = geo.attributes.uv;
@@ -646,7 +644,7 @@ function buildCityGrid(scene) {
   //    curb island paved like a park walk, a granite-coped lawn inset from it under scattered trees, lampposts round the
   //    walk, its ponds cut out with a paved path round them
   // =========================================================================
-  const PARK_Y = 0.26; // hex-paver walks (sidewalk tops are at 0.22)
+  const PARK_Y = 0.26; // mineral walks (sidewalk tops are at 0.22)
   const BED_Y = 0.41; // lawn top inside the granite bed copings
   const parkLawnGeos = [];
   for (const b of BLOCKS) {
@@ -804,10 +802,6 @@ function buildCityGrid(scene) {
   parkLampSites = lampMatrices.map((m) => ({ x: m.elements[12], y: m.elements[13] + 4.17, z: m.elements[14] }));
   pavedPlazaRects = pavedRects;
   sidewalkBlocks = blockSidewalks; // { cx, cz, w, d } raised sidewalk slabs (cross-street tree rows)
-  // Areas the park woodland planting must keep clear (same shape as Manhattan's Central Park clearings): the ponds
-  parkClearings = { polygons: LAND_HOLES.map((h) => h.ring), drives: [], transverseZ: [], rects: [], circles: [], mall: null };
-  // Boxes no building may stand in (Manhattan's elevated highways had them; Poznań has none yet)
-  keepClearBoxes = [];
 
   // Batch static sub-meshes by material to reduce per-frame WebGPU draw calls
   batchStaticGroupMeshes(group, new Set([waterMat, roadMat, lawnMat]));
@@ -820,16 +814,14 @@ function buildCityGrid(scene) {
   const colliders = [];
   console.info(`[cityGrid] ${benchMatrices.length} benches, ${lampMatrices.length} lampposts, ` +
     `${treeSites.length} park & plaza trees; ${propColliders.length} player colliders`);
-  return { group, sidewalks, footprints, highwayLanes: [], colliders, propColliders };
+  return { group, sidewalks, footprints, colliders, propColliders };
 }
 
 export {
   buildCityGrid,
   batchStaticGroupMeshes,
-  parkClearings,
   parkTreeSites,
   parkLampSites,
   pavedPlazaRects,
-  sidewalkBlocks,
-  keepClearBoxes
+  sidewalkBlocks
 };

@@ -4,7 +4,7 @@ Status: **Phases 1–11 done, with open items** (each phase heading carries its 
 Kaponiera portals and the Combino; Phase 10 the articulated bus, the S-2 arrow and the taxi crest; Phase 11
 the S-2 arrow, signal countdowns, "BUS" lane text, a 4th tree species and real OSM tree positions). The 2026-10-27 audit
 found further gaps; its six functional gaps were fixed on 2026-10-28, the rest is listed in **Open items from the
-2026-10-27 audit** below. Phase 12 is partly done (teleports, tram sounds,
+2026-10-27 audit** below. Phase 15 (bug fixes and Polish vehicles) is open. Phase 12 is partly done (teleports, tram sounds,
 the `nyc-sound` key); the rest is not started.
 Line references are as of commit `46ec12b` and will drift; grep for the named symbol if a line no longer matches. Read `AGENTS.md` and the topic docs (`geodata.md`, `world.md`, `rendering.md`,
 `actors.md`, `audio.md`, `architecture.md`, `testing.md`) before starting any phase. They hold the repo-wide rules
@@ -1136,6 +1136,77 @@ from the 2026-10-27 audit**; grep case-insensitively.
    the inner-lot kinds and the row floors, instead of fixed profile weights.
 3. **Check** against GUGiK BDOT10k `OT_BUBD_A` for Poznań, once. Use BDOT10k only where OSM is incomplete. It is free,
    in EPSG:2180, licence wording unconfirmed. GUGiK LoD1 2024 (`measuredHeight`) is for later, for heights.
+
+### Phase 15: Bug fixes and Polish vehicles
+
+**Status: not started** (opened 2026-10-28 from in-browser reports and the agents' open items). Each item lists the
+files it touches so the items can run in parallel. 15.3 waits for the NYC-visuals cleanup of `actor-models.js` (Phase
+12.5) to land.
+
+1. **Trams drive through square furniture and their rails vanish on squares** (reported at Plac Cyryla Ratajskiego).
+   Cause, measured: `pavedPlazas()` (`js/city-grid.js`) drops only the place outlines with more than 30 m of `ROADS`
+   inside. It does not count `GEO.rail`. Plac Cyryla Ratajskiego has 146 m of tram track and 0 m of road inside its
+   ring, and Plac Wielkopolski has 366 m and 0 m. Both are paved with the 0.24 m granite slab, which buries the
+   rails. Their edge lamps and benches (`addLamp` / `addBench`) and planter trees land on the track, and trams do not
+   collide with prop colliders. Fix:
+   - Treat tram track inside a plaza like a road: either skip paving such squares, or cut a hole in the slab along each
+     track (the track gauge plus about 1.5 m of clearance a side) and keep the rails and catenary visible.
+   - Keep every piece of plaza and park furniture (lamps, benches, planters, trees) and every square furniture collider
+     at least 2 m from any `GEO.rail` track.
+   - Also check other furniture sources against the rails (`street-details.js` kiosks, columns and trees,
+     `tram-infra.js` platforms, landmark props).
+   - Test: no prop collider or furniture instance within 2 m of a tram track, and every plaza with tram track inside it
+     still shows its rails (not under a slab).
+   - Files: `js/city-grid.js`, maybe `js/street-details.js`, tests.
+2. **Shifted lanes; cars line up oddly.** Seen on **Św. Marcin** and **Roosevelta**: lanes are painted off their real
+   position, and cars queue at odd offsets or angles. First collect cases (coordinates or street names and a screenshot) and a headless check:
+   - lane centres more than about 0.3 m from the paint;
+   - lanes crossing the curb or a median;
+   - joins between consecutive edges whose lane offsets jump.
+
+   Suspects:
+   - lane offsets of OSM `lanes` / `width` mismatches;
+   - divided roads where the left bike lane or the median drops a lane;
+   - the bike-lane offset (see 15.4);
+   - `turn:lanes` / lane counts changing mid-link;
+   - stop-line queues using a different offset than the lane paint.
+
+   Files: `js/road-network.js`, `js/road-paint.js`, `js/traffic.js` (source-sliced tests).
+3. **Polish vehicles** (`js/actor-models.js`, `js/traffic.js`, `js/tsl-materials.js`). Decided 2026-10-28: vehicles
+   should resemble models that are popular in Poland.
+   - **Taxi**: a Toyota Corolla-like saloon or estate (most Poznań taxis are Corolla hybrids).
+   - **Ambulance (PRM)**: a VW Transporter / Crafter-class van box ambulance.
+   - **Fire service (PSP)**: a van or a medium truck in the same spirit, plus the red PSP livery.
+   - **Policja**: a common police saloon or estate (e.g. Kia Ceed / Škoda Octavia-like) with the Polish blue-silver
+     livery.
+   - **Private cars**: hatchbacks, estates (kombi) and compact SUVs or crossovers in the spirit of Škoda Octavia /
+     Fabia, Toyota Yaris / Corolla, VW Golf, Kia Sportage / Dacia Duster, plus delivery vans (Ducato / Sprinter-class).
+     Use smaller widths and lengths than the US bodies, and a palette leaning to greys, whites, blacks and silvers.
+   - **Licensing: resemble, never copy.** Use generic proportions and silhouettes of the vehicle class only. Do not put
+     brand names, badges, logos, grille trademarks or model names on the vehicles, in textures or in UI text. Do not
+     import third-party 3D models, blueprints or photos as textures. Code comments may name the class ("Corolla-class
+     saloon"). Official liveries (Policja, PRM, PSP) are public-service markings: approximate their colours and
+     reflective patterns, and keep crests and emblems out. Taxi crests are already skipped for this reason.
+   - **Plates**: EU white plates with the blue EU band, using `PO`, `PY` and `PZ` prefixes (Poznań city, the city's
+     second series, Poznań county) and a plausible Polish plate layout (`PO 1AB23`, `PZ 12345` style). Drawn
+     procedurally, no real registrations.
+   - The MPK bus and the helicopter are in Phase 12.5, and the 18 m articulated bus is still in Phase 10. Keep the
+     draw-call count per class, and update `docs/actors.md`.
+4. **Remove bike lanes** (decided 2026-10-28). The red bike-lane paint looks poor. Remove the paint, the `edge.bike` lane
+   offsets and their effect on lane placement, and link flag bits 3/4 and their build code if nothing else needs them,
+   then rebuild the geodata. Removing them also takes away one suspect of 15.2. Check what reads `bike` before
+   deleting: `road-network.js`, `road-paint.js`, `traffic.js`, `audio-*.js`, the cyclist player mode in
+   `controllers.js`, and `tools/poz-roadgraph.mjs`. The cyclist player mode stays, riding in the roadway.
+5. **Agent-reported open items** (from the 2026-10-28 fixes):
+   - Pedestrians waiting on a split crossing's strip stand at the rail edge (Roosevelta), and trams do not brake for
+     them. Split zebras may be painted up to the rails.
+   - The 6-arm central Dworzec node still has no zebras. The proper fix is medians and tram strips as blocks in
+     `tools/`.
+   - Map pin dots overlap at low zoom (Stary Rynek, Andersia group).
+   - "Kiss & Ride & Zachodnia": the HUD's " & " street join clashes with OSM names that contain " & ".
+   - 1.2% of tram samples run off their route at loosely mapped crossings.
+   - Measure traffic flow with crossers at the unsignalised zebras.
+   - Re-measure the stale track-dependent numbers in `docs/actors.md`.
 
 ---
 

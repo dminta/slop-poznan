@@ -163,74 +163,6 @@ class Raster {
     this.d = save;
     for (let i = 0; i < this.d.length; i++) this.d[i] = dil[i] && toGap[i] > rc ? 1 : 0;
   }
-  // Keep only the 4-connected component containing the most cells
-  keepLargest() {
-    const { w, h, d } = this;
-    const lab = new Int32Array(w * h);
-    let best = 0, bestN = 0, cur = 0;
-    const stack = [];
-    for (let s = 0; s < w * h; s++) {
-      if (!d[s] || lab[s]) continue;
-      cur++;
-      let n = 0;
-      stack.push(s);
-      lab[s] = cur;
-      while (stack.length) {
-        const p = stack.pop();
-        n++;
-        const i = p % w, j = (p - i) / w;
-        if (i > 0 && d[p - 1] && !lab[p - 1]) { lab[p - 1] = cur; stack.push(p - 1); }
-        if (i < w - 1 && d[p + 1] && !lab[p + 1]) { lab[p + 1] = cur; stack.push(p + 1); }
-        if (j > 0 && d[p - w] && !lab[p - w]) { lab[p - w] = cur; stack.push(p - w); }
-        if (j < h - 1 && d[p + w] && !lab[p + w]) { lab[p + w] = cur; stack.push(p + w); }
-      }
-      if (n > bestN) { bestN = n; best = cur; }
-    }
-    for (let i = 0; i < w * h; i++) d[i] = lab[i] === best ? 1 : 0;
-  }
-  // Outer boundary of the (single) region as a ring of cell-corner points (Moore-neighbour style edge walk)
-  traceOuter() {
-    const { w, h, d, res, x0, z0 } = this;
-    const at = (i, j) => (i >= 0 && j >= 0 && i < w && j < h ? d[j * w + i] : 0);
-    // Directed boundary edges keep land on the left: start at the first land cell's top edge
-    let si = -1, sj = -1;
-    outer: for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (at(i, j)) { si = i; sj = j; break outer; }
-    // Walk corners: position (cx, cz) in corner coordinates, direction index 0:+x 1:+z 2:-x 3:-z
-    const DX = [1, 0, -1, 0], DZ = [0, 1, 0, -1];
-    let cx = si, cz = sj, dir = 0; // top edge of cell (si, sj), walking +x with land below (on the right in screen, z down)
-    const pts = [];
-    const start = `${cx},${cz},${dir}`;
-    let guard = 0;
-    // For a corner walk with land on the right (z down means right = +z side when walking +x):
-    // cells around corner (cx, cz): A=(cx-1,cz-1) B=(cx,cz-1) C=(cx-1,cz) D=(cx,cz)
-    do {
-      pts.push([x0 + cx * res, z0 + cz * res]);
-      cx += DX[dir];
-      cz += DZ[dir];
-      // Cells ahead-left and ahead-right relative to the walking direction
-      const cellAt = (dxl, dzl) => at(cx + dxl, cz + dzl);
-      // Determine the cells: for each direction, the two cells in front of the corner
-      let left, right;
-      if (dir === 0) { left = cellAt(0, -1); right = cellAt(0, 0); }
-      else if (dir === 1) { left = cellAt(0, 0); right = cellAt(-1, 0); }
-      else if (dir === 2) { left = cellAt(-1, 0); right = cellAt(-1, -1); }
-      else { left = cellAt(-1, -1); right = cellAt(0, -1); }
-      if (left && right) dir = (dir + 3) % 4; // turn left (land ahead): keep land on the right
-      else if (!left && right) { /* straight */ }
-      else dir = (dir + 1) % 4; // turn right
-      if (++guard > 50000000) throw new Error('trace runaway');
-    } while (`${cx},${cz},${dir}` !== start);
-    // Merge collinear runs, then take edge midpoints (turns the raster's stairs into 45° runs before simplifying)
-    const out = [];
-    for (let i = 0; i < pts.length; i++) {
-      const p = pts[(i + pts.length - 1) % pts.length], q = pts[i], n = pts[(i + 1) % pts.length];
-      if ((q[0] - p[0]) * (n[1] - q[1]) - (q[1] - p[1]) * (n[0] - q[0]) !== 0) out.push(q);
-    }
-    return out.map((q, i) => {
-      const n = out[(i + 1) % out.length];
-      return [(q[0] + n[0]) / 2, (q[1] + n[1]) / 2];
-    });
-  }
 }
 
 // Even-odd scanline over several rings at once (inner rings cut their holes), calling cell(i, j) for each cell of the
@@ -260,15 +192,8 @@ function scanRings(rings, g, cell) {
 // ---------------------------------------------------------------------------------------------------------------------
 // Overpass elements (`out geom`) to world rings
 // ---------------------------------------------------------------------------------------------------------------------
-// One ring per element: a way's geometry, or a relation's outer member with the most nodes
-function elemRing(e, project) {
-  if (e.type === 'way') return (e.geometry || []).map((g) => project(g.lon, g.lat));
-  let best = [];
-  for (const m of e.members || []) if (m.role === 'outer' && m.geometry && m.geometry.length > best.length) best = m.geometry.map((g) => project(g.lon, g.lat));
-  return best;
-}
 function elemRings(e, project, role = 'outer') {
-  // relations (The Lake, Turtle Pond, Harlem Meer) come as several outer ways: chain them into closed rings. A way is
+  // relations (the Warta's banks, lakes, multipolygon parks) come as several outer ways: chain them into closed rings. A way is
   // its own single outer ring and has no inner ones.
   if (e.type === 'way') return role === 'outer' ? [(e.geometry || []).map((g) => project(g.lon, g.lat))] : [];
   const parts = (e.members || []).filter((m) => m.role === role && m.geometry).map((m) => m.geometry.map((g) => project(g.lon, g.lat)));
@@ -286,47 +211,9 @@ function elemRings(e, project, role = 'outer') {
   }
   return rings;
 }
-// Chain OSM natural=coastline ways (land on the left) end to start into polylines, by shared node ids. Each chain starts
-// at its first way: the walk back takes the earliest way (in element order) ending where the chain starts, which the
-// byEnd lists reproduce in O(1) per step, so the output matches the former linear `ways.find` scan exactly.
-function chainCoastline(osm, project) {
-  const ways = osm.elements.filter((e) => e.type === 'way' && e.geometry);
-  const byStart = new Map();
-  const byEnd = new Map();
-  for (const w of ways) {
-    byStart.set(w.nodes[0], w);
-    const end = w.nodes[w.nodes.length - 1];
-    if (!byEnd.has(end)) byEnd.set(end, []);
-    byEnd.get(end).push(w);
-  }
-  const used = new Set();
-  const chains = [];
-  for (const w of ways) {
-    if (used.has(w.id)) continue;
-    // Walk back to the chain's first way
-    let first = w;
-    const seen = new Set([w.id]);
-    for (;;) {
-      const prev = (byEnd.get(first.nodes[0]) || []).find((u) => !seen.has(u.id));
-      if (!prev) break;
-      seen.add(prev.id);
-      first = prev;
-    }
-    const nodes = [];
-    let cur = first;
-    while (cur && !used.has(cur.id)) {
-      used.add(cur.id);
-      const g = cur.geometry.map((p) => project(p.lon, p.lat));
-      nodes.push(...(nodes.length ? g.slice(1) : g));
-      cur = byStart.get(cur.nodes[cur.nodes.length - 1]);
-    }
-    chains.push(nodes);
-  }
-  return chains;
-}
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Multi-component tracing (a river city has several land pieces, where Manhattan needed keepLargest + traceOuter)
+// Multi-component tracing (a river city has several land pieces)
 // ---------------------------------------------------------------------------------------------------------------------
 // 4-connected labels of the cells where pick(value) is true (1-based in scan order; 0 = not picked), with each
 // component's cell count and first cell in scan order (its top-left-most cell, where a boundary walk starts)
@@ -355,10 +242,9 @@ function labelComponents(ras, pick) {
   }
   return { lab, cells, first };
 }
-// Boundary of the cells labelled `id`, walked from the top edge of its first cell with the region on the right (the
-// same corner walk as Raster.traceOuter, numeric state instead of string keys), as the turning corners of the outline.
-// Raster edges are kept exactly: corners next to an edge of at least `longCells` cells stay put, the rest of the
-// staircase becomes edge midpoints as in traceOuter. Without this the midpoint pass chamfers a straight cut (a box edge,
+// Boundary of the cells labelled `id`, walked corner to corner from the top edge of its first cell with the region on
+// the right, as the turning corners of the outline. Raster edges are kept exactly: corners next to an edge of at least
+// `longCells` cells stay put, the rest of the staircase becomes edge midpoints. Without this the midpoint pass chamfers a straight cut (a box edge,
 // 6 km long) from its middle to the middle of the next edge.
 function traceLabel(ras, lab, id, start, longCells) {
   const { w, h, res, x0, z0 } = ras;
@@ -430,4 +316,4 @@ function traceComponents(ras, { minCells = 1, minHoleCells = Infinity, longCells
   return { components, labels };
 }
 
-export { r1, ringArea, bbox, rdp, rdpRing, pointInRing, centroid, Raster, scanRings, elemRing, elemRings, chainCoastline, labelComponents, traceComponents };
+export { r1, ringArea, bbox, rdp, rdpRing, pointInRing, centroid, Raster, scanRings, elemRings, labelComponents, traceComponents };

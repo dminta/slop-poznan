@@ -1,9 +1,39 @@
 import { createSynthResources, createMotorVoice, setControlRate } from './audio-synthesis.js';
-import { createEventResources, playEvent, createWindVoice } from './audio-events.js';
+import { createEventResources, playEvent, createWindVoice, SIGNAL_TIMING } from './audio-events.js';
 import { CityAudioSources } from './audio-sources.js';
 import { CityAcoustics } from './audio-acoustics.js';
+import { LANDMARK_SITES } from './city-config.js';
+import {
+  CHURCH_BELLS,
+  GOAT_BUTT_TIMES,
+  HEJNAL,
+  PRESET_CLOCK,
+  RATUSZ_SOUNDS,
+  clockMinutes,
+  fullHourIn,
+  goatShowTime,
+  hejnalLength,
+  hourStrokes,
+  pealLength,
+  sitePoint
+} from './city-clock.js';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+// Per event kind: the panner's reference distance, the range beyond which emit() drops it, the emitter's height above
+// the source, whether it follows its source, whether a crash may evict it (`keep`: never) and whether it is
+// directional. The landmark sounds (church bells, the hejnał, the goats) carry their real height in the source's y.
+// Crashes scale ref and range with severity in emit().
+const EVENT_SPACE = {
+  footstep: { ref: 1.8, range: 22, height: 0 },
+  talk: { ref: 2, range: 30, height: 1.5, follow: true },
+  horn: { ref: 8, range: 140, height: 0, follow: true, keep: true, directional: true },
+  bell: { ref: 9, range: 160, height: 1.6, follow: true, keep: true },
+  signal: { ref: 1.8, range: 35, height: 0 },
+  church: { ref: 45, range: 520, height: 0, keep: true },
+  hejnal: { ref: 20, range: 380, height: 0, keep: true },
+  goats: { ref: 3, range: 120, height: 0, keep: true }
+};
 const smooth = (param, value, now, time = 0.035, immediate = false) => {
   param.cancelScheduledValues(now);
   if (immediate) param.setValueAtTime(value, now);
@@ -119,6 +149,32 @@ class CityAudioSystem {
     this.motorParams = { speed: 0, load: 0, verticalSpeed: 0, squeal: 0, doppler: 1, seed: 0 };
     this.windParams = { speed: 0, altitude: 0, night: 0, traffic: 0, enclosure: 0 };
     this.footPosition = { x: 0, y: 0, z: 0, seed: 0 };
+    // The clock-driven landmark sounds (city-clock.js): fixed source records (their own ids), reused option objects,
+    // and the state of the current hour's peal and noon show. `played` flags are cleared by reset(), so a peal or
+    // show still running when the listener comes back (unmute, teleport) resumes part-way instead of being lost.
+    const landmark = (name, along, y, seed) => {
+      const site = LANDMARK_SITES[name];
+      if (!site) return null;
+      const point = sitePoint(site, along, y);
+      const source = { id: null, x: point.x, y: point.y, z: point.z, seed };
+      source.id = source;
+      return source;
+    };
+    this.churches = CHURCH_BELLS.map((bell, i) => ({ bell, source: landmark(bell.site, bell.along, bell.y, 71 + i), played: false }));
+    this.trumpeter = landmark('Ratusz', RATUSZ_SOUNDS.trumpeter.along, RATUSZ_SOUNDS.trumpeter.y, 81);
+    this.goatLedge = landmark('Ratusz', RATUSZ_SOUNDS.goats.along, RATUSZ_SOUNDS.goats.y, 82);
+    this.presetId = null;
+    this.presetSince = 0;
+    this.clockFrom = 0;
+    this.peal = { start: -Infinity, strokes: 0 };
+    this.show = { midday: false, start: 0 };
+    this.showTime = -1;
+    this.lastShowTime = -1;
+    this.hejnalPlayed = false;
+    this.goatsPlayed = false;
+    this.hejnalEnd = HEJNAL.plays[HEJNAL.plays.length - 1] + hejnalLength();
+    this.churchOptions = { strokes: 1, pitch: 1, offset: 0, when: 0, intensity: 1 };
+    this.showOptions = { offset: 0, intensity: 1 };
     this.onGesture = (event) => {
       if (event.type === 'keydown' && (event.repeat || event.metaKey || event.ctrlKey || /INPUT|TEXTAREA|SELECT/.test(event.target?.tagName))) return;
       if (this.enabled) this.unlock();
@@ -220,6 +276,8 @@ class CityAudioSystem {
     this.conversations = new WeakMap();
     this.states = new WeakMap();
     this.collisionPairs = new WeakMap();
+    for (const church of this.churches) church.played = false;
+    this.hejnalPlayed = this.goatsPlayed = false;
     this.haveListener = false;
     this.accumulator = 0;
     if (this.master) {
@@ -322,8 +380,9 @@ class CityAudioSystem {
     const now = this.context.currentTime;
     const crash = kind === 'crash';
     const severity = clamp(options.severity ?? options.intensity ?? 1, 0, 1);
-    const ref = crash ? 4 + severity * 8 : kind === 'horn' ? 8 : kind === 'bell' ? 9 : kind === 'talk' ? 2 : 1.8;
-    const range = crash ? 50 + severity * 110 : kind === 'horn' ? 140 : kind === 'bell' ? 160 : kind === 'talk' ? 30 : kind === 'footstep' ? 22 : 35;
+    const space = EVENT_SPACE[kind] || EVENT_SPACE.signal;
+    const ref = crash ? 4 + severity * 8 : space.ref;
+    const range = crash ? 50 + severity * 110 : space.range;
     if (Math.hypot(source.x - this.listener.x, source.y - this.listener.y, source.z - this.listener.z) > range) return false;
     if (crash) {
       // Impacts are immediate, between the 10 Hz ambience updates. Reclaim finished events first, then let
@@ -343,18 +402,18 @@ class CityAudioSystem {
         this.removeEvent(weakest);
       }
       if (this.events.length >= this.limits.events) {
-        const background = this.events.findIndex(event => event.kind !== 'crash' && event.kind !== 'horn' && event.kind !== 'bell');
+        const background = this.events.findIndex(event => event.kind !== 'crash' && !EVENT_SPACE[event.kind]?.keep);
         if (background < 0) return false;
         this.removeEvent(background);
       }
     }
     if (this.events.length >= this.limits.events) return false;
     const emitter = new SpatialEmitter(this.context, this.mix, this.reflections, this.acoustics,
-      ref, kind === 'talk' ? 1.5 : kind === 'bell' ? 1.6 : 0, kind === 'horn');
+      ref, crash ? 0 : space.height, !crash && !!space.directional);
     // Do not fade away the first few milliseconds of a crash: its spatial gain and filtering are ready at onset.
     emitter.update(source, this.listener, now, range, true, crash);
     const voice = playEvent(this.context, this.resources, kind, emitter.input, { seed: source.seed, ...options });
-    this.events.push({ kind, voice, emitter, id: source.id, range, severity, position: { ...source }, follow: kind === 'talk' || kind === 'horn' || kind === 'bell' });
+    this.events.push({ kind, voice, emitter, id: source.id, range, severity, position: { ...source }, follow: !crash && !!space.follow });
     return true;
   }
 
@@ -397,7 +456,67 @@ class CityAudioSystem {
     if (this.emit('horn', { id: entity, ...entity.position, heading: entity.heading, seed: 4 }, { intensity: 0.7 })) this.lastHorn = now;
   }
 
-  update(dt, elapsed, camera, night = false) {
+  // Every frame, even muted: the clock and the noon show must see a preset change on the same frame (and elapsed) as
+  // landmarks-rynek.js does, or the goats' knocks would drift off their animation. No allocation.
+  trackClock(elapsed, presetId) {
+    if (presetId !== this.presetId) {
+      this.presetId = presetId;
+      this.presetSince = elapsed;
+      // just below the preset's time, so a preset that starts on the hour (23:00) strikes at once
+      this.clockFrom = (PRESET_CLOCK[presetId] ?? PRESET_CLOCK.golden) - 1e-6;
+    }
+    this.showTime = goatShowTime(this.show, elapsed, presetId);
+  }
+
+  // The hour bells and the noon show (city-clock.js), at the 10 Hz tick. Each one-shot covers a whole peal or show
+  // and is emitted once, when the listener is within its range; joining late passes an offset, so playEvent leaves
+  // out what is already over.
+  updateLandmarkSounds(elapsed, now) {
+    const minutes = clockMinutes(this.presetId, elapsed - this.presetSince);
+    const hour = fullHourIn(this.clockFrom, minutes);
+    this.clockFrom = minutes;
+    if (hour >= 0) {
+      this.peal.start = now - (minutes - hour * 60) * 60;
+      this.peal.strokes = hourStrokes(hour);
+      for (const church of this.churches) church.played = false;
+    }
+    if (this.peal.strokes) {
+      const length = pealLength(this.peal.strokes);
+      for (const church of this.churches) {
+        if (church.played || !church.source) continue;
+        const offset = now - this.peal.start - church.bell.delay;
+        if (offset >= length) continue;
+        if (!this.inRange(church.source, EVENT_SPACE.church.range)) continue;
+        const options = this.churchOptions;
+        options.strokes = this.peal.strokes;
+        options.pitch = church.bell.pitch;
+        options.offset = Math.max(0, offset);
+        options.when = now + Math.max(0, -offset);
+        church.played = this.emit('church', church.source, options);
+      }
+    }
+    const t = this.showTime;
+    if (t < 0 || t < this.lastShowTime) this.hejnalPlayed = this.goatsPlayed = false; // a new show
+    this.lastShowTime = t;
+    if (t < 0) return;
+    const options = this.showOptions;
+    options.offset = t;
+    if (!this.hejnalPlayed && this.trumpeter && t < this.hejnalEnd && this.inRange(this.trumpeter, EVENT_SPACE.hejnal.range)) {
+      this.hejnalPlayed = this.emit('hejnal', this.trumpeter, options);
+    }
+    if (!this.goatsPlayed && this.goatLedge && t < GOAT_BUTT_TIMES[GOAT_BUTT_TIMES.length - 1]
+      && this.inRange(this.goatLedge, EVENT_SPACE.goats.range)) {
+      this.goatsPlayed = this.emit('goats', this.goatLedge, options);
+    }
+  }
+
+  inRange(source, range) {
+    return Math.hypot(source.x - this.listener.x, source.y - this.listener.y, source.z - this.listener.z) <= range;
+  }
+
+  // presetId: the lighting preset (lighting.js TIME_PRESETS key): 'midnight' quietens the wind, and it sets the clock
+  update(dt, elapsed, camera, presetId = 'golden') {
+    this.trackClock(elapsed, presetId);
     if (!this.ready || !this.enabled || this.context?.state !== 'running' || document.hidden) return;
     this.accumulator += dt;
     if (this.accumulator < 0.1) return;
@@ -481,6 +600,7 @@ class CityAudioSystem {
       state.x = source.x; state.z = source.z;
     }
     this.updateConversations(sources.people, now);
+    this.updateLandmarkSounds(elapsed, now);
     for (const source of sources.signals) {
       const state = this.state(source, now);
       if (state.walk !== source.walk) {
@@ -497,13 +617,13 @@ class CityAudioSystem {
       if (now + 0.12 >= state.signal) {
         const when = Math.max(now, state.signal);
         this.emit('signal', source, { walk: source.walk, intensity: 0.28, when });
-        state.signal = when + (source.walk ? 0.5 : 1);
+        state.signal = when + (source.walk ? SIGNAL_TIMING.walk : SIGNAL_TIMING.wait);
       }
     }
     for (const source of sources.motors) {
       if (source.player || source.kind === 'helicopter' || source.kind === 'cyclist') continue;
       const state = this.state(source, now);
-      // Polish drivers honk far less than New York's: only after 8 s stuck behind a stalled car, and a driver who has
+      // Polish drivers rarely honk: only after 8 s stuck behind a stalled car, and a driver who has
       // honked waits 30-50 s before the next one
       state.stopped = source.blocked ? state.stopped + dt : 0;
       if (state.stopped > 8 && now > state.horn && now - this.lastHorn > 3) {
@@ -513,7 +633,7 @@ class CityAudioSystem {
         }
       }
     }
-    Object.assign(this.windParams, { speed: Math.min(sources.motion, 50), altitude: position.y, traffic: sources.traffic, night: night ? 1 : 0, enclosure });
+    Object.assign(this.windParams, { speed: Math.min(sources.motion, 50), altitude: position.y, traffic: sources.traffic, night: presetId === 'midnight' ? 1 : 0, enclosure });
     this.wind.update(this.windParams, now);
   }
 

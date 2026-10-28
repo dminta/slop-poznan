@@ -49,7 +49,6 @@ import {
   sign,
   fwidth,
   texture,
-  rotateUV,
   mrt,
   If,
   sqrt,
@@ -1674,38 +1673,28 @@ function createTreeMaterial(leafAtlas) {
   return mat;
 }
 
-// Pointy-top hexagon cell of p (in hex units): x = distance to the cell edge (0 at the joint .. 0.5 at the centre),
-// yz = cell id
-const hexCell = Fn(([p]) => {
-  const pv = vec2(p).toVar();
-  const r = vec2(1.0, 1.7320508);
-  const h = vec2(0.5, 0.8660254);
-  const a = mod(pv, r).sub(h).toVar();
-  const b = mod(pv.sub(h), r).sub(h).toVar();
-  const gv = mix(b, a, step(dot(a, a), dot(b, b))).toVar();
-  const q = abs(gv);
-  const edge = float(0.5).sub(max(dot(q, vec2(0.5, 0.8660254)), q.x));
-  return vec3(edge, pv.sub(gv));
+// Granite setts ('kostka granitowa' 9/11, ~10 cm) in courses: each course is shifted by a random fraction of a sett so
+// the head joints never line up, as hand-laid setts on Stary Rynek and Plac Wolności. x = joint mask, y = sett id hash
+const settJoints = Fn(([wx, wz]) => {
+  const row = floor(wz.div(0.1)).toVar();
+  const shift = hash2D(vec2(row, 3.7)).mul(0.1);
+  const joint = max(gridLine(wx.add(shift), 0.1, 0.0055), gridLine(wz, 0.1, 0.0055));
+  return vec2(joint, hash2D(vec2(floor(wx.add(shift).div(0.1)), row)));
 });
 
-// Joint mask (1 in the joints) of the park / plaza paving style at world xz
+// Joint mask (1 in the joints) of the park / square paving style at world xz; the mineral walks (style 0) have none
 const pavingJoints = Fn(([style, wx, wz]) => {
-  const hex = hexCell(vec2(wx, wz).div(0.21));
-  const hexAA = fwidth(hex.x).max(0.0001);
-  const hexJoint = smoothstep(hexAA.add(0.035), float(0.035).sub(hexAA), hex.x);
-  const offG = mod(floor(wz.div(0.45)), 2.0).mul(0.45);
-  const granJoint = max(gridLine(wx.add(offG), 0.9, 0.01), gridLine(wz, 0.45, 0.01));
-  const blueJoint = max(gridLine(wx, 0.6, 0.012), gridLine(wz, 0.6, 0.012));
-  const isGranite = step(0.5, style).mul(float(1.0).sub(step(1.5, style)));
-  return mix(mix(hexJoint, granJoint, isGranite), blueJoint, step(1.5, style));
+  const slabJoint = max(gridLine(wx, 0.5, 0.004), gridLine(wz, 0.5, 0.004));
+  const isSett = step(0.5, style).mul(float(1.0).sub(step(1.5, style)));
+  return mix(settJoints(wx, wz).x.mul(isSett), slabJoint, step(1.5, style));
 });
 
 /**
- * NYC Parks Paths & Pedestrian Plaza Paving TSL Material: one shared material (one batched draw call) whose
- * paving style is picked per mesh through its uv.x:
- * - 0: NYC Parks hexagonal asphalt paver blocks (charcoal 8-inch hexes with sanded joints)
- * - 1: Light-grey granite plaza pavers in running bond with scattered dark pavers (Times Sq, Herald Sq, Flatiron)
- * - 2: Bluestone & granite square slabs (fountain & monument plazas)
+ * Park Walks & Square Paving TSL Material: one shared material (one batched draw call) whose paving style is picked
+ * per mesh through its uv.x:
+ * - 0: mineral park walks ('nawierzchnia mineralna'): compacted buff granite grit, no joints (Cytadela, Park Wilsona)
+ * - 1: granite setts in courses, mostly grey with pinkish and dark setts mixed in (Stary Rynek, Plac Wolności)
+ * - 2: 50 x 50 cm grey concrete slabs (memorial & fountain squares)
  */
 function createParkPavingMaterial() {
   const mat = new THREE.MeshStandardNodeMaterial({
@@ -1721,60 +1710,67 @@ function createParkPavingMaterial() {
     const style = uv().x;
     const camDist = length(positionWorld.sub(cameraPosition));
     const detail = smoothstep(170.0, 12.0, camDist);
+    // World size of a pixel: per-sett tones settle to their mean before they alias
+    const fine = smoothstep(0.06, 0.02, length(fwidth(positionWorld.xz)));
     const grime = noise2D(vec2(wx.mul(0.35), wz.mul(0.35)));
     const grit = noise2D(vec2(wx.mul(13.0), wz.mul(13.0))).sub(0.5).mul(0.06).mul(detail);
     const joints = pavingJoints(style, wx, wz).mul(detail);
 
-    // 0: charcoal hex asphalt pavers with per-block tone
-    const hexTone = hash2D(hexCell(vec2(wx, wz).div(0.21)).yz);
-    const hexCol = mix(color(0x41413e), color(0x5c5b57), hexTone);
+    // 0: buff mineral grit with a coarse grain up close
+    const grainN = noise2D(vec2(wx.mul(38.0), wz.mul(38.0)));
+    const gravelCol = mix(color(0x8e887d), color(0xa59f93), noise2D(vec2(wx.mul(0.7), wz.mul(0.7))))
+      .add(grainN.sub(0.5).mul(0.09).mul(fine));
 
-    // 1: granite running bond, 15% darker pavers
-    const rowG = floor(wz.div(0.45));
-    const idG = vec2(floor(wx.add(mod(rowG, 2.0).mul(0.45)).div(0.9)), rowG);
-    const granCol = mix(
-      mix(color(0x9d9c95), color(0xbab9b1), hash2D(idG)),
-      color(0x6a6964),
-      step(0.85, hash2D(idG.add(vec2(17.3, 5.1))))
+    // 1: granite setts: grey, 12% pinkish, 6% dark; the per-sett tone fades to the mean far away
+    const sett = settJoints(wx, wz).y;
+    const settTone = mix(
+      mix(mix(color(0x7a7873), color(0x939089), sett), color(0x8b7d76), step(0.88, fract(sett.mul(7.13)))),
+      color(0x5f5d59),
+      step(0.94, fract(sett.mul(13.7)))
     );
+    const settCol = mix(color(0x85827c), settTone, fine);
 
-    // 2: bluestone squares
-    const blueCol = mix(color(0x62686d), color(0x878b8c), hash2D(floor(vec2(wx, wz).div(0.6))));
+    // 2: concrete slabs
+    const slabCol = mix(color(0x8a8984), color(0x9e9d97), hash2D(floor(vec2(wx, wz).div(0.5))));
 
-    const isGranite = step(0.5, style).mul(float(1.0).sub(step(1.5, style)));
-    const base = mix(mix(hexCol, granCol, isGranite), blueCol, step(1.5, style));
-    return base.mul(grime.mul(0.18).add(0.91)).add(grit).mul(float(1.0).sub(joints.mul(0.42)));
+    const isSett = step(0.5, style).mul(float(1.0).sub(step(1.5, style)));
+    const base = mix(mix(gravelCol, settCol, isSett), slabCol, step(1.5, style));
+    return base.mul(grime.mul(0.18).add(0.91)).add(grit).mul(float(1.0).sub(joints.mul(0.5)));
   })();
 
   mat.roughnessNode = Fn(() => {
     const style = uv().x;
-    return mix(mix(float(0.9), float(0.72), step(0.5, style)), float(0.78), step(1.5, style));
+    return mix(mix(float(0.95), float(0.74), step(0.5, style)), float(0.84), step(1.5, style));
   })();
 
   mat.normalNode = Fn(() => {
     const wx = positionWorld.x;
     const wz = positionWorld.z;
+    const style = uv().x;
     const camDist = length(positionWorld.sub(cameraPosition));
     const detail = smoothstep(110.0, 10.0, camDist);
-    const grain = noise2D(vec2(wx.mul(5.0), wz.mul(5.0))).sub(0.5).mul(0.0025);
-    return bumpNormal(grain.sub(pavingJoints(uv().x, wx, wz).mul(0.006)).mul(detail));
+    // Loose grit on the walks is coarser than the sawn granite and concrete
+    const grainScale = mix(float(0.004), float(0.0022), step(0.5, style));
+    const grain = noise2D(vec2(wx.mul(9.0), wz.mul(9.0))).sub(0.5).mul(grainScale);
+    return bumpNormal(grain.sub(pavingJoints(style, wx, wz).mul(0.008)).mul(detail));
   })();
 
   return mat;
 }
 
 /**
- * NYC Parks Lamppost Glass Globe: milky white by day, warm glow (bloom) at dusk & night.
+ * Park lamp globe (opal polycarbonate on a black post, as along the walks of Poznań's parks): milky white by day,
+ * a warm-white 3000 K LED glow (bloom) at dusk & night.
  */
 function createParkLampGlobeMaterial() {
   const mat = new THREE.MeshStandardNodeMaterial({
-    color: 0xece8dc,
+    color: 0xeceae4,
     roughness: 0.35,
     metalness: 0.0
   });
   mat.emissiveNode = Fn(() => {
     const night = smoothstep(0.35, 1.3, cityUniforms.uInteriorGlow);
-    return color(0xffd6a0).mul(night.mul(2.6).add(0.05));
+    return color(0xffdcae).mul(night.mul(2.6).add(0.05));
   })();
   return mat;
 }
@@ -1830,7 +1826,7 @@ function roadPuddleField(wx, wz) {
  * Wetness masks over a puddle field, driven by cityUniforms.uRoadWetness (0 = bone dry … 1 = right after a downpour):
  * x = damp stains (darker, satin), y = standing water (mirror-smooth; none on a dry day), z = wet film over everything.
  * Water collects in the field's highest (lowest-lying) spots first, so pools appear, grow & merge as wetness rises;
- * `drainage` raises the water line for better-drained surfaces such as the crowned sidewalk flags.
+ * `drainage` raises the water line for better-drained surfaces such as the crowned sidewalk paving.
  */
 function roadWetMasks(field, drainage = 0.0) {
   const w = cityUniforms.uRoadWetness;
@@ -1857,7 +1853,7 @@ function createRoadSurfaceMaterial() {
 
   const cAsphaltDark = color(0x2b2e33);
   const cAsphaltLight = color(0x464a51);
-  const cManhole = color(0x4a433c);
+  const cManhole = color(0x47423c);
 
   // Puddle field & wetness masks shared by every channel below (each node is generated once per fragment)
   const puddleField = roadPuddleField(positionWorld.x, positionWorld.z);
@@ -1893,16 +1889,22 @@ function createRoadSurfaceMaterial() {
       .mul(float(1.0).sub(oilyStain.mul(0.32)))
       .mul(float(1.0).sub(tarSeam));
 
-    // Circular cast-iron ConEd / NYC Sewer manhole covers scattered over the roadway (one 14 m cell in three)
+    // Round cast-iron sewer manhole covers (Aquanet's D400 class: a 0.6 m lid with a raised grid of studs inside a
+    // plain rim, in a 0.8 m frame) scattered over the roadway, one 14 m cell in three
     const mhCell = floor(vec2(wx, wz).div(14.0));
     const mhCentre = mhCell.add(vec2(hash2D(mhCell.add(13.7)), hash2D(mhCell.add(29.1))).mul(0.6).add(0.2)).mul(14.0);
-    const mhDist = length(vec2(wx, wz).sub(mhCentre));
-    const isManhole = float(1.0).sub(smoothstep(0.52, 0.60, mhDist)).mul(step(0.66, hash2D(mhCell))).mul(detail);
-    const mhRings = sin(mhDist.mul(36.0)).mul(0.15).add(0.85);
+    const mhLocal = vec2(wx, wz).sub(mhCentre);
+    const mhDist = length(mhLocal);
+    const isManhole = float(1.0).sub(smoothstep(0.38, 0.41, mhDist)).mul(step(0.66, hash2D(mhCell))).mul(detail);
+    // Studs (8 cm lattice) inside the lid, the rim ring and the lid's seam in the frame; flat grey once under ~2 cm/px
+    const studs = smoothstep(0.3, 0.2, max(abs(fract(mhLocal.x.mul(12.5)).sub(0.5)), abs(fract(mhLocal.y.mul(12.5)).sub(0.5))));
+    const lid = smoothstep(0.27, 0.25, mhDist);
+    const seam = smoothstep(0.012, 0.0, abs(mhDist.sub(0.3)));
+    const mhPattern = mix(float(0.86), studs.mul(lid).mul(0.3).add(0.78).sub(seam.mul(0.4)), smoothstep(0.03, 0.012, pixelSize));
 
     // Water filling the pores darkens the surface: damp stains & pools most, the overall wet film a little
     const wetDarkening = mix(mix(float(1.0), float(0.72), damp), float(0.6), puddle).mul(mix(float(1.0), float(0.8), film));
-    return mix(baseAsphalt, cManhole.mul(mhRings), isManhole).mul(wetDarkening);
+    return mix(baseAsphalt, cManhole.mul(mhPattern), isManhole).mul(wetDarkening);
   })();
 
   mat.roughnessNode = Fn(() => {
@@ -1927,20 +1929,11 @@ function createRoadSurfaceMaterial() {
     return bumpNormal(coarseGrit.add(fineGrit).mul(float(1.0).sub(puddle)));
   })();
 
+  // The night sky's glow mirrored in the wet asphalt
   mat.emissiveNode = Fn(() => {
-    const wx = positionWorld.x;
-    const wz = positionWorld.z;
-
     const roadFresnel = pow(clamp(float(1.0).sub(abs(viewDir.y)), 0.0, 1.0), 2.3);
-
     const skyMirror = mix(cityUniforms.uSkyHorizonColor, cityUniforms.uSkyTopColor, 0.40).mul(0.10);
-
-    const tsDist = clamp(float(1.0).sub(length(vec2(wx.add(212.0), wz.add(45.0))).div(145.0)), 0.0, 1.0);
-    const neonPatch = noise2D(vec2(wx.mul(0.15), wz.mul(0.15)));
-    const neonCol = mix(color(0xff2a85), color(0x2ad4ff), neonPatch).mul(0.32);
-    const reflectCol = mix(skyMirror, neonCol, tsDist.mul(0.65));
-
-    return reflectCol.mul(max(puddle, film.mul(0.35))).mul(roadFresnel).mul(cityUniforms.uInteriorGlow).mul(0.07);
+    return skyMirror.mul(max(puddle, film.mul(0.35))).mul(roadFresnel).mul(cityUniforms.uInteriorGlow).mul(0.07);
   })();
 
   return mat;
@@ -1996,10 +1989,32 @@ function createRoadPaintMaterial() {
   return mat;
 }
 
+// Herringbone of 20 x 10 cm grey concrete 'holland' pavers (polbruk), the common Polish sidewalk, laid square to the
+// world axes. In 10 cm cells, t = (cx - cz) mod 4 tells the halves apart: 0 and 1 are the two halves of a paver along
+// x, 3 and 2 the lower and upper halves of one along z, so each cell drops the joint on the edge it shares with its
+// other half. x = joint mask (filter-width anti-aliased, settling to its mean coverage), y = paver id hash
+const hollandPavers = Fn(([wx, wz]) => {
+  const p = vec2(wx, wz).div(0.1).toVar();
+  const cell = floor(p).toVar();
+  const f = fract(p).toVar();
+  const t = mod(cell.x.sub(cell.y), 4.0).toVar();
+  const is = (k) => step(abs(t.sub(k)), 0.5);
+  const d = min(
+    min(f.x.add(is(1).mul(9.0)), float(1.0).sub(f.x).add(is(0).mul(9.0))),
+    min(f.y.add(is(2).mul(9.0)), float(1.0).sub(f.y).add(is(3).mul(9.0)))
+  );
+  const hw = float(0.04); // 4 mm chamfered joints
+  const aa = length(fwidth(p)).max(0.0001).toVar();
+  const effHw = max(hw, aa.mul(0.5));
+  const joint = smoothstep(effHw.add(aa), effHw.sub(aa), d).mul(min(float(1.0), hw.div(effHw)));
+  const origin = cell.sub(vec2(is(1), is(2)));
+  return vec2(joint, hash2D(origin));
+});
+
 /**
- * NYC Concrete Sidewalk Flagstones with Filter-Width Anti-Aliased 1.5m Scored Expansion Joints,
- * -12mm `bumpNormal` Groove Relief, Per-Flag Tone Variation & Post-Rain Damp Patches
- * that follow cityUniforms.uRoadWetness like the roadway (better drained: fewer, smaller pools)
+ * Concrete Sidewalk Paving: 20 x 10 cm grey 'holland' pavers in herringbone (hollandPavers) with per-paver tone and
+ * a few newer, lighter replacement pavers, -6 mm `bumpNormal` joints & Post-Rain Damp Patches that follow
+ * cityUniforms.uRoadWetness like the roadway (better drained: fewer, smaller pools)
  * (Ported from SidewalkGenerator.js)
  */
 function createSidewalkMaterial() {
@@ -2008,16 +2023,19 @@ function createSidewalkMaterial() {
     roughness: 0.88
   });
 
-  const cConcreteA = color(0x8e8d85);
-  const cConcreteB = color(0x73726b);
+  const cConcreteA = color(0x8f8e88);
+  const cConcreteB = color(0x75746f);
 
-  // Damp patches & pools on the flags, shared by every channel below (own field; drains better than the roadway)
+  // Damp patches & pools on the paving, shared by every channel below (own field; drains better than the roadway)
   const swField = noise2D(vec2(positionWorld.x.mul(0.14).add(7.4), positionWorld.z.mul(0.14).sub(13.1))).mul(0.65)
     .add(noise2D(vec2(positionWorld.x.mul(0.38), positionWorld.z.mul(0.38))).mul(0.35));
   const swWet = roadWetMasks(swField, 0.06);
   const swPuddle = swWet.y.mul(smoothstep(0.5, 0.9, normalWorldGeometry.y));
   const swFresnel = pow(float(1.0).sub(clamp(normalize(cameraPosition.sub(positionWorld)).y, 0.0, 1.0)), 5.0).mul(0.98).add(0.02);
   const pixelSize = length(fwidth(positionWorld.xz));
+  // Joints & paver ids, shared by colour, roughness and relief; per-paver tones fade out before 10 cm pavers alias
+  const pavers = hollandPavers(positionWorld.x, positionWorld.z);
+  const paverFine = smoothstep(0.05, 0.015, pixelSize);
 
   mat.aoNode = canyonSkyAONode();
 
@@ -2027,43 +2045,41 @@ function createSidewalkMaterial() {
     const camDist = length(positionWorld.sub(cameraPosition));
     const detail = smoothstep(190.0, 16.0, camDist);
 
-    const panel = 1.5; // 5 ft NYC concrete sidewalk flags
-    const panelHash = hash2D(floor(vec2(wx.div(panel), wz.div(panel))));
+    const paverHash = pavers.y;
     const tone = noise2D(vec2(wx.mul(0.48), wz.mul(0.48)));
     const grit = noise2D(vec2(wx.mul(14.0), wz.mul(14.0))).sub(0.5).mul(0.08).mul(detail).mul(smoothstep(0.07, 0.02, pixelSize));
+    const joints = pavers.x.mul(detail);
 
-    // Filter-width anti-aliased 1.5m scored joints
-    const joints = max(gridLine(wx, panel, 0.042), gridLine(wz, panel, 0.042)).mul(detail);
+    // Per-paver tone (+-6%), and one paver in 25 a newer, lighter replacement
+    const paverTone = paverHash.sub(0.5).mul(0.12).add(1.0).add(step(0.96, fract(paverHash.mul(11.3))).mul(0.14));
 
-    // Post-rain damp patches, pools & the overall wet film darken the flags
+    // Post-rain damp patches, pools & the overall wet film darken the paving
     const baseConcrete = mix(cConcreteB, cConcreteA, tone)
-      .mul(panelHash.sub(0.5).mul(0.16).add(1.0))
+      .mul(mix(float(1.0), paverTone, paverFine))
       .add(grit)
       .mul(mix(float(1.0), float(0.72), max(swWet.x, swPuddle)))
       .mul(mix(float(1.0), float(0.8), swWet.z));
 
-    return baseConcrete.mul(float(1.0).sub(joints.mul(0.45)));
+    return baseConcrete.mul(float(1.0).sub(joints.mul(0.4)));
   })();
 
   mat.roughnessNode = Fn(() => {
-    const panelHash = hash2D(floor(vec2(positionWorld.x.div(1.5), positionWorld.z.div(1.5))));
-    const wetRough = mix(float(0.90).sub(panelHash.mul(0.06)), float(0.55), max(swWet.z, swWet.x.mul(0.7)));
+    const wetRough = mix(float(0.90).sub(pavers.y.mul(0.06).mul(paverFine)), float(0.55), max(swWet.z, swWet.x.mul(0.7)));
     return mix(wetRough, float(0.2), swPuddle);
   })();
 
   // Water's Fresnel (F0 = 0.02) on pools & the wet film, as for the roadway
   mat.metalnessNode = clamp(swFresnel.mul(1.6), 0.0, 0.85).mul(max(swPuddle, swWet.z.mul(0.3)));
 
-  // Physical -12mm scored expansion joints + +3mm concrete aggregate grain via bumpNormal
+  // Physical -6mm chamfered paver joints + +3mm concrete grain via bumpNormal
   mat.normalNode = Fn(() => {
     const wx = positionWorld.x;
     const wz = positionWorld.z;
     const camDist = length(positionWorld.sub(cameraPosition));
     const detail = smoothstep(140.0, 14.0, camDist);
 
-    const joints = max(gridLine(wx, 1.5, 0.042), gridLine(wz, 1.5, 0.042));
     const grain = noise2D(vec2(wx.mul(4.5), wz.mul(4.5))).sub(0.5).mul(0.003);
-    const height = grain.sub(joints.mul(0.012)).mul(detail).mul(float(1.0).sub(swPuddle));
+    const height = grain.sub(pavers.x.mul(0.006)).mul(detail).mul(float(1.0).sub(swPuddle));
     return bumpNormal(height);
   })();
 
@@ -2071,9 +2087,9 @@ function createSidewalkMaterial() {
 }
 
 /**
- * NYC Dressed Granite Curbstone TSL Material (ported from SidewalkGenerator.js `createCurbMaterial`)
- * Dense cool grey flamed granite with 1.5m segment joints, grimier road-facing vertical face,
- * and `bumpNormal` granite grain.
+ * Granite Curbstone TSL Material (ported from SidewalkGenerator.js `createCurbMaterial`): the Polish 15 x 30 cm
+ * curb ('krawężnik') of light grey Strzegom granite, black-and-white speckled, in 1 m lengths, its road-facing
+ * face grimier; `bumpNormal` granite grain.
  */
 function createCurbMaterial() {
   const mat = new THREE.MeshStandardNodeMaterial({
@@ -2090,10 +2106,10 @@ function createCurbMaterial() {
     const detail = smoothstep(180.0, 16.0, camDist);
 
     const tone = noise2D(vec2(wx.mul(0.6), wz.mul(0.6)));
-    const speckle = noise2D(vec2(wx.mul(18.0), wz.mul(18.0))).sub(0.5).mul(0.06).mul(detail);
-    const stone = mix(color(0x4c4c45), color(0x63635a), tone).add(speckle);
+    const speckle = noise2D(vec2(wx.mul(30.0), wz.mul(30.0))).sub(0.5).mul(0.1).mul(detail);
+    const stone = mix(color(0x6a6964), color(0x7f7e78), tone).add(speckle);
 
-    const joints = max(gridLine(wx, 1.5, 0.038), gridLine(wz, 1.5, 0.038)).mul(detail);
+    const joints = max(gridLine(wx, 1.0, 0.006), gridLine(wz, 1.0, 0.006)).mul(detail);
     const topFace = smoothstep(0.5, 0.85, normalWorldGeometry.y);
     const wetFilm = smoothstep(0.2, 0.8, cityUniforms.uRoadWetness); // rain-darkened granite, like the roadway's film
     return mix(stone.mul(0.68), stone, topFace).mul(float(1.0).sub(joints.mul(0.42))).mul(mix(float(1.0), float(0.78), wetFilm));
@@ -2110,359 +2126,6 @@ function createCurbMaterial() {
     return bumpNormal(grain.mul(detail));
   })();
 
-  return mat;
-}
-
-/**
- * High-Definition Times Square / Broadway LED Video Wall TSL Material
- * Features 6 crisp, non-pixelated HDR shader themes with fine sub-pixel LED scanlines.
- */
-const _billboardCache = new Map();
-
-function createBillboardCanvasTexture(themeKey) {
-  const c = document.createElement('canvas');
-  c.width = 512;
-  c.height = 256;
-  const ctx = c.getContext('2d');
-
-  if (themeKey === 0) {
-    // Theme 0: Broadway Musical Marquee ("PHANTOM OF MANHATTAN · MAJESTIC THEATRE")
-    const grad = ctx.createLinearGradient(0, 0, 512, 256);
-    grad.addColorStop(0, '#2a0412');
-    grad.addColorStop(0.5, '#580a22');
-    grad.addColorStop(1, '#1c030c');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 512, 256);
-
-    // Golden Art Deco border & chaser bulb frame
-    ctx.strokeStyle = '#ffcf58';
-    ctx.lineWidth = 6;
-    ctx.strokeRect(10, 10, 492, 236);
-    ctx.strokeStyle = '#ff9824';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(18, 18, 476, 220);
-
-    // Stage spotlight halo
-    const rad = ctx.createRadialGradient(256, 118, 12, 256, 118, 185);
-    rad.addColorStop(0, 'rgba(255, 214, 102, 0.55)');
-    rad.addColorStop(1, 'rgba(40, 4, 18, 0.0)');
-    ctx.fillStyle = rad;
-    ctx.fillRect(18, 18, 476, 220);
-
-    ctx.fillStyle = '#ffdf78';
-    ctx.font = '800 18px Inter, Arial, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('★  BROADWAY MUSICAL SPECTACULAR  ★', 256, 46);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '900 44px Inter, Arial, sans-serif';
-    ctx.fillText('METROPOLIS', 256, 102);
-
-    ctx.fillStyle = '#ffc845';
-    ctx.font = '900 26px Inter, Arial, sans-serif';
-    ctx.fillText('LIVE ON BROADWAY', 256, 138);
-
-    ctx.fillStyle = '#18040a';
-    ctx.fillRect(36, 158, 440, 42);
-    ctx.strokeStyle = '#ffcf58';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(36, 158, 440, 42);
-
-    ctx.fillStyle = '#fff3c4';
-    ctx.font = '800 20px Inter, Arial, sans-serif';
-    ctx.fillText('★★★★★  "UNFORGETTABLE!" — NY TIMES', 256, 185);
-
-    ctx.fillStyle = '#ffae42';
-    ctx.font = '700 16px JetBrains Mono, monospace';
-    ctx.fillText('MAJESTIC THEATRE · 44TH ST WEST · TONIGHT 8 PM', 256, 226);
-  } else if (themeKey === 1) {
-    // Theme 1: NASDAQ / Wall St MarketSite Financial Display
-    const grad = ctx.createLinearGradient(0, 0, 0, 256);
-    grad.addColorStop(0, '#04122c');
-    grad.addColorStop(1, '#08264e');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 512, 256);
-
-    // Financial terminal grid lines
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.18)';
-    ctx.lineWidth = 1;
-    for (let x = 32; x < 512; x += 32) {
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 256); ctx.stroke();
-    }
-    for (let y = 32; y < 256; y += 32) {
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(512, y); ctx.stroke();
-    }
-
-    // Header bar
-    ctx.fillStyle = '#0052cc';
-    ctx.fillRect(0, 0, 512, 46);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '900 24px Inter, Arial, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText('NASDAQ · TIMES SQ MARKETSITE', 18, 31);
-    ctx.fillStyle = '#00f5a0';
-    ctx.textAlign = 'right';
-    ctx.font = '800 20px JetBrains Mono, monospace';
-    ctx.fillText('LIVE ▲ +2.84%', 494, 31);
-
-    // Bullish emerald chart area & line
-    const pts = [
-      [24, 182], [75, 168], [125, 174], [175, 142], [225, 148],
-      [280, 116], [335, 124], [390, 92], [445, 78], [492, 64]
-    ];
-    ctx.beginPath();
-    ctx.moveTo(pts[0][0], 200);
-    for (const [px, py] of pts) ctx.lineTo(px, py);
-    ctx.lineTo(pts[pts.length - 1][0], 200);
-    ctx.closePath();
-    const areaGrad = ctx.createLinearGradient(0, 60, 0, 200);
-    areaGrad.addColorStop(0, 'rgba(0, 245, 160, 0.50)');
-    areaGrad.addColorStop(1, 'rgba(0, 245, 160, 0.02)');
-    ctx.fillStyle = areaGrad;
-    ctx.fill();
-
-    ctx.beginPath();
-    for (let i = 0; i < pts.length; i++) {
-      if (i === 0) ctx.moveTo(pts[i][0], pts[i][1]);
-      else ctx.lineTo(pts[i][0], pts[i][1]);
-    }
-    ctx.strokeStyle = '#00f5a0';
-    ctx.lineWidth = 5;
-    ctx.stroke();
-
-    // Bottom stock ticker ribbon
-    ctx.fillStyle = '#030b1a';
-    ctx.fillRect(0, 206, 512, 50);
-    ctx.fillStyle = '#38d8ff';
-    ctx.font = '800 20px JetBrains Mono, monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('NDX 21,490 ▲   SPX 6,145 ▲   DOW 44,880 ▲   NYC 100 ▲', 256, 238);
-  } else if (themeKey === 2) {
-    // Theme 2: Gotham Cola / Iconic Red & White Wave Billboard
-    const grad = ctx.createLinearGradient(0, 0, 512, 256);
-    grad.addColorStop(0, '#b8061e');
-    grad.addColorStop(0.5, '#e6122e');
-    grad.addColorStop(1, '#9e0418');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 512, 256);
-
-    // Classic dynamic white wave ribbon
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.moveTo(0, 170);
-    ctx.bezierCurveTo(160, 110, 340, 225, 512, 148);
-    ctx.lineTo(512, 192);
-    ctx.bezierCurveTo(340, 260, 160, 150, 0, 210);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.fillStyle = '#ffe082';
-    ctx.font = '800 18px Inter, Arial, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('ICE COLD · EST. 1898 · NEW YORK', 256, 48);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'italic 900 54px Georgia, serif';
-    ctx.fillText('Gotham Cola', 256, 108);
-
-    ctx.fillStyle = '#fff5cc';
-    ctx.font = '800 22px Inter, Arial, sans-serif';
-    ctx.fillText('TASTE THE MANHATTAN SKYLINE', 256, 148);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '700 17px JetBrains Mono, monospace';
-    ctx.fillText('REFRESHING TIMES SQUARE 24 HOURS A DAY', 256, 236);
-  } else if (themeKey === 3) {
-    // Theme 3: Fifth Avenue Luxury Watch & Couture ("CHRONO GENÈVE")
-    const grad = ctx.createRadialGradient(256, 128, 16, 256, 128, 260);
-    grad.addColorStop(0, '#2c2218');
-    grad.addColorStop(1, '#0c0908');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 512, 256);
-
-    ctx.strokeStyle = '#d4af37';
-    ctx.lineWidth = 4;
-    ctx.strokeRect(12, 12, 488, 232);
-
-    // Watch dial on left
-    const cx = 118;
-    const cy = 128;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 74, 0, Math.PI * 2);
-    ctx.fillStyle = '#14110e';
-    ctx.fill();
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = '#e5c158';
-    ctx.stroke();
-
-    // Hour tick marks & hands
-    for (let h = 0; h < 12; h++) {
-      const a = (h * Math.PI) / 6;
-      ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(a) * 58, cy + Math.sin(a) * 58);
-      ctx.lineTo(cx + Math.cos(a) * 67, cy + Math.sin(a) * 67);
-      ctx.strokeStyle = '#f5d97e';
-      ctx.lineWidth = h % 3 === 0 ? 4 : 2;
-      ctx.stroke();
-    }
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.lineTo(cx - 26, cy - 34);
-    ctx.moveTo(cx, cy);
-    ctx.lineTo(cx + 44, cy - 22);
-    ctx.strokeStyle = '#ffe89e';
-    ctx.lineWidth = 4;
-    ctx.stroke();
-
-    // Luxury typography on right
-    ctx.fillStyle = '#f5d97e';
-    ctx.textAlign = 'center';
-    ctx.font = '800 16px Inter, Arial, sans-serif';
-    ctx.fillText('SWISS MANUFACTURE · SINCE 1884', 345, 66);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '900 38px Georgia, serif';
-    ctx.fillText('CHRONO GENÈVE', 345, 114);
-
-    ctx.fillStyle = '#e5c158';
-    ctx.font = '700 22px Inter, Arial, sans-serif';
-    ctx.fillText('FIFTH AVENUE FLAGSHIP', 345, 154);
-
-    ctx.fillStyle = '#c8b89a';
-    ctx.font = '600 16px JetBrains Mono, monospace';
-    ctx.fillText('5TH AVE AT 57TH ST · NEW YORK', 345, 202);
-  } else if (themeKey === 4) {
-    // Theme 4: NY1 Live Skyline News & Weather Broadcast
-    const grad = ctx.createLinearGradient(0, 0, 512, 200);
-    grad.addColorStop(0, '#0a2246');
-    grad.addColorStop(1, '#1c569e');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 512, 256);
-
-    // Top live header
-    ctx.fillStyle = '#07162e';
-    ctx.fillRect(0, 0, 512, 48);
-    ctx.fillStyle = '#38b6ff';
-    ctx.font = '900 26px Inter, Arial, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText('NY1 NEWS · LIVE MANHATTAN', 18, 33);
-
-    ctx.fillStyle = '#ffd15c';
-    ctx.textAlign = 'right';
-    ctx.font = '800 22px JetBrains Mono, monospace';
-    ctx.fillText('NYC 72°F ☀', 492, 33);
-
-    // Center headline graphic
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'center';
-    ctx.font = '900 36px Inter, Arial, sans-serif';
-    ctx.fillText('MIDTOWN SKYLINE REPORT', 256, 104);
-    ctx.fillStyle = '#a8dcff';
-    ctx.font = '700 20px Inter, Arial, sans-serif';
-    ctx.fillText('CLEAR SKIES FROM HARLEM TO BATTERY PARK', 256, 138);
-
-    // Red BREAKING NEWS badge
-    ctx.fillStyle = '#e6192e';
-    ctx.fillRect(20, 154, 178, 34);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '900 19px Inter, Arial, sans-serif';
-    ctx.fillText('BREAKING NEWS', 109, 177);
-
-    // White Broadcast Lower-Third Chyron
-    ctx.fillStyle = '#f4f7fb';
-    ctx.fillRect(0, 188, 512, 68);
-    ctx.fillStyle = '#0a192f';
-    ctx.font = '900 24px Inter, Arial, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText('EXPRESS: 5TH AVE & BROADWAY CLEAR', 20, 220);
-    ctx.fillStyle = '#c8102e';
-    ctx.font = '800 16px JetBrains Mono, monospace';
-    ctx.fillText('LIVE HD · EMPIRE STATE · CHRYSLER · ONE WTC · CENTRAL PARK', 20, 244);
-  } else {
-    // Theme 5: Times Square Neon Nights & TKTS Booth
-    const grad = ctx.createLinearGradient(0, 0, 512, 256);
-    grad.addColorStop(0, '#1e0638');
-    grad.addColorStop(0.5, '#6a0dad');
-    grad.addColorStop(1, '#d81b60');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 512, 256);
-
-    // Glowing neon sun disc
-    ctx.beginPath();
-    ctx.arc(256, 118, 72, 0, Math.PI * 2);
-    const sunGrad = ctx.createLinearGradient(256, 46, 256, 190);
-    sunGrad.addColorStop(0, '#fff176');
-    sunGrad.addColorStop(1, '#ff6f00');
-    ctx.fillStyle = sunGrad;
-    ctx.fill();
-
-    // Stylized dark skyline silhouette across the neon sun
-    ctx.fillStyle = '#160428';
-    const bars = [
-      [30, 60], [65, 85], [95, 55], [130, 110], [168, 75], [202, 138],
-      [242, 156], [282, 125], [320, 88], [358, 118], [398, 70], [435, 95], [470, 65]
-    ];
-    for (const [bx, bh] of bars) {
-      ctx.fillRect(bx, 198 - bh, 28, bh);
-    }
-
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'center';
-    ctx.font = '900 42px Inter, Arial, sans-serif';
-    ctx.fillText('TIMES SQUARE NYC', 256, 62);
-
-    ctx.fillStyle = '#ffea70';
-    ctx.font = '800 22px Inter, Arial, sans-serif';
-    ctx.fillText('THE CROSSROADS OF THE WORLD', 256, 94);
-
-    ctx.fillStyle = '#120322';
-    ctx.fillRect(0, 198, 512, 58);
-    ctx.fillStyle = '#ff4081';
-    ctx.font = '900 24px JetBrains Mono, monospace';
-    ctx.fillText('TKTS · 50% OFF BROADWAY SHOWS TONIGHT', 256, 234);
-  }
-
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.needsUpdate = true;
-  return tex;
-}
-
-function createBillboardMaterial(themeIndex = 0) {
-  const key = ((themeIndex % 6) + 6) % 6;
-  if (_billboardCache.has(key)) return _billboardCache.get(key);
-
-  const mat = new THREE.MeshBasicNodeMaterial();
-  const canvasTex = createBillboardCanvasTexture(key);
-
-  mat.colorNode = Fn(() => {
-    const p = uv();
-    const t = time;
-
-    const basePoster = texture(canvasTex, p).xyz;
-
-    // Fine RGB LED matrix pitch & cabinet bezel border
-    const ledScanX = sin(p.x.mul(360.0)).mul(0.035).add(0.965);
-    const ledScanY = sin(p.y.mul(200.0)).mul(0.045).add(0.955);
-    const borderMask = smoothstep(0.0, 0.018, p.x)
-      .mul(smoothstep(0.0, 0.018, p.y))
-      .mul(float(1.0).sub(smoothstep(0.982, 1.0, p.x)))
-      .mul(float(1.0).sub(smoothstep(0.982, 1.0, p.y)));
-
-    // Animated stage spotlight sweep & scrolling LED ticker pulse
-    const sweepPos = sin(t.mul(1.15 + key * 0.18)).mul(0.38).add(0.5);
-    const spotlightSweep = pow(clamp(float(1.0).sub(abs(p.x.sub(sweepPos)).mul(2.4)), 0.0, 1.0), 3.0).mul(0.28);
-    const tickerBand = float(1.0).sub(step(0.20, p.y));
-    const tickerPulse = smoothstep(0.2, 0.8, sin(p.x.mul(42.0).add(t.mul(5.2)))).mul(tickerBand).mul(0.22);
-
-    const animatedCol = basePoster
-      .mul(float(1.18).add(spotlightSweep))
-      .add(basePoster.mul(tickerPulse));
-
-    return animatedCol.mul(ledScanX).mul(ledScanY).mul(borderMask);
-  })();
-
-  _billboardCache.set(key, mat);
   return mat;
 }
 
@@ -2843,204 +2506,11 @@ function createParkLawnMaterial(isMeadow = false) {
   return mat;
 }
 
-/**
- * Synthesizes a 256x256 procedural domain-warped multi-octave turbulent smoke/steam cloud texture
- * for camera-facing SpriteNodeMaterial particles (following webgpu_particles.html):
- * - R: local 3D cloud billow illumination (top-left warm sun catch)
- * - G: vertical hemisphere self-shadowing gradient (1 at top rim, 0 at shadowed belly)
- * - B: inner core vapor density
- * - A: soft, wispy, multi-lobe cloud silhouette that feathers to 0.0 well inside the quad edges
- */
-let _smokeCloudTexture = null;
-function getSmokeCloudTexture() {
-  if (_smokeCloudTexture) return _smokeCloudTexture;
-
-  const size = 256;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  const imgData = ctx.createImageData(size, size);
-  const data = imgData.data;
-
-  // Adjacent texels and fBm samples reuse the same lattice points. Keep full-precision hashes for this bake only.
-  const hashRows = [];
-  const hash = (ix, iy) => {
-    const row = hashRows[iy] || (hashRows[iy] = []);
-    if (row[ix] !== undefined) return row[ix];
-    const s = Math.sin(ix * 127.1 + iy * 311.7 + 19.19) * 43758.5453;
-    return row[ix] = s - Math.floor(s);
-  };
-  const vnoise = (x, y) => {
-    const ix = Math.floor(x);
-    const iy = Math.floor(y);
-    const fx = x - ix;
-    const fy = y - iy;
-    const ux = fx * fx * (3.0 - 2.0 * fx);
-    const uy = fy * fy * (3.0 - 2.0 * fy);
-    const a = hash(ix, iy);
-    const b = hash(ix + 1, iy);
-    const c = hash(ix, iy + 1);
-    const d = hash(ix + 1, iy + 1);
-    return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
-  };
-  const fbm = (x, y) => {
-    let v = 0.0;
-    let amp = 0.52;
-    let freq = 1.0;
-    for (let o = 0; o < 5; o++) {
-      v += vnoise(x * freq, y * freq) * amp;
-      freq *= 2.05;
-      amp *= 0.5;
-    }
-    return v;
-  };
-
-  for (let py = 0; py < size; py++) {
-    const ny = (py / (size - 1)) * 2.0 - 1.0; // -1 (top) to +1 (bottom)
-    for (let px = 0; px < size; px++) {
-      const nx = (px / (size - 1)) * 2.0 - 1.0;
-      const r = Math.hypot(nx, ny);
-      const idx = (py * size + px) * 4;
-
-      if (r >= 0.98) {
-        data[idx] = 255;
-        data[idx + 1] = 255;
-        data[idx + 2] = 255;
-        data[idx + 3] = 0;
-        continue;
-      }
-
-      // Domain-warped coordinates for swirling turbulent vapor tendrils
-      const u = nx * 2.3 + 4.1;
-      const v = ny * 2.3 + 7.3;
-      const wx = fbm(u, v) - 0.5;
-      const wy = fbm(u + 5.2, v + 1.3) - 0.5;
-      const cloud = fbm(u + wx * 2.2, v + wy * 2.2);
-      const fineWisp = fbm((u + wx) * 2.4 + 11.7, (v + wy) * 2.4 + 3.9);
-
-      // Multi-lobe billowy outer boundary so the puff silhouette is organic, never circular or boxy
-      const angle = Math.atan2(ny, nx);
-      const lobeRadius =
-        0.78 +
-        0.11 * Math.sin(angle * 3.0 + wx * 4.0) +
-        0.07 * Math.cos(angle * 5.0 - wy * 4.0);
-      const normR = r / Math.max(0.25, lobeRadius);
-      const radialFalloff = Math.pow(Math.max(0.0, 1.0 - normR * normR), 1.95);
-
-      const density = radialFalloff * Math.max(0.0, Math.min(1.0, (cloud * 0.72 + fineWisp * 0.38 - 0.14) * 1.45));
-
-      // Finite-difference cloud height gradient for 3D puff self-shadowing
-      const cloudUp = fbm(u + wx * 2.2, v - 0.18 + wy * 2.2);
-      const cloudLeft = fbm(u - 0.18 + wx * 2.2, v + wy * 2.2);
-      const dUp = (cloud - cloudUp) * 1.8 - ny * 0.45;
-      const dLeft = (cloud - cloudLeft) * 1.8 - nx * 0.35;
-      const sunLobe = Math.max(0.0, Math.min(1.0, 0.58 + dUp * 0.42 + dLeft * 0.28));
-      const hemiGrad = Math.max(0.0, Math.min(1.0, (1.0 - ny) * 0.5 * 0.75 + cloud * 0.25));
-
-      data[idx] = Math.round(sunLobe * 255);
-      data[idx + 1] = Math.round(hemiGrad * 255);
-      data[idx + 2] = Math.round(radialFalloff * 255);
-      data[idx + 3] = Math.round(Math.min(1.0, density) * 255);
-    }
-  }
-
-  ctx.putImageData(imgData, 0, 0);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.ClampToEdgeWrapping;
-  tex.wrapT = THREE.ClampToEdgeWrapping;
-  tex.needsUpdate = true;
-  _smokeCloudTexture = tex;
-  return tex;
-}
-
-/**
- * ConEd Iconic Street Steam Stack Volumetric Billowing SpriteNodeMaterial
- * Modelled after `three.js/examples/webgpu_particles.html`:
- * - Uses `THREE.SpriteNodeMaterial` on an instanced `PlaneGeometry(1, 1)` so every puff is a
- *   camera-facing billboard sprite with zero polygonal facets.
- * - Continuously rises from the orange-and-white ConEd stack nozzle (`life = fract(phase + time * speed)`),
- *   expands (`scaleNode`), curls downwind (`positionNode`), and rotates (`rotateUV`) with soft
- *   sunlit top rims and cool urban-canyon self-shadowing.
- */
 // Transparent decal/effect planes & sprites preserve the underlying road/scene G-buffer in MRT (zero RGB & zero alpha on normal & metalRough)
 const _transparentEffectMRT = mrt({
   normal: vec4(0.0, 0.0, 0.0, 0.0),
   metalRough: vec4(0.0, 0.0, 0.0, 0.0)
 });
-
-function createSteamMaterial() {
-  const smokeMap = getSmokeCloudTexture();
-
-  const mat = new THREE.SpriteNodeMaterial({
-    transparent: true,
-    depthWrite: false
-  });
-  mat.mrtNode = _transparentEffectMRT;
-
-  const aOrigin = attribute('aSmokeOrigin', 'vec3');
-  const aWind = attribute('aSmokeWind', 'vec3');
-  const aParams = attribute('aSmokeParams', 'vec4'); // x: phaseOffset, y: spinSpeed, z: curlSeed, w: scaleMul
-
-  const life = fract(aParams.x.add(time.mul(0.16)));
-
-  // World position of each rising, wind-drifted, turbulent steam sprite
-  mat.positionNode = Fn(() => {
-    const l = life.toVar();
-    const lift = pow(l, 0.78).mul(aWind.y);
-    const drift = pow(l, 1.68).mul(4.6);
-    const curlAng = l.mul(5.4).add(aParams.z).add(time.mul(0.85));
-    const curlAmp = pow(l, 1.15).mul(0.68);
-
-    const px = aOrigin.x.add(aWind.x.mul(drift)).sub(aWind.z.mul(sin(curlAng)).mul(curlAmp));
-    const py = aOrigin.y.add(lift).add(cos(curlAng.mul(1.3)).mul(l).mul(0.25));
-    const pz = aOrigin.z.add(aWind.z.mul(drift)).add(aWind.x.mul(cos(curlAng)).mul(curlAmp));
-    return vec3(px, py, pz);
-  })();
-
-  // Billboard sprite scale: tight jet at stack mouth (~0.88m), billowing wide (~4.3m) as it rises
-  mat.scaleNode = Fn(() => {
-    const l = life.toVar();
-    const s = mix(float(0.88), float(4.35), pow(l, 0.72)).mul(aParams.w);
-    return vec2(s, s);
-  })();
-
-  const rotAngle = aParams.z.add(time.mul(aParams.y));
-  const texNode = texture(smokeMap, rotateUV(uv(), rotAngle));
-
-  mat.colorNode = Fn(() => {
-    const l = life.toVar();
-    const tSample = texNode;
-    const billowLight = tSample.r;
-    const hemiLight = tSample.g;
-
-    const cShadowVapor = mix(color(0x8e9baa), cityUniforms.uSkyTopColor, 0.22);
-    const cMidVapor = mix(color(0xdbe2ea), cityUniforms.uSkyHorizonColor, 0.18);
-    const cLitVapor = mix(color(0xffffff), cityUniforms.uSunColor, 0.22);
-
-    // Pressurized wet steam near the stack mouth is bright white; upper plume picks up warm sun & sky shadow
-    const nozzleWhiteness = smoothstep(0.32, 0.0, l).mul(0.32);
-    const shadeFactor = clamp(
-      hemiLight.mul(0.52).add(billowLight.mul(0.48)).add(nozzleWhiteness),
-      0.0,
-      1.0
-    );
-    const baseVapor = mix(cShadowVapor, cMidVapor, smoothstep(0.0, 0.55, shadeFactor));
-    return mix(baseVapor, cLitVapor, smoothstep(0.42, 0.96, shadeFactor));
-  })();
-
-  mat.opacityNode = Fn(() => {
-    const l = life.toVar();
-    const alphaTex = texNode.a;
-    // Smooth fade-in emerging from the stack nozzle and soft dissipation fade-out at top of plume
-    const fadeIn = smoothstep(0.0, 0.08, l);
-    const fadeOut = pow(clamp(float(1.0).sub(l), 0.0, 1.0), 1.45);
-    const nozzleCore = smoothstep(0.30, 0.02, l).mul(0.22).add(1.0);
-    return clamp(alphaTex.mul(fadeIn).mul(fadeOut).mul(nozzleCore).mul(0.44), 0.0, 0.72);
-  })();
-
-  return mat;
-}
 
 /**
  * Soft Rounded-Rectangle Under-Vehicle Contact Shadow (Ambient Occlusion) TSL Material
@@ -3076,34 +2546,6 @@ function createContactShadowMaterial() {
   return mat;
 }
 
-/**
- * Car lamp flares for distant traffic (instanced sprites on a unit quad): a soft round glow with a hot core per lamp,
- * placed and sized per instance (`flarePos` = x, y, z, world size) and tinted (`flareCol` = rgb (+ an unused w, so
- * the attribute needs no padding on upload), already including the lamp's visibility from the camera), lit only at
- * dusk & night. Additive, so no fog (it would add fog colour).
- */
-function createCarFlareMaterial() {
-  const mat = new THREE.SpriteNodeMaterial({
-    transparent: true,
-    depthWrite: false,
-    fog: false,
-    blending: THREE.AdditiveBlending
-  });
-  mat.mrtNode = _transparentEffectMRT;
-  const p = attribute('flarePos', 'vec4');
-  mat.positionNode = p.xyz;
-  mat.scaleNode = vec2(p.w, p.w);
-  mat.colorNode = Fn(() => {
-    const night = smoothstep(0.35, 1.3, cityUniforms.uInteriorGlow);
-    const r = length(uv().sub(0.5)).mul(2.0);
-    const halo = pow(smoothstep(1.0, 0.0, r), 1.5);
-    const core = smoothstep(0.5, 0.0, r);
-    return attribute('flareCol', 'vec4').rgb.mul(halo.add(core.mul(2.0))).mul(night);
-  })();
-  mat.opacityNode = float(1.0);
-  return mat;
-}
-
 export {
   cityUniforms,
   WALL_KINDS,
@@ -3124,11 +2566,8 @@ export {
   createRoadPaintMaterial,
   createSidewalkMaterial,
   createCurbMaterial,
-  createBillboardMaterial,
   createWaterMaterial,
   createParkLawnMaterial,
-  createSteamMaterial,
   createContactShadowMaterial,
-  createCarFlareMaterial,
   _transparentEffectMRT as transparentEffectMRT
 };
