@@ -260,6 +260,7 @@ function buildCityBlocks(scene) {
   let minLot = 15; // smallest lot side built on (frontage frames come in lots of 12 m and up, see geo-blocks.mjs)
   let srcBlock = null; // the BLOCKS entry being populated (its curb outline gives the lot rects' frontages)
   let srcRects = []; // its lot rects { x0, x1, z0, z1 } in their frames { cs, sn, px, pz } (see frontages)
+  let srcLotArea = 0; // the area of the lot pieces it builds on (m², see steerProfile)
   const toWorld = (x, z) => (xf
     ? [xf.px + (x - xf.px) * xf.cs + (z - xf.pz) * xf.sn, xf.pz - (x - xf.px) * xf.sn + (z - xf.pz) * xf.cs]
     : [x, z]);
@@ -1065,17 +1066,12 @@ function buildCityBlocks(scene) {
 
   // Corner house (narożnik) where two street frontages meet (corner `c`, e.g. 'nw': the n and w streets): two street
   // wings in an L round the courtyard corner, a storey above the row; on many a turret over the corner itself (one
-  // storey more under a steep copper helm). On the Rynek it is one more gabled pastel house; in the villa quarters, a
-  // villa
+  // storey more under a steep copper helm). On the Rynek it is one more gabled pastel house
   function cornerHouse(blk, c, lot, cfg) {
     const ns = c[0];
     const ew = c[1];
     const W = rectW(lot);
     const D = rectD(lot);
-    if (cfg.cornerVilla) {
-      villa(blk, lot, ns, { mat: pickW(ROW_KINDS.villa.mats), floors: irange(cfg.kf.villa[0], cfg.kf.villa[1]) });
-      return;
-    }
     const rynek = blk.rynekSides && (blk.rynekSides[ns] || blk.rynekSides[ew]);
     const b = building(blk, pickW(rynek ? PASTELS : cfg.mats), lot);
     const f = rynek ? irange(3, 4) : irange(cfg.cornerFloors[0], cfg.cornerFloors[1]);
@@ -1527,6 +1523,118 @@ function buildCityBlocks(scene) {
     }
   }
 
+  // Villa quarter (Sołacz, Winiary, the garden suburbs): detached houses in their gardens, on plots in rows laid out
+  // from the lot rect's main street front (along its long side when it has none: the plots off private lanes inside
+  // Sołacz's 30 ha blocks), the back rows facing the opposite street when there is one. cfg.share is the share of the
+  // lot rect the houses cover (steerProfile: the block's real built share over its lot area), and sets the plot
+  // width for each house drawn; a plot too narrow to leave VILLA_SIDE on each side of the house gets a deeper house
+  // instead (Winiary's 25-35% blocks). Real Sołacz villas stand 12 × 14 to 20 × 20 m on plots of 600-1500 m²
+  const VILLA_PLOT_D = [30, 44];
+  const VILLA_SIDE = 3;
+  function villaBlock(blk, cfg) {
+    const R = blockRect(blk);
+    blk.yards.push(insetAll(R, 1.5));
+    const share = cfg.share ?? VILLA_SHARE;
+    if (!(share > 0)) return;
+    const main = mainFront(blk) || (rectW(R) >= rectD(R) ? 'n' : 'w');
+    const back = OPPOSITE[main];
+    const L = sideLen(R, main);
+    const D = sideDepth(R, main);
+    const rows = Math.max(1, Math.round(D / range(VILLA_PLOT_D[0], VILLA_PLOT_D[1])));
+    const pd = D / rows;
+    for (let i = 0; i < rows; i++) {
+      const row = sideRect(R, main, 0, L, i * pd, (i + 1) * pd);
+      const facing = blk.front[back] && i >= rows / 2 ? back : main;
+      const street = facing === main ? i === 0 && !!blk.front[main] : i === rows - 1;
+      villaRow(blk, row, facing, street, share, cfg);
+    }
+  }
+
+  // One row of villa plots across `row`, their street (or lane) on `side`; `street`: that side is a street front.
+  // Houses (and the annex, a one-storey wing or garage, on one in three) are drawn until they cover `share` of the
+  // row, the last one with the odds of the area still missing, so a row keeps its share on average however short it
+  // is (plots sized per house and cut off at the row's end built 0.75 of it). The plots then split the row: each house
+  // needs its width and VILLA_SIDE on either side, the rest of the row is shared out at random as wider gardens. A row
+  // too short for all of them drops the last ones and deepens the others by their area
+  function villaRow(blk, row, side, street, share, cfg) {
+    const L = sideLen(row, side);
+    const D = sideDepth(row, side);
+    const maxD = D - (street ? 6 : 4);
+    if (L < 8 || maxD < 6) return;
+    const want = share * L * D;
+    const houses = [];
+    let got = 0;
+    while (got < want) {
+      const h = { w: range(12, 17), d: Math.min(maxD, range(10, 14)) };
+      h.annex = chance(0.35) ? [range(5, 7), range(6, 9)] : null;
+      h.area = h.w * h.d + (h.annex ? h.annex[0] * h.annex[1] : 0);
+      if (got + h.area > want && !chance((want - got) / h.area)) break;
+      houses.push(h);
+      got += h.area;
+    }
+    const need = (h) => h.w + (h.annex ? h.annex[0] : 0) + 2 * VILLA_SIDE;
+    let used = houses.reduce((t, h) => t + need(h), 0);
+    while (houses.length && used > L) {
+      const h = houses.pop();
+      used -= need(h);
+      // narrow rows keep one house, as wide as the row lets it be
+      if (!houses.length && L - 2 * VILLA_SIDE >= 7) {
+        h.annex = null;
+        h.w = Math.min(h.w, L - 2 * VILLA_SIDE);
+        houses.push(h);
+        used = need(h);
+      }
+    }
+    if (!houses.length) return;
+    let short = got - houses.reduce((t, h) => t + h.w * h.d + (h.annex ? h.annex[0] * h.annex[1] : 0), 0);
+    if (short > 1) {
+      const span = houses.reduce((t, h) => t + h.w, 0);
+      for (const h of houses) h.d = Math.min(maxD, h.d + short / span);
+    }
+    const slack = L - used;
+    const wts = houses.map(() => range(0.5, 1.5));
+    const wsum = wts.reduce((t, x) => t + x, 0);
+    let a = 0;
+    houses.forEach((h, k) => {
+      const pw = need(h) + (slack * wts[k]) / wsum;
+      villaHouse(blk, sideRect(row, side, a, a + pw, 0, D), side, street, h.w, h.d, h.annex, cfg);
+      a += pw;
+    });
+  }
+
+  // A detached house on `plot` (street or lane on `side`): set back 4-7 m from a street, anywhere in the middle of a
+  // back plot; 2-3 storeys under a hipped, mansard or gabled tile or slate roof, one in eight a flat-roofed 1930s
+  // modernist villa with its top floor stepped back behind a terrace
+  function villaHouse(blk, plot, side, street, hw, hd, annex, cfg) {
+    const L = sideLen(plot, side);
+    const D = sideDepth(plot, side);
+    const set = street ? Math.min(range(4, 7), D - hd - 2) : (D - hd) * range(0.3, 0.6);
+    const aw = annex ? annex[0] : 0;
+    const a = VILLA_SIDE + (L - hw - aw - 2 * VILLA_SIDE) * range(0.2, 0.8);
+    const left = chance(0.5);
+    const ha = left ? a + aw : a;
+    const r = sideRect(plot, side, ha, ha + hw, set, set + hd);
+    const modern = chance(0.12);
+    const b = building(blk, modern ? pickW([[F.cream, 3], [F.greyGreen, 1]]) : pickW(cfg.mats), plot);
+    const floors = irange(cfg.kf.villa[0], cfg.kf.villa[1]);
+    const house = mass(b, [r], 0, floors);
+    if (annex) {
+      const x0 = left ? a : a + hw;
+      const d = Math.min(annex[1], hd);
+      mass(b, [sideRect(plot, side, x0, x0 + aw, set + hd - d, set + hd)], 0, 1);
+    }
+    if (modern) {
+      if (floors >= 2 && hd >= 9) {
+        mass(b, [sideRect(plot, side, ha, ha + hw, set + range(2.5, 3.5), set + hd)], floors, floors + 1);
+      }
+      commit(blk, b, { corniceH: 0.35, skylights: true, freestanding: true, shops: 'none', awnings: false });
+      return;
+    }
+    const shape = pickW([['hip', 3], ['mansard', 1], ['gable', 1]]);
+    pitch(house, shape, pickW([['tile', 3], ['slate', 1]]), rectW(r) >= rectD(r) ? 'x' : 'z', range(35, 45));
+    commit(blk, b, { chimneys: true, freestanding: true, shops: 'none', awnings: false, corniceH: 0.45 });
+  }
+
   // Exhibition halls (FAIRGROUND) over the lot rect, forecourts along its streets: rows of halls across its short side,
   // each a blank-walled box in render or brick, or a glass hall; a third of the box halls front an alley with a
   // two-storey glass foyer
@@ -1582,7 +1690,8 @@ function buildCityBlocks(scene) {
     loft: loftBlock,
     projects: projectsBlock,
     lowrise: lowriseBlock,
-    fair: fairBlock
+    fair: fairBlock,
+    villas: villaBlock
   };
 
   // ============================================================================
@@ -1659,15 +1768,9 @@ function buildCityBlocks(scene) {
     kf: { kamienica: [2, 3], villa: [2, 3] },
     inner: [['yard', 4], ['rear', 1], ['works', 1]] // the canons' gardens and church yards stay green
   });
-  // Sołacz, Winiary and the garden suburbs: villas in big gardens, the odd 1930s house
-  const RES_VILLAS = res({
-    cornerVilla: true,
-    cornerShops: 0.1,
-    shops: 0.1,
-    rows: [['villa', 6], ['modernist1930s', 0.8], ['gap', 1.5]],
-    kf: { villa: [2, 3], modernist1930s: [3, 4] },
-    inner: [['yard', 1]] // the villas' back gardens
-  });
+  // Sołacz, Winiary and the garden suburbs: detached villas in their gardens (villaBlock), the odd flat-roofed 1930s
+  // one. Storeys follow the block's median (steerProfile)
+  const RES_VILLAS = { kind: 'villas', mats: ROW_KINDS.villa.mats, kf: { villa: [2, 3] } };
   // Round Rondo Kaponiera, Plac Andersa and Collegium Altum: offices of 6-20 storeys (podium 2-4 + shaft 4-16)
   const OFFICES = { kind: 'offices', tower: [4, 16], mid: [6, 9], towerP: 0.45, inner: [['pavilion', 3], ['works', 1], ['yard', 1]] };
   // Rataje, Chartowo, Winogrady (where they reach the detail box): osiedla of panel slabs, by storeys and weight
@@ -1716,12 +1819,28 @@ function buildCityBlocks(scene) {
   // gaps only when far lower (kamienice), or empty lots (the rest); one that is higher keeps no gaps or yards, and
   // panel estates whose block is denser or lower than a slab estate take the kamienica profile. Before this, the generator built Główna at 2.5x
   // its real share and Rataje at 0.6x
-  const KIND_SHARE = { res: 0.28, rynek: 0.4, cesarska: 0.4, offices: 0.29, loft: 0.57, projects: 0.1, lowrise: 0.48, fair: 0.45 };
+  const KIND_SHARE = {
+    res: 0.28, rynek: 0.4, cesarska: 0.4, offices: 0.29, loft: 0.57, projects: 0.1, lowrise: 0.48, fair: 0.45, villas: 0.15
+  };
   const RES_KINDS = new Set(['res', 'rynek', 'cesarska']);
+  // Villa layouts are steered exactly (villaBlock builds cfg.share of its lot rects): the block's real share over the
+  // lot area its pieces cover (srcLotArea; the lot rects stand 4.6 m in from the curb, so a Sołacz block's 9% of the
+  // island is ~12% of its lots), at most VILLA_MAX
+  const VILLA_SHARE = KIND_SHARE.villas;
+  const VILLA_MAX = 0.45;
   function steerProfile(cfg, b) {
     if (!b) return cfg;
-    // Big blocks with no mapped building may be under-mapped: aim at half the profile's share there
-    const T = b.buildings ? b.built : b.area > 8000 ? KIND_SHARE[cfg.kind] * 0.5 : 0;
+    // A block with no mapped building stays empty: Poznań's OSM buildings are near complete (85% carry
+    // building:levels), and the 37 ha of such blocks over 0.8 ha are meadows, allotments and building sites (the
+    // Naramowice bank of the Warta, 17 ha). Built at half the profile's share they added 5 ha that is not there
+    if (!b.buildings && !(b.built > 0.01)) return { ...cfg, skipP: 1 };
+    const T = b.built;
+    if (cfg.kind === 'villas') {
+      // Villas stand 1-3 storeys: 1-2 on blocks of bungalows and garages, 2 on a 2-storey median, 2-3 above it
+      const lv = Math.round(b.levels);
+      const villa = !lv ? cfg.kf.villa : lv <= 1 ? [1, 2] : lv === 2 ? [2, 2] : [2, 3];
+      return { ...cfg, kf: { villa }, share: Math.min(VILLA_MAX, (T * b.area) / Math.max(1, srcLotArea)) };
+    }
     const L = b.levels >= 2 ? Math.round(b.levels) : 0;
     let base = cfg;
     if (cfg.kind === 'projects' && !cfg.estate && ((L && L < 7) || T > KIND_SHARE.projects * 1.4)) base = RES_KAMIENICE;
@@ -1767,11 +1886,23 @@ function buildCityBlocks(scene) {
     return out;
   }
 
+  // Low blocks of the outer districts: halls and works where the block's mapped buildings average over LOW_HALL m² of
+  // footprint, detached houses where they are smaller (a villa with its garage averages ~120 m²)
+  const LOW_HALL = 450;
+  // Mid-rise blocks of the outer districts: perimeter kamienice where the block is 20% built or more, else slabs in
+  // their greenery (the 1950s-70s blocks of Winiary and Ogrody; as kamienice they came out at twice their share)
+  const midKind = () => (srcBlock && srcBlock.built < 0.2 ? ESTATE : RES_KAMIENICE);
+  const lowKind = () => {
+    const b = srcBlock;
+    return b && b.buildings && (b.built * b.area) / b.buildings > LOW_HALL ? LOWRISE : RES_VILLAS;
+  };
+
   // Profile of a lot rect by where it stands (world centre) and its osiedle (city-config.js districtAt: `b.district`,
   // null outside every named one)
   function blockProfile(blk, district) {
     const [wx, wz] = toWorld(blk.cx, blk.cz);
     const L = srcBlock && srcBlock.levels >= 2 ? srcBlock.levels : 0;
+    const lv = srcBlock ? srcBlock.levels : 0;
     if (FAIR_BLOCK && srcBlock === FAIR_BLOCK) return FAIRGROUND;
     if (OFFICE_SITES.some((t) => Math.hypot(t.x - wx, t.z - wz) < OFFICE_REACH)) return OFFICES;
     if (inBox(CESARSKA_BOX, wx, wz)) return CESARSKA;
@@ -1786,13 +1917,16 @@ function buildCityBlocks(scene) {
       case 'Ostrów Tumski-Śródka-Zawady-Komandoria':
         if (KATEDRA && Math.hypot(KATEDRA.x - wx, KATEDRA.z - wz) < 650) return RES_OSTROW;
         return chance(0.3) ? LOWRISE : RES_STARE;
+      // Sołacz and Winiary: villas, with Winiary's 4-5-storey 1950s blocks (Szczepanowskiego, Niestachowska)
       case 'Sołacz':
-      case 'Winiary': return RES_VILLAS;
+      case 'Winiary': return L >= 7 ? ESTATE : L >= 4 ? midKind() : RES_VILLAS;
       case 'Stare Winogrady': return chance(0.3) ? PROJECTS : RES_KAMIENICE;
-      case 'Rataje':
-      case 'Chartowo': return chance(0.7) ? PROJECTS : RES_KAMIENICE;
+      case 'Rataje': return chance(0.7) ? PROJECTS : RES_KAMIENICE;
+      // Chartowo is slabs throughout (as PROJECTS, a 5-storey median turned them into kamienice and the district came
+      // out at 1.4x its real share); its 1-3-storey blocks are houses, garages and halls
+      case 'Chartowo': return lv && lv <= 3 ? lowKind() : ESTATE;
       case 'Główna': return chance(0.6) ? LOWRISE : RES_STARE;
-      case 'Warszawskie-Pomet-Maltańskie': return chance(0.4) ? LOWRISE : RES_VILLAS;
+      case 'Warszawskie-Pomet-Maltańskie': return lowKind();
       // The districts the 8.2 × 5.7 km box took in (Phase 13.2) mix kinds block by block, so the block's real median
       // storeys (GEO.blockStats, 0 when untagged) pick the kind: slabs from 7, houses up to 3
       case 'Nowe Winogrady Południe':
@@ -1803,7 +1937,7 @@ function buildCityBlocks(scene) {
       // Grunwald and Górczyn: kamienice along Grunwaldzka, Bukowska and Głogowska, villas behind them, the odd estate
       case 'Stary Grunwald':
       case 'Grunwald Północ':
-      case 'Górczyn': return L >= 7 ? ESTATE : L && L <= 3 ? RES_VILLAS : RES_KAMIENICE;
+      case 'Górczyn': return L >= 7 ? ESTATE : L && L <= 3 ? RES_VILLAS : L ? midKind() : RES_KAMIENICE;
       // Garden suburbs: Ogrody, Grunwald Południe's villa streets, Naramowice by the Warta, Junikowo, Ławica, Świerczewo
       case 'Ogrody':
       case 'Grunwald Południe':
@@ -1814,11 +1948,11 @@ function buildCityBlocks(scene) {
       case 'Strzeszyn':
       case 'Podolany':
       case 'Wola':
-      case 'Fabianowo-Kotowo': return L >= 7 ? ESTATE : L >= 4 ? RES_KAMIENICE : RES_VILLAS;
+      case 'Fabianowo-Kotowo': return L >= 7 ? ESTATE : L >= 4 ? midKind() : RES_VILLAS;
       case 'Zielony Dębiec': return L >= 5 ? ESTATE : RES_VILLAS;
       // Franowo's depot and the industrial estates along the eastern and southern railways, round Kobylepole's estate
       case 'Antoninek-Zieliniec-Kobylepole':
-      case 'Starołęka-Minikowo-Marlewo': return L >= 5 ? ESTATE : chance(0.6) ? LOWRISE : RES_VILLAS;
+      case 'Starołęka-Minikowo-Marlewo': return L >= 5 ? ESTATE : lowKind();
       default: return RES_KAMIENICE;
     }
   }
@@ -2230,6 +2364,9 @@ function buildCityBlocks(scene) {
     srcBlock = b;
     srcRects = (b.frames || [[0, 0, 0, b.rects]]).flatMap(([th, px, pz, rects]) => rects.map(([x0, x1, z0, z1]) => (
       { cs: Math.cos(th), sn: Math.sin(th), px, pz, x0, x1, z0, z1 })));
+    // The block's pieces first: their area is the lot area the villa layouts steer by (srcLotArea)
+    const pieces = [];
+    srcLotArea = 0;
     for (const [th, px, pz, rects] of b.frames || [[0, 0, 0, b.rects]]) {
       xf = th ? { th, cs: Math.cos(th), sn: Math.sin(th), px, pz } : null;
       for (const r of rects) {
@@ -2237,17 +2374,23 @@ function buildCityBlocks(scene) {
           for (const piece of splitDeep(part)) {
             for (const [x0, x1, z0, z1] of b.park > 0 ? parkFreeCells(...piece) : [piece]) {
               if (x1 - x0 < minLot || z1 - z0 < minLot) continue;
-              populateBlock(x0, x1, z0, z1, b.district);
+              pieces.push([xf, x0, x1, z0, z1]);
+              srcLotArea += (x1 - x0) * (z1 - z0);
             }
           }
         }
       }
-      xf = null;
     }
+    for (const [f, x0, x1, z0, z1] of pieces) {
+      xf = f;
+      populateBlock(x0, x1, z0, z1, b.district);
+    }
+    xf = null;
   }
   minLot = 15;
   srcBlock = null;
   srcRects = [];
+  srcLotArea = 0;
 
   // B6. Narrow leftover slabs no building fits on (8-26 m wide: wedges between converging streets, slivers by the
   //     bridge approaches) become sitting areas: a row or two of street trees in tree pits (planted by
