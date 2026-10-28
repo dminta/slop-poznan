@@ -534,7 +534,10 @@ landUseTexture.needsUpdate = true;
 //    u runs along each block's long side: u = R(angle) * (p - origin); pu >= pv are the block pitches and su / sv the
 //    street widths (m). Which grid applies where is baked into a zone map (one byte per land-use texel) that the ground
 //    shader samples too, so the CPU and GPU always agree. Osiedla are superblocks of slabs in greenery, hence the big
-//    pitches. Angles follow each district's main streets (degrees, east towards south).
+//    pitches. Angles follow each district's main streets (degrees, east towards south). Since the 8.2 × 5.7 km detail
+//    box (Phase 13.2) Stare and Nowe Winogrady Południe, Rataje, Chartowo, Żegrze, Ogrody and Górczyn lie mostly inside
+//    it as real blocks; nothing is built or drawn here inside the box, so the zones now carry on only their outer parts
+//    (panel blocks 2168 → 1381, all outskirts buildings 40.8k → 47.4k, as MAX_BUILD_DIST reaches further out).
 // =====================================================================================================================
 
 const ZONE_LIST = [

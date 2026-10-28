@@ -364,7 +364,17 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   const plateSites = []; // { x, z, nx, nz, label }
   const ledLampSites = [];
   const streetPointSites = [];
-  const placedPoles = [];
+  // Every placed pole, post and kiosk centre, hashed in POLE_CELL cells: isClearOfPoles runs for every candidate site,
+  // and scanning all the poles took 0.8 s of the 1.5 s street-furniture build over the 8.2 × 5.7 km box (25k sites)
+  const POLE_CELL = 8;
+  const poleCells = new Map();
+  const poleKey = (i, j) => (i + 4096) * 8192 + (j + 4096);
+  const addPole = (p) => {
+    const k = poleKey(Math.floor(p.x / POLE_CELL), Math.floor(p.z / POLE_CELL));
+    const list = poleCells.get(k);
+    if (list) list.push(p);
+    else poleCells.set(k, [p]);
+  };
 
   const plazaRects = pavedPlazaRects || [];
   const inPlaza = (x, z, m = 1.0) =>
@@ -391,10 +401,19 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
 
   const isClearOfPoles = (x, z, minDist = 6.0) => {
     const md2 = minDist * minDist;
-    for (let i = 0; i < placedPoles.length; i++) {
-      const dx = placedPoles[i].x - x;
-      const dz = placedPoles[i].z - z;
-      if (dx * dx + dz * dz < md2) return false;
+    const i1 = Math.floor((x + minDist) / POLE_CELL);
+    const j0 = Math.floor((z - minDist) / POLE_CELL);
+    const j1 = Math.floor((z + minDist) / POLE_CELL);
+    for (let i = Math.floor((x - minDist) / POLE_CELL); i <= i1; i++) {
+      for (let j = j0; j <= j1; j++) {
+        const list = poleCells.get(poleKey(i, j));
+        if (!list) continue;
+        for (let k = 0; k < list.length; k++) {
+          const dx = list[k].x - x;
+          const dz = list[k].z - z;
+          if (dx * dx + dz * dz < md2) return false;
+        }
+      }
     }
     return true;
   };
@@ -552,7 +571,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
       for (const side of [1, -1]) {
         const p = spot(side);
         if (!p) continue;
-        placedPoles.push(p);
+        addPole(p);
         addFootprint(p.x, p.z, 0.3, 0.3, 'signal');
         addCollider(p.x, p.z, 0.08, 0.08, 0.1 + SIGNAL_POLE_H);
         dummy.position.set(p.x, 0.1 + SIGNAL_POLE_H / 2, p.z);
@@ -763,7 +782,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         const pz = cz + inz * 0.9;
         if (!isOnSidewalk(px, pz, 0.5) || blockAt(cx + outX * 2.2, cz + outZ * 2.2) || !isClearOfPoles(px, pz, 5.2) ||
           !clearOfRoads(px, pz, 0.25) || !clearOfCrosswalks(px, pz, 0.2) || !clearOfRails(px, pz, 0.29)) continue;
-        placedPoles.push({ x: px, z: pz });
+        addPole({ x: px, z: pz });
         addFootprint(px, pz, 0.4, 0.4, 'gas');
         addCollider(px, pz, 0.18, 0.18, 4.36);
         dummy.position.set(px, 0.18, pz);
@@ -798,7 +817,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
       ) {
         continue;
       }
-      placedPoles.push({ x: lx, z: lz });
+      addPole({ x: lx, z: lz });
       addFootprint(lx, lz, 0.45, 0.45, 'led');
       addCollider(lx, lz, 0.14, 0.14, 0.1 + 8.6 * scale);
       dummy.position.set(lx, 0.1, lz);
@@ -887,7 +906,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   const place = (list, p, yaw, w, kind, clear) => {
     if (!isClearOfPoles(p.x, p.z, clear) || !clearOfRoads(p.x, p.z, w / 2 + 0.05) || !clearOfCrosswalks(p.x, p.z, w / 2) ||
       !clearOfRails(p.x, p.z, w * 0.71)) return false;
-    placedPoles.push(p);
+    addPole(p);
     addFootprint(p.x, p.z, w, w, kind);
     addCollider(p.x, p.z, FURNITURE_TOP[kind][0], FURNITURE_TOP[kind][0], FURNITURE_TOP[kind][1]);
     dummy.position.set(p.x, 0.2, p.z);
@@ -1021,7 +1040,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
       }
       if (!ok) continue;
       bigSites.push({ x, z, kind });
-      placedPoles.push({ x, z });
+      addPole({ x, z });
       const w = Math.abs(ux) * halfW * 2 + Math.abs(inx) * halfD * 2;
       const d = Math.abs(uz) * halfW * 2 + Math.abs(inz) * halfD * 2;
       addFootprint(x, z, w, d, kind);

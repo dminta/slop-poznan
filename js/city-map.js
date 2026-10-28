@@ -83,19 +83,25 @@ const AREA_STYLE = {
 };
 const AREA_ORDER = Object.keys(AREA_STYLE);
 
-// Grunwald and Winogrady are what Poznań calls these parts of the city (the dzielnice before 1990), but OSM places only
-// their osiedla, so GEO.labels has "Stary Grunwald" and "Stare Winogrady" (kept: they name the smaller areas) and no
-// GRUNWALD or WINOGRADY. Each is set as a suburb title at the area-weighted centroid of its osiedla's GEO.districts
-// rings: Grunwald ≈ (-4170, 1280) in Grunwald Południe, Winogrady ≈ (310, -2250) in Stare Winogrady
+// Grunwald and Winogrady are what Poznań calls these parts of the city (the dzielnice before 1990). OSM has a
+// place=suburb node for each, but GEO.labels keeps only places within 1 km of the detail box, and the 6.1 × 3.7 km box
+// reached neither: then each is set as a suburb title at the area-weighted centroid of its osiedla's GEO.districts
+// rings (Grunwald ≈ (-4170, 1280) in Grunwald Południe, Winogrady ≈ (210, -2460) in Stare Winogrady). Since the
+// 8.2 × 5.7 km box GEO.labels has both OSM nodes (Grunwald (-3955, 1020), Winogrady (296, -2927)), and a group whose
+// name is already placed gets no second title
 const DISTRICT_GROUPS = {
   Grunwald: ['Grunwald Północ', 'Grunwald Południe', 'Stary Grunwald'],
   Winogrady: ['Stare Winogrady', 'Nowe Winogrady Południe', 'Nowe Winogrady Wschód', 'Nowe Winogrady Północ']
 };
 
-/** Suburb labels { name, kind, x, z } at the area-weighted centroid of each group's district rings (those present) */
-function districtGroupLabels(districts, groups) {
+/**
+ * Suburb labels { name, kind, x, z } at the area-weighted centroid of each group's district rings (those present),
+ * except for the groups whose name one of `placed` (labels { name }) already carries
+ */
+function districtGroupLabels(districts, groups, placed = []) {
   const out = [];
   for (const name in groups) {
+    if (placed.some((l) => l.name === name)) continue;
     let a = 0;
     let mx = 0;
     let mz = 0;
@@ -122,7 +128,7 @@ function districtGroupLabels(districts, groups) {
   return out;
 }
 
-const AREA_TITLES = [...(GEO.labels || []), ...districtGroupLabels(GEO.districts || [], DISTRICT_GROUPS)]
+const AREA_TITLES = [...(GEO.labels || []), ...districtGroupLabels(GEO.districts || [], DISTRICT_GROUPS, GEO.labels || [])]
   .filter((l) => AREA_STYLE[l.kind])
   .sort((a, b) => AREA_ORDER.indexOf(a.kind) - AREA_ORDER.indexOf(b.kind))
   .map((l) => ({ text: AREA_STYLE[l.kind].caps ? mapCaps(l.name) : l.name, style: AREA_STYLE[l.kind], x: l.x, z: l.z }));
@@ -865,7 +871,7 @@ class CityMapSystem {
     }
     if (viewAllBtn) {
       viewAllBtn.addEventListener('click', () => {
-        // Fits the detail box (GEO.frame.detailBox), Jeżyce to Malta; the outskirts stay in view around it
+        // Fits the detail box (GEO.frame.detailBox), Ogrody to Antoninek; the outskirts stay in view around it
         const b = CITY_BOUNDS;
         const { w, h } = this.fullSize();
         this.viewCenterX = (b.minX + b.maxX) * 0.5;

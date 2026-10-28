@@ -19,8 +19,9 @@ const [BX0, BX1, BZ0, BZ1] = DETAIL_BOX;
 
 // --- Water labels: the point deepest inside each named water body, within the detail box --------------------------
 // 4 m raster over the body's rings clipped to the box, the cell farthest from the shore wins (first in scan order on a
-// tie). Jezioro Maltańskie runs past the box's east edge, so its label sits on the box's part of the lake.
-const WATER_LABELS = ['Warta', 'Cybina', 'Jezioro Maltańskie', 'Stare koryto Warty'];
+// tie). Jezioro Rusałka runs past the box's west edge (two fifths of it inside), so its label sits on the box's part
+// of the lake.
+const WATER_LABELS = ['Warta', 'Cybina', 'Jezioro Maltańskie', 'Stare koryto Warty', 'Jezioro Rusałka'];
 const waterLabels = [];
 for (const name of WATER_LABELS) {
   const bodies = water.filter((w) => w.name === name);

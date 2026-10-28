@@ -798,8 +798,8 @@ function buildCityGrid(scene) {
 
   for (const pl of pavedPlazas()) {
     const holes = pl.holes.filter((h) => h.length >= 3 && ringInside(pl.ring, h));
-    // cutSlab has no holes: a square with both buildings and tram track on it (none so far) is left unpaved rather
-    // than burying the rails
+    // cutSlab has no holes: a square with both buildings and tram track on it (one: the pedestrian area at the Ogrody
+    // tram loop on Dąbrowskiego) is left unpaved rather than burying the rails
     if (pl.tramSegs && holes.length) continue;
     addPavedPlaza(pl.ring, 1, PLAZA_Y, holes, pl.tramSegs, pl.name || '');
     // furniture keeps 2 m in from the plaza's edge and 2.5 m off the buildings on it

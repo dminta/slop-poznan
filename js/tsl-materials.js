@@ -155,7 +155,8 @@ const filteredPulse = Fn(([x, a, b, w]) => {
 
 // Low-resolution rasters of the detail box (city-config.js CITY_BOUNDS) for shaders that need to know where the land or
 // the parks are without the vector data. Built on first use from the 2 m land raster and the blocks; both are small
-// (≈ 770 × 460 and 385 × 230 texels) and sampled through boxUV, clamped to their edge outside the box.
+// (≈ 1020 × 710 and 510 × 355 texels over the 8.2 × 5.7 km box) and sampled through boxUV, clamped to their edge
+// outside the box.
 const boxUV = (p) => p.sub(vec2(CITY_BOUNDS.minX, CITY_BOUNDS.minZ))
   .div(vec2(CITY_BOUNDS.maxX - CITY_BOUNDS.minX, CITY_BOUNDS.maxZ - CITY_BOUNDS.minZ));
 

@@ -414,4 +414,14 @@ test('Grunwald and Winogrady are labelled over their osiedla, whatever way the r
   for (const l of labels) {
     assert.ok(DISTRICT_GROUPS[l.name].includes(districtAt(l.x, l.z)), `${l.name} lands in ${districtAt(l.x, l.z)}`);
   }
+
+  // A name OSM already places (GEO.labels) gets no second title: the 8.2 × 5.7 km box takes in OSM's place=suburb nodes
+  // for both, so the map draws each once, at OSM's point, inside one of its osiedla
+  assert.equal(districtGroupLabels(districts, { AB: ['A', 'B'] }, [{ name: 'AB', kind: 'suburb', x: 0, z: 0 }]).length, 0);
+  for (const name of ['Grunwald', 'Winogrady']) {
+    const osm = GEO.labels.filter((l) => l.name === name);
+    assert.equal(osm.length, 1, `${name} placed once by OSM`);
+    assert.ok(DISTRICT_GROUPS[name].includes(districtAt(osm[0].x, osm[0].z)), `${name} lands in ${districtAt(osm[0].x, osm[0].z)}`);
+  }
+  assert.equal(districtGroupLabels(GEO.districts, DISTRICT_GROUPS, GEO.labels).length, 0);
 });

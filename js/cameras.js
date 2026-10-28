@@ -66,9 +66,10 @@ function placeView(view, elapsed, pos, look) {
 
 
 // The far plane reaches every corner of the outskirts (the city boundary, x -13.8…9.4 km, z -11.2…13.0 km) from
-// anywhere the helicopter may fly (6 km past the detail box): 31.2 km at most. The horizon filler goes on to 40 km, but
-// the aerial fog has swallowed it long before (tau ≥ 4.7 at 32 km even in the clearest preset, 380 m up), so its cut is
-// never seen. Reversed float depth keeps the precision.
+// anywhere the helicopter may fly (6 km past the 8.2 × 5.7 km detail box): 28.5 km at most to a boundary vertex
+// (27.1 km round the 6.1 × 3.7 km box; 32.7 km to a corner of the boundary's bounding box, where there is no city).
+// The horizon filler goes on to 40 km, but the aerial fog has swallowed it long before (tau ≥ 4.7 at 32 km even in the
+// clearest preset, 380 m up), so its cut is never seen. Reversed float depth keeps the precision.
 const CAMERA_FAR = 32000;
 
 class CameraSystem {
