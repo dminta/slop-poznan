@@ -1494,6 +1494,15 @@ function buildCityBlocks(scene) {
       v += dep + Math.max(18, floors * storeys[F.panel] * 0.9);
     }
     if (lastEnd >= 0) service(lastEnd, wid - set + 6);
+    // An estate's frontage frames cut its blocks into strips 12-20 m deep that hold no row above: one slab along the
+    // strip, 1-2 m off its ends (Nowe Winogrady Południe went from 4.4% to 14.9% built with it, 17.2% real)
+    if (lastEnd < 0 && cfg.estate && wid >= 11 && len >= 24) {
+      const dep = Math.min(wid - 1, range(10.5, 12.5));
+      const seg = Math.min(len - 2, range(40, 110));
+      const u0 = (len - seg) * range(0.3, 0.7);
+      const v0 = (wid - dep) * 0.5;
+      place(u0, u0 + seg, v0, v0 + dep, pickW(cfg.types));
+    }
   }
 
   // Low-rise blocks: warehouses, garages, sheds and small works
@@ -1663,6 +1672,10 @@ function buildCityBlocks(scene) {
   const OFFICES = { kind: 'offices', tower: [4, 16], mid: [6, 9], towerP: 0.45, inner: [['pavilion', 3], ['works', 1], ['yard', 1]] };
   // Rataje, Chartowo, Winogrady (where they reach the detail box): osiedla of panel slabs, by storeys and weight
   const PROJECTS = { kind: 'projects', types: [[5, 5], [11, 2.5], [16, 1]], setback: [8, 12] };
+  // Nowe Winogrady, Żegrze, Piątkowo: whole districts of slabs. `estate` keeps the slabs where steerProfile would turn
+  // a low or dense panel block into kamienice (right for Stare Winogrady's mix, wrong here: their 5-storey slabs read
+  // as a 5-storey median and their 19% built share is over the slab layout's 10%)
+  const ESTATE = { ...PROJECTS, estate: true };
   // Garbary's warehouses, the breweries and works: brick lofts
   const LOFT_BASE = { kind: 'loft', lotW: [10, 24], throughP: 0.5, floors: [3, 6], mats: [[F.brick, 5], [F.yellowBrick, 3], [F.cream, 1]], setbackAt: 99, balconyP: 0 };
   // Główna and the rail-side quarters: brick warehouses, sheds and works
@@ -1711,7 +1724,7 @@ function buildCityBlocks(scene) {
     const T = b.buildings ? b.built : b.area > 8000 ? KIND_SHARE[cfg.kind] * 0.5 : 0;
     const L = b.levels >= 2 ? Math.round(b.levels) : 0;
     let base = cfg;
-    if (cfg.kind === 'projects' && ((L && L < 7) || T > KIND_SHARE.projects * 1.4)) base = RES_KAMIENICE;
+    if (cfg.kind === 'projects' && !cfg.estate && ((L && L < 7) || T > KIND_SHARE.projects * 1.4)) base = RES_KAMIENICE;
     const q = T / KIND_SHARE[base.kind];
     const out = { ...base };
     if (RES_KINDS.has(base.kind)) {
@@ -1726,7 +1739,10 @@ function buildCityBlocks(scene) {
       const others = base.rows.filter(([k]) => k !== 'gap');
       if (q >= 1) {
         out.rows = others;
-        out.inner = (base.inner || INNER_RES).filter(([k]) => k !== 'yard');
+        // (the villas' only inner kind is the yard: a dense villa block, Górczyn's houses on 30% of their lots, falls
+        // back to the outbuildings of the kamienica blocks)
+        const inner = (base.inner || INNER_RES).filter(([k]) => k !== 'yard');
+        out.inner = inner.length ? inner : INNER_RES.filter(([k]) => k !== 'yard');
         // Well above the typical share (the centre's 50-85% blocks): oficyny round every courtyard, rear houses on
         // tighter light courts, yards 3 m wide
         if (q >= 1.3) out.dense = true;
@@ -1755,6 +1771,7 @@ function buildCityBlocks(scene) {
   // null outside every named one)
   function blockProfile(blk, district) {
     const [wx, wz] = toWorld(blk.cx, blk.cz);
+    const L = srcBlock && srcBlock.levels >= 2 ? srcBlock.levels : 0;
     if (FAIR_BLOCK && srcBlock === FAIR_BLOCK) return FAIRGROUND;
     if (OFFICE_SITES.some((t) => Math.hypot(t.x - wx, t.z - wz) < OFFICE_REACH)) return OFFICES;
     if (inBox(CESARSKA_BOX, wx, wz)) return CESARSKA;
@@ -1776,6 +1793,32 @@ function buildCityBlocks(scene) {
       case 'Chartowo': return chance(0.7) ? PROJECTS : RES_KAMIENICE;
       case 'Główna': return chance(0.6) ? LOWRISE : RES_STARE;
       case 'Warszawskie-Pomet-Maltańskie': return chance(0.4) ? LOWRISE : RES_VILLAS;
+      // The districts the 8.2 × 5.7 km box took in (Phase 13.2) mix kinds block by block, so the block's real median
+      // storeys (GEO.blockStats, 0 when untagged) pick the kind: slabs from 7, houses up to 3
+      case 'Nowe Winogrady Południe':
+      case 'Nowe Winogrady Wschód':
+      case 'Nowe Winogrady Północ':
+      case 'Żegrze':
+      case 'Piątkowo': return ESTATE;
+      // Grunwald and Górczyn: kamienice along Grunwaldzka, Bukowska and Głogowska, villas behind them, the odd estate
+      case 'Stary Grunwald':
+      case 'Grunwald Północ':
+      case 'Górczyn': return L >= 7 ? ESTATE : L && L <= 3 ? RES_VILLAS : RES_KAMIENICE;
+      // Garden suburbs: Ogrody, Grunwald Południe's villa streets, Naramowice by the Warta, Junikowo, Ławica, Świerczewo
+      case 'Ogrody':
+      case 'Grunwald Południe':
+      case 'Naramowice':
+      case 'Junikowo':
+      case 'Ławica':
+      case 'Świerczewo':
+      case 'Strzeszyn':
+      case 'Podolany':
+      case 'Wola':
+      case 'Fabianowo-Kotowo': return L >= 7 ? ESTATE : L >= 4 ? RES_KAMIENICE : RES_VILLAS;
+      case 'Zielony Dębiec': return L >= 5 ? ESTATE : RES_VILLAS;
+      // Franowo's depot and the industrial estates along the eastern and southern railways, round Kobylepole's estate
+      case 'Antoninek-Zieliniec-Kobylepole':
+      case 'Starołęka-Minikowo-Marlewo': return L >= 5 ? ESTATE : chance(0.6) ? LOWRISE : RES_VILLAS;
       default: return RES_KAMIENICE;
     }
   }

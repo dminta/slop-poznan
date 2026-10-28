@@ -326,10 +326,10 @@ const ROOF_SHAPES = ['gable', 'hip', 'mansard', 'gambrel'];
 const ROOF_MATERIALS = ['tile', 'slate', 'copper'];
 // Fallbacks when the caller has no material for a key: red ceramic tile, dark slate / sheet metal, copper patina
 const FALLBACK_COLORS = { tile: 0xa34a30, slate: 0x4b5159, copper: 0x5e9c86 };
-// buildCityBlocks commits about 12,000 buildings over the Poznań blocks, 9,240 of them with pitched roofs that take
-// 21,200 instance records (a hip or mansard takes 3), and dormers take two records each (body and window): see
-// MAX_ROOF_INSTANCES' measured use in docs/world.md. 32 bytes a record
-const MAX_ROOF_INSTANCES = 64000;
+// Over the 8.2 × 5.7 km detail box buildCityBlocks stages 82.6k records (measured headless, 2026-10-28): 46.5k for the
+// pitched roofs (a hip or mansard takes 3) and 36.1k for 18.0k dormers (body and window each). The former 64k pool
+// (46.8k used over the 6.1 × 3.7 km box) ran full there and dropped the last blocks' roofs. 36 bytes a staged record
+const MAX_ROOF_INSTANCES = 128000;
 const STRIDE = 9; // x, y, z, sx, sy, sz, ry, mesh index, tint (sRGB hex; gable screens)
 
 function createRoofGeometries() {

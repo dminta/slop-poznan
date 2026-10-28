@@ -218,7 +218,7 @@ class LightingSystem {
     this.scene.background = null;
 
     // Physical Preetham SkyMesh + Beer-Powder Clouds (from three/addons/objects/SkyMesh.js). Its unit box must contain
-    // the camera wherever the helicopter flies (up to 6 km past the 6.1 × 3.7 km detail box); it renders at the far
+    // the camera wherever the helicopter flies (up to 6 km past the 8.2 × 5.7 km detail box); it renders at the far
     // plane whatever its size
     this.sky = new SkyMesh();
     this.sky.scale.setScalar(200000);

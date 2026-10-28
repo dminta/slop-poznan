@@ -1111,7 +1111,40 @@ from the 2026-10-27 audit**; grep case-insensitively.
 
 ### Phase 13: Denser blocks, a larger detail box
 
-**Status: 13.1 done (unverified in a browser), 13.2 not started** (decided 2026-10-27).
+**Status: 13.1 and 13.2 done, both unverified in a browser** (decided 2026-10-27; 13.2 done 2026-10-28).
+
+13.2 results:
+- The box is 52.383–52.434 N, 16.880–17.000 E: x −3675…4491, z −2831…2844, 46 km². Snapshots were refetched on
+  2026-10-28, with no tag changes inside the old box.
+- Build:
+
+  | | Before | After |
+  |---|---|---|
+  | Geodata | 1.42 MB | 2.48 MB |
+  | Build time | 14 s | 29 s |
+  | Peak RSS | 0.81 GB | 1.27 GB |
+
+- Network and buildings:
+
+  | | Before | After |
+  |---|---|---|
+  | Blocks | 796 | 1,422 |
+  | Road links | 3,903 | 7,116 |
+  | Buildings | 10.4k | 20.1k |
+  | Zebras | 1,602 | 3,310 |
+  | Signalised junctions | 235 | 490 |
+  | Tram routes | 36 | 38 |
+
+- `MAX_ROOF_INSTANCES` went from 64k to 128k (82.6k used). Before the change the pool overflowed and dropped roofs.
+- A new `ESTATE` profile covers Nowe Winogrady, Żegrze and Piątkowo. The garden suburbs and industrial districts steer
+  by `blockStats` storeys.
+- Headless boot: the builders take 2.0 → 3.1 s, and the scene holds 7.8M → 12.4M triangles before culling.
+- Open:
+  - villa districts are still under their real density (Sołacz 3.7 vs 9.0%, Winiary 8.9 vs 17%);
+  - Chartowo is over (18.8 vs 12.1%);
+  - the near-balcony pool is at 245 of its 256 cap.
+- Browser checks: load time and frame rate, roofs across the box, the Winogrady/Żegrze slab strips, the box edges
+  against the outskirts, single GRUNWALD/WINOGRADY map titles, and the Plac Waryńskiego paving cut.
 
 1. **Density** (`buildings.js`; done, not yet checked in a browser). The emptiness came from building generation,
    not missing lots. Frontless lot rects (20–40% of the lot area by district) and the cores of big rects were left

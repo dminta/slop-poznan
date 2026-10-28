@@ -33,8 +33,8 @@ const toWorld = (lon, lat) => [(lon - LON0) * KX, -(lat - LAT0) * KY];
 // toWorld as GEO.frame.ll affine coefficients: x = a*lon + b*lat + c, z = d*lon + e*lat + f
 const llAffine = () => [KX, 0, -KX * LON0, 0, -KY, KY * LAT0];
 
-// The detailed core (D3): 52.392–52.425 N, 16.895–16.985 E, ≈ 6.1 km east-west × 3.7 km north-south
-const DETAIL_LL = { s: 52.392, n: 52.425, w: 16.895, e: 16.985 };
+// The detailed core (D3): 52.383–52.434 N, 16.880–17.000 E, ≈ 8.2 km east-west × 5.7 km north-south
+const DETAIL_LL = { s: 52.383, n: 52.434, w: 16.880, e: 17.000 };
 const [DX0, DZ1] = toWorld(DETAIL_LL.w, DETAIL_LL.s);
 const [DX1, DZ0] = toWorld(DETAIL_LL.e, DETAIL_LL.n);
 const DETAIL_BOX = [DX0, DX1, DZ0, DZ1];
