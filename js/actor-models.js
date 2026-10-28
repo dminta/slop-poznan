@@ -1701,7 +1701,7 @@ function createLoftedBusMaterial() {
 }
 
 // ============================================================================
-// 5. 3D LOFTED MANHATTAN SIGHTSEEING HELICOPTER GEOMETRY & TSL MATERIAL
+// 5. 3D LOFTED LPR AIR AMBULANCE HELICOPTER GEOMETRY & TSL MATERIAL
 // ============================================================================
 const HELI_PARTS = {
   FUSELAGE: 0,
@@ -1764,7 +1764,7 @@ function buildHelicopterBodyGeometry() {
     [2.62, 0.54, 0.72, 1.18, 0.62, 0.48], // Lower nose chin window
     [2.20, 0.88, 0.58, 1.48, 0.72, 0.46], // Lower windshield base
     [1.55, 1.10, 0.52, 1.86, 0.78, 0.44], // Front pilot cabin & wide panoramic windscreen
-    [0.75, 1.16, 0.50, 2.02, 0.80, 0.45], // Main sightseeing passenger cabin (widest section)
+    [0.75, 1.16, 0.50, 2.02, 0.80, 0.45], // Main cabin (widest section)
     [-0.15, 1.14, 0.50, 2.02, 0.80, 0.46], // Rear passenger cabin
     [-0.95, 1.02, 0.54, 1.96, 0.74, 0.50], // Cabin-to-cowling transition
     [-1.65, 0.74, 0.72, 1.84, 0.62, 0.54], // Rear baggage & tapered clamshell bay
@@ -1949,12 +1949,13 @@ function buildHelicopterTailRotorGeometry() {
 let _heliLoftedMat = null;
 
 /**
- * Creates the TSL procedural material for the 3D Lofted Sightseeing Helicopter:
- * - Renders wrap-around panoramic windscreen, chin bubble windows, sightseeing cabin side windows,
+ * Creates the TSL procedural material for the 3D Lofted Helicopter, an EC135 of Lotnicze Pogotowie Ratunkowe (the
+ * Polish air ambulance, with a base at Poznań-Ławica):
+ * - Renders wrap-around panoramic windscreen, chin bubble windows, cabin side windows,
  *   and overhead skylight glass using anti-aliased `roundedRect` SDFs with rubber seals & frame pillars.
- * - Renders a sleek flush executive NYC Sightseeing livery (Pearl Aviation White upper cabin,
- *   Deep Midnight Navy belly/tailboom, and a sweeping Metallic Gold & Crimson accent stripe).
- * - Renders slatted turbine air intakes on the engine cowling and high-visibility yellow tips on rotor blades.
+ * - Renders the LPR livery (approximate): colza yellow (RAL 1021) all over, a traffic-red (RAL 3020) belly and
+ *   cheat line, an ultramarine (RAL 5002) belt along the cabin and red bands on the tail; graphite (RAL 7024) cowling.
+ * - Renders slatted turbine air intakes on the engine cowling and white tips on the rotor blades.
  */
 function createLoftedHelicopterMaterial() {
   if (_heliLoftedMat) return _heliLoftedMat;
@@ -1973,7 +1974,7 @@ function createLoftedHelicopterMaterial() {
     const p = attribute('position', 'vec3').toVar();
     const n = attribute('normal', 'vec3').toVar();
 
-    // 1. Panoramic Wrap-Around Cockpit Windscreen & Sightseeing Side Cabin Windows (on Fuselage)
+    // 1. Panoramic Wrap-Around Cockpit Windscreen & Side Cabin Windows (on Fuselage)
     // Front windscreen: z in [0.95, 2.52], y in [0.98, 1.88], split by narrow center post at x = 0
     const frontGlassOuter = roundedRect(vec2(p.z.sub(1.74), p.y.sub(1.42)), vec2(0.76, 0.42), 0.14)
       .mul(step(0.65, p.z));
@@ -1986,7 +1987,7 @@ function createLoftedHelicopterMaterial() {
       .mul(smoothstep(1.95, 2.15, p.z))
       .mul(smoothstep(2.68, 2.52, p.z));
 
-    // Wide panoramic passenger sightseeing side windows: z in [-0.78, 1.02], y in [1.02, 1.74]
+    // Wide side cabin windows: z in [-0.78, 1.02], y in [1.02, 1.74]
     const sideWindow = roundedRect(vec2(p.z.sub(0.12), p.y.sub(1.38)), vec2(0.88, 0.34), 0.10)
       .mul(step(0.45, abs(n.x)));
 
@@ -2011,14 +2012,18 @@ function createLoftedHelicopterMaterial() {
       .mul(isFuselage)
       .toVar();
 
-    // 2. Flush Executive NYC Sightseeing Livery (Aviation White + Midnight Navy + Sweeping Gold Ribbon)
-    const navyCurveY = float(1.00).add(p.z.mul(-0.085));
+    // 2. LPR livery: yellow over a red belly whose edge sweeps up towards the tail, a thin red cheat line above it, and
+    // the ultramarine belt (where the real one carries LOTNICZE POGOTOWIE RATUNKOWE) between them and the windows
+    const bellyY = float(0.80).add(p.z.mul(-0.085));
     const edgeW = max(fwidth(p.y), 0.008);
-    const isLowerNavy = smoothstep(navyCurveY.add(edgeW), navyCurveY.sub(edgeW), p.y);
-    const goldStripeDist = abs(p.y.sub(navyCurveY.add(0.065)));
-    const isGoldStripe = smoothstep(0.055, 0.038, goldStripeDist);
-    const redPinDist = abs(p.y.sub(navyCurveY.add(0.145)));
-    const isRedPin = smoothstep(0.022, 0.012, redPinDist);
+    const isLowerRed = smoothstep(bellyY.add(edgeW), bellyY.sub(edgeW), p.y);
+    const isBelt = smoothstep(0.075, 0.06, abs(p.y.sub(bellyY.add(0.15)))).mul(step(-0.95, p.z));
+    const isCheatLine = smoothstep(0.02, 0.011, abs(p.y.sub(bellyY.add(0.05))));
+    // Two red bands round the tail boom
+    const isTailBand = max(
+      smoothstep(0.17, 0.15, abs(p.z.add(3.0))),
+      smoothstep(0.17, 0.15, abs(p.z.add(4.0)))
+    );
 
     // Cabin door panel seams & handles
     const doorSeam1 = smoothstep(0.012, 0.004, abs(p.z.sub(1.06)));
@@ -2030,40 +2035,38 @@ function createLoftedHelicopterMaterial() {
       .mul(smoothstep(0.55, 0.62, p.y))
       .mul(smoothstep(1.75, 1.65, p.y));
 
-    const whitePaint = color(0xf4f7fb);
-    const navyPaint = color(0x132c58);
-    const goldPaint = color(0xffbe28);
-    const redPaint = color(0xd8222b);
+    const yellowPaint = color(0xf2c200);
+    const redPaint = color(0xc1121c);
+    const bluePaint = color(0x1f2a6b);
+    const graphitePaint = color(0x45484e);
+    const whitePaint = color(0xf2f3f0);
 
-    const baseLivery = mix(
-      mix(mix(whitePaint, navyPaint, isLowerNavy), goldPaint, isGoldStripe),
-      redPaint,
-      isRedPin
-    ).mul(float(1.0).sub(panelLines.mul(0.45)));
+    const baseLivery = mix(mix(yellowPaint, redPaint, max(max(isLowerRed, isCheatLine), isTailBand)), bluePaint, isBelt)
+      .mul(float(1.0).sub(panelLines.mul(0.45)));
 
     const glassCol = mix(color(0x102234), color(0x1e3c58), clamp(n.y.mul(0.5).add(0.5), 0.0, 1.0));
     const fuselageCol = mix(mix(baseLivery, color(0x14181e), rawSealMask), glassCol, rawWindowMask);
 
-    // 3. Engine Cowling: Aviation White with Dark Slatted Turbine Intake Grille
+    // 3. Engine Cowling: graphite with a yellow lower edge and a dark slatted turbine intake grille
     const intakeGrille = roundedRect(vec2(p.z.sub(-0.45), p.y.sub(2.18)), vec2(0.52, 0.13), 0.04)
       .mul(step(0.35, abs(n.x)));
     const louverSlats = step(0.45, fract(p.y.mul(55.0))).mul(0.4).add(0.35);
     const cowlingCol = mix(
-      mix(whitePaint, goldPaint, smoothstep(2.02, 1.97, p.y)),
+      mix(graphitePaint, yellowPaint, smoothstep(2.02, 1.97, p.y)),
       color(0x181c22).mul(louverSlats),
       intakeGrille
     );
 
-    // 4. Swept Tail Fin & Stabilizer: Deep Navy with Gold Tip Accent
-    const finGoldBand = smoothstep(2.42, 2.45, p.y).mul(smoothstep(2.62, 2.59, p.y));
-    const finCol = mix(navyPaint, goldPaint, finGoldBand);
+    // 4. Swept Tail Fin & Stabilizer: yellow with a red band
+    const finRedBand = smoothstep(2.42, 2.45, p.y).mul(smoothstep(2.62, 2.59, p.y));
+    const finCol = mix(yellowPaint, redPaint, finRedBand);
 
-    // 5. Rotor Blades: Matte Anthracite Carbon with High-Visibility Yellow Safety Tips
+    // 5. Rotor Blades: Matte Anthracite Carbon with white tips
     const radialDist = length(vec2(p.x, p.z));
     const isBladeTip = smoothstep(4.35, 4.42, radialDist).add(
       smoothstep(0.65, 0.68, abs(p.y)).mul(step(radialDist, 0.35))
     );
-    const rotorCol = mix(color(0x1e232a), goldPaint, clamp(isBladeTip, 0.0, 1.0));
+    const rotorCol = mix(color(0x1e232a), whitePaint, clamp(isBladeTip, 0.0, 1.0));
 
     const skidCol = color(0x22272e);
     const exhaustBore = step(0.65, n.z.negate());
