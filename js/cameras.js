@@ -20,6 +20,12 @@ const CAMERA_PRESETS = [
   { id: 'drone',       name: 'Auto-Director Aerial',     short: 'Director',    category: 'scenic', fov: 50 }
 ];
 
+// The far plane reaches every corner of the outskirts (the city boundary, x -13.8…9.4 km, z -11.2…13.0 km) from
+// anywhere the helicopter may fly (6 km past the detail box): 31.2 km at most. The horizon filler goes on to 40 km, but
+// the aerial fog has swallowed it long before (tau ≥ 4.7 at 32 km even in the clearest preset, 380 m up), so its cut is
+// never seen. Reversed float depth keeps the precision.
+const CAMERA_FAR = 32000;
+
 class CameraSystem {
   constructor(domElement, controllerManager) {
     this.domElement = domElement;
@@ -29,7 +35,7 @@ class CameraSystem {
       56,
       window.innerWidth / window.innerHeight,
       0.35,
-      60000 // at 1:1 the outskirts run out ~20-40 km to the fogged horizon (reversed float depth keeps precision)
+      CAMERA_FAR
     );
 
     this.activePresetId = 'chase';

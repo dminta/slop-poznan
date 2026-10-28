@@ -27,12 +27,61 @@ import { cityUniforms } from './tsl-materials.js';
 // Live PMREMGenerator IBL Cubemap, Three.js r186 SunLight (2-Cascade CSM),
 // and Occlusion-Aware Urban Canyon Global Illumination for Three.js r186 WebGPURenderer
 
+const DEG = Math.PI / 180;
+// The solar position is computed for central Poznań (the frame origin at the Ratusz, 52.40856 N 16.93401 E, rounded),
+// and the world's −z axis points at true bearing FRAME_BEARING_DEG (GEO.frame.bearingDeg: 0, the frame is not turned)
+const SUN_LAT = 52.41;
+const SUN_LON = 16.93;
+const FRAME_BEARING_DEG = 0;
+
+// The sun's position at `date` seen from (lat, lon), in degrees: azimuth clockwise from true north, and the geometric
+// elevation above the horizon (no refraction: the apparent sunset is at −0.83°). NOAA's solar calculator equations
+// (Meeus, Astronomical Algorithms), good to about 0.01° in 1800–2100. For Poznań they give a noon elevation of 61.0° at
+// the summer solstice, 37.5° at the equinoxes and 14.2° at the winter solstice, and on 2026-06-21 solar noon at 12:53
+// CEST and sunset at 21:18 CEST (15:40 CET on 2026-12-21); tests/lighting.test.cjs checks these
+function sunPosition(date, lat = SUN_LAT, lon = SUN_LON) {
+  const t = (date.getTime() / 86400000 + 2440587.5 - 2451545) / 36525; // Julian centuries since J2000.0
+  const L0 = (((280.46646 + t * (36000.76983 + t * 0.0003032)) % 360) + 360) % 360; // geometric mean longitude
+  const M = 357.52911 + t * (35999.05029 - 0.0001537 * t); // mean anomaly
+  const e = 0.016708634 - t * (0.000042037 + 0.0000001267 * t); // orbit eccentricity
+  const center = Math.sin(M * DEG) * (1.914602 - t * (0.004817 + 0.000014 * t))
+    + Math.sin(2 * M * DEG) * (0.019993 - 0.000101 * t) + Math.sin(3 * M * DEG) * 0.000289;
+  const omega = 125.04 - 1934.136 * t;
+  const lambda = L0 + center - 0.00569 - 0.00478 * Math.sin(omega * DEG); // apparent longitude
+  const eps = 23 + (26 + (21.448 - t * (46.815 + t * (0.00059 - t * 0.001813))) / 60) / 60
+    + 0.00256 * Math.cos(omega * DEG); // corrected obliquity of the ecliptic
+  const decl = Math.asin(Math.sin(eps * DEG) * Math.sin(lambda * DEG));
+  const y = Math.tan(eps * DEG / 2) ** 2;
+  const eqTime = 4 / DEG * (y * Math.sin(2 * L0 * DEG) - 2 * e * Math.sin(M * DEG)
+    + 4 * e * y * Math.sin(M * DEG) * Math.cos(2 * L0 * DEG) - 0.5 * y * y * Math.sin(4 * L0 * DEG)
+    - 1.25 * e * e * Math.sin(2 * M * DEG)); // minutes
+  const utcMinutes = (((date.getTime() / 60000) % 1440) + 1440) % 1440;
+  const hourAngle = ((utcMinutes + eqTime + 4 * lon) / 4 - 180) * DEG; // true solar time, 0 at solar noon
+  const phi = lat * DEG;
+  const elevation = Math.asin(Math.sin(phi) * Math.sin(decl) + Math.cos(phi) * Math.cos(decl) * Math.cos(hourAngle));
+  const azimuth = Math.atan2(Math.sin(hourAngle), Math.cos(hourAngle) * Math.sin(phi) - Math.tan(decl) * Math.cos(phi));
+  return { azimuth: azimuth / DEG + 180, elevation: elevation / DEG };
+}
+
+// The world-frame unit vector toward (azimuth, elevation) in degrees: x east, y up, z south (north = −z)
+function sunVector(azimuth, elevation, target = new THREE.Vector3()) {
+  const a = (azimuth - FRAME_BEARING_DEG) * DEG;
+  const c = Math.cos(elevation * DEG);
+  return target.set(Math.sin(a) * c, Math.sin(elevation * DEG), -Math.cos(a) * c);
+}
+
+// Each preset is a real moment in Poznań: `when` is the local time (Europe/Warsaw, its UTC offset spelled out), and
+// sunDir is computed from it below. Under the horizon neither the Preetham sky (black once the sun is ≈ 2.3° down) nor
+// a shadow-casting light works, so a preset may raise the rendered sun to `minElevation` over the real sun's azimuth:
+// the afterglow at dusk, the north-western glow of a midsummer night (the sun is only 10–14° down at 23:00–01:00).
+// sunAzimuth / sunElevation keep the real position.
 const TIME_PRESETS = {
   golden: {
     id: 'golden',
     name: 'Golden Hour · 17:45',
-    // Crisp Manhattan canyon sun slicing across avenues & intersections so buildings, cars, trees & pedestrians cast sharp shadows
-    sunDir: new THREE.Vector3(-0.44, 0.58, -0.68).normalize(),
+    // An hour before sunset in late September: the sun 8° up in the west-south-west, so long sharp shadows slice across
+    // the streets
+    when: '2026-09-25T17:45+02:00', // CEST
     sunColor: 0xffca92,
     sunIntensity: 5.8,
     hemiSky: 0x9abbe6,
@@ -58,7 +107,8 @@ const TIME_PRESETS = {
   midday: {
     id: 'midday',
     name: 'Sunny Midday · 13:30',
-    sunDir: new THREE.Vector3(-0.34, 0.82, -0.46).normalize(),
+    // Midsummer, 37 min after solar noon: the sun 60° up, a little west of south
+    when: '2026-06-21T13:30+02:00', // CEST
     sunColor: 0xfff5e8,
     sunIntensity: 6.6,
     hemiSky: 0xaad2ff,
@@ -84,7 +134,10 @@ const TIME_PRESETS = {
   twilight: {
     id: 'twilight',
     name: 'Blue Hour · 19:15',
-    sunDir: new THREE.Vector3(-0.52, 0.36, -0.77).normalize(),
+    // The same late-September evening as golden, 36 min after sunset: the sun 5.6° down in the west, its afterglow
+    // the key light
+    when: '2026-09-25T19:15+02:00', // CEST
+    minElevation: 10,
     sunColor: 0xff9466,
     sunIntensity: 3.1,
     hemiSky: 0x4c6ca8,
@@ -109,8 +162,11 @@ const TIME_PRESETS = {
   },
   midnight: {
     id: 'midnight',
-    name: 'Manhattan Night · 23:00',
-    sunDir: new THREE.Vector3(0.42, 0.68, -0.60).normalize(),
+    name: 'Poznań Night · 23:00',
+    // Midsummer: the sun only 10° down in the north-north-west, so the night stays a blue twilight; the cold key light
+    // is that glow, raised to keep the streets readable
+    when: '2026-06-21T23:00+02:00', // CEST
+    minElevation: 30,
     sunColor: 0x8cb0e8,
     sunIntensity: 1.45,
     hemiSky: 0x263a62,
@@ -135,6 +191,13 @@ const TIME_PRESETS = {
   }
 };
 
+for (const preset of Object.values(TIME_PRESETS)) {
+  const sun = sunPosition(new Date(preset.when));
+  preset.sunAzimuth = sun.azimuth;
+  preset.sunElevation = sun.elevation;
+  preset.sunDir = sunVector(sun.azimuth, Math.max(sun.elevation, preset.minElevation ?? -90));
+}
+
 class LightingSystem {
   constructor(scene, renderer = null) {
     this.scene = scene;
@@ -155,8 +218,8 @@ class LightingSystem {
     this.scene.background = null;
 
     // Physical Preetham SkyMesh + Beer-Powder Clouds (from three/addons/objects/SkyMesh.js). Its unit box must contain
-    // the camera wherever it flies over the 1:1 harbour (Manhattan alone is 13.6 km long; it renders at the far plane
-    // whatever its size)
+    // the camera wherever the helicopter flies (up to 6 km past the 6.1 × 3.7 km detail box); it renders at the far
+    // plane whatever its size
     this.sky = new SkyMesh();
     this.sky.scale.setScalar(200000);
     this.sky.turbidity.value = 8.0;
@@ -225,7 +288,7 @@ class LightingSystem {
 
     // Sky-matched aerial perspective (replaces the flat FogExp2 colour): distant surfaces fade into the baked sky
     // radiance just above the horizon in their view direction (sun glow included), through an exponential haze layer
-    // so helicopter / observatory views stay clearer than the horizon.
+    // so helicopter / Bałtyk terrace views stay clearer than the horizon.
     this.uFogDensity = uniform(TIME_PRESETS.golden.fogDensity);
     this.uFogHeight = uniform(900.0);
     if (this.envRenderTarget) this.scene.fogNode = this.createAerialFogNode();
@@ -312,10 +375,10 @@ class LightingSystem {
     // SunLightShadow automatically fits & texel-snaps its 2 cascades to the view camera frustum
     // every frame inside SunShadowNode.renderShadow(), splitting [near, far] halfway between a uniform and a
     // logarithmic split (the near cascade ends at ~far / 4). Keep far at 300 m at street level so the near cascade
-    // stays sharp, and expand it with altitude (helicopter / observatory) so shadows reach all the way down to street level.
+    // stays sharp, and expand it with altitude (helicopter / Bałtyk terrace) so shadows reach all the way down to street level.
     const altitude = focusPos && Number.isFinite(focusPos.y) ? Math.max(0, focusPos.y) : 0;
     this.sunLight.shadow.camera.far = Math.max(300, Math.min(720, 260 + altitude * 1.6));
   }
 }
 
-export { LightingSystem };
+export { LightingSystem, TIME_PRESETS, sunPosition, sunVector };

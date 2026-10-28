@@ -18,6 +18,15 @@
 
 ## Time of day (lighting state)
 - There are four presets: `golden`, `midday`, `twilight`, `midnight`. Each id must exist in three places, which must stay in sync: `TIME_PRESETS` in `lighting.js`, `LOOKS` in `post-processing.js`, and the `data-time` buttons in `index.html`. `selectTime` in `main.js` applies both systems. Golden hour is the default and the fallback.
+- **The sun is computed, not tuned.** Each preset states a real moment as `when` (local Europe/Warsaw time with its UTC
+  offset, e.g. `'2026-09-25T17:45+02:00'`), and `sunPosition` (NOAA equations, 52.41 N 16.93 E) turns it into
+  `sunAzimuth` / `sunElevation` and the world-frame `sunDir` at import time. Keep the label's clock time equal to
+  `when`. Under the horizon the Preetham sky goes black (≈ −2.3°) and a shadowing light makes no sense, so `twilight`
+  (−5.6°) and `midnight` (−10.2°) raise the rendered sun to `minElevation` over the real azimuth: the afterglow, and
+  the north-western glow of a midsummer night. `tests/lighting.test.cjs` checks the solar maths against Poznań's
+  solstice/equinox noon elevations and sunset times, and each preset against its `when`.
+- The camera far plane (`CAMERA_FAR` in `cameras.js`, 32 km) reaches the farthest outskirts corner from anywhere the
+  helicopter may fly; the horizon filler beyond it is fully fogged by then.
 - `applyPreset` pushes sun, hemisphere, fog and sky values, plus `cityUniforms` (sun and sky colours, sun direction, `uInteriorGlow`, `uRoadWetness`, `uCanyonBounce`), and then re-bakes the PMREM environment. The bake reuses one render target, so `scene.environment` and the fog's `pmremTexture` keep the same texture identity. Keep that render-target reuse.
 - **The night signal is `cityUniforms.uInteriorGlow`** (about 0.24 at midday, 1.55 at midnight). `nightFactor` only blends the sky. Shaders derive night with `smoothstep(lo, hi, cityUniforms.uInteriorGlow)`, for example `nightFactorNode` in `outskirts.js` and the lamp glows in `street-details.js`. CPU code reads `.value` with a fallback of 0.48 (`street-details.js`, `traffic.js`, `controllers.js`). When something needs to fade in at dusk, follow the same pattern. When the CPU and a shader must agree, use the same smoothstep range on both sides; a comment in `street-details.js` pairs the two. The audio system keys night off `activePresetId === 'midnight'`.
 - Fog is `scene.fogNode` (`createAerialFogNode`), not `scene.fog`. `scene.fog` is still updated, but the node replaces it once the env map exists. Additive and emissive sprites set `fog: false`, because fog would add its own colour.
