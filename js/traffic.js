@@ -179,7 +179,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       bus, half, halfWidth, axle, driver, pace, vmax, v0: Math.min(vmax, pace * URBAN_LIMIT),
       edge: null, lane: 0, s: 0, speed: 0, acc: 0, gap: Infinity, leaderSpeed: 0,
       move: null, out: 0, conn: null, cs: 0, trail: null, commit: null, claimed: false, yielding: false, yieldAt: 0,
-      wait: 0, laneTimer: Math.random() * 0.5,
+      wait: 0, waitReason: '', held: '', leader: null, laneTimer: Math.random() * 0.5,
       dl: 0, dlv: 0, blink: 0, blinkPhase: Math.random() * 0.8,
       x: 0, z: 0, prevX: 0, prevZ: 0, tx: 0, tz: 1, nose: 0, yaw: 0, yawRate: 0, steer: 0,
       pitch: 0, roll: 0, pitchVel: 0, rollVel: 0, vx: 0, vz: 0, yawOffset: 0, yawVel: 0,
@@ -734,6 +734,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     if (gap < v.gap) {
       v.gap = gap;
       v.leaderSpeed = o.v.speed;
+      v.leader = o.v;
     }
     return brake(v, gap, o.v.speed);
   }
@@ -938,6 +939,12 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     return merger.v ? merger : null;
   }
 
+  // Why v may not enter (v.held): read by accelerate for v.waitReason, which tools/bench-traffic.mjs reports
+  const refuse = (v, why) => {
+    v.held = why;
+    return false;
+  };
+
   // May v, its front bumper d metres before the stop line, enter the intersection now? Sets the exit lane.
   // Once too close to stop, v is committed: it goes, and holds the intersection from then on.
   function mayEnter(v, d) {
@@ -950,7 +957,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     if (v.commit === n) return true;
     if (v.move.out[v.lane] < 0) {
       // missed the lane for the planned move: go wherever this lane goes instead
-      if (d > 12) return false;
+      if (d > 12) return refuse(v, 'lane');
       v.move = chooseMove(v, true);
     }
     const m = v.move;
@@ -961,14 +968,14 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
         mayEnter.warned = true;
         console.warn('[traffic] lane leads nowhere', { lane: v.lane, lanes: e.lanes.length, out: m.out.slice(), moves: e.moves.length, x: Math.round(v.x), z: Math.round(v.z) });
       }
-      return false;
+      return refuse(v, 'lane');
     }
-    if (!v.isPolice && (phase === 'red' || phase === 'redAmber' || (phase === 'amber' && stoppable))) return false;
-    if (boxBusy(n, e.axisIndex)) return false; // crossing traffic inside
-    if (tramBlocks(v, n, f, j)) return false; // a tram over its way across, or coming up to it
+    if (!v.isPolice && (phase === 'red' || phase === 'redAmber' || (phase === 'amber' && stoppable))) return refuse(v, 'signal');
+    if (boxBusy(n, e.axisIndex)) return refuse(v, 'box'); // crossing traffic inside
+    if (tramBlocks(v, n, f, j)) return refuse(v, 'tram'); // a tram over its way across, or coming up to it
     const lead = ahead(e.occ[v.lane], v.s, v);
-    if (lead && lead.v.yielding) return false; // the vehicle ahead waits inside to turn: wait behind the line
-    if (v.bus && besideTail(v)) return false; // its tail would swing out over that bus as it starts to turn
+    if (lead && lead.v.yielding) return refuse(v, 'turner'); // the vehicle ahead waits inside to turn: wait behind the line
+    if (v.bus && besideTail(v)) return refuse(v, 'bus'); // its tail would swing out over that bus as it starts to turn
     // At a signal, the first in line to turn pulls into the intersection to wait there for the people crossing the
     // road it turns into (they walk on the same green): short of their crosswalk or, turning left across oncoming
     // traffic, short of the oncoming lanes until there is a gap. The light changing stops both for it at the latest.
@@ -976,14 +983,15 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     const first = n.signal && (!v.isPolice || phase === 'green') && m.turn !== 'S' && !lead;
     const across = m.turn === 'L' && !!e.opposite;
     const wait = first ? (across ? yieldPoint(v, c, e) : c.len - shortOfZebra(f) - v.half) : -1; // < 0: no room inside to wait
-    if (m.turn === 'L' ? across && wait < 0 && yieldOncoming(e.opposite, v.wait > 8, v) : e.opposite && e.opposite.lefts > 0) return false;
-    if ((n.signal ? v.isPolice && phase !== 'green' : e.axisIndex !== 0) && yieldToCrossTraffic(v, n)) return false;
+    if (m.turn === 'L' ? across && wait < 0 && yieldOncoming(e.opposite, v.wait > 8, v) : e.opposite && e.opposite.lefts > 0) return refuse(v, 'oncoming');
+    if ((n.signal ? v.isPolice && phase !== 'green' : e.axisIndex !== 0) && yieldToCrossTraffic(v, n)) return refuse(v, 'crossing');
     // nobody on the crosswalks while it passes over them, on the way in and on the way out, and a free place to
     // clear the intersection to, taking turns with lanes merging into it
-    if (pedestrianOn(n, e.inSide, laneCoord(e, v.lane, e.inArm), 0, timeTo(v, d + e.setbackTo + CROSSWALK + 2 * v.half))) return false;
-    if (wait < 0 && pedestrianOn(n, f.outSide, laneCoord(f, j, f.outArm), timeTo(v, d + c.len - shortOfZebra(f)), timeTo(v, d + c.len - f.setbackFrom + 2 * v.half))) return false;
+    if (pedestrianOn(n, e.inSide, laneCoord(e, v.lane, e.inArm), 0, timeTo(v, d + e.setbackTo + CROSSWALK + 2 * v.half))) return refuse(v, 'pedestrian');
+    if (wait < 0 && pedestrianOn(n, f.outSide, laneCoord(f, j, f.outArm), timeTo(v, d + c.len - shortOfZebra(f)), timeTo(v, d + c.len - f.setbackFrom + 2 * v.half))) return refuse(v, 'pedestrian');
     const vs = v.s - e.len - c.len; // where on f it would be now
-    if (!room(f, j, v) || alongside(f, j, v, vs, m.turn !== 'S') || mergingAhead(v, f, j)) return false;
+    if (!room(f, j, v)) return refuse(v, 'room');
+    if (alongside(f, j, v, vs, m.turn !== 'S') || mergingAhead(v, f, j)) return refuse(v, 'merge');
     v.out = j;
     v.yielding = wait >= 0;
     v.yieldAt = wait;
@@ -1060,16 +1068,24 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   const bendSpeed = (v, c) => Math.sqrt(v.driver.aLat / Math.max(c.curv, 1e-3));
 
   // IDM acceleration for vehicles ahead in the lane (and, through the intersection, in the lane it leads to),
-  // the stop line while v may not go, a red beyond, the player, and slowing down for turns and give-way lines
+  // the stop line while v may not go, a red beyond, the player, and slowing down for turns and give-way lines.
+  // v.waitReason names the binding term, as a tram's does: 'car' (v.leader ahead), why mayEnter refused (v.held:
+  // 'signal', 'box', 'tram', 'turner', 'bus', 'oncoming', 'crossing', 'pedestrian', 'room', 'merge', 'lane'), 'signal'
+  // (a red beyond), 'merge', 'turn' (waiting inside to turn), 'pedestrian' (inside, for walkers on its way out),
+  // 'player', or '' (none)
   function accelerate(v) {
     const e = v.edge;
     let worst = 0;
+    let why = '';
     let cap = Infinity;
+    let t = 0;
     v.gap = Infinity;
+    v.leader = null;
     if (!v.conn) {
       worst = follow(v, e.occ[v.lane], v.s);
       const side = straddle(v);
       if (side) worst = Math.min(worst, follow(v, e.occ[v.lane + side], v.s));
+      if (worst < 0) why = 'car';
       const d = e.len - v.s - v.half;
       if (d < LOOKAHEAD) {
         const go = mayEnter(v, d);
@@ -1078,16 +1094,19 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
         const c = j < 0 ? null : connector(e, v.lane, f, j);
         const vs = c ? v.s - e.len - c.len : 0; // position on f, measured from its start
         if (!go) {
-          worst = Math.min(worst, stopAt(v, d));
+          if ((t = stopAt(v, d)) < worst) { worst = t; why = v.held; }
         } else {
-          worst = Math.min(worst, follow(v, f.occ[j], vs), signalAhead(v, f, f.len - vs - v.half));
+          if ((t = follow(v, f.occ[j], vs)) < worst) { worst = t; why = 'car'; }
+          if ((t = signalAhead(v, f, f.len - vs - v.half)) < worst) { worst = t; why = 'signal'; }
           // pulling in to wait inside: slow down for that spot already if it will have to wait there
-          if (v.yielding && holdsOn(v, pedsOut(v, d + c.len - shortOfZebra(f)))) worst = Math.min(worst, stopAt(v, d + v.half + v.yieldAt, 0.5));
+          if (v.yielding && holdsOn(v, pedsOut(v, d + c.len - shortOfZebra(f)))) {
+            if ((t = stopAt(v, d + v.half + v.yieldAt, 0.5)) < worst) { worst = t; why = 'turn'; }
+          }
         }
         // easing off to fall in behind a vehicle from another lane merging ahead into the same lane (unless committed:
         // then the others wait for v)
         const o = c && !v.claimed && mergingAhead(v, f, j);
-        if (o) worst = Math.min(worst, Math.max(-v.driver.b, brake(v, o.s - o.v.half - vs - v.half, o.v.speed)));
+        if (o && (t = Math.max(-v.driver.b, brake(v, o.s - o.v.half - vs - v.half, o.v.speed))) < worst) { worst = t; why = 'merge'; }
         // the next edge's limit, eased down to like a bend (a 30 zone sign at the junction: 50 -> 30 km/h over ~25 m)
         let vt = Math.min(c ? bendSpeed(v, c) : Infinity, desiredOn(v, f));
         const cautious = e.to.signal ? v.isPolice && phaseOf(e) !== 'green' : e.axisIndex !== 0;
@@ -1097,26 +1116,30 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     } else {
       const f = v.move.to;
       const vs = v.cs - v.conn.len;
-      worst = Math.min(follow(v, f.occ[v.out], vs), follow(v, e.occ[v.lane], e.len + v.cs), signalAhead(v, f, f.len - vs - v.half));
+      worst = Math.min(follow(v, f.occ[v.out], vs), follow(v, e.occ[v.lane], e.len + v.cs));
+      if (worst < 0) why = 'car';
+      if ((t = signalAhead(v, f, f.len - vs - v.half)) < worst) { worst = t; why = 'signal'; }
       // someone crossing the way out: wait for them inside the intersection, short of the crosswalk
       const d = v.conn.len - shortOfZebra(f) - v.cs - v.half;
       const peds = pedsOut(v, d);
       if (v.yielding && v.cs < v.yieldAt && holdsOn(v, peds)) {
-        worst = Math.min(worst, stopAt(v, v.yieldAt - v.cs, 0.5)); // waiting inside to turn
+        if ((t = stopAt(v, v.yieldAt - v.cs, 0.5)) < worst) { worst = t; why = 'turn'; } // waiting inside to turn
       } else {
         if (v.yielding) cross(v);
-        if (peds) worst = Math.min(worst, stopAt(v, d, 0.5));
+        if (peds && (t = stopAt(v, d, 0.5)) < worst) { worst = t; why = 'pedestrian'; }
       }
       cap = bendSpeed(v, v.conn);
     }
     const pg = playerGap(v, 0);
     if (pg < LOOKAHEAD) {
-      worst = Math.min(worst, brake(v, pg, v.pSpeed));
+      if ((t = brake(v, pg, v.pSpeed)) < worst) { worst = t; why = 'player'; }
       if (pg < v.gap) {
         v.gap = pg;
         v.leaderSpeed = v.pSpeed;
+        v.leader = null;
       }
     }
+    v.waitReason = why;
     const acc = Math.min(freeAcc(v) + worst, (cap - v.speed) * 2);
     v.acc = clamp(acc, -9, v.driver.a);
   }

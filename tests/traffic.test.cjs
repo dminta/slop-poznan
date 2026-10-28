@@ -40,7 +40,8 @@ function intersectionHarness() {
     room: () => state.space,
     alongside: () => false,
     mergingAhead: () => null,
-    tramBlocks: () => state.tram
+    tramBlocks: () => state.tram,
+    refuse: (v, why) => { v.held = why; return false; }
   };
   return { car, state, mayEnter: trafficFunction('mayEnter', context), signalAhead: trafficFunction('signalAhead', context) };
 }
