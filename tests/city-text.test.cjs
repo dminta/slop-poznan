@@ -39,3 +39,23 @@ test('every landmark site has a map pin, and the location label names the neares
   const domki = LANDMARK_SITES['Domki Budnicze'];
   assert.match(getLocationLabel(domki.x, domki.z), /^Domki Budnicze/);
 });
+
+test('the location label joins two streets with a separator no road or landmark name contains', async () => {
+  const { ROADS, CITY_LANDMARKS, STREET_JOIN, getLocationLabel } = await import('../js/city-config.js');
+  // OSM has names with " & " ("Kiss & Ride" by the Dworzec), so that can't be the join
+  assert.ok(ROADS.some((r) => r.name && r.name.includes(' & ')), 'the data still has a name with " & "');
+  for (const r of ROADS) if (r.name) assert.ok(!r.name.includes(STREET_JOIN), `road ${r.name}`);
+  for (const l of CITY_LANDMARKS) assert.ok(!l.name.includes(STREET_JOIN), `landmark ${l.name}`);
+  // along the Kiss & Ride lane: splitting a crossing's label on the join gives whole road names
+  const kiss = ROADS.find((r) => r.name === 'Kiss & Ride');
+  const names = new Set(ROADS.map((r) => r.name));
+  let joined = 0;
+  for (const p of kiss.pts) {
+    const label = getLocationLabel(p.x, p.z);
+    const streets = label.includes(' · ') ? label.slice(label.indexOf(' · ') + 3) : label;
+    if (!streets.includes(STREET_JOIN)) continue;
+    joined++;
+    for (const n of streets.split(STREET_JOIN)) assert.ok(names.has(n), `${label}: "${n}" is a road name`);
+  }
+  assert.ok(joined > 0, 'some point of the Kiss & Ride lane is at a crossing');
+});

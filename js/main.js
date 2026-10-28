@@ -3,7 +3,7 @@ import { pass, mrt, output, normalView, positionView, metalness, roughness, vec2
 import { ssr } from 'three/addons/tsl/display/SSRNode.js';
 import { createPostProcessing } from './post-processing.js';
 import { ClusteredLighting } from 'three/addons/lighting/ClusteredLighting.js';
-import { getLocationLabel, districtAt, isTypingInField, formatCount, ROADS, CITY_LANDMARKS, TELEPORT_LOCATIONS } from './city-config.js';
+import { getLocationLabel, STREET_JOIN, districtAt, isTypingInField, formatCount, ROADS, CITY_LANDMARKS, TELEPORT_LOCATIONS } from './city-config.js';
 import { buildCityGrid } from './city-grid.js';
 import { buildOutskirts } from './outskirts.js';
 import { buildBridges } from './bridges.js';
@@ -430,7 +430,7 @@ async function initApp() {
     if (split >= 0) {
       place = label.slice(0, split);
       streets = label.slice(split + 3);
-    } else if (placeNames.has(label) || (!label.includes(' & ') && !roadNames.has(label))) {
+    } else if (placeNames.has(label) || (!label.includes(STREET_JOIN) && !roadNames.has(label))) {
       place = label;
       streets = '';
     }
@@ -451,7 +451,7 @@ async function initApp() {
         near.textContent = 'near';
         row.appendChild(near);
       }
-      for (const name of streets.split(' & ')) {
+      for (const name of streets.split(STREET_JOIN)) {
         const plate = plateLabel(name, district);
         const sign = document.createElement('span');
         sign.className = 'street-sign';

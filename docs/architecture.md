@@ -194,7 +194,11 @@ Physics notes:
   `street-details.js`, the one copy of the kind words and the patron given-name list) and fills `.street-sign-kind`
   ("ulica Jana Henryka", "aleje Karola", "rondo"; none for Rynek/Zaułek/Pasaż/Wzgórze names), `.street-sign-name`
   ("Dąbrowskiego") and `.street-sign-district`, the blue bottom strip with `districtAt` of the player (or scenic
-  camera) position in capitals; outside every district ring the strip is left out.
+  camera) position in capitals; outside every district ring the strip is left out. `getLocationLabel`
+  (`city-config.js`) joins the two streets of a crossing with `STREET_JOIN` (" / ", the way Polish addresses write a
+  corner) and puts a landmark first with " · "; `renderLocation` splits on the same strings (the map's hover and
+  radar text show the label as it is).
+  Not " & ": OSM names contain it ("Kiss & Ride" by the Dworzec, which once read "Kiss & Ride & Zachodnia").
 - Fonts: Inter (UI) and Overpass (plates) from Google Fonts; the css2 API serves their latin-ext subset by `unicode-range`,
   which covers Ą Ć Ę Ł Ń Ó Ś Ź Ż. A replacement family must have latin-ext.
 - JS modules carry no version query. The boot test requires plain `./js/x.js` paths so that preloads and imports share one URL.

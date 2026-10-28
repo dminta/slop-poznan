@@ -630,9 +630,14 @@ const SPAWN = { x: -1049.7, z: 130.5, heading: Math.atan2(-16.1, -3.7) };
 // Raised ground the player stands on, as {minX, maxX, minZ, maxZ, top} rects (none yet; landmarks may push theirs)
 const RAISED_GROUND = [];
 
+// Joins the two street names of a crossing in a location label. OSM names may contain " & " ("Kiss & Ride" by the
+// Dworzec), so the join is a spaced slash, as Polish addresses write a street corner ("Roosevelta / Zachodnia"); no
+// road or landmark name has one (tests/city-text.test.cjs checks)
+const STREET_JOIN = ' / ';
+
 /**
- * Exact street / landmark / water name at any world (x, z), in the " · ", " & " and "near " format main.js
- * renderLocation splits on: "Landmark · Road & Road", "Warta · near Road", "Road & Road", "Road", or the district.
+ * Exact street / landmark / water name at any world (x, z), in the " · ", STREET_JOIN and "near " format main.js
+ * renderLocation splits on: "Landmark · Road / Road", "Warta · near Road", "Road / Road", "Road", or the district.
  */
 function getLocationLabel(x, z) {
   // named roads only (OSM leaves many service and link roads unnamed)
@@ -646,7 +651,7 @@ function getLocationLabel(x, z) {
       const d = Math.abs(r.angle - a.angle);
       return Math.min(d, Math.PI - d) > Math.PI / 6;
     });
-    return b ? `${a.road.name} & ${b.road.name}` : null;
+    return b ? `${a.road.name}${STREET_JOIN}${b.road.name}` : null;
   };
   // the nearest landmark within 80 m (the Rynek's Ratusz, Domki Budnicze and Wieża Wójtowska stand 45–90 m apart)
   let lm = null;
@@ -756,6 +761,7 @@ export {
   SRODKA_MURAL,
   RAISED_GROUND,
   getLocationLabel,
+  STREET_JOIN,
   isTypingInField,
   foldText,
   compareNames,
