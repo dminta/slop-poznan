@@ -5,7 +5,7 @@ import { SIGNAL_SITES, SIGNAL_TIMING, JUNCTIONS, blockAt, BLOCKS, nearestRoads, 
 import { CROSSWALK, CROSSWALK_REACH, STOP_SETBACK } from './road-network.js';
 import { cityUniforms, createTreeGrateMaterial } from './tsl-materials.js';
 import { createTreeField } from './trees.js';
-import { pavedPlazaRects, parkTreeSites, parkLampSites } from './city-grid.js';
+import { pavedPlazaRects, parkTreeSites, parkLampSites, clearOfRails } from './city-grid.js';
 
 // js/street-details.js
 // Poznań street furniture, instanced (docs/world.md "New kind of street furniture"):
@@ -461,7 +461,8 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   // outside the nearest roadway (0.35 m left a few poles in lanes)
   const signalPoleSpot = (x, z) => {
     const b = blockAt(x, z);
-    if (!b || inPlaza(x, z, 0.5) || !isClearOfPoles(x, z, 1.4) || !clearOfRoads(x, z, 0.5) || !clearOfCrosswalks(x, z, 0.15)) return false;
+    if (!b || inPlaza(x, z, 0.5) || !isClearOfPoles(x, z, 1.4) || !clearOfRoads(x, z, 0.5) || !clearOfCrosswalks(x, z, 0.15) ||
+      !clearOfRails(x, z, 0.22)) return false;
     const pad = b.median ? 0.9 : 0.4;
     for (const [ox, oz] of [[pad, 0], [-pad, 0], [0, pad], [0, -pad]]) {
       const q = blockAt(x + ox, z + oz);
@@ -761,7 +762,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         const px = cx + inx * 0.9;
         const pz = cz + inz * 0.9;
         if (!isOnSidewalk(px, pz, 0.5) || blockAt(cx + outX * 2.2, cz + outZ * 2.2) || !isClearOfPoles(px, pz, 5.2) ||
-          !clearOfRoads(px, pz, 0.25) || !clearOfCrosswalks(px, pz, 0.2)) continue;
+          !clearOfRoads(px, pz, 0.25) || !clearOfCrosswalks(px, pz, 0.2) || !clearOfRails(px, pz, 0.29)) continue;
         placedPoles.push({ x: px, z: pz });
         addFootprint(px, pz, 0.4, 0.4, 'gas');
         addCollider(px, pz, 0.18, 0.18, 4.36);
@@ -792,7 +793,8 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         !clearOfCrosswalks(lx, lz, 0.225) ||
         blockAt(cx + outX * 2.5, cz + outZ * 2.5) ||
         blockAt(headX, headZ) ||
-        !isClearOfPoles(lx, lz, 6.5)
+        !isClearOfPoles(lx, lz, 6.5) ||
+        !clearOfRails(lx, lz, 0.32)
       ) {
         continue;
       }
@@ -883,7 +885,8 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   const PARKING_ZONE = new Set(['Stare Miasto', 'Jeżyce', 'Łazarz', 'Wilda']);
   const FURNITURE_TOP = { hydrant: [0.14, 1.46], postbox: [0.2, 1.56], parking: [0.2, 1.76], bollard: [0.07, 1.13] };
   const place = (list, p, yaw, w, kind, clear) => {
-    if (!isClearOfPoles(p.x, p.z, clear) || !clearOfRoads(p.x, p.z, w / 2 + 0.05) || !clearOfCrosswalks(p.x, p.z, w / 2)) return false;
+    if (!isClearOfPoles(p.x, p.z, clear) || !clearOfRoads(p.x, p.z, w / 2 + 0.05) || !clearOfCrosswalks(p.x, p.z, w / 2) ||
+      !clearOfRails(p.x, p.z, w * 0.71)) return false;
     placedPoles.push(p);
     addFootprint(p.x, p.z, w, w, kind);
     addCollider(p.x, p.z, FURNITURE_TOP[kind][0], FURNITURE_TOP[kind][0], FURNITURE_TOP[kind][1]);
@@ -1009,7 +1012,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
       const x = p0.x + ux * s + inx * depth;
       const z = p0.z + uz * s + inz * depth;
       if (!farFrom(x, z, kind, kind === 'column' ? 320 : 420)) break;
-      let ok = isClearOfPoles(x, z, halfW + 1.5);
+      let ok = isClearOfPoles(x, z, halfW + 1.5) && clearOfRails(x, z, halfW + halfD);
       for (const [a, c] of [[0, 0], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
         if (!ok) break;
         const qx = x + ux * halfW * a + inx * (halfD + 0.3) * c;
@@ -1118,7 +1121,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   };
   // Street trees turn in 90° steps with the crown squeezed across the sidewalk, away from the facades
   function addStreetTree(x, z, scale, species, acrossX, extra = {}) {
-    if (!onSidewalk(x, z) || inPlaza(x, z, 1.5) || !isClearOfPoles(x, z, 2.2)) return;
+    if (!onSidewalk(x, z) || inPlaza(x, z, 1.5) || !isClearOfPoles(x, z, 2.2) || !clearOfRails(x, z, 0.4 * scale)) return;
     const q = Math.floor(hashPos(x, 8.8, z) * 3.999);
     const t = { x, y: SIDEWALK_Y, z, scale, species, yaw: q * Math.PI * 0.5, tier: 1, ...extra };
     if (acrossX === (q % 2 === 0)) t.sx = extra.squeeze || 0.82;

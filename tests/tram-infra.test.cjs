@@ -39,12 +39,18 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
     globals: { console: { info: (line) => logs.push(line) } },
     filename: 'road-network.js'
   });
+  // street furniture keeps off the tram tracks through city-grid.js's track index (the module, not the built grid)
+  const { clearOfRails } = loadModule(readFileSync(join(__dirname, '../js/city-grid.js'), 'utf8'), {
+    imports: { 'three/webgpu': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert(), './city-config.js': config,
+      './geodata.js': { GEO }, './tsl-materials.js': inert() },
+    filename: 'city-grid.js'
+  });
   const { buildStreetDetails } = loadModule(readFileSync(join(__dirname, '../js/street-details.js'), 'utf8'), {
     imports: {
       'three/webgpu': inert(), 'three/tsl': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert(),
       './city-config.js': config, './road-network.js': { CROSSWALK, CROSSWALK_REACH, STOP_SETBACK }, './tsl-materials.js': inert(),
       './trees.js': { createTreeField: () => ({ group: inert() }) },
-      './city-grid.js': { pavedPlazaRects: [], parkTreeSites: [], parkLampSites: [] }
+      './city-grid.js': { pavedPlazaRects: [], parkTreeSites: [], parkLampSites: [], clearOfRails }
     },
     globals: { console: { info() {}, log() {}, warn() {} }, Math, Object, Array, Set, Map, Number, Infinity, JSON, Symbol,
       Float32Array, Uint8Array, Uint16Array, Uint32Array, Int32Array, Float64Array, Promise, String, Error,
