@@ -6,8 +6,8 @@ const { loadModule } = require('./helpers/module.cjs');
 
 // The leaf atlas (js/trees.js createLeafAtlas) painted onto a recording 2D context, three.js stubbed out: every leaf,
 // twig and stalk path must stay inside its own 512 px tile, or mip levels and neighbouring cards pick up stray leaves.
-// Measured 2026-10 (lime, Norway maple, horse chestnut, far clump): tiles 1.07 / 1.35 / 1.11 / 2.48 m wide (the NYC plane,
-// locust, elm and clump tiles were 1.23 / 1.09 / 1.05 / 2.30 m).
+// Measured 2026-10 (lime, Norway maple, horse chestnut, far clump): tiles 1.07 / 1.35 / 1.11 / 2.48 m wide (the former
+// London plane, honey locust, American elm and clump tiles were 1.23 / 1.09 / 1.05 / 2.30 m).
 const ATLAS = 1024;
 const TILE = ATLAS / 2;
 
