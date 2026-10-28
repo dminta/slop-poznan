@@ -106,6 +106,15 @@ since the 2026-10-25/27 fetches (no tag change on any road, rail, tram route, bu
   (`street`, `oneway`, `tracks`). Before 2026-10-28 a switch whose branch had another key (a street track leaving an
   off-street one, a two-way stub off a one-way line) was chained through, so the branch met the other chain mid-way
   and the runtime graph had no junction there: 249 tram chains then, 367 after (644 over the 8.2 × 5.7 km box).
+- Underground ways (`tunnel=*` other than `building_passage`, or `layer` < 0) are dropped from the roads and the track,
+  except railway underpasses (`railwayUnderpasses` in `poz-roads.mjs`): an underground way that crosses an at-grade
+  `railway=rail|light_rail` way, plus the underground ways of the same name with an end within 10 m of one. OSM tags the
+  road under a rail bridge that way, and the world is flat, so they stay at grade and tram-infra.js cuts the railway
+  over them. Before 2026-10-28 they were dropped too: Hetmańska had an 80 m gap under the Górczyn line (both
+  carriageways and both tram tracks), with the trackbed drawn across it. Kept on the 2026-10-28 snapshot: 7 road ways
+  (Hetmańska 4, Nad Wierzbakiem, two service roads), 3 track ways (Hetmańska's 2 tram tracks, one outside the box);
+  still dropped: 74 road ways (garage ramps, courtyard passages, Warmińska under Niestachowska) and 17 track ways (the
+  Franowo tram tunnel, a 72 m PST tunnel).
 - Signals live in their own file (`poz_signals.json`, nodes with tags); match them to road ways by node id.
 - Water includes `natural=water` without a `water=*` subtag (most small ponds). The Warta in D3 is the unnamed closed way
   27942106 (`water=river`); the named `waterway=river` centreline (`Warta`) lies inside it. Jezioro Maltańskie is

@@ -10,7 +10,8 @@
 //                   nodes: [osmId...], tramSide }]; kmh: the speed limit (km/h), kmhTagged: 1 when OSM states it (speedLimit);
 //                   tramSide: +1 / -1 the TRAM_W tram strip in w lies right / left of the points (tracks beside the
 //                   carriageway), 0 centred on them;
-//                   at-grade drivable pieces touching DETAIL_BOX + PIECE_PAD (tunnels and layer < 0 dropped)
+//                   at-grade drivable pieces touching DETAIL_BOX + PIECE_PAD (tunnels and layer < 0 dropped, except railway
+//                   underpasses, which stay at grade)
 //   plazas:         [{ name, ring: [[x, z]...], holes? }] pedestrian areas and squares, negative shoelace winding;
 //                   holes: a multipolygon's inner rings of PLAZA_HOLE_M2 and up (buildings on the square), positive
 //   pedestrianWays: [{ name, w, pts }] linear highway=pedestrian streets (Półwiejska, Stary Rynek's lanes)
@@ -148,11 +149,65 @@ for (const w of drivableWays) {
   }
 }
 
+// Railway underpasses. OSM tags a road or tram track under a rail bridge tunnel=yes and/or layer=-1: Hetmańska under
+// the Górczyn line (the eastbound carriageway and both tram tracks in one way each, the westbound carriageway in three),
+// Nad Wierzbakiem and two service roads. The world is flat, so they stay at grade like any road, and tram-infra.js cuts
+// the railway over them; dropped, Hetmańska had an 80 m gap with the trackbed running across it. An underpass is an
+// underground way that crosses an at-grade railway=rail|light_rail way, plus the underground ways of the same name with
+// an end within UNDERPASS_JOIN of one (Hetmańska's westbound pieces meet through a 4 m at-grade way). Other underground
+// ways (car park ramps, courtyard passages, a road dipping under another road, the Franowo tram tunnel) are still
+// dropped: drawn at grade they would cross roads they never meet.
+const UNDERPASS_JOIN = 10; // m
+function segCross(a, b, c, d) {
+  const rx = b[0] - a[0], rz = b[1] - a[1], sx = d[0] - c[0], sz = d[1] - c[1];
+  const den = rx * sz - rz * sx;
+  if (Math.abs(den) < 1e-12) return false;
+  const t = ((c[0] - a[0]) * sz - (c[1] - a[1]) * sx) / den;
+  const u = ((c[0] - a[0]) * rz - (c[1] - a[1]) * rx) / den;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+}
+const bboxOf = (P) => P.reduce((b, [x, z]) => [Math.min(b[0], x), Math.max(b[1], x), Math.min(b[2], z), Math.max(b[3], z)],
+  [Infinity, -Infinity, Infinity, -Infinity]);
+const mainlineAtGrade = osmRail.elements.filter((e) => e.type === 'way' && e.geometry &&
+  ['rail', 'light_rail'].includes(tagOf(e).railway) && !underground(tagOf(e)))
+  .map((e) => { const P = e.geometry.map((g) => toWorld(g.lon, g.lat)); return { P, box: bboxOf(P) }; });
+// The ids of the underground ways among `ways` (OSM ways with geometry) that pass under the railway
+function railwayUnderpasses(ways) {
+  const under = ways.filter((w) => underground(tagOf(w))).map((w) => {
+    const P = w.geometry.map((g) => toWorld(g.lon, g.lat));
+    return { w, P, box: bboxOf(P), name: tagOf(w).name || '' };
+  });
+  const ids = new Set();
+  for (const u of under) {
+    const [x0, x1, z0, z1] = u.box;
+    const hit = mainlineAtGrade.some(({ P: Q, box: [a0, a1, c0, c1] }) => {
+      if (a0 > x1 || a1 < x0 || c0 > z1 || c1 < z0) return false;
+      for (let i = 0; i + 1 < u.P.length; i++) {
+        for (let j = 0; j + 1 < Q.length; j++) if (segCross(u.P[i], u.P[i + 1], Q[j], Q[j + 1])) return true;
+      }
+      return false;
+    });
+    if (hit) ids.add(u.w.id);
+  }
+  const endsOf = (u) => [u.P[0], u.P[u.P.length - 1]];
+  for (let grown = true; grown;) {
+    grown = false;
+    for (const u of under) {
+      if (ids.has(u.w.id) || !u.name) continue;
+      const joins = under.some((v) => ids.has(v.w.id) && v.name === u.name &&
+        endsOf(u).some((a) => endsOf(v).some((b) => Math.hypot(a[0] - b[0], a[1] - b[1]) <= UNDERPASS_JOIN)));
+      if (joins) { ids.add(u.w.id); grown = true; }
+    }
+  }
+  return ids;
+}
+const underpassWays = railwayUnderpasses(drivableWays);
+
 const pieces = [];
 let droppedUnder = 0;
 for (const w of drivableWays) {
   const t = tagOf(w);
-  if (underground(t)) { droppedUnder++; continue; }
+  if (underground(t) && !underpassWays.has(w.id)) { droppedUnder++; continue; }
   const pts = w.geometry.map((g) => toWorld(g.lon, g.lat));
   if (!touchesBox(pts, PIECE_PAD)) continue;
   const cls = t.highway;
@@ -199,6 +254,8 @@ for (const r of osmTramRoutes.elements) {
   if (r.type === 'relation' && tagOf(r).route === 'tram') for (const m of r.members) if (m.type === 'way') routeWays.add(m.ref);
 }
 const trackWays = [];
+const trackUnderpasses = railwayUnderpasses(osmRail.elements.filter((e) => e.type === 'way' && e.geometry &&
+  ['tram', 'rail', 'light_rail'].includes(tagOf(e).railway)));
 let droppedRailTunnel = 0;
 let closedTram = 0;
 for (const e of osmRail.elements) {
@@ -206,7 +263,7 @@ for (const e of osmRail.elements) {
   if (e.type !== 'way' || !e.geometry) continue;
   const closed = CLOSED_TRACK.has(t.railway) && routeWays.has(e.id);
   if (!closed && !['tram', 'rail', 'light_rail'].includes(t.railway)) continue;
-  if (underground(t)) { droppedRailTunnel++; continue; }
+  if (underground(t) && !trackUnderpasses.has(e.id)) { droppedRailTunnel++; continue; }
   const pts = e.geometry.map((g) => toWorld(g.lon, g.lat));
   if (!touchesBox(pts, PIECE_PAD)) continue;
   // oneway=-1 tracks are turned round so every one-way track runs along its points (85% of the tram ways carry oneway)
@@ -552,11 +609,11 @@ for (const e of osmPoints.elements) {
 const byCls = {};
 for (const p of pieces) byCls[p.cls] = (byCls[p.cls] || 0) + 1;
 const named = (f) => [...new Set(pieces.filter(f).map((p) => p.name).filter(Boolean))].sort();
-log(`road pieces: ${pieces.length} from ${drivableWays.length} drivable ways (${droppedUnder} tunnel/underground ways dropped); ${Object.entries(byCls).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ')}`);
+log(`road pieces: ${pieces.length} from ${drivableWays.length} drivable ways (${droppedUnder} tunnel/underground ways dropped, ${underpassWays.size} railway underpasses kept); ${Object.entries(byCls).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ')}`);
 log(`bridges: ${pieces.filter((p) => p.bridge).length} pieces (${named((p) => p.bridge).join(', ')})`);
 log(`tram on street: ${pieces.filter((p) => p.tram).length} pieces, ${(pieces.filter((p) => p.tram).reduce((s, p) => s + lineLen(p.pts), 0) / 1000).toFixed(1)} km on ${named((p) => p.tram).length} streets`);
 log(`plazas: ${plazas.length} (${[...new Set(plazas.map((p) => p.name).filter(Boolean))].length} named), pedestrian ways: ${pedestrianWays.length}`);
-log(`rail: ${rail.length} lines (tram ${rail.filter((r) => r.kind === 'tram').length}, on street ${rail.filter((r) => r.street).length}; rail ${rail.filter((r) => r.kind === 'rail').length}); ${trackWays.length} track ways (${closedTram} closed tram ways kept from route=tram relations), ${droppedRailTunnel} tunnel ways dropped; corridors ${railCorridors.rings.length} rings, ${railCorridors.lines.length} lines`);
+log(`rail: ${rail.length} lines (tram ${rail.filter((r) => r.kind === 'tram').length}, on street ${rail.filter((r) => r.street).length}; rail ${rail.filter((r) => r.kind === 'rail').length}); ${trackWays.length} track ways (${closedTram} closed tram ways kept from route=tram relations), ${droppedRailTunnel} tunnel ways dropped (${trackUnderpasses.size} railway underpasses kept); corridors ${railCorridors.rings.length} rings, ${railCorridors.lines.length} lines`);
 {
   const tram = rail.filter((r) => r.kind === 'tram');
   const len = (rs) => rs.reduce((t, r) => t + lineLen(r.pts), 0) / 1000;
