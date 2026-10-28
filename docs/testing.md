@@ -78,3 +78,27 @@ Behaviour to know when writing a test:
 ## Pedestrian benchmark
 
 `node tools/benchmark-pedestrians.mjs /abs/path/to/three/build/three.core.js` (or set `THREE_CORE_PATH`). You need a local three.js build, because the repo has none (any npm `three` package's `build/three.core.js` works). Verified run: about 7 s. It prints JSON with the ms per frame for 340 rigs, before and after, plus the reduction percentage. It first asserts that deferring the pose solve for hidden rigs gives bit-identical gait and poses, so it doubles as a correctness check after `PersonRig` changes. It loads `js/pedestrians.js` through `loadModule` with stubs only for `'three/webgpu'`, `'three/tsl'` and `'three/addons/utils/BufferGeometryUtils.js'`. It also builds its baseline by replacing the literal `if (updatePose) this.solve();`. If you add an import to `pedestrians.js`, add a stub here. If you change that line, update the replacement.
+
+## Traffic benchmark
+
+`node tools/bench-traffic.mjs` runs the street traffic, pedestrians and trams headless on the real network, with no
+three.js (every three.js/TSL import is an inert stand-in; `traffic.js`, `trams.js`, `road-network.js`,
+`pedestrian-routes.js`, `street-details.js` (the furniture that closes lanes) and `tram-infra.js` (the tram stops) run
+for real through `loadModule`). It parks the camera in turn at Jeżyce (Rynek Jeżycki), Łazarz (Głogowska), Centrum
+(Św. Marcin), Rondo Kaponiera, Stare Miasto, Rataje (Rondo Rataje) and Wilda, rebuilds the world for each, runs
+`--minutes` (default 5) at `--fps` (15) with `Math.random` seeded (`--seed`, 4242: a run is reproducible), and samples
+the vehicles within 300 m once a second after 20 s. About 12–17 s per district. Options: `--only jezyce,lazarz` (keys
+`jezyce lazarz centrum kaponiera stare rataje wilda`), `--top N` junctions, `--dump` (the longest wait as text: every
+vehicle, tram and walker at its junction), `--watch x,z` (that junction every 30 s), `--json file`, and the experiments
+`--no-peds`, `--no-trams`, `--no-signals` (they patch `traffic.js` by exact text and throw if it changed).
+
+Per district it prints the cars sampled, mean speed (and of the moving ones), the share stopped (< 0.5 m/s), the longest
+stopped queue in a lane, the distribution of finished waits (p50/p90/max), cars held over 60 and 120 s, why the stopped
+cars stand (`v.waitReason`) and the **root cause**: it follows the wait-for graph (the leader, the tram whose proxy or
+held curve is in the way, the cross traffic in the box, the last car in a full exit lane, the oncoming lead; a tram
+follows its `obstacle` or `leader`) to the vehicle the queue really waits for (`queue moving`: the queue ahead is moving,
+v only waits its turn). Then the junctions by stopped car-seconds with their throughput (cars entering a junction curve)
+and root causes, deadlocks (cycles in that graph whose members all stood over 30 s), junction boxes with a car stopped
+inside over 20 s, and trams stopped over 60 s off a stop (with the pedestrian holding one). Last, a Markdown table of
+every district. `tests/traffic-flow.test.mjs` runs it for 2.5 simulated minutes at Jeżyce and Centrum as a regression
+test.
