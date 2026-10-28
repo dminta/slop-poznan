@@ -450,6 +450,26 @@ test('a tram path follows its line route at switches, rejoins it across a gap an
   assert.equal(turn.route, 2, 'line 5 now runs to Górczyn PKM');
 });
 
+test('a tram whose route stops for good takes the route of the track it runs on, not a siding no line uses', () => {
+  const { buildTrackGraph, TramPath } = load();
+  const routed = (pts, routes) => Object.assign(tram(pts), { routes });
+  const lines = [{ ref: '10', from: 'Dębiec PKM', to: 'Błażeja' }, { ref: '3', from: 'Górczyn PKM', to: 'Wilczy Młyn' }];
+  const g = buildTrackGraph([
+    routed([0, 0, 100, 0], [0]), // 0: line 10's relation ends here
+    routed([100, 0, 300, 0], [1]), // 1: line 3 runs on
+    routed([100, 0, 290, -60], []), // 2: a siding
+    routed([300, 0, 500, 0], [1])
+  ]);
+  for (const rand of [0, 0.5, 0.99]) {
+    const path = new TramPath(lines);
+    path.route = 0;
+    path.reset(g.edges[0], 50, 40, () => rand);
+    path.extend(400, () => rand);
+    assert.deepEqual([...path.edges.slice(0, path.n)].map((e) => e.chain), [0, 1, 3], `rand ${rand}`);
+    assert.equal(path.route, 1, 'now line 3');
+  }
+});
+
 test('every tram runs a line with a number and a terminus and keeps to its route', () => {
   const { createTramSystem } = load();
   const routed = (pts, routes) => Object.assign(tram(pts), { routes });

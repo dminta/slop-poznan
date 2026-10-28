@@ -689,7 +689,8 @@ function routeAhead(e, route, depth) {
 
 // One edge of `list` (an edge's next, or with ahead 0 its prev): at random among those the route uses; else among
 // those leading back onto it within ROUTE_REJOIN switches (a short connecting piece the OSM relation leaves out);
-// else among all of them
+// else, the route lost, among those some line runs on (rather than onto track no line uses: sidings, depot and loop
+// stubs); else among all of them. A longer lookahead (3 or 4 switches) found no more rejoins on the Poznań network.
 const ROUTE_REJOIN = 2;
 function pickBranch(list, route, rand, ahead = ROUTE_REJOIN) {
   let n = 0;
@@ -697,6 +698,14 @@ function pickBranch(list, route, rand, ahead = ROUTE_REJOIN) {
   if (route >= 0) {
     for (; depth <= ahead && !n; depth++) for (let i = 0; i < list.length; i++) if (routeAhead(list[i], route, depth)) n++;
     depth--;
+    if (!n) {
+      let lined = 0;
+      for (let i = 0; i < list.length; i++) if (list[i].routes.length) lined++;
+      if (lined && lined < list.length) {
+        let k = Math.floor(rand() * lined) % lined;
+        for (let i = 0; i < list.length; i++) if (list[i].routes.length && k-- === 0) return list[i];
+      }
+    }
   }
   if (!n) return list[Math.floor(rand() * list.length) % list.length];
   let k = Math.floor(rand() * n) % n;
@@ -705,11 +714,14 @@ function pickBranch(list, route, rand, ahead = ROUTE_REJOIN) {
 }
 
 // At the end of its route (a terminus loop in the box: the relation stops at the last stop), a tram takes the same
-// line's route that uses the edge it continues on, usually the other direction, and changes its display
+// line's route that uses the edge it continues on, usually the other direction, and changes its display. Where its
+// route stops for good on track other lines run on (a relation that leaves the box, or ends at a gap no rejoin
+// spans: line 10 at (-850, 768), 7 and 8 at (-845, 9)), it takes the route of that track, as a diverted
+// tram would, rather than run on under the old number until respawned
 function turnRoute(e, route, lines) {
   const ref = lines[route] ? lines[route].ref : null;
   for (let i = 0; i < e.routes.length; i++) if (lines[e.routes[i]] && lines[e.routes[i]].ref === ref) return e.routes[i];
-  return route;
+  return e.routes.length ? e.routes[0] : route;
 }
 
 class TramPath {
