@@ -1158,8 +1158,8 @@ files it touches so the items can run in parallel. 15.3 waits for the NYC-visual
    - Test: no prop collider or furniture instance within 2 m of a tram track, and every plaza with tram track inside it
      still shows its rails (not under a slab).
    - Files: `js/city-grid.js`, maybe `js/street-details.js`, tests.
-2. **Shifted lanes; cars line up oddly.** Some roads have lanes painted off their real position, and cars queue at
-   odd offsets or angles. First collect cases (coordinates or street names and a screenshot) and a headless check:
+2. **Shifted lanes; cars line up oddly.** Seen on **Św. Marcin** and **Roosevelta**: lanes are painted off their real
+   position, and cars queue at odd offsets or angles. First collect cases (coordinates or street names and a screenshot) and a headless check:
    - lane centres more than about 0.3 m from the paint;
    - lanes crossing the curb or a median;
    - joins between consecutive edges whose lane offsets jump.
@@ -1172,21 +1172,31 @@ files it touches so the items can run in parallel. 15.3 waits for the NYC-visual
    - stop-line queues using a different offset than the lane paint.
 
    Files: `js/road-network.js`, `js/road-paint.js`, `js/traffic.js` (source-sliced tests).
-3. **Polish vehicles** (`js/actor-models.js`, `js/traffic.js`, `js/tsl-materials.js`).
-   - Body shapes for a Polish car mix instead of US sedans and SUVs: hatchbacks and estates (kombi), compact SUVs or
-     crossovers, and delivery vans (Ducato/Sprinter-class).
-   - Smaller widths and lengths, with the colour palette rebalanced toward greys, whites, blacks and silvers.
-   - EU plates: white with the blue EU band, `PO` / `PZ` prefixes.
-   - Check the liveries of Policja, PRM (ambulance) and PSP (fire service) against photos.
-   - The MPK bus and the helicopter are in Phase 12.5. The 18 m articulated bus is still Phase 10.
-   - Keep the draw call count per class, and update `docs/actors.md`.
-4. **Bike lanes look poor.** Bike lanes are red paint of up to 1.5 m behind a P-2b line, painted on 4.1 of 17.6 km of
-   tagged curb (`docs/world.md`).
-   - **Proposed: remove them** (paint, `edge.bike` lane offsets, link flag bits 3/4 if nothing else reads them).
-     Removing them also takes away one suspect of 15.2. Confirm before doing it. The alternative is to redo them
-     properly: separated `highway=cycleway` paths on the sidewalk side.
-   - Check what reads `bike`: `road-network.js`, `road-paint.js`, `traffic.js`, the audio files, the cyclist player
-     mode in `controllers.js`, and `tools/poz-roadgraph.mjs`. If the bits leave the geodata, rebuild it.
+3. **Polish vehicles** (`js/actor-models.js`, `js/traffic.js`, `js/tsl-materials.js`). Decided 2026-10-28: vehicles
+   should resemble models that are popular in Poland.
+   - **Taxi**: a Toyota Corolla-like saloon or estate (most Poznań taxis are Corolla hybrids).
+   - **Ambulance (PRM)**: a VW Transporter / Crafter-class van box ambulance.
+   - **Fire service (PSP)**: a van or a medium truck in the same spirit, plus the red PSP livery.
+   - **Policja**: a common police saloon or estate (e.g. Kia Ceed / Škoda Octavia-like) with the Polish blue-silver
+     livery.
+   - **Private cars**: hatchbacks, estates (kombi) and compact SUVs or crossovers in the spirit of Škoda Octavia /
+     Fabia, Toyota Yaris / Corolla, VW Golf, Kia Sportage / Dacia Duster, plus delivery vans (Ducato / Sprinter-class).
+     Use smaller widths and lengths than the US bodies, and a palette leaning to greys, whites, blacks and silvers.
+   - **Licensing: resemble, never copy.** Use generic proportions and silhouettes of the vehicle class only. Do not put
+     brand names, badges, logos, grille trademarks or model names on the vehicles, in textures or in UI text. Do not
+     import third-party 3D models, blueprints or photos as textures. Code comments may name the class ("Corolla-class
+     saloon"). Official liveries (Policja, PRM, PSP) are public-service markings: approximate their colours and
+     reflective patterns, and keep crests and emblems out. Taxi crests are already skipped for this reason.
+   - **Plates**: EU white plates with the blue EU band, using `PO`, `PY` and `PZ` prefixes (Poznań city, the city's
+     second series, Poznań county) and a plausible Polish plate layout (`PO 1AB23`, `PZ 12345` style). Drawn
+     procedurally, no real registrations.
+   - The MPK bus and the helicopter are in Phase 12.5, and the 18 m articulated bus is still in Phase 10. Keep the
+     draw-call count per class, and update `docs/actors.md`.
+4. **Remove bike lanes** (decided 2026-10-28). The red bike-lane paint looks poor. Remove the paint, the `edge.bike` lane
+   offsets and their effect on lane placement, and link flag bits 3/4 and their build code if nothing else needs them,
+   then rebuild the geodata. Removing them also takes away one suspect of 15.2. Check what reads `bike` before
+   deleting: `road-network.js`, `road-paint.js`, `traffic.js`, `audio-*.js`, the cyclist player mode in
+   `controllers.js`, and `tools/poz-roadgraph.mjs`. The cyclist player mode stays, riding in the roadway.
 5. **Agent-reported open items** (from the 2026-10-28 fixes):
    - Pedestrians waiting on a split crossing's strip stand at the rail edge (Roosevelta), and trams do not brake for
      them. Split zebras may be painted up to the rails.
