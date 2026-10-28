@@ -4,8 +4,8 @@ No package.json, no npm, no dependencies. The tests use only Node built-ins (`no
 
 ## Commands (verified)
 
-- Full suite: `node --test tests/`. 211 tests, about 30 s (13 s before the detail box grew in Phase 13.2). Nearly all of that is `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`.
-- Quick loop that skips the geodata rebuild: `node --test tests/*.cjs` (about 6 s, most of it `road-network`, `tram-infra` and `tram-clearance` building the network and the street furniture on the real Poznań graph).
+- Full suite: `node --test tests/`. 215 tests, about 36 s (13 s before the detail box grew in Phase 13.2). Nearly all of that is `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`.
+- Quick loop that skips the geodata rebuild: `node --test tests/*.cjs` (about 9 s, most of it `road-network`, `tram-infra` and `tram-clearance` building the network and the street furniture on the real Poznań graph, and `buildings-density` running `buildCityBlocks` twice).
 - One file: `node --test tests/cameras.test.cjs`. Running `node tests/cameras.test.cjs` directly also works.
 - By test name: `node --test --test-name-pattern="police" tests/`
 - Serve the app: `python3 -m http.server 8000` from the repo root, then open `http://localhost:8000/`. Any static server works. There is no build step, and `.js` is served as `text/javascript`. Three.js loads from jsDelivr (`three@dev`) through the import map in `index.html`, so the page needs network access. `localhost` counts as a secure context, which WebGPU requires.
@@ -19,7 +19,7 @@ No test runs a browser, WebGPU, TSL shader compilation or a screenshot compariso
 
 Know which one covers the code you are editing. Two of them are coupled to the exact source text.
 
-1. **`loadModule(source, { imports, globals, filename })`** from `tests/helpers/module.cjs`. It reads a whole `js/*.js` file, rewrites its static `import`/`export` declarations, and runs it in a `vm` context. Used by cameras, controllers, city-map, road-network, pedestrian-routes, touch-controls and vehicle-lights tests, and by the benchmark.
+1. **`loadModule(source, { imports, globals, filename })`** from `tests/helpers/module.cjs`. It reads a whole `js/*.js` file, rewrites its static `import`/`export` declarations, and runs it in a `vm` context. Used by cameras, controllers, city-map, road-network, pedestrian-routes, touch-controls and vehicle-lights tests, and by the benchmark. `buildings-density` loads `js/buildings.js` with one catch-all Proxy stub for three.js, TSL, the materials, roofs and balconies (every property, call and `new` returns the stub) and the real `city-config.js` and `geodata.js`, so the lot layout runs for real; it also needs a `document` global.
 2. **Slicing source text.** The test cuts out a function or block with a regex or `indexOf` and runs it in `vm.runInNewContext` with hand-built context variables:
    - `traffic*.test.cjs` match `^  function NAME(` through `\n  }` (two-space indent) in `js/traffic.js`.
    - `teleports.test.cjs` runs the part of `js/main.js` from `  function teleportTo(` to `  const openMapBtn`.
