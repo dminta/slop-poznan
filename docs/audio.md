@@ -105,7 +105,9 @@ freezes. If you rename or remove any of these, update `audio-sources.js` in the 
   y 0.25 / 380 to mirror the controller's altitude clamp. If you change those limits in `controllers.js`, update it.
 - trams (`tramSystem.trams`): `id`, `x`, `z`, `heading`, `speed`, `acc`, `atStop`, `waitReason` (`'player'` rings the
   bell), `length`, `sections[k].heading`.
-- `streetDetails.audioSignals`: pedestrian head positions (about 980) with `isAvenue` (true when the head walks with group 0's traffic) and `signalTiming`, shared with the road node.
+- `streetDetails.audioSignals`: pedestrian head positions (one per built pole; see the dated
+  [furniture counts](world.md#street-furniture-street-detailsjs)) with `isAvenue` (true when the head walks with
+  group 0's traffic) and `signalTiming`, shared with the road node.
   `updateSignal` supplies local display states: fast clicks during steady/flashing green, slow ticks on red; disabled
   signals are omitted. Motor blocking checks also pass the road node to `signalPhase`.
 - Footsteps fire when `rig.phase + offset` wraps (one per foot). Changing the rig's phase convention breaks them.
@@ -113,7 +115,7 @@ freezes. If you rename or remove any of these, update `audio-sources.js` in the 
 ## Events
 
 - `emit(kind, source, options)` builds an emitter, snaps it into position (`snap = true`), and calls `playEvent`.
-  `talk` and `horn` events have `follow = true`. Each tick they look up their source id in the current snapshot and
+  `talk`, `horn` and tram `bell` events have `follow = true`. Each tick they look up their source id in the current snapshot and
   move with it. Other events stay where they started.
 - Crashes: `controllerManager` (building/ground contacts) and `trafficSystem` (vehicle-vehicle, vehicle-player)
   each expose `setCollisionListener` with a single slot. The audio system takes that slot, so adding a second
@@ -192,6 +194,8 @@ it. Trigger it from `update()` (using per-source `state()`) or from a public met
 
 **New simulation source type**: read it in `CityAudioSources` (constructor and `collect`), give it a stable object
 `id`, and pass the owning system through the constructor object built in `main.js`.
+
+Open listening checks and the real hejnał melody are tracked in the [backlog](backlog.md).
 
 Only the pure parts are tested: the siren control wave (`tests/audio-siren.test.cjs`) and the clock, schedules and baked
 event buffers (`tests/city-clock.test.cjs`). Nothing tests the Web Audio graph, mixing or spatialisation: verify changes in

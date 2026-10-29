@@ -22,9 +22,11 @@
 ## Boot order (inside `initApp`)
 1. `renderer.init()`, then `LightingSystem`.
 2. City builders, in this order: `buildCityGrid`, `buildOutskirts`, `buildBridges`, `buildLandmarks`, `buildCityBlocks`,
-   `buildStreetDetails`, `createTrafficSystem`, `buildRoadPaint`. The order matters because of the
+   `buildStreetDetails`, `createTrafficSystem`, `buildRoadPaint`, `buildTramInfrastructure`, `createTramSystem`, then
+   `trafficSystem.setTrams(tramSystem)`. The order matters because of the
    live `let` exports below ([`world.md`](world.md#build-order-mainjs-initapp-and-why-it-is-fixed)).
-3. `ThirdPersonControllerManager(scene, allColliders)`. Saved player state is restored right after it is constructed.
+3. `ThirdPersonControllerManager(scene, allColliders, { keepOut: tramInfra.railCorridor })`. Saved player state is
+   restored right after it is constructed.
 4. Then `CameraSystem`, `TouchControls`, `CityAudioSystem`, `setupSceneCulling`, the WebGPU-only instanced-matrix swap, the
    SSR/post-processing pipeline, `GamepadControls`, UI wiring and `CityMapSystem`.
 5. `precompileShaders()`, then one warm-up frame. The loading overlay hides and `audioSystem.ready` is set only after
@@ -32,7 +34,7 @@
 - `markInit(label)` logs phase timings once as `[init] ...`. Add a `markInit` call for any new heavy boot phase.
 
 ## How modules share state
-- `1f66530` replaced the old `window.NYC` globals. Do not reintroduce globals. Share state in one of three ways:
+- Keep `window` free of app globals. Share state in one of three ways:
   1. **Constructor injection from `main.js`.** `controllerManager` goes to the camera, touch, gamepad, map and audio systems.
      `cameraSystem` goes to gamepad and map; the traffic road `network` goes to the map. Reach the player through `controllerManager.getActiveEntity()`, `.activeMode`,
      `.entities` and `.keys`.
@@ -56,7 +58,8 @@ The loop runs these in order:
 5. `tramSystem.update` (camera position, camera, active entity and mode)
 6. `trafficSystem.update` (receives the camera position, active entity, mode and camera)
 7. a throttled save
-8. the building, street-detail and lighting updates (these use `cameraSystem.currentPos`)
+8. the building and street-detail updates, `landmarks.update`, then lighting (building LOD and lighting use
+   `cameraSystem.currentPos`; landmark animation receives the active lighting preset)
 9. `mapSystem.update`
 10. `audioSystem.update`
 11. `updateSceneCulling` (skipped on the warm-up frame)
@@ -65,6 +68,9 @@ The loop runs these in order:
 Why the order matters:
 - Trams run before the street traffic: the cars put this frame's trams into their lanes and the player collides with
   the trams where they are drawn. The trams brake for the cars of the frame before.
+- `city-clock.js` shares the Ratusz show schedule between landmark animation and audio. Both receive the same
+  `elapsed` and lighting preset, so preset changes start the koziołki and their sounds on the same frame. Church
+  bells follow a clock starting at the preset's displayed time; the sun remains at the preset's fixed date/time.
 - Gamepad input runs first so it applies in the same frame. The camera runs after movement so it follows the final position.
   Traffic runs after the player moves so it collides with the player's new position.
 - Traffic consumes and clears `car.lastCollisionSpark`, which `resolveHorizontalCollision` sets.
@@ -184,7 +190,7 @@ Physics notes:
 - Wrap every storage access in `try { } catch { /* reason */ }`. Storage may be unavailable, and that must never block play.
 
 ## HUD, CSS and cache busting
-- `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently `20261027-map-legend`). When you change
+- `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently `20261028-plate-comment`). When you change
   `style.css`, bump that query in `index.html` in the same commit; GitHub Pages caches it.
 - Colours are tokens on `:root`: `--accent`/`--accent-ink` (yellow, also the map's GPS route in `city-map.js`) mark
   whatever is active; `--sign-graphite` (#3b3d3f) and `--sign-blue` (#1f5bb5, the district strip) are the street plate.

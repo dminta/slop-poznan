@@ -4,14 +4,16 @@ A no-build three.js Poznań simulation (WebGPURenderer + TSL). `index.html` load
 `three@dev` from jsDelivr via the import map, so APIs can drift between visits. Served as static files (GitHub Pages) at
 https://dminta.github.io/slop-poznan/ from github.com/dminta/slop-poznan.
 
-It is a port of a Manhattan simulation, still in progress: `docs/poznan-plan.md` tracks which phases are done and which
-NYC leftovers (names, ids, comments) are still expected. Check it before renaming or deleting anything NYC-flavoured.
+The Poznań port is implemented, with remaining fixes and optional features in `docs/backlog.md`. The original
+decisions and measurements are preserved in `docs/archive/poznan-plan.md`. Legacy localStorage keys are intentional
+migration paths; check `docs/architecture.md` before changing them.
 
 ## Commands
-- Tests: `node --test tests/` (~30 s, mostly the Poznań geodata rebuild); quick loop: `node --test tests/*.cjs` (~6 s). Node 22+.
+- Tests: `node --test tests/` (~34 s, mostly the geodata rebuild and traffic regression); quick loop: `node --test tests/*.cjs` (~9 s). Node 22+.
 - Serve: `python3 -m http.server 8000` from the repo root, then open `http://localhost:8000/` in a WebGPU browser (needs network
   for three.js).
-- Rendering, shaders, lighting, culling and audio have no automated coverage: verify them in the browser and watch the console.
+- Rendered appearance and audible behavior require browser checks; headless tests cover only their math and schedules.
+  Watch the console while verifying shaders, lighting, culling and audio.
 
 ## Repo-wide rules
 - **New `js/*.js` module**: add `<link rel="modulepreload" href="./js/<name>.js" />` to `index.html` (after the import map,
@@ -51,5 +53,5 @@ NYC leftovers (names, ids, comments) are still expected. Check it before renamin
 - `docs/audio.md` — read before changing `js/audio-*.js`, adding a sound, or renaming fields on cars, peds, controller entities
   or `streetDetails.audioSignals` (audio reads them directly and breaks silently).
 - `docs/testing.md` — read before writing or debugging tests, or running the pedestrian benchmark.
-- `docs/poznan-plan.md` — the New York → Poznań port plan with per-phase status; read before starting a remaining phase
-  (6–12) or replacing leftover NYC content.
+- `docs/backlog.md` — read before choosing remaining work or revisiting an omitted feature; includes browser checks
+  and decisions still awaiting the user. Historical port decisions are in `docs/archive/poznan-plan.md`.

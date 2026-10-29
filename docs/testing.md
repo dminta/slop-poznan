@@ -1,6 +1,8 @@
 # Testing and local development
 
-No package.json, no npm, no dependencies. The tests use only Node built-ins (`node:test`, `node:assert/strict`, `node:vm`). Verified on Node v26.12.1. Node 22+ is needed because importing `js/*.js` as ESM without a package.json depends on Node's automatic module-syntax detection.
+No package.json or npm install is needed. The tests use only Node built-ins (`node:test`, `node:assert/strict`, `node:vm`);
+the browser loads three.js from the CDN. Verified on Node v26.12.1. Node 22+ is needed because importing `js/*.js`
+as ESM without a package.json depends on Node's automatic module-syntax detection.
 
 ## Commands (verified)
 
@@ -62,6 +64,9 @@ Behaviour to know when writing a test:
 - `globals` becomes the vm global object. Nothing from Node leaks in: `window`, `document`, `performance`, `setTimeout` and so on are `undefined` unless you pass them. `console.log` exists but prints nothing, so pass `globals: { console }` when debugging.
 - Objects and arrays created inside the module come from another realm. `assert.deepEqual(moduleArray, [1, 2])` fails even when the values match. Copy them first (`{ ...result }`, `[v.x, v.y]`, `.slice()`) or compare fields, as the existing tests do.
 - The code runs in strict mode inside a function wrapper and returns only the exported bindings. To test methods without building scenes, tests often call `Object.create(Class.prototype)` and set only the fields they need (see `tests/controllers.test.cjs`).
+- Exported `let` bindings are snapshots in this harness, unlike live ES-module imports. If a builder reassigns an
+  exported array (for example city-grid's plaza and park sites), importing the original returned value into the next
+  builder still gives the old value. Pass populated values explicitly when measuring a sequence of builders.
 
 ## Writing a new test
 
@@ -71,7 +76,7 @@ Behaviour to know when writing a test:
 
 ## Coupled checks in tests/boot.test.cjs
 
-- **To add a new `js/*.js` module**, also add `<link rel="modulepreload" href="./js/NAME.js" />` to `index.html`. Keep that exact attribute order and the self-closing ` />`, and place it after the import map and before the stylesheet. Then bump the expected preload count in `boot.test.cjs`, which is currently 32, one per file in `js/`. Commit `dee83c2` is the template.
+- **To add a new `js/*.js` module**, also add `<link rel="modulepreload" href="./js/NAME.js" />` to `index.html`. Keep that exact attribute order and the self-closing ` />`, and place it after the import map and before the stylesheet. Then bump the expected preload count in `boot.test.cjs`, which is currently 42, one per file in `js/`.
 - Relative imports must be `./name.js` paths that resolve to a preloaded URL.
 - `index.html` must contain exactly two `<script>` tags (the import map and `./js/main.js`).
 - `three` and `three/webgpu` must map to the same URL.
@@ -93,6 +98,12 @@ the vehicles within 300 m once a second after 20 s. About 12–17 s per district
 `jezyce lazarz centrum kaponiera stare rataje wilda`), `--top N` junctions, `--dump` (the longest wait as text: every
 vehicle, tram and walker at its junction), `--watch x,z` (that junction every 30 s), `--json file`, and the experiments
 `--no-peds`, `--no-trams`, `--no-signals` (they patch `traffic.js` by exact text and throw if it changed).
+
+This is a benchmark variant, not the complete browser scene: it does not build city-grid's sidewalks or square/park
+furniture, passes empty plaza/park site lists to street-details, and omits building, landmark and bridge colliders.
+Its network and crosswalk counts therefore differ from the grid-and-furniture measurement snapshot in
+[`world.md`](world.md#measurement-snapshot-2026-10-29) and from the full browser world. Compare runs with the same
+builder inputs, seed, population rules and sample window.
 
 Per district it prints the cars sampled, mean speed (and of the moving ones), the share stopped (< 0.5 m/s), the longest
 stopped queue in a lane, the distribution of finished waits (p50/p90/max), cars held over 60 and 120 s, why the stopped

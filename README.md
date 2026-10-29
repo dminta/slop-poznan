@@ -6,6 +6,22 @@ A Poznań simulation built with [three.js](https://threejs.org/), WebGPURenderer
 
 Ported from [Slop New York](https://github.com/mrdoob/slop-newyork).
 
+## Run locally
+
+From the repository root, run `python3 -m http.server 8000`, then open `http://localhost:8000/` in a WebGPU browser.
+There is no build or npm install. The page needs network access for three.js (`three@dev` through jsDelivr) and fonts.
+Explore on foot, drive, cycle or fly using the mode buttons; the map provides search, destinations and teleports.
+
+Run the tests with Node 22+: `node --test tests/`. See [testing and local development](docs/testing.md) for focused
+commands and browser verification.
+
+## Development docs
+
+- [Architecture, controls and UI](docs/architecture.md)
+- [World building](docs/world.md), [actors and traffic](docs/actors.md), [rendering](docs/rendering.md) and [audio](docs/audio.md)
+- [Geodata and rebuilding the OSM snapshots](docs/geodata.md)
+- [Remaining work](docs/backlog.md) and the [archived Poznań port plan](docs/archive/poznan-plan.md)
+
 ## Make it your own
 
 Fork it, remix it, improve it, break it. Make games, animations, films, experiments, or something completely different. Use it as a starting point and take it wherever you want. Have fun!
