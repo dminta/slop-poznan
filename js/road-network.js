@@ -95,7 +95,8 @@ function buildRoadNetwork(sidewalks, obstacles) {
       isLand(minX, maxZ, SHORE_MARGIN) && isLand(maxX, maxZ, SHORE_MARGIN);
   }
 
-  const walkable = (minX, maxX, minZ, maxZ) => onLand(minX, maxX, minZ, maxZ) && !query(minX, maxX, minZ, maxZ, (r) => !r.curb);
+  const walkable = (minX, maxX, minZ, maxZ) => onLand(minX, maxX, minZ, maxZ) &&
+    !query(minX, maxX, minZ, maxZ, (r) => !r.curb && !r.walkable);
   // Lanes follow the real streets: the rectangles standing in for irregular sidewalks may reach a little past their
   // curbs, and the footprints city-grid.js hands over for median islands and park blocks are their bounding boxes,
   // which on a turned block take in the streets around it. So only a curb right at (x, z), medians by their real

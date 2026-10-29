@@ -163,6 +163,10 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt, r
       const a = { x: cx * (lo - end0.land) + ux * (along + line), z: cz * (lo - end0.land) + uz * (along + line) };
       const b = { x: a.x + cx * (hi - lo + end0.land + end1.land), z: a.z + cz * (hi - lo + end0.land + end1.land) };
       if ((end0.w < 0 && !blockAt(a.x, a.z)) || (end1.w < 0 && !blockAt(b.x, b.z))) continue;
+      // A raised median is walkable, but it can still be too close to a rail for the curb queue. Apply the same
+      // normal clearance as on unmodelled strip refuges, including the space behind the first waiting person.
+      if (end0.w < 0 && !roomToWait(a.x + cx * 1.6, a.z + cz * 1.6, -cx, -cz)) continue;
+      if (end1.w < 0 && !roomToWait(b.x - cx * 1.6, b.z - cz * 1.6, cx, cz)) continue;
       if (!clear(a, b)) continue;
       tracks.push(segment(a, b, { node: n, side: arm.side, group: arm.group, line, from: n, to: n }));
     }

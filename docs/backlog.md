@@ -6,11 +6,17 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 
 ## Next: pedestrian crossings at Dworzec
 
-- Model the medians and tram strips around Roosevelta / Most Dworcowy (central nodes near `−1567, 560`) as
-  walkable curb islands in the geodata pipeline. The peripheral split crossings do not cover the central node.
-- Rebuild geodata, measure crossing connectivity and add exact-coordinate regressions. Verify that people can
-  wait clear of the rails and that zebra paint and tram beds leave a usable crossing. See [world.md](world.md)
-  and [actors.md](actors.md) for the current crossing rules.
+- **Refuge accessibility fixed:** existing median surfaces now permit walking while still blocking cars. This
+  restores the crossing onto the western island near `−1589, 562` (node `−1592.6, 579.6`); the grid-and-furniture
+  snapshot goes from 0 to 1 crossings within 100 m of the central node. Regression coverage checks the actual
+  curbs and furniture, unchanged car lanes and 2 m rail clearance at restored waiting positions.
+- **Central connection remains open:** the six-arm node near `−1567.23, 560.23` still has no crossing. Its
+  candidate landings either miss a curb island or overlap another approach's queued roadway. Two refuge
+  polygons already exist in the committed geodata, so missing islands alone do not explain the failure.
+- Design a connected route through the whole junction complex, coordinating the curb/refuge geometry with the
+  road stop lines and pedestrian signal ownership. Preserve the checks against other roadways and unsafe rail
+  waiting positions. Rebuild geodata if its geometry changes and add exact-coordinate connectivity regressions.
+  See [world.md](world.md) and [actors.md](actors.md) for the current rules.
 
 ## Known gaps and follow-up investigations
 

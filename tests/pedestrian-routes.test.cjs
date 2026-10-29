@@ -30,12 +30,13 @@ function arm(n, ux, uz, { half, back, side, group, len = 80 }) {
 }
 
 // Everywhere off the roads through n (each `wider` metres wider than its lanes' half width says) is one curb island
-function routesAround(n, wider = 0) {
+function routesAround(n, wider = 0, railClearance = null) {
   const off = (x, z) => n.arms.every((a) => Math.abs((x - n.x) * a.uz - (z - n.z) * a.ux) > a.half + wider - 0.01
     || (x - n.x) * a.ux + (z - n.z) * a.uz < 0);
   const block = { poly: [] };
   const edges = n.arms.flatMap((a) => [a.in, a.out]);
-  return createPedestrianRoutes({ nodes: [n], edges, walkable: () => true }, (x, z) => (off(x, z) ? block : null));
+  return createPedestrianRoutes({ nodes: [n], edges, walkable: () => true },
+    (x, z) => (off(x, z) ? block : null), railClearance);
 }
 // The zebra of a crosswalk as a rectangle: its corners
 const corners = (c, h = (CROSSWALK - 0.3) / 2) => [[c.ax, c.az], [c.bx, c.bz]].flatMap(([x, z]) => [[x - c.ux * h, z - c.uz * h], [x + c.ux * h, z + c.uz * h]]);
@@ -82,6 +83,21 @@ test('no crosswalks where a street merely bends', () => {
   const bend = { x: 0, z: 0, shape: true, signal: false, arms: [] };
   bend.arms.push(arm(bend, 1, 0, { half: 5, back: 2, side: 4, group: 0 }), arm(bend, -0.96, 0.28, { half: 5, back: 2, side: 5, group: 0 }));
   assert.equal(routesAround(bend).across(bend).length, 0);
+});
+
+test('a curb island beside a tram track needs safe waiting room just like an unmodelled refuge', () => {
+  const junction = () => {
+    const n = { x: 0, z: 0, signal: false, arms: [] };
+    for (const [ux, uz, side] of [[0, 1, 0], [0, -1, 1], [1, 0, 2], [-1, 0, 3]]) {
+      n.arms.push(arm(n, ux, uz, { half: 5, back: 16, side, group: side < 2 ? 0 : 1 }));
+    }
+    return n;
+  };
+  assert.equal(routesAround(junction()).crosswalks.length, 4);
+  const railClearance = (x, _z, r) => Math.min(r, Math.abs(x - 5.4));
+  const routes = routesAround(junction(), 0, railClearance);
+  assert.ok(routes.crosswalks.length > 0, 'crossings with safe landings remain');
+  assert.ok(routes.crosswalks.every((c) => c.side >= 2), 'no queue on the rail beside the east curb');
 });
 
 test('zebras run on to the real curb within CROSSWALK_REACH, and there is none where they would end in the roadway', () => {

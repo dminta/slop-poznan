@@ -514,9 +514,11 @@ function buildCityGrid(scene) {
   const unitBox = new THREE.BoxGeometry(1, 1, 1);
   const B = CITY_BOUNDS;
 
-  // Ground footprints that traffic and pedestrians must keep clear of (medians, parks)
+  // Medians block cars but provide pedestrian refuges; park footprints also block walking routes.
   const footprints = [];
-  const addFootprint = (x, z, w, d) => footprints.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
+  const addFootprint = (x, z, w, d, walkable = false) => footprints.push({
+    minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2, walkable
+  });
 
   // =========================================================================
   // 1. WATER: one plane at the river level under the whole detail box and far beyond it (the Warta, its old bed, the
@@ -638,7 +640,7 @@ function buildCityGrid(scene) {
     if (b.rect) {
       const slab = { cx: (b.minX + b.maxX) * 0.5, cz: (b.minZ + b.maxZ) * 0.5, w: b.maxX - b.minX, d: b.maxZ - b.minZ, block: b };
       blockSidewalks.push(slab);
-      if (b.median) addFootprint(slab.cx, slab.cz, slab.w, slab.d);
+      if (b.median) addFootprint(slab.cx, slab.cz, slab.w, slab.d, true);
       else roadSidewalks.push({ minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ });
     } else {
       // curb (granite) ring under a sidewalk slab inset by 0.25 m, like the instanced pair below
@@ -655,7 +657,7 @@ function buildCityGrid(scene) {
         blockSidewalks.push({ cx: (r.minX + r.maxX) * 0.5, cz: (r.minZ + r.maxZ) * 0.5, w: r.maxX - r.minX, d: r.maxZ - r.minZ, block: b, cover: true });
         if (!b.median) roadSidewalks.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1 });
       }
-      if (b.median) addFootprint((b.minX + b.maxX) * 0.5, (b.minZ + b.maxZ) * 0.5, b.maxX - b.minX, b.maxZ - b.minZ);
+      if (b.median) addFootprint((b.minX + b.maxX) * 0.5, (b.minZ + b.maxZ) * 0.5, b.maxX - b.minX, b.maxZ - b.minZ, true);
     }
     // Planted malls down the middle of the wide streets: a clipped hedge on the slab
     if (b.median && Math.min(b.maxX - b.minX, b.maxZ - b.minZ) > 2.2) {

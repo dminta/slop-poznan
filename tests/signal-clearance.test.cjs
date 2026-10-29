@@ -75,7 +75,9 @@ test('all furnished regular crossings clear the last WALK entrant at 1 m/s befor
     assert.ok(timing.green0 >= 10 && timing.green1 >= 10 && timing.cycle <= 90);
     checked++;
   }
-  assert.ok(checked > 500, `${checked} furnished crossings checked`);
+  // Requiring rail-safe curb queues removes crossings whose former waiting positions overlapped a tram body.
+  // The furnished benchmark now retains 490 regular signal crossings; keep a floor without retaining unsafe ones.
+  assert.ok(checked > 480, `${checked} furnished crossings checked`);
   const marcin = config.SIGNAL_PLANS.filter((p) => p.corridor === 'Święty Marcin' && !p.pedestrian);
   assert.ok(marcin.length >= 2 && marcin.every((p) => p.cycle === 65));
   for (const p of config.SIGNAL_PLANS) {
