@@ -142,16 +142,20 @@ reads the road network (signal nodes, lanes and junction curves for `mapTramsToR
   the route uses, else one that reaches the route within `ROUTE_REJOIN` (2) switches (short connecting pieces the
   relations leave out), else one some line runs on (not a siding or loop stub no route uses), else any. A longer
   lookahead (3 or 4 switches) rejoins nothing more. Laying out the track behind a new tram keeps to the route the same way. Where the
-  route ends in the box (a terminus loop past the last stop, Zawady), `turnRoute` switches to the same line's route on
+  route ends in the box (after a terminus loop), `turnRoute` switches to the same line's route on
   the next edge (usually the other direction) and the tram's display changes; where the route stops for good on track
   other lines use (a relation gap no rejoin spans: line 10 at (-850, 768), lines 7 and 8 at (-845, 9)), it takes the
   route of that track, as a diverted tram would. Measured on the Poznań network: 98.6% of paths laid out from every
   route edge stay on the route. A headless run (10 minutes at each of Ostrów Tumski, Stare Miasto, Dworzec, Półwiejska,
   Rataje and Jeżyce on the 8.2 × 5.7 km network, 84k tram samples) had 1.15% of samples off their route, 0.77% of them
   on other lines' track (line 10 past its relation's gap, wandering on under its number) and 0.38% on track no route
-  uses; now 0.44%, 0.06% on other lines' track. The rest is data: Zawady's terminus loop (#655, #509, #528 behind
-  line 5's last stop) is in no relation. Lines run the real
-  sequence of tracks only roughly: no timetable, any number of trams per line.
+  uses; before 15.10 this was down to 0.44%, 0.06% on other lines' track. Phase 15.10 completes the main loops at
+  Zawady (line 5) and Ogrody (2/7/8/18) through their actual departure stops, and extends Starołęka's 7/12/13 routes
+  across the detail boundary. These are five existing OSM ways absent from the relations; `poz-roads.mjs` adds their
+  membership using adjacent member-way anchors (see `geodata.md`). Track geometry, runtime routing and the 38 route
+  records stay unchanged. Exact-coordinate tests cover both loops at two branch choices, return destinations and
+  both boundary directions. Global off-route percentages have not been re-measured after this data correction.
+  Lines run the real sequence of tracks only roughly: no timetable, any number of trams per line.
 - **Stops**: `tram-infra.js` stops (`railIndex`, `s`, `dir`) are attached to the edge running that way
   (`attachTramStops`). Bare `GEO.tramStops` nodes are snapped to the nearest track within 6 m (`snapTramStops`); that
   fallback is used by the tests. The tram's front stops `0.35 × length` past the stop point, dwells 20–30 s with its

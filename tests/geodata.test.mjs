@@ -95,8 +95,8 @@ test('Poznań geodata builds offline with default paths in a checkout containing
     assert.ok(GEO.tramRoutes.length >= 30 && GEO.tramRoutes.every((r) => /^\d+$/.test(r.ref) && r.to), 'tram routes');
     const tramRail = GEO.rail.filter((r) => r.kind === 'tram');
     assert.ok(tramRail.every((r) => Array.isArray(r.routes) && r.routes.every((i) => i >= 0 && i < GEO.tramRoutes.length)));
-    // by length: the depot yard at Głogowska is ~145 short chains no route uses (74% of the chains, 94.7% of the
-    // 127 km of track on a route, measured 2026-10-28)
+    // By length: the depot yard at Głogowska is many short chains no route uses (479/642 chains and 95.5% of
+    // 127.4 km on a route after the terminal/boundary extensions, measured 2026-10-29).
     const trackLen = (rails) => {
       let sum = 0;
       for (const r of rails) for (let i = 0; i + 3 < r.pts.length; i += 2) sum += Math.hypot(r.pts[i + 2] - r.pts[i], r.pts[i + 3] - r.pts[i + 1]);
@@ -113,6 +113,14 @@ test('Poznań geodata builds offline with default paths in a checkout containing
     });
     const chrobrego = new Set(over(746, -149).flatMap((r) => r.routes.map((i) => GEO.tramRoutes[i].ref)));
     assert.deepEqual([...chrobrego].sort(), ['17', '7', '8'], 'lines 7, 8 and 17 cross Most Chrobrego');
+    for (const [name, x, z, refs] of [
+      ['Zawady loop', 1657.1, -539.5, ['5']],
+      ['Ogrody loop', -3518.1, -901.8, ['2', '7', '8', '18']],
+      ['Starołęka boundary', 658.9, 2855.8, ['7', '12', '13']]
+    ]) {
+      const assigned = new Set(over(x, z).flatMap((r) => r.routes.map((i) => GEO.tramRoutes[i].ref)));
+      for (const ref of refs) assert.ok(assigned.has(ref), `${name}: line ${ref} remains on its route`);
+    }
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

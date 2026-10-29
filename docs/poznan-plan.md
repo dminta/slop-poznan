@@ -5,7 +5,7 @@ Kaponiera portals and the Combino; Phase 10 the articulated bus, the S-2 arrow a
 the S-2 arrow, signal countdowns, "BUS" lane text, a 4th tree species and real OSM tree positions). The 2026-10-27 audit
 found further gaps; its six functional gaps were fixed on 2026-10-28, the rest is listed in **Open items from the
 2026-10-27 audit** below. Phase 12 is done except the docs rewrite and the
-archiving in 12.5. Phase 15 items 1–5 and 7–8 are implemented; 6 is continued in Phase 16, and 9–10 remain open.
+archiving in 12.5. Phase 15 items 1–5, 7–8 and 10 are implemented; 6 is continued in Phase 16, and 9 remains open.
 Phase 16 is implemented and meets its headless targets (2026-10-29), with a WebGPU boot/console smoke check;
 the detailed browser checks below remain open.
 Line references are as of commit `46ec12b` and will drift; grep for the named symbol if a line no longer matches. Read `AGENTS.md` and the topic docs (`geodata.md`, `world.md`, `rendering.md`,
@@ -14,19 +14,19 @@ Line references are as of commit `46ec12b` and will drift; grep for the named sy
 
 ## Handoff: where to start (updated 2026-10-29)
 
-The working tree passes `node --test tests/` (268 tests, about 34 s). Phase 16 has a WebGPU boot/console smoke check;
+The working tree passes `node --test tests/` (271 tests, about 34 s). Phase 16 has a WebGPU boot/console smoke check;
 full corridor observation and audio checks remain manual, as does the detailed visual review of earlier phases.
 The user tests in the browser and reports bugs back, so read those reports literally and probe with real coordinates
 before fixing.
 
-**Next task: tram route data (15.10)**: the Zawady loop and routes that end inside the box. Phase 16 fixes the signal,
+**Next task: re-measure the docs (15.9)**, especially the furniture, road paint and track counts from before 15.2 and
+13.2. Phase 15.10 now completes the Zawady/Ogrody loops and Starołęka boundary routes. Phase 16 fixes the signal,
 tram clearance and opposite-track lane items from 15.6; its measurements and remaining manual checks are below.
 
 **Then, in this order:**
-1. Re-measure the docs (15.9).
-2. Phase 12.5: the docs rewrite and archiving this plan.
-3. The central Dworzec node zebras (medians and tram strips as blocks in `tools/`).
-4. Optional skips from Phases 4 and 9–11 (listed in the audit section), including passing a waiting left-turner (16.5).
+1. Phase 12.5: the docs rewrite and archiving this plan.
+2. The central Dworzec node zebras (medians and tram strips as blocks in `tools/`).
+3. Optional skips from Phases 4 and 9–11 (listed in the audit section), including passing a waiting left-turner (16.5).
 
 **Decisions pending with the user:**
 - Whether to build in the 13 park blocks (15.7). The recommendation is no.
@@ -1358,8 +1358,22 @@ open items). Everything was checked headless only (230 tests).
      deck or raised track, and level crossings have no barriers.
 9. **Re-measure the docs**: the counts in `docs/world.md` and `docs/actors.md` measured before 15.2 and 13.2
    (furniture, stop lines, lane-line km, track km).
-10. **Tram route data**: the Zawady loop and the route ends inside the box (lines 2/7/8/18 at (−3501, −946), 7/12/13 at
-    (696, 2718)). This may need hand-made route extensions in `tools/`.
+10. **Tram route data: done 2026-10-29.** The rail geometry already existed; its route membership was missing.
+    `TRAM_ROUTE_EXTENSIONS` in `tools/poz-roads.mjs` completes five ways using adjacent OSM member-way anchors:
+    - Zawady line 5: the two missing member ways from the arrival stop `(1635.7, −502.7)` through the proper departure
+      stop `(1650.1, −561.4)`. The outer loop bypasses that stop and remains unassigned.
+    - Ogrody lines 2/7/8/18: the main loop from `(−3501.3, −945.7)` to the actual departure stop
+      `(−3475.8, −870.5)`. The siding and alternative bypass remain unassigned.
+    - Starołęka lines 7/12/13: the two split ways that carry the routes across the map boundary, closing the
+      membership gap starting around `(696, 2718)`, 126 m before the boundary.
+    - This adds 12 way memberships and routes six previously unassigned chains, 998.1 m: track on a route
+      120.7 → 121.7 km of 127.4 km (473 → 479 of 642 tram chains). The generated change is confined to those six
+      `rail[].routes` arrays; track geometry, the 38 route records and all other output values are identical.
+    - Three exact-coordinate regressions failed on the old output and pass now: both main loops through their
+      boarding stops, return destinations with both branch choices, and both Starołęka directions. Fresh-build
+      geodata tests check all three places too. Full suite: 271/271; two rebuilds are byte-identical. The 7 × 5 min
+      traffic benchmark is unchanged: 15.6 km/h, 32.0% stopped, no >120 s car holds, persistent deadlocks or >60 s
+      continuous switch waits. No input refresh was needed. Live loop observation remains a manual browser check.
 
 ### Phase 16: Signal timing and trams on switches
 

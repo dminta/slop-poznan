@@ -480,6 +480,30 @@ const allTramRoutes = osmTramRoutes.elements
     ways: new Set(r.members.filter((m) => m.type === 'way').map((m) => m.ref)) }))
   .sort((a, b) => +a.ref - +b.ref || a.to.localeCompare(b.to, 'pl') || a.id - b.id);
 
+// The PTv2 relations end before the turning tracks at Ogrody and Zawady. Complete the arrival route up to the
+// departure stop; the runtime then switches to the same line's return relation. Keep the main loop: the Ogrody
+// siding/bypass and Zawady's outer loop skip that boarding stop. At Starołęka two newly split ways are absent from
+// every relation, leaving a 412 m gap which starts 126 m before the detail boundary. Anchors are OSM member ways,
+// not generated chain indices, so each correction follows only the relations using the adjacent mapped track.
+const TRAM_ROUTE_EXTENSIONS = [
+  [495295031, [100278290]], // Ogrody: arrival stop → departure stop, lines 2/7/8/18
+  [16403985, [365385517, 73491169]], // Zawady: arrival stop → departure stop, line 5
+  [977970537, [1533059210]], // Starołęka: continue south beyond the map, lines 7/12/13
+  [151435174, [1533059211]] // Starołęka: return from beyond the map, lines 7/12/13
+];
+const trackWayIds = new Set(trackWays.map((t) => t.id));
+let extendedRouteWays = 0;
+for (const [anchor, ways] of TRAM_ROUTE_EXTENSIONS) {
+  for (const route of allTramRoutes) {
+    if (!route.ways.has(anchor)) continue;
+    for (const way of ways) {
+      if (!trackWayIds.has(way)) throw new Error(`Tram route extension ${way} is missing from the rail snapshot`);
+      if (!route.ways.has(way)) { route.ways.add(way); extendedRouteWays++; }
+    }
+  }
+}
+log(`tram route extensions: ${extendedRouteWays} missing way memberships completed`);
+
 for (const t of trackWays) t.street = t.kind === 'tram' && onStreet(t.pts) ? 1 : 0;
 // A switch whose branches differ in key (one street-running, one not; one-way and two-way) must stay a chain end too, or
 // the branch would meet the other chain mid-way and the runtime would find no junction there

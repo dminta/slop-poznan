@@ -96,12 +96,22 @@ since the 2026-10-25/27 fetches (no tag change on any road, rail, tram route, bu
   stop members).
 - Tram line routes (`GEO.tramRoutes`, `poz-roads.mjs`): the PTv2 relations of the day lines (ref 1–99; not the heritage
   lines 0 and H, the night lines 2xx or the two unversioned line 17 diversion variants), one `{ ref, from, to }` per
-  direction, sorted by number and terminus; routes with no track in the box (line 1) are dropped. Each tram `rail` entry
+  direction, sorted by number and terminus; routes with no track in the box are dropped. Each tram `rail` entry
   carries `routes`, the indices of the routes whose member ways make up at least half its length (`ROUTE_SHARE`: a
-  chain is not cut where a dropped tunnel track leaves it). Measured over the 8.2 × 5.7 km box: 38 routes of 20 lines
-  (line 1 now reaches the box); 120.5 of 127.2 km of tram track is on a route, most of the rest the Głogowska depot
-  yard (about 145 short chains, so only 74% of the chains); Most Chrobrego carries 7, 8 and 17. (6.1 × 3.7 km box: 36
+  chain is not cut where a dropped tunnel track leaves it). Measured after 15.10 (2026-10-29): 38 routes of 20 lines
+  over the 8.2 × 5.7 km box (line 1 reaches it); 121.7 of 127.4 km of tram track is on a route, on 479 of 642 tram
+  chains. Most of the rest is the Głogowska depot yard; Most Chrobrego carries 7, 8 and 17. (6.1 × 3.7 km box: 36
   routes of 19 lines, 76.5 of 76.9 km.)
+- `TRAM_ROUTE_EXTENSIONS` in `poz-roads.mjs` completes five existing OSM ways missing from the relations. Rules
+  anchor to an adjacent member way, before `ROUTE_SHARE` and chain assignment; raw snapshots stay unchanged.
+  Ogrody's `495295031 → 100278290 → 495295027` serves the departure stop of lines 2/7/8/18. Zawady's
+  `16403985 → 365385517 → 73491169 → 87781251` serves line 5's departure stop. The alternative loops skip those
+  stops, so remain unassigned. Turning tracks retain the arrival route until the first member of the return
+  relation, where runtime `turnRoute` changes direction while keeping the line number. At Starołęka,
+  `1533059210` extends the routes using `977970537` south across the map boundary; `1533059211` extends the return
+  routes using `151435174`. That closes the gap for lines 7/12/13 starting 126 m inside the box. Missing extension
+  geometry fails the build explicitly. This adds 12 way memberships and routes six previously unassigned chains
+  (998.1 m); every other generated value, including track geometry and route metadata, is unchanged.
 - Track chains (`GEO.rail`) end at every node where more than two track pieces end, whatever their chaining key
   (`street`, `oneway`, `tracks`). Before 2026-10-28 a switch whose branch had another key (a street track leaving an
   off-street one, a two-way stub off a one-way line) was chained through, so the branch met the other chain mid-way
