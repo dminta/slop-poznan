@@ -640,7 +640,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     const f = v.move.to;
     touchNode(e.to).box[e.axisIndex]++;
     e.to.boxVehicles.push(v);
-    if (!v.conn || v.cs < v.half + e.setbackTo + CROSSWALK) e.to.crossing[e.inSide]++; // until its tail is past the crosswalk on its way in
+    // A shared zebra can meet the incoming arm deeper inside the box than its normal crosswalk band.
+    if (!v.conn || v.cs < v.half + (v.conn.crosswalkEnd ?? e.setbackTo + CROSSWALK)) e.to.crossing[e.inSide]++;
     if (v.move.turn !== 'L') touchEdge(e).through++;
     if (!v.yielding) cross(v);
     occupy(f.occ[v.out], v, v.conn ? v.cs - v.conn.len : v.s - e.len - connector(e, v.lane, f, v.out).len);
@@ -687,6 +688,14 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     for (const v of vehicles) {
       const e = v.edge;
       if (!e) continue;
+      // A short outgoing edge can end before a long vehicle's tail clears the previous crossing. Retain the
+      // reservation even when the centre has entered the following connector.
+      if (e.crosswalkTails) {
+        const s = v.conn ? e.len + v.cs : v.s;
+        for (const tail of e.crosswalkTails) {
+          if (s < v.half + tail.end) touchNode(tail.node).crossing[tail.side]++;
+        }
+      }
       if (!v.conn) {
         occupy(e.occ[v.lane], v, v.s);
         const side = straddle(v);
@@ -954,7 +963,14 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // only wait for the vehicles already holding the crosswalk.
   function pedestrianOn(n, side, coord, t0, t1, onIt = false) {
     for (const p of n.walkers) {
-      if (p.side !== side || (onIt && p.waiting)) continue;
+      if (onIt && p.waiting) continue;
+      if (p.side !== side) {
+        const sides = p.sides || p.route?.sides;
+        // The peer is crossed inside its connector, where a turning car has already shifted away from its lane
+        // coordinate at the stop line. Reserve that whole approach until the shared walk is clear.
+        if (sides) for (const owned of sides) if (owned.side === side) return true;
+        continue;
+      }
       const toGo = (coord - p.coord) * p.dir; // metres p still has to walk to get there
       if (p.waiting || ((toGo + 2.6) / p.speed > t0 && (toGo - 2.6) / p.speed < t1)) return true;
     }
@@ -1128,7 +1144,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     // clear the intersection to, taking turns with lanes merging into it
     // (once its turn has come at an unsignalised zebra, people still at the curb wait for it: see courtesy)
     const turn = v.pedWait > PED_COURTESY && !n.signal;
-    if (pedestrianOn(n, e.inSide, laneCoord(e, v.lane, e.inArm), 0, timeTo(v, d + e.setbackTo + CROSSWALK + 2 * v.half), turn)) return refuse(v, 'pedestrian');
+    if (pedestrianOn(n, e.inSide, laneCoord(e, v.lane, e.inArm), 0, timeTo(v, d + (e.crosswalkEnd ?? e.setbackTo + CROSSWALK) + 2 * v.half), turn)) return refuse(v, 'pedestrian');
     if (wait < 0 && pedestrianOn(n, f.outSide, laneCoord(f, j, f.outArm), timeTo(v, d + c.len - shortOfZebra(f)), timeTo(v, d + c.len - f.setbackFrom + 2 * v.half), turn)) return refuse(v, 'pedestrian');
     const vs = v.s - e.len - c.len; // where on f it would be now
     if (!room(f, j, v)) return refuse(v, 'room');
@@ -2013,12 +2029,16 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       requestWalkSignal(clock, n);
       return false;
     }
-    if (n.crossing[p.side] > 0) return false;
-    const e = n.approach[p.side];
-    if (!e) return true;
-    for (const list of e.occ) {
-      const lead = leadOf(list);
-      if (lead && !canStop(lead, e, true)) return false;
+    const sides = p.sides || p.route?.sides;
+    for (let i = 0; i < (sides ? sides.length : 1); i++) {
+      const side = sides ? sides[i].side : p.side;
+      if (n.crossing[side] > 0) return false;
+      const e = n.approach[side];
+      if (!e) continue;
+      for (const list of e.occ) {
+        const lead = leadOf(list);
+        if (lead && !canStop(lead, e, true)) return false;
+      }
     }
     return true;
   }

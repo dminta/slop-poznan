@@ -6,7 +6,7 @@ as ESM without a package.json depends on Node's automatic module-syntax detectio
 
 ## Commands (verified)
 
-- Full suite: `node --test tests/`. 273 tests, about 32 s (2026-10-29). Most time is spent in `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`, and the five-minute traffic-flow regression.
+- Full suite: `node --test tests/`. 279 tests, about 34 s (2026-10-29). Most time is spent in `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`, and the five-minute traffic-flow regression.
 - Quick loop that skips the geodata rebuild: `node --test tests/*.cjs` (about 9 s, most of it `road-network`, `tram-infra` and `tram-clearance` building the network and the street furniture on the real Poznań graph, and `buildings-density` running `buildCityBlocks` twice).
 - One file: `node --test tests/cameras.test.cjs`. Running `node tests/cameras.test.cjs` directly also works.
 - By test name: `node --test --test-name-pattern="police" tests/`
@@ -26,6 +26,8 @@ Know which one covers the code you are editing. Two of them are coupled to the e
    - `traffic*.test.cjs` match `^  function NAME(` through `\n  }` (two-space indent) in `js/traffic.js`.
    - `signal-display.test.cjs` captures the head group before `      const half = a.w / 2;` in street-details.js, then
      compares the rendered groups with real incoming road lanes. It also checks the shared texture and crossing audio.
+   - `dworzec-crossings.test.cjs` exposes the internal `links` function by replacing the literal
+     `return { along, across, next, crosswalks };` in pedestrian-routes.js to check real bidirectional connectivity.
    - `teleports.test.cjs` runs the part of `js/main.js` from `  function teleportTo(` to `  const openMapBtn`.
    - `facade-projection` slices `js/tsl-materials.js` between markers: `const facadeNormalVertex =`, `function facadeCell(`, `let bayWidth`, `const evaluateApartmentInterior`, `const rayWorld =` and `// Slab intersection`.
 

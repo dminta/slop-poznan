@@ -1086,7 +1086,53 @@ function buildRoadNetwork(sidewalks, obstacles) {
   }
 
   const isRoadClear = (x, z, clear = 0.15) => !blockedOnStreet(x, z, clear);
-  return { nodes, edges, paintEdges, connector, curvePoint, walkable, isRoadClear };
+  const network = { nodes, edges, paintEdges, connector, curvePoint, walkable, isRoadClear };
+  network.configureCrosswalks = (crosswalks) => configureCompoundCrossings(network, crosswalks);
+  return network;
+}
+
+// A compound zebra can cross an incoming arm well inside its connector. Reserve that arm until the actual curve
+// clears the paint, including the vehicle's tail after it enters the outgoing edge. All sampling is build-time.
+function configureCompoundCrossings(network, crosswalks) {
+  const step = 0.25;
+  const margin = 1.5 + step; // widest vehicle half-width, plus a sample interval so a brief corner hit is not missed
+  const point = {};
+  for (const crossing of crosswalks) {
+    const sides = crossing.tracks.find((track) => track.sides)?.sides;
+    if (!sides) continue;
+    const length = Math.hypot(crossing.bx - crossing.ax, crossing.bz - crossing.az);
+    const ux = (crossing.bx - crossing.ax) / length, uz = (crossing.bz - crossing.az) / length;
+    for (const owned of sides) {
+      if (owned.side === crossing.side) continue;
+      const edge = crossing.node.arms.find((arm) => arm.side === owned.side)?.in;
+      if (!edge) continue;
+      for (const move of edge.moves) {
+        for (let lane = 0; lane < edge.lanes.length; lane++) {
+          const target = move.out[lane];
+          if (target < 0) continue;
+          const curve = network.connector(edge, lane, move.to, target);
+          let end = -Infinity;
+          const samples = Math.ceil(curve.len / step);
+          for (let i = 0; i <= samples; i++) {
+            const s = Math.min(curve.len, i * step);
+            network.curvePoint(curve, s, point);
+            const x = point.x - crossing.ax, z = point.z - crossing.az;
+            const along = x * ux + z * uz, across = -x * uz + z * ux;
+            if (along >= -margin && along <= length + margin && Math.abs(across) <= crossing.h + margin) {
+              end = Math.min(curve.len, s + step);
+            }
+          }
+          if (!Number.isFinite(end)) continue;
+          curve.crosswalkEnd = Math.max(curve.crosswalkEnd || 0, edge.setbackTo + CROSSWALK, end);
+          edge.crosswalkEnd = Math.max(edge.crosswalkEnd || 0, curve.crosswalkEnd);
+          const tails = move.to.crosswalkTails || (move.to.crosswalkTails = []);
+          let tail = tails.find((item) => item.node === crossing.node && item.side === owned.side);
+          if (!tail) tails.push((tail = { node: crossing.node, side: owned.side, end: -Infinity }));
+          tail.end = Math.max(tail.end, end - curve.len);
+        }
+      }
+    }
+  }
 }
 
 // The polyline pts ({x, z}) moved o to its right (mitred, the miter capped at 2o), as new points
@@ -1227,4 +1273,4 @@ function curvePoint(c, s, out) {
   return out;
 }
 
-export { buildRoadNetwork, CROSSWALK, CROSSWALK_REACH, STOP_SETBACK };
+export { buildRoadNetwork, configureCompoundCrossings, CROSSWALK, CROSSWALK_REACH, STOP_SETBACK };

@@ -7,8 +7,14 @@ import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+const EXPECTED_LANDMARKS = [
+  'Ratusz', 'Fara', 'Zamek Królewski', 'Wieża Wójtowska', 'Domki Budnicze', 'Katedra', 'Brama Poznania',
+  'Zamek Cesarski', 'Bałtyk', 'Okrąglak', 'Collegium Minus', 'Teatr Wielki', 'Pomnik Czerwca 1956',
+  'Poznań Główny', 'Stary Dworzec', 'Avenida', 'Stary Browar', 'Iglica', 'Collegium Altum', 'Andersia',
+  'Poznań Financial Centre', 'Novotel', 'AND2', 'Nowy Rynek', 'Delta'
+];
 // Built in a temp checkout whose path has spaces and non-ASCII characters, with the default paths (tools/data in,
-// js/geodata.js out), offline from the committed snapshots
+// js/geodata.js out), offline from the committed snapshots. Reuse that build to detect stale committed output.
 test('Poznań geodata builds offline with default paths in a checkout containing spaces and non-ASCII characters', { timeout: 180000 }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'Poznań Zażółć 東京 '));
   try {
@@ -25,6 +31,8 @@ test('Poznań geodata builds offline with default paths in a checkout containing
     });
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stderr + result.stdout);
+    assert.ok(fs.readFileSync(path.join(dir, 'js/geodata.js')).equals(fs.readFileSync(path.join(root, 'js/geodata.js'))),
+      'fresh build must match committed js/geodata.js byte for byte; rebuild after changing tools or snapshots');
     const { GEO } = await import(pathToFileURL(path.join(dir, 'js/geodata.js')).href);
     assert.equal(GEO.version, 2);
     assert.ok(GEO.land.length >= 3, 'west bank, east bank and Ostrów Tumski');
@@ -43,7 +51,21 @@ test('Poznań geodata builds offline with default paths in a checkout containing
     assert.ok(share((v) => v === 50) > 0.3, '50 km/h is the common limit');
     assert.ok(share((v) => v <= 30) > 0.3, 'many 30 and 20 zones');
     assert.ok(limits.includes(70), 'a 70 km/h artery');
-    assert.ok(GEO.landmarks['Ratusz']);
+    assert.deepEqual(Object.keys(GEO.landmarks).sort(), EXPECTED_LANDMARKS.slice().sort(), 'all 25 landmark sites survive the build');
+    const [x0, x1, z0, z1] = GEO.frame.detailBox;
+    for (const [name, site] of Object.entries(GEO.landmarks)) {
+      assert.ok(['x', 'z', 'w', 'd', 'h', 'area', 'ang'].every((key) => Number.isFinite(site[key])), `${name}: finite placement and dimensions`);
+      assert.ok(site.x >= x0 && site.x <= x1 && site.z >= z0 && site.z <= z1, `${name}: inside the detail box`);
+      assert.ok(site.w > 0 && site.d > 0 && site.h > 0 && site.area > 0, `${name}: positive dimensions and footprint area`);
+      const ring = site.ring;
+      assert.ok(Array.isArray(ring) && ring.length >= 6 && ring.length % 2 === 0 && ring.every(Number.isFinite),
+        `${name}: finite polygon footprint`);
+      let twiceArea = 0;
+      for (let i = 0, j = ring.length - 2; i < ring.length; j = i, i += 2) {
+        twiceArea += ring[j] * ring[i + 1] - ring[i] * ring[j + 1];
+      }
+      assert.ok(Math.abs(twiceArea) > 0, `${name}: non-degenerate footprint`);
+    }
     assert.ok(GEO.blocks.length > 500);
     // blockStats: [built share, median levels, buildings] per block, from the OSM footprints (poz-buildings.mjs)
     const stats = GEO.blockStats;

@@ -4,19 +4,21 @@ Updated 2026-10-29. The port and documentation cleanup are implemented; the rema
 Implementation details live in the [topic docs](../AGENTS.md#docs). Original phase numbers refer to the
 [archived port plan](archive/poznan-plan.md), which retains historical measurements and decisions.
 
-## Next: pedestrian crossings at Dworzec
+## Dworzec crossings: connected route implemented
 
 - **Refuge accessibility fixed:** existing median surfaces now permit walking while still blocking cars. This
   restores the crossing onto the western island near `−1589, 562` (node `−1592.6, 579.6`); the grid-and-furniture
   snapshot goes from 0 to 1 crossings within 100 m of the central node. Regression coverage checks the actual
   curbs and furniture, unchanged car lanes and 2 m rail clearance at restored waiting positions.
-- **Central connection remains open:** the six-arm node near `−1567.23, 560.23` still has no crossing. Its
-  candidate landings either miss a curb island or overlap another approach's queued roadway. Two refuge
-  polygons already exist in the committed geodata, so missing islands alone do not explain the failure.
-- Design a connected route through the whole junction complex, coordinating the curb/refuge geometry with the
-  road stop lines and pedestrian signal ownership. Preserve the checks against other roadways and unsafe rail
-  waiting positions. Rebuild geodata if its geometry changes and add exact-coordinate connectivity regressions.
-  See [world.md](world.md) and [actors.md](actors.md) for the current rules.
+- **Central connection implemented:** a shared crossing over two same-phase carriageways joins the western refuge
+  to the southern sidewalk near `−1558, 579.5`. Crossings within 100 m increase from 1 to 2. Exact-coordinate tests
+  walk the real pedestrian links in both directions; they retain queued-roadway and 2 m rail-waiting clearance
+  checks. Connector reservations cover the actual crossing and a bus's rear after it leaves the connector.
+- **Remaining:** inspect the connected route, pedestrian heads and vehicle yielding in the full browser scene.
+  Geodata and signal groups are unchanged. See [world.md](world.md) and [actors.md](actors.md).
+- **Validation:** `node --test tests/` passes 279/279 (32.6 s), including exact connectivity, vehicle rear clearance,
+  signal clearance and the unchanged traffic-flow thresholds. A baseline WebGPU boot and console check passed;
+  the final connected route has not yet had a full rendered walkthrough.
 
 ## Known gaps and follow-up investigations
 
@@ -30,7 +32,6 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 | Sparse OSM blocks | Check the nine large blocks with under 5% mapped building coverage against BDOT10k; supplement only confirmed omissions. The original audit covered 0.69 km² and needs rechecking against the current enlarged box. Verify source terms before adding data. | 14.3 |
 | Footbridges and camera | Add Most Jordana, the Brama Poznania footbridge and the Berdychowskie crossings to the data/models. Revisit the `katedra` camera, currently above the Cybina, and test landmark lines of sight. | 4, 7, 12.3 |
 | Building accuracy | Replace estimated landmark heights and massing where supported by measurements; real building footprints/roof heights remain optional. Candidates include Ratusz, Fara, Zamek Królewski, Teatr Wielki, Brama Poznania, tower placements, Iglica and AND2. | 4.4, 7 |
-| Geodata tests | Add a fresh-build comparison against the committed `js/geodata.js` and explicit coverage of all 25 landmark sites. Repeated identical builds alone do not check the committed file. | 4, test checklist |
 | Tram route quality | Re-measure global off-route samples after the Zawady/Ogrody/Starołęka membership correction. The loops have coordinate regressions; the former off-route percentages are historical. | 15.10 |
 
 ## Decisions awaiting the user

@@ -236,6 +236,116 @@ test('ordinary crossing WALK comes from its own junction and opposing road group
   assert.equal(walkOn({ node: { signal: false }, group: 0 }), true);
 });
 
+test('a compound crossing waits for vehicles on every peer approach', () => {
+  const lead = { speed: 12 };
+  const peer = { occ: [[{ v: lead, s: 90 }]] };
+  const node = { crossing: [0, 0], approach: [null, peer] };
+  const sides = [{ side: 0, clx: 1, clz: 0 }, { side: 1, clx: 0.6, clz: 0.8 }];
+  let stoppable = false;
+  const context = {
+    walkOn: () => true,
+    leadOf: (list) => list[0] || null,
+    canStop: (vehicle, edge, crossing) => {
+      assert.equal(vehicle.v, lead);
+      assert.equal(edge, peer);
+      assert.equal(crossing, true);
+      return stoppable;
+    }
+  };
+  const mayCross = trafficFunction('mayCross', context);
+  for (const p of [{ node, side: 0, sides }, { node, side: 0, route: { sides } }]) {
+    assert.equal(mayCross(p), false, 'the peer approach lead cannot stop');
+    stoppable = true;
+    assert.equal(mayCross(p), true, 'both approaches are clear or can stop');
+    node.crossing[1] = 1;
+    assert.equal(mayCross(p), false, 'a committed peer vehicle still owns the shared crossing');
+    node.crossing[1] = 0;
+    stoppable = false;
+  }
+});
+
+test('peer approaches wait for the whole shared crossing while its owner uses the walking horizon', () => {
+  const sides = [{ side: 0, clx: 0.6, clz: 0.8 }, { side: 1, clx: 1, clz: 0 }, { side: 2, clx: -1, clz: 0 }];
+  const p = { side: 0, sides, x: 0, z: 0, ux: 0.6, uz: 0.8, coord: 0, dir: 1, speed: 2, waiting: false };
+  const node = { walkers: [p] };
+  const pedestrianOn = trafficFunction('pedestrianOn', {});
+  for (const side of [1, 2]) {
+    for (const coord of [-100, 100]) {
+      assert.equal(pedestrianOn(node, side, coord, 20, 21), true,
+        'a turning peer can sweep across the walker away from its stop-line lane coordinate');
+    }
+  }
+  assert.equal(pedestrianOn(node, 3, 0, 0, 4), false, 'unrelated approaches are not reserved');
+  assert.equal(pedestrianOn(node, 0, 6, 0, 2), true, 'the owner predicts when the walker reaches its lane');
+  assert.equal(pedestrianOn(node, 0, 6, 0, 1), false, 'the owner can pass before the walker reaches its lane');
+  assert.equal(pedestrianOn(node, 0, -6, 0, 4), false, 'a lane already behind the walker is clear for its owner');
+  p.waiting = true;
+  assert.equal(pedestrianOn(node, 1, 6, 0, 4), true, 'a peer driver yields to someone waiting to cross');
+  assert.equal(pedestrianOn(node, 1, 6, 0, 4, true), false, 'a vehicle holding the crossing lets curb queues wait');
+  p.waiting = false;
+  p.route = { sides };
+  p.sides = null;
+  p.dir = -1;
+  assert.equal(pedestrianOn(node, 1, 100, 20, 21), true, 'route metadata also reserves the peer for a reversed walker');
+  assert.equal(pedestrianOn(node, 0, -6, 0, 2), true, 'the owner also predicts a reversed walker');
+});
+
+test('a bus keeps an incoming compound crossing reserved until its tail clears the connector span', () => {
+  const node = { box: [0], boxVehicles: [], crossing: [0, 0] };
+  const exit = { outSide: 1, occ: [[]] };
+  const edge = { to: node, inSide: 0, axisIndex: 0, setbackTo: 2 };
+  const bus = { edge, move: { to: exit, turn: 'S' }, conn: { len: 40, crosswalkEnd: 25 }, cs: 20, half: 9, out: 0 };
+  const context = { CROSSWALK: 4.3, touchNode: (n) => n, touchEdge: (e) => e, cross: () => {}, occupy: () => {} };
+  const claim = trafficFunction('claim', context);
+  claim(bus);
+  assert.equal(node.crossing[0], 1, 'the front cleared the nominal zebra while the bus tail still covers its peer');
+  bus.claimed = false;
+  bus.cs = 35;
+  node.crossing[0] = 0;
+  claim(bus);
+  assert.equal(node.crossing[0], 0, 'the reservation ends once the tail clears the whole crossing');
+});
+
+test('outgoing occupancy hands a compound crossing reservation to a bus tail beyond the connector', () => {
+  const node = { box: [0], boxVehicles: [], crossing: [0, 0, 0], touched: false };
+  const edge = { from: node, to: {}, len: 20, occ: [[]], outSide: 0, setbackFrom: 2,
+    crosswalkTails: [{ node, side: 2, end: -2 }] };
+  const bus = { edge, lane: 0, s: 5, half: 9, conn: null, commit: null };
+  const context = {
+    filled: [], poolUsed: 0, touchedNodes: [], touchedEdges: [], vehicles: [bus], tramFrame: 0,
+    PED_COURTESY: 5, occupy: () => {}, straddle: () => 0, occupyTrams: () => {}, claim: () => {},
+    touchNode: (n) => {
+      if (!n.touched) { n.touched = true; context.touchedNodes.push(n); }
+      return n;
+    }
+  };
+  const buildOccupancy = trafficFunction('buildOccupancy', context);
+  buildOccupancy();
+  assert.equal(node.crossing[2], 1, 'the bus is on its outgoing edge but its tail still crosses the peer zebra');
+  bus.s = 8;
+  buildOccupancy();
+  assert.equal(node.crossing[2], 0, 'the peer crossing releases after the bus tail passes its end');
+  edge.len = 4;
+  bus.conn = { len: 20 };
+  bus.cs = 1;
+  buildOccupancy();
+  assert.equal(node.crossing[2], 1, 'on a short edge the tail still owns the previous crossing inside the next connector');
+  bus.cs = 4;
+  buildOccupancy();
+  assert.equal(node.crossing[2], 0, 'the next connector releases the previous crossing once the tail clears');
+});
+
+test('entry checks pedestrians for the whole incoming compound crossing span', () => {
+  const h = intersectionHarness();
+  h.state.phase = 'green';
+  h.car.edge.crosswalkEnd = 25;
+  const calls = [];
+  h.context.timeTo = (v, distance) => distance;
+  h.context.pedestrianOn = (...args) => { calls.push(args); return false; };
+  assert.equal(h.mayEnter(h.car, 18), true);
+  assert.equal(calls[0][4], 18 + 25 + 2 * h.car.half, 'a peer walker arriving after the nominal zebra still conflicts');
+});
+
 test('police pass red and amber signals while ordinary cars stop', () => {
   const { car, state, mayEnter, signalAhead } = intersectionHarness();
   for (const phase of ['red', 'amber']) {

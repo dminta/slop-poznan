@@ -15,6 +15,9 @@ GEO_DATA=/some/dir node ... tools/build-poznan.mjs                # read inputs 
 ```
 - The run takes about 29 s (24 s of it the block outlines, lots and frames; the building pass, snapshot load included, logs ≈ 0.36 s), with a peak RSS of ≈ 1.27 GB (`/usr/bin/time -l`, 2026-10-28; the 6.1 × 3.7 km box took 14 s and 0.81 GB). Keep the 8 GB heap flag that the header usage line and `tests/geodata.test.mjs` pass, because the 1 m rasters and the EDTs are large.
 - The output is deterministic. A rebuild from the committed `tools/data` reproduces the committed `js/geodata.js` byte for byte (verified). After any change to tools/, build to a temporary path and `cmp` it against the committed file: an unexpected diff means a behaviour change.
+- `tests/geodata.test.mjs` compares its fresh offline build byte for byte with the committed file, including the
+  deterministic header. It also checks the exact 25 landmark names and validates their placement and footprints,
+  so a missing site cannot pass through the map tests unnoticed.
 - `js/geodata.js` is GENERATED: its header says "do not edit by hand", and its single JSON line is about 2.48 MB. To change any geodata value, change the tools or the inputs and rebuild. Commit the regenerated file together with the tool change.
 - Read the build's `[geodata]` log lines (counts, the frame, the per-key KB at the end). They are the quickest sanity check after a change.
 - Inspect the output with `head -c 1500 js/geodata.js`, or `import('./js/geodata.js')` in node. Never read the whole file.
@@ -213,6 +216,9 @@ The build reads only the committed `poz_*.json` snapshots. The current output co
   (Rusałka, two fifths inside the box's west edge, on that part).
 
 ## Tests
+- The same fresh build must match the committed `js/geodata.js` byte for byte. Landmark coverage requires the exact
+  25 site names, finite placement and dimensions, positive sizes and area, positions inside the detail box and
+  non-degenerate polygon footprints.
 - `tests/geodata.test.mjs` copies `tools/*.mjs` into a temporary directory whose path contains spaces and non-ASCII characters (`'Poznań Zażółć 東京 '`), symlinks `tools/data` into it, runs the build with GEO_DATA unset, the default output path and `--max-old-space-size=8192`, then imports the output and checks the version, ≥ 3 land rings, the Warta, a bridge link, link flags within bits 0-4 with the tram-strip bits only on tram links (> 300 of them), > 100 signals, plausible link speed limits (values, the 50 and ≤ 30 km/h shares, a 70 km/h artery), the Ratusz, > 500 blocks, `blockStats` (one per block, shares in 0..1, the blocks within 150 m of the Ratusz over 40 % built, an area-weighted share of 12-35 %), that `frame.ll` puts the Ratusz at the origin, that the tram track closed for rebuilding is kept (every Most Chrobrego, Most Mieszka I and Most Teatralny link carries the tram bit with a track on the deck; the Katedra, Rondo Śródka, Fredry, Most Teatralny and Małe Garbary stop nodes lie on a track), and the tram routes (≥ 30, valid `routes` indices on every tram chain, over 90% of the tram track length on a route (by length: the Głogowska depot yard is many short chains on no route), lines 7, 8 and 17 over Most Chrobrego). It guards path handling: resolve paths with `fileURLToPath(new URL(..., import.meta.url))`, never `URL.pathname`. New tool modules must be `.mjs` files directly in `tools/`, or the test will not copy them. It takes about 30 s (timeout 180 s).
 - `tests/overpass.test.mjs` replaces `curl` and `sleep` with stubs on PATH and checks the keep-old-data-on-failure guarantees above, including that all 3 endpoints are tried and no temp files are left behind. If you change the retry or endpoint logic, update the expected call counts.
 - Run both with `node --test tests/geodata.test.mjs tests/overpass.test.mjs`. Neither needs network access.

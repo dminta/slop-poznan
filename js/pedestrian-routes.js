@@ -5,13 +5,14 @@ import { CROSSWALK, CROSSWALK_REACH } from './road-network.js';
 // for the whole network (the zebras road-paint.js paints).
 // `railClearance(x, z, r)` (city-grid.js: the distance to the nearest track centreline, capped at r) keeps the places
 // people wait on a split crossing's strip clear of the trams; without it every strip has room.
-function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt, railClearance = null) {
+function createPedestrianRoutes({ nodes = [], edges = [], walkable, configureCrosswalks }, blockAt, railClearance = null) {
   const sidewalks = new Map(), crossings = new Map(), junctions = new Map(), connections = new WeakMap();
+  const islandPorts = new Map();
   const point = (track, end) => ({ x: track.ax + track.ux * track.len * end, z: track.az + track.uz * track.len * end });
   const segment = (a, b, extra = {}) => {
     const len = Math.hypot(b.x - a.x, b.z - a.z);
     return { ax: a.x, az: a.z, ux: (b.x - a.x) / len, uz: (b.z - a.z) / len,
-      len, node: null, side: 0, group: 0, line: 0, ...extra };
+      len, node: null, side: 0, sides: null, group: 0, line: 0, ...extra };
   };
 
   function clear(a, b, block = null) {
@@ -123,7 +124,7 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt, r
     }
     return w;
   }
-  function crosswalkOf(n, arm) {
+  function crosswalkOf(n, arm, peer = null) {
     const road = arm.in || arm.out;
     const cx = road.clx, cz = road.clz, k = road.dx * arm.ux + road.dz * arm.uz > 0 ? 1 : -1;
     const ux = road.dx * k, uz = road.dz * k; // out of the junction, square to the crosswalk
@@ -140,10 +141,22 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt, r
       span = Math.max(span, e.span ?? e.len);
     }
     const along = n.x * ux + n.z * uz + depth;
+    if (peer) {
+      // Enclose both carriageways at this zebra's existing band, then apply the ordinary curb-reach limit outside
+      // them. The additional road is an owned part of the crossing, not extra permission to search across open ground.
+      const e = peer.in;
+      const dot = e.dx * ux + e.dz * uz;
+      const s = (along - e.x0 * ux - e.z0 * uz) / dot;
+      const c = (e.x0 + e.dx * s) * cx + (e.z0 + e.dz * s) * cz;
+      const half = e.half / Math.abs(dot);
+      if (Math.max(lo - c - half, c - half - hi) > STRIP_MAX) return null;
+      lo = Math.min(lo, c - half);
+      hi = Math.max(hi, c + half);
+    }
     const at = (c) => ({ x: cx * c + ux * along, z: cz * c + uz * along });
     const curb0 = at(lo), curb1 = at(hi);
     // one line over the widest road (group 0), set back from the box; two over the others
-    const lines = arm.group === 0 ? [0.75] : [-0.75, 0.75];
+    const lines = arm.group === 0 && !peer ? [0.75] : [-0.75, 0.75];
     // Each end: on a curb island d m past the curb (the walk landing 2 m onto it), else at a strip w wide (the zebra
     // still running on to an island in reach, the walk landing STRIP_LAND past it, short of the strip's middle), else
     // nowhere
@@ -168,7 +181,8 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt, r
       if (end0.w < 0 && !roomToWait(a.x + cx * 1.6, a.z + cz * 1.6, -cx, -cz)) continue;
       if (end1.w < 0 && !roomToWait(b.x - cx * 1.6, b.z - cz * 1.6, cx, cz)) continue;
       if (!clear(a, b)) continue;
-      tracks.push(segment(a, b, { node: n, side: arm.side, group: arm.group, line, from: n, to: n }));
+      const sides = peer ? [arm, peer].map((side) => ({ side: side.side })) : null;
+      tracks.push(segment(a, b, { node: n, side: arm.side, sides, group: arm.group, line, from: n, to: n }));
     }
     if (!tracks.length) return null;
     const a = at(lo), b = at(hi);
@@ -228,7 +242,18 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt, r
       crossings.set(n, []);
       if (n.shape) continue;
       for (const arm of n.arms) {
-        const c = crosswalkOf(n, arm);
+        let c = crosswalkOf(n, arm);
+        if (!c && arm.out && !arm.in) {
+          // A skewed divided-road mouth can have no intermediate refuge. Keep the outgoing arm's normal band and
+          // cross its parallel incoming partner in one walk, on their shared phase. Its connector reservations are
+          // extended to the actual paint below; queued road runs still reject the whole candidate.
+          for (const peer of n.arms) {
+            if (!peer.in || peer.out || peer.group !== arm.group ||
+                peer.ux * arm.ux + peer.uz * arm.uz < PARALLEL) continue;
+            const combined = crosswalkOf(n, arm, peer);
+            if (combined && !hits(runs, combined, arm)) { c = combined; break; }
+          }
+        }
         if (c && !hits(runs, c, arm)) found.push(c);
       }
     }
@@ -335,6 +360,16 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt, r
       }
     }
     for (const c of found) delete c.ends;
+    for (const c of crosswalks) {
+      for (const track of c.tracks) {
+        for (const end of [0, 1]) {
+          const p = point(track, end), block = blockAt(p.x, p.z);
+          if (!block?.median) continue;
+          if (!islandPorts.has(block)) islandPorts.set(block, []);
+          islandPorts.get(block).push({ track, end });
+        }
+      }
+    }
   }
   function across(n) {
     layOut();
@@ -391,7 +426,10 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt, r
     }
     const block = blockAt(a.x, a.z);
     if (!block) return result;
-    for (const port of ports(n)) {
+    // The two crossings of a median refuge can belong to different graph nodes. Join them on the actual island even
+    // when its short intervening road has no complete sidewalk track; ordinary blocks retain their sidewalk routes.
+    const candidates = ports(n).concat((islandPorts.get(block) || []).filter((p) => p.track.node !== n));
+    for (const port of candidates) {
       const next = port.track, nextDir = port.end ? -1 : 1;
       if (next === track) continue;
       const b = point(next, port.end), distance = Math.hypot(b.x - a.x, b.z - a.z);
@@ -436,6 +474,7 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable }, blockAt, r
   // every crosswalk kept, for road-paint.js: { node, side, group, ax, az, bx, bz (the zebra's ends, at the curbs),
   // ux, uz (out of the junction), span, tracks }
   layOut();
+  if (configureCrosswalks) configureCrosswalks(crosswalks);
   return { along, across, next, crosswalks };
 }
 

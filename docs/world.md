@@ -16,6 +16,13 @@ building walls and are not measured. Reported paint km include dash gaps; P-4 km
 before/after figures below retain their original scope and date. No rendering, frame-time or audio verification is
 implied by these measurements.
 
+The subsequent Dworzec connection adds two shared zebras city-wide: crosswalks 2409 → 2411, walking tracks
+3355 → 3358 and emitted zebra pieces 2560 → 2563 (16,485.5 m after the rail cuts). Split crossings remain 8 and
+cramped ends 3. The earlier detailed paint counts below precede this change. At Dworzec the western refuge joins
+the southern sidewalk through a crossing over two same-phase carriageways and links on their existing curb island;
+the regression checks the real links in both directions, not just the presence of paint. Geodata, lanes and signal
+groups are unchanged. This headless measurement still omits building, landmark and bridge colliders.
+
 ## Map (non-obvious ownership)
 - `city-grid.js` `buildCityGrid`: the water plane at `waterLevel`, the street-level land deck (`LAND_RINGS` minus the ponds in `LAND_HOLES`), battered stone embankments from the deck edge down below the water, raised sidewalks and curbs of every `BLOCKS` curb island (instanced slabs for rect islands, extruded outlines for the rest), hedged medians, the paved squares (`PLAZAS`, deduplicated, minus outlines carrying > 30 m of road centreline; see **Tram track on squares** below) and the park blocks (lawn, trees, lamps, ponds cut out). It also exports `batchStaticGroupMeshes`, which landmarks.js reuses.
   - **Square & park colliders** (`propColliders`, not `colliders`): every bench (an `obb` turned with it, 1.9 × 0.54 m, 0.92 m tall), lamppost (0.4 m box up to the globe, 4.45 m), granite planter (its full 2.4 m box with the hedge, 0.85 m) and the trunk of every tree city-grid.js plants (planters, park beds and the part-park lawns: a box 0.56 × `scale` m wide, 3 m above its base, so a jump off a planter can't clear it) is a player collider. Measured headlessly on 2026-10-29: 299 benches, 2,995 lampposts, 37,031 trees, 40,461 colliders in all (logged as `[cityGrid]`). main.js appends them after the road network is built, like the street furniture's, so they are neither traffic obstacles nor name-plate walls; the network is unchanged. Park bed copings and lawns don't collide. `tests/controllers.test.cjs` builds the grid headless and walks into a Stary Rynek bench, lamppost and planter.
@@ -84,7 +91,9 @@ Per frame: `cityBlocks.update(camX, camZ)` (detail streaming), `cityBlocks.updat
     Most Królowej Jadwigi, Jana Pawła II: OSM draws the carriageway that close to the tracks), and two-way streets with
     the tracks down the middle, whose lanes stay on the tracks.
 - **Curbs:** city-grid passes rect islands as they are and irregular islands as their **ungrown** lot rects. The 4.4 m-grown rect cover (`sidewalkBlocks`, for rect consumers) reaches into the roadway on turned blocks; passed as curbs, it cut the largest strongly connected set from ~3150 to ~1660 edges.
-- `buildRoadNetwork` returns `{ nodes, edges, paintEdges, connector, curvePoint, walkable, isRoadClear }`.
+- `buildRoadNetwork` returns `{ nodes, edges, paintEdges, connector, curvePoint, walkable, isRoadClear, configureCrosswalks }`.
+  `configureCrosswalks` precomputes compound-crossing connector and rear-clearance reservations after pedestrian
+  layout; see actors.md. It does not alter lane geometry or stop lines.
   - Edges are straight and directed. Each has a unit direction `(dx, dz)`, a right normal `(rx, rz) = (−dz, dx)`, and `lanes` as lateral offsets right of the centreline, sorted left to right. `paintEdges` carry `limit`, and their nodes `signal` (set at step 6).
   - Nodes have `in`/`out` edges, `arms`, `signal`, and `shape` for bend points (one road going on, < 35°: no corner, no crosswalk).
   - Step 7 assigns sides and right-of-way groups: a node's sides are its arms, numbered from 0; the arms of one road form a group, and at unsignalised junctions group 0 is the widest road (`axis` `'ave'` marks major roads). At signals, arm groups instead match the original displayed arm in the shared local plan, even when lane centring rotates the runtime arm. An edge's `axisIndex` is its arm's group, except into an unsignalised node with two arms (a bend, 387 of them bent more than 35°, so two "roads"): there it is 0 both ways, since nothing crosses there (one way round used to give way to the other).

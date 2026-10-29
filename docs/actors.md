@@ -10,7 +10,11 @@ The follow-up refuge fix allows walking on median surfaces while retaining their
 landings now require the same 2 m rail clearance for their curb queues as unmodelled strip refuges. On the same
 headless snapshot, crossings change from 2414 to 2409: newly reachable medians add crossings while unsafe
 rail-side waiting positions are removed. At the western Dworzec refuge, crossings within 100 m change from 0 to 1;
-the central node remains unresolved in the [backlog](backlog.md).
+the subsequent central connection adds a shared crossing to the southern sidewalk at `−1558, 579.5`. The local
+100 m count rises from 1 to 2; the full grid-and-furniture snapshot now has 2411 crossings and 3358 walking tracks,
+including two shared crossings. Split crossings (8) and cramped ends (3) are unchanged. Exact-coordinate regression
+checks reachability in both directions through the actual walking links; full-scene inspection remains in the
+[backlog](backlog.md).
 
 ## Map (who owns what)
 - `js/traffic.js` exports `createTrafficSystem`, which covers the road graph: cars, buses, **all pedestrian behaviour** (spawning, walking, crosswalk rules, queues, conversations), collision sparks and the pooled vehicle lights. Traffic stays on this graph; there is no separate highway population.
@@ -22,6 +26,20 @@ the central node remains unresolved in the [backlog](backlog.md).
 - `main.js` calls `trafficSystem.update(dt, elapsed, cameraSystem.currentPos, activeEntity, activeMode, camera)`. The **focus is the camera position, not the player**. Consumers of the returned `cars`/`buses`/`peds`: `audio-sources.js` (reads `edge, x, z, speed, acc, driver.a, yaw, yawOffset, isPolice, isSUV, bus, wait, gap, leaderSpeed, conn, yielding`; for peds `placed, v, conversation, rig.feet`, plus track fields) and the `city-map.js` radar. Renaming these fields breaks those modules.
 
 ## Street simulation model
+
+Shared crossings span a parallel outgoing-only arm and incoming-only arm in the same signal group, at the outgoing
+arm's normal zebra band. The ordinary reach, obstacle, queued-roadway overlap and rail-waiting checks still apply.
+Their tracks carry `sides: [{ side }]` for both protected arms (`null` on ordinary tracks). `mayCross` checks both
+approaches. Drivers on the additional incoming arm reserve the whole shared walk while pedestrians occupy it,
+because turning connectors shift sideways beyond the lane coordinate at the stop line. `configureCrosswalks`
+precomputes the last actual connector intersection (`crosswalkEnd`) and outgoing `crosswalkTails`, retaining the
+reservation until the rear clears, including on a short outgoing edge followed by another connector. Sampling
+happens at build time; the per-frame checks reuse the existing occupancy counters.
+Crossings owned by nearby graph nodes can join across the same median island, within the existing 32 m link limit
+and 4 m curb band. This extra connection is limited to medians: enabling it on every ordinary city block changed
+unrelated pedestrian routes and raised the deterministic Centrum benchmark's longest hold from 84 s to 141 s.
+The median-only variant restores it to 82 s without relaxing the 120 s regression limit.
+
 - The drivers are IDM + MOBIL-style lane changes. Parameters are `CAR_DRIVER`/`BUS_DRIVER` (`a, b, T, s0, aLat`), with per-vehicle desired speed `v0` = `desiredOn(v, edge)`: the driver's `pace` (cars 0.9–1.1 by `i % 5`, buses 0.7–0.8 by `i % 3`) times the edge's posted `limit` (`road-network.js`, OSM `maxspeed`; 50 km/h without one), at most the vehicle's `vmax` (cars 80, buses 50 km/h). `place()` and `leave()` set it per edge, and approaching the end of an edge a driver eases down to the next edge's `v0` like a bend (`vt` in `accelerate`). `aLat` sets bend speed through connector curves. `bendSpeed` caches a quarter-metre speed profile per curve and
   driver class: local curvature limits lateral acceleration, a backward pass reserves braking distance before tighter
   bends, and the next road limit caps the exit. A short sharp kink no longer makes a car crawl over a long connector. Traffic has no coasting or physics model. Knocks are a separate decaying `vx/vz` impulse applied by `shove()`, clamped to the road.

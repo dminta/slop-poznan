@@ -17,6 +17,39 @@ function buildPureGraph(roadGraph) {
   return buildRoadNetwork([], []);
 }
 
+test('compound crossing reservations follow connector arc length and preserve the tail on its outgoing edge', () => {
+  const { configureCompoundCrossings } = loadModule(source, {
+    imports: { './city-config.js': {}, './geodata.js': { GEO: {} } }
+  });
+  const outgoing = {};
+  const incoming = { lanes: [0], setbackTo: 1.75, moves: [{ out: [0], to: outgoing }] };
+  const node = { arms: [{ side: 0, in: incoming }, { side: 3, out: outgoing }] };
+  const curve = { len: 30 };
+  const network = {
+    connector: () => curve,
+    curvePoint: (_curve, s, out) => Object.assign(out, { x: s / 2, z: s * Math.sqrt(3) / 2 })
+  };
+  const crossing = {
+    node, side: 3, ax: 0, az: 10, bx: 20, bz: 10, h: 2,
+    tracks: [{ sides: [{ side: 3 }, { side: 0 }] }]
+  };
+  configureCompoundCrossings(network, [crossing]);
+  // The centre leaves the expanded paint near arc 15.9 m, although its incoming-axis projection is only 7.9 m.
+  assert.ok(curve.crosswalkEnd >= 15.8 && curve.crosswalkEnd <= 16.5);
+  assert.equal(incoming.crosswalkEnd, curve.crosswalkEnd);
+  assert.equal(outgoing.crosswalkTails.length, 1);
+  assert.equal(outgoing.crosswalkTails[0].node, node);
+  assert.equal(outgoing.crosswalkTails[0].side, 0);
+  assert.equal(outgoing.crosswalkTails[0].end, curve.crosswalkEnd - curve.len);
+  configureCompoundCrossings(network, [crossing]);
+  assert.equal(outgoing.crosswalkTails.length, 1, 'repeated layout does not duplicate the tail reservation');
+
+  const ordinary = { ...crossing, tracks: [{ sides: null }] };
+  const untouched = { len: 30 };
+  configureCompoundCrossings({ ...network, connector: () => untouched }, [ordinary]);
+  assert.equal(untouched.crosswalkEnd, undefined, 'ordinary zebra reservations retain their existing path');
+});
+
 // Three east-west roads over four north-south ones, 120 m apart. Links: [a, b, nameIdx, w, lanes, dir, inner]
 function syntheticGraph() {
   const nodes = [];
