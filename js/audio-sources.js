@@ -1,4 +1,4 @@
-import { signalPhase, walkSignal } from './city-config.js';
+import { signalPhase, updateSignal } from './city-config.js';
 
 const MOTOR_RANGE = 180;
 const SIREN_RANGE = 220;
@@ -154,7 +154,7 @@ class CityAudioSources {
       if (d2 <= MOTOR_RANGE * MOTOR_RANGE) {
         this.snapshot.traffic += (1 - d2 / (MOTOR_RANGE * MOTOR_RANGE)) * (0.2 + 0.8 * unit(v.speed / 12));
       }
-      const green = !v.edge.to.signal || signalPhase(elapsed, v.edge.axisIndex === 0) === 'green';
+      const green = !v.edge.to.signal || signalPhase(elapsed, v.edge.axisIndex === 0, v.edge.to) === 'green';
       const blocked = v.wait > 2 && v.speed < 0.5 && v.gap < 8 && v.leaderSpeed < 0.5 && green && !v.conn && !v.yielding;
       this.motor(v, v.bus ? 'bus' : v.isSUV ? 'suv' : 'sedan', v.x, 0.7, v.z,
         v.speed, roadLoad(v.speed, v.acc, v.driver.a), v.yaw + v.yawOffset, !!v.isPolice, false, seedAt(seedOffset + i), blocked);
@@ -233,6 +233,8 @@ class CityAudioSources {
     }
     for (let i = 0; i < this.signalSites.length; i++) {
       const site = this.signalSites[i];
+      const timing = updateSignal(elapsed, site);
+      if (timing.disabled) continue;
       const d2 = this.distanceSq(site.x, site.y, site.z);
       if (!Number.isFinite(d2) || d2 > SIGNAL_RANGE * SIGNAL_RANGE) continue;
       const item = this.signals.take(d2);
@@ -241,7 +243,7 @@ class CityAudioSources {
       item.x = site.x;
       item.y = site.y;
       item.z = site.z;
-      item.walk = walkSignal(elapsed, site.isAvenue);
+      item.walk = (site.isAvenue ? timing.displayWalk0 : timing.displayWalk1) > 0;
       item.seed = seedAt(10000 + i);
     }
     return this.snapshot;

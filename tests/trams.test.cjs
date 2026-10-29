@@ -23,8 +23,11 @@ function inert() {
   });
 }
 
-function load(signalPhase = () => 'green') {
-  return loadModule(source, {
+function load(signalPhase = () => 'green', driving = false) {
+  // Expose the real simulation steps for controlled two-tram queues, without random spawn/respawn or rendering.
+  const code = driving ? source.replace('return { group, update, trams, pool, graph, stops:',
+    'return { drive, occupy, advance, group, update, trams, pool, graph, stops:') : source;
+  return loadModule(code, {
     imports: {
       'three/webgpu': inert(),
       './geodata.js': { GEO: { rail: [], tramStops: [] } },
@@ -530,4 +533,436 @@ test('on the Poznań network the lines follow their routes, line 17 over Most Ch
   assert.ok(passes(746, -149), 'over Most Chrobrego');
   assert.ok(passes(katedra.x, katedra.z), 'past Katedra');
   assert.ok(passes(1154, -216), 'over Most Mieszka I');
+});
+
+function queueScenario(rail, front, leaderFront, stops = [], options = {}) {
+  const { createTramSystem } = load(() => 'green', true);
+  const sys = createTramSystem(inert(), { network: { nodes: [], edges: [] }, rail, stops, ...options });
+  const [follower, leader] = sys.pool;
+  function place(t, x) {
+    t.active = true;
+    t.path.reset(sys.graph.edges.find((e) => e.chain === (x < 1000 ? 0 : 1)) || sys.graph.edges[0],
+      x < 1000 || sys.graph.edges.length === 1 ? x : x - 1000, t.length + 8, () => 0);
+    t.path.extend(200, () => 0);
+    t.speed = 0;
+    t.x = x - t.length / 2;
+    t.z = 0;
+    sys.occupy(t);
+  }
+  place(follower, front);
+  place(leader, leaderFront);
+  function tick(seconds) {
+    for (let frame = 0; frame < seconds * 30; frame++) {
+      sys.occupy(follower);
+      sys.drive(follower, frame / 30);
+      sys.advance(follower, 1 / 30);
+      follower.path.pointAt(follower.path.u, follower);
+    }
+  }
+  return { sys, follower, leader, tick };
+}
+
+test('a queue beyond a switch holds a tram before the fouling point and releases it when the exit clears', () => {
+  const rail = [tram([0, 0, 1000, 0]), tram([1000, 0, 3000, 0]), tram([1000, 0, 2800, 600])];
+  const { sys, follower, leader, tick } = queueScenario(rail, 950, 1055);
+  const entry = 1000 - sys.graph.edges[0].foulEnd;
+  tick(25);
+  assert.ok(follower.x < entry, `front ${follower.x} stays before clearance point ${entry}`);
+  assert.equal(follower.waitReason, 'room');
+  leader.active = false;
+  tick(20);
+  assert.ok(follower.x - follower.length > 1000 + sys.graph.edges[1].foulStart, 'whole tram clears the switch');
+});
+
+test('a queue beyond an uncut crossing holds the tram outside the crossing', () => {
+  // Keep a chain boundary at 1000 for the controlled leader placement; crossing itself is inside chain 0.
+  const rail = [tram([0, 0, 1000, 0]), tram([1000, 0, 3000, 0]), tram([980, -300, 980, 300])];
+  const { follower, leader, tick } = queueScenario(rail, 930, 1030);
+  tick(25);
+  assert.ok(follower.x < 971, `front ${follower.x} stays before crossing clearance`);
+  assert.equal(follower.waitReason, 'room');
+  leader.active = false;
+  tick(20);
+  assert.ok(follower.x - follower.length > 989, 'whole tram passes the crossing after release');
+});
+
+test('a tram already inside a switch clears it instead of applying a reservation behind its front', () => {
+  const rail = [tram([0, 0, 1000, 0]), tram([1000, 0, 3000, 0]), tram([1000, 0, 2800, 600])];
+  const { sys, follower } = queueScenario(rail, 998, 1055);
+  sys.drive(follower, 0);
+  assert.notEqual(follower.waitReason, 'switch');
+  assert.ok(follower.acc > 0, 'moves toward the leader to clear the junction');
+});
+
+test('an occupied stop keeps the next tram outside the platform footprint', () => {
+  const stops = [{ name: 'Platform', x: 1100, z: 0 }];
+  const rail = [tram([0, 0, 1000, 0]), tram([1000, 0, 3000, 0])];
+  const { follower, leader, tick } = queueScenario(rail, 1050, 1111.2, stops);
+  tick(25);
+  assert.ok(follower.x < 1100 - follower.length * 0.65, `front ${follower.x} stays outside the occupied platform`);
+  assert.ok(['room', 'tram'].includes(follower.waitReason));
+  assert.equal(follower.leader, leader);
+  leader.active = false;
+  tick(25);
+  assert.equal(follower.atStop, true, 'enters and serves the platform after it clears');
+});
+
+test('tram signals use the timing of their associated road node', () => {
+  const node = { x: 1100, z: 0, signal: true, signalTiming: { offset: 17 },
+    in: [{ dx: 1, dz: 0, axisIndex: 0, sx: 1080, sz: 0, len: 10 }] };
+  let seen = null;
+  const { createTramSystem } = load((_time, _group0, signalNode) => {
+    seen = signalNode;
+    return 'red';
+  }, true);
+  const sys = createTramSystem(inert(), { network: { nodes: [node], edges: [] }, rail: [tram([0, 0, 3000, 0])], stops: [] });
+  const t = sys.pool[0];
+  t.path.reset(sys.graph.edges[0], 1050, t.length + 8, () => 0);
+  t.path.extend(200, () => 0);
+  t.speed = 0;
+  t.x = 1050;
+  t.z = 0;
+  sys.drive(t, 10);
+  assert.equal(seen, node);
+  assert.equal(t.waitReason, 'signal');
+});
+
+test('a queue beyond a mainline level crossing leaves the crossing clear', () => {
+  const rail = [tram([0, 0, 1000, 0]), tram([1000, 0, 3000, 0])];
+  const { follower, leader, tick } = queueScenario(rail, 930, 1030, [], { levelCrossings: [980, 0] });
+  tick(25);
+  assert.ok(follower.x < 971, `front ${follower.x} stays outside the mainline crossing`);
+  assert.equal(follower.waitReason, 'room');
+  leader.active = false;
+  tick(20);
+  assert.ok(follower.x - follower.length > 989, 'clears mainline crossing after the queue moves');
+});
+
+test('a tram waiting for exit room does not claim a switch ahead of a tram on another approach', () => {
+  const rail = [tram([0, 0, 1000, 0]), tram([1000, 0, 3000, 0]), tram([500, -100, 1000, 0]),
+    tram([1000, 0, 2800, -600])];
+  const { sys, follower, leader } = queueScenario(rail, 950, 1055);
+  const other = sys.pool[2];
+  other.active = true;
+  other.path.reset(sys.graph.edges[2], sys.graph.edges[2].len - 59, other.length + 8, () => 0);
+  other.path.extend(200, () => 0);
+  other.speed = 0;
+  other.path.pointAt(other.path.u, other);
+  sys.occupy(other);
+  sys.drive(follower, 0);
+  assert.ok(follower.clearance < 50, 'queue holds the closer approach before the switch');
+  // The other approach turns off before the waiting tram's leader; it can clear its own exit.
+  other.path.edges[1] = sys.graph.edges[3];
+  sys.drive(other, 0);
+  assert.notEqual(other.waitReason, 'switch', 'does not yield to an approach that cannot enter');
+  assert.ok(other.acc > 0);
+  assert.equal(leader.active, true);
+});
+
+test('a queued tram keeps the road junction crossing clear as well as other tracks', () => {
+  const n = { x: 980, z: 0, in: [], out: [] };
+  const approach = roadEdge(0, 980, -30, 0, 1, 28, [0]);
+  const exit = roadEdge(1, 980, 2, 0, 1, 28, [0]);
+  approach.to = n;
+  approach.moves = [{ to: exit, turn: 'S', out: [0] }];
+  n.in.push(approach);
+  const network = {
+    nodes: [n], edges: [],
+    connector: () => ({ x0: 980, z0: -2, x3: 980, z3: 2, len: 4 }),
+    curvePoint(c, s, out) {
+      out.x = c.x0;
+      out.z = c.z0 + s;
+      return out;
+    }
+  };
+  const rail = [tram([0, 0, 1000, 0]), tram([1000, 0, 3000, 0])];
+  const { sys, follower, leader, tick } = queueScenario(rail, 930, 1030, [], { network });
+  assert.equal(sys.graph.edges[0].junctions.length, 1);
+  tick(25);
+  assert.ok(follower.x < sys.graph.edges[0].junctions[0].s0, `front ${follower.x} stays outside the road crossing`);
+  leader.active = false;
+  tick(20);
+  assert.ok(follower.x - follower.length > sys.graph.edges[0].junctions[0].s1, 'whole tram clears the road after release');
+});
+
+test('a curb stop offset cannot make a dwelling tram block a road crossing', () => {
+  const road = { x: 980, z: 0, in: [], out: [] };
+  const approach = roadEdge(0, 980, -30, 0, 1, 28, [0]);
+  const exit = roadEdge(1, 980, 2, 0, 1, 28, [0]);
+  approach.to = road;
+  approach.moves = [{ to: exit, turn: 'S', out: [0] }];
+  road.in.push(approach);
+  const network = {
+    nodes: [road], edges: [],
+    connector: () => ({ x0: 980, z0: -2, x3: 980, z3: 2, len: 4 }),
+    curvePoint(c, s, out) { out.x = c.x0; out.z = c.z0 + s; return out; }
+  };
+  const rail = [tram([0, 0, 3000, 0])];
+  for (const [kind, s, moved] of [['curb', 972, true], ['curb', 900, false], ['island', 972, false]]) {
+    const stops = [{ name: 'Near crossing', x: s, z: 0, railIndex: 0, s, dir: 1, kind }];
+    const { createTramSystem } = load(() => 'green', true);
+    const sys = createTramSystem(inert(), { network, rail, stops });
+    const t = sys.pool[0];
+    t.active = true;
+    t.path.reset(sys.graph.edges[0], s - 25, t.length + 8, () => 0);
+    t.path.extend(200, () => 0);
+    t.speed = 0;
+    t.x = s - 25;
+    t.z = 0;
+    const crossing = sys.graph.edges[0].keepClear[0];
+    for (let f = 0; f < 30 * 20 && !t.atStop; f++) {
+      sys.occupy(t);
+      sys.drive(t, f / 30);
+      sys.advance(t, 1 / 30);
+      t.path.pointAt(t.path.u, t);
+    }
+    assert.equal(t.atStop, true, `${kind} stop at ${s} is served`);
+    if (moved) {
+      assert.ok(s + t.length * 0.35 > crossing.end, 'unmodified nose would be past crossing while tail blocked it');
+      assert.ok(t.path.u <= crossing.start - 0.5, 'whole dwelling tram stays before the road crossing');
+    } else {
+      assert.ok(Math.abs(t._stopU - (s + t.length * 0.35)) < 1e-6, 'safe curb and fixed island targets stay unchanged');
+    }
+    assert.ok(t.dwell >= 20 && t.dwell <= 30, 'normal dwell duration is preserved');
+  }
+});
+
+test('keep-clear reservations exclude straight shared lanes but retain crossing, turning and converging curves', () => {
+  const { createTramSystem } = load();
+  const cases = [
+    { label: 'same way', a: [90, 0], b: [110, 0.1], incoming: [1, 0.005], outgoing: [1, 0.005], reserved: false },
+    { label: 'opposite way', a: [110, 0], b: [90, 0.1], incoming: [-1, 0.005], outgoing: [-1, 0.005], reserved: false },
+    { label: 'crossing', a: [100, -10], b: [100, 10], incoming: [0, 1], outgoing: [0, 1], reserved: true },
+    { label: 'turning onto track', a: [95, -5], b: [105, 0], incoming: [0, 1], outgoing: [1, 0], reserved: true },
+    { label: 'converging', a: [90, -1], b: [110, 1], incoming: [1, 0], outgoing: [1, 0], reserved: true }
+  ];
+  for (const spec of cases) {
+    const n = { x: 100, z: 0, in: [], out: [] };
+    const e = roadEdge(0, spec.a[0] - spec.incoming[0] * 30, spec.a[1] - spec.incoming[1] * 30,
+      ...spec.incoming, 30, [0]);
+    const f = roadEdge(1, ...spec.b, ...spec.outgoing, 30, [0]);
+    e.to = n;
+    e.moves = [{ to: f, turn: 'S', out: [0] }];
+    n.in.push(e);
+    const len = Math.hypot(spec.b[0] - spec.a[0], spec.b[1] - spec.a[1]);
+    const network = {
+      nodes: [n], edges: [],
+      connector: () => ({ x0: spec.a[0], z0: spec.a[1], x3: spec.b[0], z3: spec.b[1], len, curv: 0 }),
+      curvePoint(_c, s, out) {
+        out.x = spec.a[0] + (spec.b[0] - spec.a[0]) * s / len;
+        out.z = spec.a[1] + (spec.b[1] - spec.a[1]) * s / len;
+        return out;
+      }
+    };
+    const sys = createTramSystem(inert(), { network, rail: [tram([0, 0, 200, 0])], stops: [] });
+    const track = sys.graph.edges[0];
+    assert.equal(track.junctions.length, 1, `${spec.label}: car occupancy and holds remain present`);
+    assert.equal(track.keepClear.length, spec.reserved ? 1 : 0, `${spec.label}: crossing reservation`);
+  }
+});
+
+test('exit-room holds move before a protected complex instead of leaving the rear across its first crossing', () => {
+  for (const first of [980, 900]) {
+    const nodes = [];
+    for (const x of [first, 1000]) {
+      const n = { x, z: 0, in: [], out: [] };
+      const e = roadEdge(nodes.length * 2, x, -30, 0, 1, 28, [0]);
+      const f = roadEdge(nodes.length * 2 + 1, x, 2, 0, 1, 28, [0]);
+      e.to = n;
+      e.moves = [{ to: f, turn: 'S', out: [0] }];
+      n.in.push(e);
+      nodes.push(n);
+    }
+    const network = {
+      nodes, edges: [],
+      connector: (e) => ({ x0: e.sx, z0: -2, x3: e.sx, z3: 2, len: 4 }),
+      curvePoint(c, s, out) { out.x = c.x0; out.z = c.z0 + s; return out; }
+    };
+    const { sys, follower, leader, tick } = queueScenario([tram([0, 0, 3000, 0])], first - 50, 1060, [], { network });
+    tick(25);
+    const front = follower.path.u;
+    const rear = front - follower.length;
+    for (const c of sys.graph.edges[0].keepClear) {
+      assert.ok(front < c.start || rear > c.end, `body [${rear}, ${front}] leaves crossing clear`);
+    }
+    if (first === 980) assert.ok(front < 978.5, 'holds before the first crossing of the short complex');
+    else assert.ok(rear > 901.5 && front < 998.5, 'a long enough gap between crossings remains usable');
+    assert.equal(follower.waitReason, 'room');
+    leader.active = false;
+    tick(20);
+    assert.ok(follower.path.u - follower.length > 1001.5, 'whole tram passes the complex once the exit clears');
+  }
+});
+
+test('a short pair of switches is reserved as one complex before queuing behind a dwelling tram', () => {
+  const { createTramSystem } = load(() => 'green', true);
+  const rail = [tram([0, 0, 1000, 0]), tram([1000, 0, 1020, 0]), tram([1020, 0, 3000, 0]),
+    tram([1000, 0, 1600, 200]), tram([1020, 0, 1600, -200])];
+  const sys = createTramSystem(inert(), { network: { nodes: [], edges: [] }, rail, stops: [] });
+  const [t, leader] = sys.pool;
+  for (const [v, edge, s, x] of [[t, sys.graph.edges[0], 930, 930], [leader, sys.graph.edges[2], 60, 1080]]) {
+    v.active = true;
+    v.path.reset(edge, s, v.length + 8, () => 0);
+    v.path.extend(200, () => 0);
+    v.speed = 0;
+    v.x = x;
+    v.z = 0;
+    sys.occupy(v);
+  }
+  const tick = (seconds) => {
+    for (let i = 0; i < seconds * 30; i++) {
+      sys.occupy(t);
+      sys.drive(t, i / 30);
+      sys.advance(t, 1 / 30);
+      t.path.pointAt(t.path.u, t);
+    }
+  };
+  tick(25);
+  assert.ok(t.path.pointAt(t.path.u, {}).x < 1000 - sys.graph.edges[0].foulEnd,
+    'front remains outside the first switch instead of stranding its rear on it');
+  assert.equal(t.waitReason, 'room');
+  leader.active = false;
+  tick(30);
+  const local = t.path.pointAt(t.path.u - t.length, {});
+  assert.ok(local.x > 1020 + sys.graph.edges[2].foulStart, 'whole body clears both switches after release');
+});
+
+test('a red stop line beyond a crossing holds the whole tram before the crossing and releases it on green', () => {
+  let red = true;
+  const { createTramSystem } = load(() => red ? 'red' : 'green', true);
+  const n = { x: 980, z: 0, in: [], out: [] };
+  const e = roadEdge(0, 980, -30, 0, 1, 28, [0]);
+  const f = roadEdge(1, 980, 2, 0, 1, 28, [0]);
+  e.to = n;
+  e.moves = [{ to: f, turn: 'S', out: [0] }];
+  n.in.push(e);
+  const signal = { x: 1010, z: 0, signal: true, in: [{ dx: 1, dz: 0, axisIndex: 0, sx: 980, sz: 0, len: 20 }] };
+  const network = {
+    nodes: [n, signal], edges: [],
+    connector: () => ({ x0: 980, z0: -2, x3: 980, z3: 2, len: 4 }),
+    curvePoint(c, s, out) { out.x = c.x0; out.z = c.z0 + s; return out; }
+  };
+  const sys = createTramSystem(inert(), { network, rail: [tram([0, 0, 3000, 0])], stops: [] });
+  const t = sys.pool[0];
+  t.active = true;
+  t.path.reset(sys.graph.edges[0], 930, t.length + 8, () => 0);
+  t.path.extend(200, () => 0);
+  t.speed = 0;
+  t.x = 930;
+  t.z = 0;
+  function tick(seconds) {
+    for (let i = 0; i < seconds * 30; i++) {
+      sys.occupy(t);
+      sys.drive(t, i / 30);
+      sys.advance(t, 1 / 30);
+      t.path.pointAt(t.path.u, t);
+    }
+  }
+  tick(25);
+  assert.ok(t.path.u < 978.5, 'red does not leave the rear standing on the preceding crossing');
+  assert.equal(t.waitReason, 'signal');
+  red = false;
+  tick(20);
+  assert.ok(t.path.u - t.length > 981.5, 'whole tram passes once its own signal turns green');
+});
+
+test('a tram committed past a complex entry on green clears it when the downstream head turns red', () => {
+  let red = false;
+  const { createTramSystem } = load(() => red ? 'red' : 'green', true);
+  const n = { x: 980, z: 0, in: [], out: [] };
+  const e = roadEdge(0, 980, -30, 0, 1, 28, [0]);
+  const f = roadEdge(1, 980, 2, 0, 1, 28, [0]);
+  e.to = n;
+  e.moves = [{ to: f, turn: 'S', out: [0] }];
+  n.in.push(e);
+  const signal = { x: 1010, z: 0, signal: true, in: [{ dx: 1, dz: 0, axisIndex: 0, sx: 980, sz: 0, len: 20 }] };
+  const network = {
+    nodes: [n, signal], edges: [],
+    connector: () => ({ x0: 980, z0: -2, x3: 980, z3: 2, len: 4 }),
+    curvePoint(c, s, out) { out.x = c.x0; out.z = c.z0 + s; return out; }
+  };
+  const sys = createTramSystem(inert(), { network, rail: [tram([0, 0, 3000, 0])], stops: [] });
+  const t = sys.pool[0];
+  t.active = true;
+  t.path.reset(sys.graph.edges[0], 930, t.length + 8, () => 0);
+  t.path.extend(200, () => 0);
+  t.speed = 0;
+  t.x = 930;
+  t.z = 0;
+  let time = 0;
+  const step = () => {
+    sys.occupy(t);
+    sys.drive(t, time);
+    sys.advance(t, 1 / 30);
+    t.path.pointAt(t.path.u, t);
+    time += 1 / 30;
+  };
+  while (t.path.u < 980 && time < 30) step();
+  assert.ok(t.path.u >= 980, 'crosses the protected entry on green');
+  red = true;
+  for (let i = 0; i < 600; i++) step();
+  assert.ok(t.path.u - t.length > 981.5, 'a later red cannot strand its body across the previous crossing');
+});
+
+test('a tram held before a switch or crossing does not claim its future approach', () => {
+  for (const kind of ['switch', 'crossing']) {
+    const { createTramSystem } = load(() => 'green', true);
+    const rail = kind === 'switch'
+      ? [tram([0, 0, 1000, 0]), tram([500, 100, 1000, 0]), tram([1000, 0, 3000, 0])]
+      : [tram([0, 0, 3000, 0]), tram([980, -1000, 980, 1000])];
+    const sys = createTramSystem(inert(), { network: { nodes: [], edges: [] }, rail, stops: [] });
+    const [t, other] = sys.pool;
+    t.active = other.active = true;
+    t.path.reset(sys.graph.edges[0], kind === 'switch' ? 960 : 930, t.length + 8, () => 0);
+    t.path.extend(200, () => 0);
+    t.speed = 0;
+    t.path.pointAt(t.path.u, t);
+    const edge = sys.graph.edges[1];
+    other.path.reset(edge, kind === 'switch' ? edge.len - 20 : 980, other.length + 8, () => 0);
+    other.path.extend(200, () => 0);
+    other.path.pointAt(other.path.u, other);
+    other.speed = 0;
+    sys.occupy(other);
+    for (const why of ['stop', 'signal', 'car', 'pedestrian', 'player', 'room']) {
+      other.atStop = why === 'stop';
+      other.waitReason = why;
+      sys.drive(t, 0);
+      assert.notEqual(t.waitReason, 'switch', `${kind}: does not wait for a stationary tram held by ${why}`);
+      assert.ok(t.acc > 0, `${kind}: free approach moves`);
+    }
+    other.atStop = false;
+    for (const why of ['switch', 'block', '']) {
+      other.waitReason = why;
+      sys.drive(t, 0);
+      assert.equal(t.waitReason, 'switch', `${kind}: ordinary ${why || 'free'} contenders retain priority`);
+    }
+    other.waitReason = 'signal';
+    other.speed = 2;
+    sys.drive(t, 0);
+    assert.equal(t.waitReason, 'switch', `${kind}: a moving tram still has its approach priority`);
+    if (kind === 'crossing') {
+      other.path.reset(edge, 1015, other.length + 8, () => 0);
+      other.path.extend(200, () => 0);
+      other.path.pointAt(other.path.u, other);
+      other.speed = 0;
+      other.atStop = true;
+      sys.occupy(other);
+      sys.drive(t, 0);
+      assert.equal(t.waitReason, 'switch', 'a dwelling tram whose body occupies the crossing still blocks it');
+    } else {
+      other.path.reset(sys.graph.edges[2], 10, other.length + 8, () => 0.99);
+      other.path.extend(200, () => 0);
+      other.path.pointAt(other.path.u, other);
+      other.speed = 0;
+      other.atStop = true;
+      sys.occupy(other);
+      t.speed = 8;
+      for (let i = 0; i < 15 * 30; i++) {
+        sys.drive(t, i / 30);
+        sys.advance(t, 1 / 30);
+        t.path.pointAt(t.path.u, t);
+      }
+      assert.ok(t.x < 1000 - sys.graph.edges[0].foulEnd, 'a body straddling the merge still holds its clearance point');
+    }
+  }
 });

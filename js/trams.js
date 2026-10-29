@@ -841,13 +841,52 @@ function poseSections(path, u, model, out) {
 // ---------------------------------------------------------------------------------------------------------------------
 // The tram system
 // ---------------------------------------------------------------------------------------------------------------------
-function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.tramStops, routes = GEO.tramRoutes, traffic = null } = {}) {
+function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.tramStops, routes = GEO.tramRoutes,
+  levelCrossings = GEO.levelCrossings, traffic = null } = {}) {
   const group = new THREE.Group();
   group.name = 'Trams';
   scene.add(group);
 
   const graph = buildTrackGraph(rail || []);
   mapTramsToRoads(graph, network);
+  // Mainline level crossings have no tram-graph node. Cache their position along nearby tram track once, just as
+  // road-junction conflicts are cached, so a downstream queue cannot leave a tram standing across either crossing.
+  const nearCrossing = {};
+  const crossingPoint = {};
+  function runsAlongTrack(e, c) {
+    edgePoint(e, (c.s0 + c.s1) / 2, crossingPoint);
+    const tx = crossingPoint.tx, tz = crossingPoint.tz;
+    if (Math.abs(c.e.dx * tx + c.e.dz * tz) < 0.98 || Math.abs(c.f.dx * tx + c.f.dz * tz) < 0.98) return false;
+    if (c.e.dx * c.f.dx + c.e.dz * c.f.dz < 0.98) return false;
+    const curve = network.connector(c.e, c.i, c.f, c.j);
+    if ((curve.curv || 0) * curve.len > 0.05) return false;
+    nearestOnEdge(e, curve.x0, curve.z0, nearCrossing);
+    edgePoint(e, nearCrossing.s, crossingPoint);
+    const side0 = (curve.x0 - crossingPoint.x) * crossingPoint.tz - (curve.z0 - crossingPoint.z) * crossingPoint.tx;
+    nearestOnEdge(e, curve.x3, curve.z3, nearCrossing);
+    edgePoint(e, nearCrossing.s, crossingPoint);
+    const side1 = (curve.x3 - crossingPoint.x) * crossingPoint.tz - (curve.z3 - crossingPoint.z) * crossingPoint.tx;
+    // A straight movement along a shared lane is not a crossing to reserve. A lane shifting across or converging
+    // onto the track still is, even with nearly parallel entry and exit tangents.
+    return Math.abs(side1 - side0) < 0.25;
+  }
+  for (const e of graph.edges) {
+    e.keepClear = [];
+    for (const c of e.junctions) {
+      if (!runsAlongTrack(e, c)) e.keepClear.push({ start: c.s0, end: c.s1 });
+    }
+    const points = levelCrossings || [];
+    for (let i = 0; i + 1 < points.length; i += 2) {
+      nearestOnEdge(e, points[i], points[i + 1], nearCrossing);
+      if (nearCrossing.d < FOUL) e.keepClear.push({ start: nearCrossing.s - FOUL, end: nearCrossing.s + FOUL });
+    }
+    e.noStop = e.keepClear.slice();
+    for (const c of e.crossings) e.noStop.push({ start: c.s - FOUL, end: c.s + FOUL });
+    if ((e.to.in.length >= 2 || e.to.out.length >= 2) && e.next.length) {
+      e.noStop.push({ start: e.len - e.foulEnd, end: e.len, switch: true });
+    }
+    e.noStop.sort((a, b) => a.start - b.start);
+  }
   // tram-infra.js stops (with railIndex) sit at the platforms; bare GEO.tramStops nodes are snapped to the track
   const tramStops = stops && stops.length && stops[0].railIndex !== undefined
     ? attachTramStops(graph, stops)
@@ -873,6 +912,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       leader: null, gap: Infinity, waitReason: '', obstacle: null,
       route: -1, line: '', destination: '',
       deadEndWait: 0, stuck: 0,
+      _signalTime: 0, _signalCommitN: 0, _signalCommits: new Array(PATH_CAP).fill(null),
       // per-frame occupancy: the path edges under the body, local [s0, s1] on each
       occN: 0, occEdge: new Array(PATH_CAP).fill(null), occS0: new Float64Array(PATH_CAP), occS1: new Float64Array(PATH_CAP),
       _frontMatrix: new THREE.Matrix4(), _effDist: 0, _visible: false
@@ -1012,6 +1052,8 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     t.lastStop = null;
     t.deadEndWait = 0;
     t.stuck = 0;
+    t._signalCommitN = 0;
+    t._signalCommits.fill(null);
     placeMid(t);
     return true;
   }
@@ -1069,11 +1111,29 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       _reason = why;
     }
   }
+  let _hold = Infinity;
+  let _holdReason = '';
+  function considerGate(dist, why) {
+    if (dist >= 0 && dist < _hold) {
+      _hold = dist;
+      _holdReason = why;
+    }
+    consider(wall(dist), why);
+  }
 
   // Does tram o's path reach node N ahead of its front (as the start of one of its edges), and how far ahead?
   // Returns the distance, or -1. _arrive holds the edge it arrives on.
+  function heldBeforeConflict(o) {
+    if (o.atStop) return true;
+    if (o.speed >= 0.1) return false;
+    return o.waitReason === 'signal' || o.waitReason === 'car' || o.waitReason === 'pedestrian'
+      || o.waitReason === 'player' || o.waitReason === 'room';
+  }
   let _arrive = null;
   function reaches(o, N, maxD) {
+    // A tram dwelling or held before the junction cannot claim a future approach ahead of one that can pass.
+    // Actual body occupancy is checked by holds() first. Keep switch/block contenders in the priority comparison.
+    if (heldBeforeConflict(o)) return -1;
     const path = o.path;
     for (let i = 1; i < path.n; i++) {
       const d = path.start[i] - path.u;
@@ -1118,6 +1178,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
   }
   // Will tram o's front reach point os of track B sooner than maxD (as soon, with a lower id than `id`)?
   function crossApproach(o, B, os, maxD, id) {
+    if (heldBeforeConflict(o)) return false;
     const path = o.path;
     for (let i = path.indexAt(path.u); i < path.n; i++) {
       if (path.start[i] - path.u > maxD) break;
@@ -1125,6 +1186,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       const p = e === B ? os : e === B.reverse ? B.len - os : -1;
       if (p < 0) continue;
       const d = path.start[i] + p - path.u;
+      if (o.clearance < d) continue;
       if (d > 0 && (d < maxD || (d === maxD && o.id < id))) return true;
     }
     return false;
@@ -1132,6 +1194,88 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
   function occupies(o, e) {
     for (let k = 0; k < o.occN; k++) if (o.occEdge[k] === e) return true;
     return false;
+  }
+
+  function stopBodyClear(path, front, length) {
+    const rear = front - length;
+    for (let j = 0; j < path.n; j++) {
+      const base = path.start[j];
+      const e = path.edges[j];
+      for (const c of e.keepClear) {
+        if (front > base + c.start - 0.49 && rear < base + c.end + 0.49) return false;
+      }
+      for (const c of e.crossings) {
+        if (front > base + c.s - FOUL - 0.49 && rear < base + c.s + FOUL + 0.49) return false;
+      }
+      if (j > 0 && (e.from.in.length >= 2 || e.from.out.length >= 2)) {
+        if (front > base - path.edges[j - 1].foulEnd - 0.49 && rear < base + e.foulStart + 0.49) return false;
+      }
+    }
+    return true;
+  }
+
+  function curbStopTarget(path, index, st, length, offset) {
+    const raw = path.start[index] + st.s;
+    let target = raw + offset;
+    if (!st.stop.source || st.stop.source.kind !== 'curb') return target;
+    // OSM's curb stop may be just before a road crossing. The usual middle-front offset must not move the nose
+    // into it for the entire dwell (Rynek Jeżycki). An island has fixed boarding geometry and is not moved here.
+    for (let j = index; j < path.n && path.start[j] < target + length; j++) {
+      const base = path.start[j];
+      for (const c of path.edges[j].keepClear) {
+        const entry = base + c.start;
+        const end = base + c.end;
+        if (raw > entry - 0.5 || target <= entry - 0.5 || target - length >= end + 0.5) continue;
+        const before = entry - 0.5;
+        // Even when the nose is already beyond a narrow crossing, the tail may still block it. Check the whole
+        // proposed body, including earlier crossings; a short refuge between crossings cannot hold a 32 m tram.
+        if (stopBodyClear(path, before, length)) target = Math.min(target, before);
+      }
+    }
+    return target;
+  }
+
+  function complexStopGate(path, gate, length, entered = -Infinity) {
+    // A clear exit at one switch is insufficient if the next queue gate is less than a body length beyond it.
+    // Pull that gate back over the whole complex before entering; otherwise the tail fouls the previous switch
+    // while the nose waits safely before the next (Kaponiera). No stop is moved behind an already-entered front.
+    for (let pass = 0; pass < PATH_CAP; pass++) {
+      const prior = gate;
+      for (let j = path.n - 1; j >= 0; j--) {
+        const base = path.start[j];
+        const zones = path.edges[j].noStop;
+        for (let k = zones.length - 1; k >= 0; k--) {
+          const c = zones[k];
+          const entry = base + c.start;
+          if (entry <= entered + 0.2 || entry - 0.5 >= gate) continue;
+          const end = base + c.end + (c.switch && j + 1 < path.n ? path.edges[j + 1].foulStart : 0);
+          if (gate - length < end + 2) gate = entry - 0.5;
+        }
+      }
+      if (gate === prior) break;
+    }
+    return gate;
+  }
+
+  function holdBeforeComplex(t) {
+    if (_hold === Infinity) return;
+    const gate = complexStopGate(t.path, t.path.u + _hold, t.length, t.path.u) - t.path.u;
+    t.clearance = Math.min(t.clearance, gate + 0.5);
+    if (gate < _hold) consider(wall(gate), _holdReason);
+  }
+
+  function recordSignalEntries(t, from, to) {
+    if (to <= from) return;
+    const path = t.path;
+    for (let j = 0; j < path.n; j++) {
+      for (const sig of path.edges[j].signals) {
+        const gate = complexStopGate(path, path.start[j] + sig.s - 0.5, t.length);
+        if (gate < from || gate > to || signalPhase(t._signalTime, sig.group === 0, sig.node) !== 'green') continue;
+        let known = false;
+        for (let k = 0; k < t._signalCommitN; k++) if (t._signalCommits[k] === sig.node) known = true;
+        if (!known && t._signalCommitN < PATH_CAP) t._signalCommits[t._signalCommitN++] = sig.node;
+      }
+    }
   }
 
   // The swept path ahead of a tram's front: track points every SWEEP_STEP m up to its braking distance plus a margin,
@@ -1201,15 +1345,36 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     const u = path.u;
     const ic = path.indexAt(u);
     const here = path.edges[ic];
+    t._signalTime = elapsed;
+    let commits = 0;
+    for (let k = 0; k < t._signalCommitN; k++) {
+      const node = t._signalCommits[k];
+      let present = false;
+      for (let j = 0; j < path.n; j++) {
+        for (const sig of path.edges[j].signals) {
+          if (sig.node === node && path.start[j] + sig.s > u - t.length - 2) present = true;
+        }
+      }
+      if (present) t._signalCommits[commits++] = node;
+    }
+    for (let k = commits; k < t._signalCommitN; k++) t._signalCommits[k] = null;
+    t._signalCommitN = commits;
     _v = t.speed;
     _v0 = Math.max(1, Math.min(here.street ? STREET_SPEED : TRACK_SPEED, here.roadLimit || Infinity) * t.v0Factor);
     t.v0 = _v0;
     _acc = D.a * (1 - (_v / _v0) ** 4);
     _reason = '';
+    _hold = Infinity;
+    _holdReason = '';
+    // Other approaches may proceed ahead of a tram held outside a conflict zone by a downstream queue.
+    t.clearance = Infinity;
     let gapMin = Infinity;
+    let tramGap = Infinity;
+    let tramLeader = null;
     let leader = null;
 
-    // Dead end ahead: a buffer stop
+    // A buffer is the terminal destination, not a temporary gate: moving it upstream would prevent the
+    // terminus/route-end state from ever being reached. Incomplete route ends remain a data issue (Phase 15.10).
     if (path.end < Infinity) consider(wall(path.end - u - path.edges[path.n - 1].endPad), 'end');
 
     // Trams ahead on this path (their rear), or head-on on two-way track (a stopped obstacle)
@@ -1240,6 +1405,10 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
           } else continue;
           if (ahead <= u + 0.01) continue;
           const gap = back - u;
+          if (gap < tramGap) {
+            tramGap = gap;
+            tramLeader = o;
+          }
           if (gap < gapMin) {
             gapMin = gap;
             leader = o;
@@ -1310,6 +1479,13 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       const N = path.edges[j].from;
       if (N.in.length < 2 && N.out.length < 2) continue;
       const mine = path.edges[j - 1];
+      // A queue beyond the node must leave room for the whole tram past the clearance point. Once the front has
+      // entered the fouling area, keep moving through it; stopping there would defeat the reservation.
+      const entry = distA - mine.foulEnd;
+      if (entry > 0.2 && tramGap < distA + path.edges[j].foulStart + t.length + 2) {
+        t.clearance = Math.min(t.clearance, entry);
+        considerGate(entry - 0.5, 'room');
+      }
       for (const o of pool) {
         if (o === t || !o.active) continue;
         if (Math.abs(o.x - N.x) > CONFLICT_REACH + 40 || Math.abs(o.z - N.z) > CONFLICT_REACH + 40) continue;
@@ -1317,9 +1493,9 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
         let block = holds(o, N);
         if (!block) {
           const distB = reaches(o, N, distA);
-          block = distB >= 0 && _arrive !== mine && (distB < distA || (distB === distA && o.id < t.id));
+          block = distB >= 0 && !(o.clearance < distB) && _arrive !== mine && (distB < distA || (distB === distA && o.id < t.id));
         }
-        if (block) consider(wall(distA - mine.foulEnd), 'switch');
+        if (block) considerGate(distA - mine.foulEnd, 'switch');
       }
     }
 
@@ -1330,13 +1506,33 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       for (const c of path.edges[j].crossings) {
         const distA = sj + c.s - u;
         if (distA <= 0 || distA > CONFLICT_REACH) continue;
+        const entry = distA - FOUL;
+        if (entry > 0.2 && tramGap < distA + FOUL + t.length + 2) {
+          t.clearance = Math.min(t.clearance, entry);
+          considerGate(entry - 0.5, 'room');
+        }
         const B = c.other;
         for (const o of pool) {
           if (o === t || !o.active) continue;
           if (Math.abs(o.x - t.x) > CONFLICT_REACH + 80 || Math.abs(o.z - t.z) > CONFLICT_REACH + 80) continue;
           if (crossHeld(o, B, c.os) || crossApproach(o, B, c.os, distA, t.id)) {
-            consider(wall(distA - FOUL), 'switch');
+            considerGate(distA - FOUL, 'switch');
             break;
+          }
+        }
+      }
+    }
+
+    // Road and mainline crossings: reserve an exit for the rear before the front enters the crossing.
+    if (tramGap < Infinity) {
+      for (let j = ic; j < path.n; j++) {
+        const sj = path.start[j];
+        if (sj - u > CONFLICT_REACH) break;
+        for (const c of path.edges[j].keepClear) {
+          const entry = sj + c.start - u;
+          if (entry > 0.2 && entry <= CONFLICT_REACH && tramGap < sj + c.end - u + t.length + 2) {
+            t.clearance = Math.min(t.clearance, entry);
+            considerGate(entry - 0.5, 'room');
           }
         }
       }
@@ -1351,7 +1547,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       for (const o of pool) {
         if (o === t || !o.active) continue;
         if (inRun(o, e.run, -e.runDir) || entersRun(o, e.run, -e.runDir, distA, t.id)) {
-          consider(wall(distA - path.edges[j - 1].foulEnd), 'block');
+          considerGate(distA - path.edges[j - 1].foulEnd, 'block');
           break;
         }
       }
@@ -1365,10 +1561,16 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       if (sj - u > LOOKAHEAD) break;
       for (const st of path.edges[j].stops) {
         if (st.stop === t.lastStop) continue;
-        const target = sj + st.s + stopOffset;
+        const target = curbStopTarget(path, j, st, t.length, stopOffset);
         if (target < u - 0.5) continue;
         t.nextStop = st.stop;
         t._stopU = target;
+        // A full platform has one tram's body around the stopping point. Queue outside that footprint until the
+        // leader leaves, rather than creeping onto the platform behind its open doors.
+        if (tramGap < target - u + 2 && target - u > t.length + 2) {
+          t.clearance = Math.min(t.clearance, target - u - t.length - 2);
+          considerGate(target - u - t.length - 2, 'room');
+        }
         consider(wall(target - u), 'stop');
         break;
       }
@@ -1381,12 +1583,21 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       for (const sig of path.edges[j].signals) {
         const gap = sj + sig.s - u;
         if (gap < 0.2 || gap > LOOKAHEAD) continue;
-        const phase = signalPhase(elapsed, sig.group === 0);
+        const phase = signalPhase(elapsed, sig.group === 0, sig.node);
         if (phase === 'green') continue; // red and red+amber hold the tram
         if (phase === 'amber' && gap < (_v * _v) / (2 * D.bMax) + 1) continue;
-        consider(wall(gap - 0.5), 'signal');
+        // The signal's effective stop line is before the whole protected complex, on green as well as red.
+        // After crossing that entry on green, finish clearing it: a later red at an interior head must not
+        // strand the rear across an earlier road crossing (Św. Marcin / aleja Niepodległości).
+        let committed = false;
+        for (let k = 0; k < t._signalCommitN; k++) if (t._signalCommits[k] === sig.node) committed = true;
+        if (committed) continue;
+        const gate = complexStopGate(path, sj + sig.s - 0.5, t.length) - u;
+        considerGate(gate, 'signal');
       }
     }
+
+    holdBeforeComplex(t);
 
     // Curves: approach each tight vertex no faster than its limit
     for (let j = ic; j < path.n; j++) {
@@ -1416,12 +1627,15 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     }
     t.acc = Math.max(-9, _acc);
     t.waitReason = _reason;
+    if (_reason === 'room') t.leader = tramLeader;
   }
 
   // Integrate, run the stop dwell, keep the path laid out ahead
   function advance(t, dt) {
     const path = t.path;
     if (t.atStop) {
+      // A fresh departure must obey the head again; a boarding dwell is not an ongoing junction traversal.
+      t._signalCommitN = 0;
       t.speed = 0;
       t.acc = 0;
       t.dwell -= dt;
@@ -1434,12 +1648,14 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       }
       return;
     }
+    const from = path.u;
     t.speed = Math.max(0, t.speed + t.acc * dt);
     path.u += t.speed * dt;
     if (path.u > path.end - 0.3) {
       path.u = path.end - 0.3;
       t.speed = 0;
     }
+    recordSignalEntries(t, from, path.u);
     if (t.nextStop && t.waitReason === 'stop' && t._stopU - path.u < 1.2 && t.speed < 0.3) {
       t.atStop = true;
       t.stopName = t.nextStop.name;

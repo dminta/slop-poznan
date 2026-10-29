@@ -1,5 +1,6 @@
 import {
   SIGNAL_SITES,
+  resetSignalPlans,
   isLand,
   BLOCKS
 } from './city-config.js';
@@ -166,7 +167,8 @@ function buildRoadNetwork(sidewalks, obstacles) {
         r.widths.push([w, len]);
         if (isMajorRoad(w, lanes)) r.majorLen += len;
       } else if (lanes >= 3) r.majorLen += len;
-      links.push({ a, b, name: RG.names[ni], w, lanes, dir, pts, len, limit: (kmh || DEFAULT_KMH) / 3.6, strip });
+      links.push({ a, b, name: RG.names[ni], w, lanes, dir, pts, len, limit: (kmh || DEFAULT_KMH) / 3.6, strip,
+        sharedTram: !!(flags & 2) && !strip });
     }
     // Each named road's links: their length-weighted median width stands in where a link has none, and a road that is
     // major over most of its length is major throughout, so that its narrower stretches keep its buses
@@ -224,13 +226,13 @@ function buildRoadNetwork(sidewalks, obstacles) {
       if (l.dir !== 0) {
         const n = Math.max(1, Math.min(l.lanes || 1, Math.floor((car - LANE_CLEAR) / (LANE_W / 2)) + 1));
         const lanes = Array.from({ length: n }, (_, k) => (k - (n - 1) / 2) * LANE_W + c * l.dir);
-        return { half, axis, major, limit: l.limit, fwd: l.dir > 0 ? lanes : [], back: l.dir < 0 ? lanes : [] };
+        return { half, axis, major, limit: l.limit, sharedTram: l.sharedTram, fwd: l.dir > 0 ? lanes : [], back: l.dir < 0 ? lanes : [] };
       }
       const n = Math.max(1, Math.min(Math.round((l.lanes || 2) / 2), Math.floor((car - LANE_CLEAR + LANE_W / 2) / LANE_W)));
       // a road too narrow for a full lane each way (two-way service roads and lanes from ~3.3 m) keeps both to it
       const first = Math.min(LANE_W / 2, car / 2);
       const each = Array.from({ length: n }, (_, k) => first + k * LANE_W);
-      return { half, axis, major, limit: l.limit, fwd: each.map((o) => o + c), back: each.map((o) => o - c) };
+      return { half, axis, major, limit: l.limit, sharedTram: l.sharedTram, fwd: each.map((o) => o + c), back: each.map((o) => o - c) };
     }
     const DEG = Math.PI / 180;
     for (const l of links) {
@@ -328,7 +330,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
     return true;
   };
   // From p0 to p1, the run's ports (2.), which lie off the junction nodes `from` and `to` by offFrom / offTo to the right
-  function addEdge(from, to, p0, p1, axis, major, lanes, half, divided, limit) {
+  function addEdge(from, to, p0, p1, axis, major, lanes, half, divided, limit, sharedTram) {
     const x0 = p0.x;
     const z0 = p0.z;
     const span = Math.hypot(p1.x - x0, p1.z - z0);
@@ -339,7 +341,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
     if (!open.length) return;
     const offFrom = (x0 - from.x) * -dz + (z0 - from.z) * dx;
     const offTo = (p1.x - to.x) * -dz + (p1.z - to.z) * dx;
-    edges.push({ from, to, axis, major, x0, z0, dx, dz, rx: -dz, rz: dx, span, half, lanes: open.sort((p, q) => p - q), moves: [], cand: lanes, divided: !!divided, limit, offFrom, offTo });
+    edges.push({ from, to, axis, major, x0, z0, dx, dz, rx: -dz, rz: dx, span, half, lanes: open.sort((p, q) => p - q), moves: [], cand: lanes, divided: !!divided, limit, offFrom, offTo, sharedTram });
   }
   // A divided road drawn as two one-way roadways between the same two junctions: each keeps its own line (their ports,
   // 2.), and the road counts as major by both roadways' width. Only roadways drawn within PAIR_SEP of each other (on
@@ -379,8 +381,8 @@ function buildRoadNetwork(sidewalks, obstacles) {
     r.half = o.half = r.half + o.half;
   }
   for (const r of genRuns) {
-    if (r.fwd.length) addEdge(r.from, r.to, r.p0, r.p1, r.axis, r.major, r.fwd, r.half, r.divided, r.limit);
-    if (r.back.length) addEdge(r.to, r.from, r.p1, r.p0, r.axis, r.major, r.back, r.half, r.divided, r.limit);
+    if (r.fwd.length) addEdge(r.from, r.to, r.p0, r.p1, r.axis, r.major, r.fwd, r.half, r.divided, r.limit, r.sharedTram);
+    if (r.back.length) addEdge(r.to, r.from, r.p1, r.p0, r.axis, r.major, r.back, r.half, r.divided, r.limit, r.sharedTram);
   }
   // Two edges from one node to the same next one (a service road whose ends were drawn onto its main road's junctions)
   // would drive through each other: keep the one with the most lanes
@@ -465,6 +467,45 @@ function buildRoadNetwork(sidewalks, obstacles) {
     }
     edges = edges.filter((e) => e.lanes.length);
   }
+  // A mapped shared roadway can run off-centre relative to its two tracks. Centring its car lane on that line
+  // put eastbound cars into the westbound trams at Rynek Jeżycki. Use an unambiguous parallel pair's right-hand
+  // track, only when the lane overlaps the opposing track and the corrected lane remains clear inside the curbs.
+  const streetTracks = [];
+  for (const r of GEO.rail || []) {
+    if (r.kind !== 'tram' || !r.street) continue;
+    for (let k = 2; k < r.pts.length; k += 2) {
+      const ax = r.pts[k - 2], az = r.pts[k - 1], bx = r.pts[k], bz = r.pts[k + 1];
+      const len = Math.hypot(bx - ax, bz - az);
+      if (len > 0) streetTracks.push({ ax, az, bx, bz, len, ux: (bx - ax) / len, uz: (bz - az) / len });
+    }
+  }
+  function alignSharedTramLane(e) {
+    if (!e.sharedTram || e.lanes.length !== 1) return;
+    const offsets = [];
+    let opposing = false;
+    for (const fraction of [0.25, 0.5, 0.75]) {
+      const x = e.x0 + e.dx * e.span * fraction, z = e.z0 + e.dz * e.span * fraction;
+      const tracks = [];
+      for (const t of streetTracks) {
+        if (Math.abs(t.ux * e.dx + t.uz * e.dz) < 0.95) continue;
+        const along = (x - t.ax) * t.ux + (z - t.az) * t.uz;
+        if (along < 0 || along > t.len) continue;
+        const lateral = (t.ax + t.ux * along - x) * e.rx + (t.az + t.uz * along - z) * e.rz;
+        if (Math.abs(lateral) > e.half || tracks.some((o) => Math.abs(o - lateral) < 0.6)) continue;
+        tracks.push(lateral);
+      }
+      tracks.sort((a, b) => a - b);
+      if (tracks.length !== 2 || tracks[1] - tracks[0] < 1.8 || tracks[1] - tracks[0] > 6.5) return;
+      if (Math.abs(e.lanes[0] - tracks[0]) < 2.4) opposing = true;
+      offsets.push(tracks[1]);
+    }
+    if (!opposing || Math.max(...offsets) - Math.min(...offsets) > 0.75) return;
+    offsets.sort((a, b) => a - b);
+    const lane = offsets[1];
+    if (Math.abs(lane) > e.half - LANE_CLEAR || !laneOpen(e.x0, e.z0, e.dx, e.dz, e.span, lane)) return;
+    e.lanes[0] = lane;
+  }
+  for (const e of edges) alignSharedTramLane(e);
   // Edges no vehicle could both reach and leave (dead ends, and roads reached only from them) are dropped once the
   // moves are known (5.); know them already, so that no road keeps clear of a dead one merging with it or forking off it
   {
@@ -951,9 +992,9 @@ function buildRoadNetwork(sidewalks, obstacles) {
   nodes = nodes.filter((n) => n.in && n.out);
   nodes.forEach((n, i) => (n.id = i));
 
-  // 6. Signalised intersections are exactly the ones with signal heads: both come from SIGNAL_SITES (city-config.js).
-  //    A site marks the nearest junction within SIGNAL_REACH (junction nodes sit at the centre of the graph nodes they
-  //    merge, not on any one of them); bends have no corner to stop at
+  // 6. Signal sites share plans with the heads. A runtime junction may merge several original OSM sites: keep
+  //    their stable texture indices, but evaluate them through the same plan so every head and approach agrees.
+  if (resetSignalPlans) resetSignalPlans(); // synthetic networks in tests have no shared plans
   for (const site of SIGNAL_SITES) {
     let best = null;
     let bestD = SIGNAL_REACH;
@@ -965,7 +1006,20 @@ function buildRoadNetwork(sidewalks, obstacles) {
         best = n;
       }
     }
-    if (best) best.signal = paintNodes.get(best).signal = true;
+    if (best) {
+      best.paintNode = paintNodes.get(best);
+      best.signal = best.paintNode.signal = true;
+      let plan = site.timing;
+      while (plan && plan.alias) plan = plan.alias;
+      let existing = best.signalTiming;
+      while (existing && existing.alias) existing = existing.alias;
+      if (existing && plan && existing !== plan) plan.alias = existing;
+      best.signalTiming = existing || plan;
+      if (site.timing) {
+        if (!best.signalArms) best.signalArms = [];
+        for (const arm of site.arms) best.signalArms.push({ arm, timing: site.timing });
+      }
+    }
   }
 
   // 7. Sides & right of way at each node, for traffic.js. Its arms are its sides (one crosswalk and approach each),
@@ -973,7 +1027,31 @@ function buildRoadNetwork(sidewalks, obstacles) {
   //    different groups never share the intersection box, and group 0, the widest road, has the right of way at
   //    unsignalised corners (and the first phase at signals).
   computeArms(edges);
-  for (const n of nodes) sidesAndGroups(n);
+  for (const n of nodes) {
+    while (n.signalTiming && n.signalTiming.alias) n.signalTiming = n.signalTiming.alias;
+    sidesAndGroups(n);
+    if (n.signalTiming) {
+      if (n.sideCount < 3) n.signalTiming.pedestrian = true;
+      // Lane centring rotates some runtime arms across the grouping threshold. Match the original arm first,
+      // then use exactly the grouping its head shows; reclassifying the rotated direction can reverse its lights.
+      for (const a of n.arms) {
+        let original = null;
+        let closest = -Infinity;
+        for (const candidate of n.signalArms || []) {
+          const dot = a.ux * candidate.arm.ux + a.uz * candidate.arm.uz;
+          if (dot > closest) { closest = dot; original = candidate; }
+        }
+        if (original) {
+          const t = original.timing;
+          const group0 = Math.abs(original.arm.ux * t.mainUx + original.arm.uz * t.mainUz) > 0.82;
+          const swapped = Math.abs(t.mainUx * n.signalTiming.mainUx + t.mainUz * n.signalTiming.mainUz) <= 0.82;
+          a.group = group0 !== swapped ? 0 : 1;
+        } else {
+          a.group = Math.abs(a.ux * n.signalTiming.mainUx + a.uz * n.signalTiming.mainUz) > 0.82 ? 0 : 1;
+        }
+      }
+    }
+  }
   for (const e of edges) {
     e.inSide = e.inArm.side; // the side of e.to it arrives over
     e.outSide = e.outArm.side; // the side of e.from it leaves over
@@ -981,7 +1059,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
     // crosses there, so both ways are group 0. With the arms more than 35 degrees off straight they were two roads, and
     // one way round each of the 387 bends gave way to the other, crawled at 5 m/s and kept out of the box while the
     // other way was in it (tools/bench-traffic.mjs)
-    e.axisIndex = e.to.sideCount < 3 && !e.to.signal ? 0 : e.inArm.group;
+    e.axisIndex = (e.to.sideCount < 3 && !e.to.signal) || e.to.signalTiming?.pedestrian ? 0 : e.inArm.group;
     // lateral axis of its road, the same both ways (+x across north-south roads, +z across east-west ones)
     const flip = e.rx < -1e-6 || (Math.abs(e.rx) <= 1e-6 && e.rz < 0);
     e.clx = flip ? -e.rx : e.rx;

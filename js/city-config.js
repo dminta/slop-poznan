@@ -700,31 +700,249 @@ const mapCaps = (s) => String(s).toLocaleUpperCase('pl');
 // Counts in the UI, with Polish digit grouping ("12 345")
 const formatCount = (n) => n.toLocaleString('pl');
 
-// Traffic signal cycle shared by the signal heads (street-details.js) and the traffic (traffic.js), in seconds. A signal
-// runs two groups (road-network.js sidesAndGroups): group 0, the widest road at the junction, and group 1, the other
-// roads. The `avenue*` timings and `isAvenue` flags mean group 0 (names that predate the Poznań port, and audio reads
-// `isAvenue`): it is green until avenueAmber, amber until avenueRed; group 1 is green from avenueRed until streetAmber,
-// amber until the end of the cycle. As in Poland, red turns green through `redAmber` seconds of red and amber together
-// (S-1: "prepare to go"), the last of the red: group 0 at the end of the cycle, group 1 just before avenueRed. Traffic
-// treats it as red. Pedestrians cross with the traffic that runs parallel to them, stepping off only on
-// the WALK, the first `walk` seconds of its green: long enough before the cross traffic's green for the slowest walker
-// to get across the widest road.
-const SIGNAL_TIMING = { cycle: 60, avenueAmber: 26, avenueRed: 30, streetAmber: 56, redAmber: 2, walk: 7 };
-
-// 'green', 'amber', 'red' or 'redAmber' (red and amber lit: green comes next) for group 0 (isAvenue) or group 1 traffic
-// at a given time
-function signalPhase(time, isAvenue) {
-  const { cycle, avenueAmber, avenueRed, streetAmber, redAmber } = SIGNAL_TIMING;
-  const t = ((time % cycle) + cycle) % cycle;
-  if (isAvenue) return t < avenueAmber ? 'green' : t < avenueRed ? 'amber' : t < cycle - redAmber ? 'red' : 'redAmber';
-  return t < avenueRed - redAmber ? 'red' : t < avenueRed ? 'redAmber' : t < streetAmber ? 'green' : 'amber';
+// Signals use one plan per physical junction. Demand uses inbound lanes and width; all times are seconds.
+// The two clearances include the next group's red+amber, so neither group moves during them.
+const SIGNAL_TIMING = { cycle: 60, green0: 30, start1: 35, green1: 20, offset: 0, amber: 3, redAmber: 2, walk: 7 };
+const SIGNAL_CORRIDORS = [
+  'Franklina Roosevelta',
+  'Święty Marcin', 'Głogowska', 'Grunwaldzka', 'Jana Henryka Dąbrowskiego', 'Królowej Jadwigi',
+  'Garbary', 'Ewarysta Estkowskiego', 'Hetmańska', 'Górecka', 'Bukowska'
+];
+const SIGNAL_PLANS = [];
+const signalJunctions = new Map();
+const signalNodes = new Set(GEO.roadGraph.signals);
+const compactSignalNodes = new Set();
+for (const [a, b, , , , , inner] of GEO.roadGraph.links) {
+  if (!signalNodes.has(a) || !signalNodes.has(b)) continue;
+  let x = GEO.roadGraph.nodes[a * 2], z = GEO.roadGraph.nodes[a * 2 + 1], length = 0;
+  for (let i = 0; i <= inner.length; i += 2) {
+    const nx = i < inner.length ? inner[i] : GEO.roadGraph.nodes[b * 2];
+    const nz = i < inner.length ? inner[i + 1] : GEO.roadGraph.nodes[b * 2 + 1];
+    length += Math.hypot(nx - x, nz - z); x = nx; z = nz;
+  }
+  // Less than 100 m between lights stores only a short queue. Frequent service prevents spillback across the
+  // upstream junction; corridor plans retain their common cycle so shortening one does not break the green wave.
+  if (length >= 14 && length < 100) { compactSignalNodes.add(a); compactSignalNodes.add(b); }
+}
+const compactSignalPositions = new Set([...compactSignalNodes].map((n) => `${GEO.roadGraph.nodes[n * 2]},${GEO.roadGraph.nodes[n * 2 + 1]}`));
+for (const site of SIGNAL_SITES) {
+  if (signalJunctions.has(site.junction)) {
+    site.timing = signalJunctions.get(site.junction);
+    continue;
+  }
+  const arms = site.arms;
+  let top = null;
+  let topRank = -Infinity;
+  for (const a of arms) {
+    const rank = (a.w >= 14.5 || a.lanes >= 3 ? 100 : 0) + a.w;
+    if (rank > topRank) { topRank = rank; top = a; }
+  }
+  const demand = [0, 0];
+  for (const a of arms) {
+    if (!a.inbound) continue;
+    const group = top && Math.abs(a.ux * top.ux + a.uz * top.uz) > 0.82 ? 0 : 1;
+    demand[group] += Math.max(1, a.lanes || 1) * Math.sqrt(a.w / 9.1);
+  }
+  const corridor = SIGNAL_CORRIDORS.find((name) => arms.some((a) => a.name === name)) || '';
+  const compact = compactSignalPositions.has(`${site.x},${site.z}`);
+  const cycle = corridor ? 60 : compact || topRank < 100 ? 44 : top && top.lanes >= 4 ? 76 : 60;
+  const green0 = Math.round(Math.max(10, Math.min(cycle - 20,
+    (cycle - 10) * (demand[0] || 1) / ((demand[0] || 1) + (demand[1] || 1)))));
+  const hash = Math.sin(site.x * 12.9898 + site.z * 78.233) * 43758.5453;
+  const timing = {
+    index: SIGNAL_PLANS.length, alias: null, mainUx: top ? top.ux : 0, mainUz: top ? top.uz : 1, cycle, green0, start1: green0 + 5, green1: cycle - green0 - 10,
+    offset: (hash - Math.floor(hash)) * cycle, corridor, compact, pedestrian: arms.length < 3, disabled: false,
+    start: Infinity, duration: 22, lastGreen: 0, time: NaN,
+    phase0: 'green', phase1: 'red', walk0: false, walk1: false, displayWalk0: 0, displayWalk1: 0
+  };
+  timing.baseCycle = cycle;
+  timing.baseGreen0 = green0;
+  timing.demandRatio = green0 / (cycle - 10);
+  timing.basePedestrian = timing.pedestrian;
+  site.timing = timing;
+  signalJunctions.set(site.junction, timing);
+  SIGNAL_PLANS.push(timing);
 }
 
-// Do pedestrians walking alongside group 0 (isAvenue) or group 1 traffic have the WALK at a given time?
-function walkSignal(time, isAvenue) {
-  const { cycle, avenueRed, walk } = SIGNAL_TIMING;
-  const t = (((time - (isAvenue ? 0 : avenueRed)) % cycle) + cycle) % cycle;
-  return t < walk;
+// Green waves follow distance along each named corridor rather than straight-line distance between its ends.
+// Components are seeded at their westernmost (then northernmost) point; every corridor uses a common 60 s cycle.
+for (const name of SIGNAL_CORRIDORS) {
+  const graph = new Map();
+  const g = GEO.roadGraph;
+  for (const [a, b, ni, , , , inner] of g.links) {
+    if (g.names[ni] !== name) continue;
+    let x = g.nodes[a * 2], z = g.nodes[a * 2 + 1], length = 0;
+    for (let i = 0; i <= inner.length; i += 2) {
+      const nx = i < inner.length ? inner[i] : g.nodes[b * 2];
+      const nz = i < inner.length ? inner[i + 1] : g.nodes[b * 2 + 1];
+      length += Math.hypot(nx - x, nz - z); x = nx; z = nz;
+    }
+    if (!graph.has(a)) graph.set(a, []);
+    if (!graph.has(b)) graph.set(b, []);
+    graph.get(a).push([b, length]); graph.get(b).push([a, length]);
+  }
+  const distance = new Map();
+  const pending = new Set(graph.keys());
+  while (pending.size) {
+    let seed = -1;
+    for (const n of pending) {
+      if (seed < 0 || g.nodes[n * 2] < g.nodes[seed * 2] ||
+        (g.nodes[n * 2] === g.nodes[seed * 2] && g.nodes[n * 2 + 1] < g.nodes[seed * 2 + 1])) seed = n;
+    }
+    distance.set(seed, 0);
+    while (true) {
+      let next = -1, best = Infinity;
+      for (const n of pending) if ((distance.get(n) ?? Infinity) < best) { next = n; best = distance.get(n); }
+      if (next < 0) break;
+      pending.delete(next);
+      for (const [n, length] of graph.get(next)) {
+        if (pending.has(n) && best + length < (distance.get(n) ?? Infinity)) distance.set(n, best + length);
+      }
+    }
+  }
+  for (const site of SIGNAL_SITES) {
+    const timing = site.timing;
+    if (timing.corridor !== name) continue;
+    let nearest = -1, best = Infinity;
+    for (const n of graph.keys()) {
+      const d = Math.hypot(g.nodes[n * 2] - site.x, g.nodes[n * 2 + 1] - site.z);
+      if (d < best) { best = d; nearest = n; }
+    }
+    if (nearest < 0) continue;
+    let top = null, rank = -Infinity;
+    for (const a of site.arms) {
+      const r = (a.w >= 14.5 || a.lanes >= 3 ? 100 : 0) + a.w;
+      if (r > rank) { rank = r; top = a; }
+    }
+    const a = site.arms.find((arm) => arm.name === name);
+    const group0 = !top || Math.abs(a.ux * top.ux + a.uz * top.uz) > 0.82;
+    timing.corridorGroup = group0 ? 0 : 1;
+    timing.distance = distance.get(nearest);
+    timing.offset = ((timing.distance / (40 / 3.6) - (group0 ? 0 : timing.start1)) % timing.cycle + timing.cycle) % timing.cycle;
+  }
+}
+for (const t of SIGNAL_PLANS) t.offsetFraction = t.offset / t.cycle;
+
+// A graph rebuild must start with the same plans as the first boot. In particular, a previous walking network's
+// disabled sites and width-adjusted splits must not change the next build's furniture or demand weights.
+function resetSignalPlans() {
+  for (const t of SIGNAL_PLANS) {
+    t.alias = null;
+    t.pedestrian = t.basePedestrian;
+    t.disabled = false;
+    t.start = Infinity;
+    t.duration = 22;
+    t.lastGreen = 0;
+    t.time = NaN;
+    t.cycle = t.baseCycle;
+    t.green0 = t.baseGreen0;
+    t.start1 = t.green0 + 5;
+    t.green1 = t.cycle - t.green0 - 10;
+    t.offset = t.offsetFraction * t.cycle;
+  }
+}
+
+// Widths are indexed by the parallel traffic's WALK group, after the final walking routes are built. The last
+// entrant at second 7 must finish at 1 m/s before the opposing road's green: green + 5 - 7 >= crossing width.
+// Święty Marcin needs 64 s at its widest crossing; share 65 s along the corridor to keep its green wave coordinated.
+function configureSignalClearance(widths) {
+  for (const t of SIGNAL_PLANS) {
+    if (t.alias || t.pedestrian || t.disabled) continue;
+    const width = widths.get(t) || [0, 0];
+    const min0 = Math.max(10, Math.ceil(width[0] + 2));
+    const min1 = Math.max(10, Math.ceil(width[1] + 2));
+    t.cycle = Math.max(t.baseCycle, t.corridor === 'Święty Marcin' ? 65 : 0, min0 + min1 + 10);
+    t.green0 = Math.max(min0, Math.min(t.cycle - 10 - min1, Math.round((t.cycle - 10) * t.demandRatio)));
+    t.start1 = t.green0 + 5;
+    t.green1 = t.cycle - t.green0 - 10;
+    const offset = Number.isFinite(t.distance)
+      ? t.distance / (40 / 3.6) - (t.corridorGroup === 0 ? 0 : t.start1)
+      : t.offsetFraction * t.cycle;
+    t.offset = ((offset % t.cycle) + t.cycle) % t.cycle;
+    t.time = NaN;
+  }
+}
+
+function signalTiming(node) {
+  let timing = node ? node.signalTiming || node.timing || node : SIGNAL_TIMING;
+  while (timing.alias) timing = timing.alias;
+  return timing;
+}
+
+// Re-evaluated once per plan and time, shared by vehicles, walkers, trams, audio and the rendered heads.
+function updateSignal(time, node) {
+  const requested = node ? node.signalTiming || node.timing || node : SIGNAL_TIMING;
+  const t = signalTiming(node);
+  if (requested !== t) {
+    const state = updateSignal(time, t);
+    const swap = !state.pedestrian && Math.abs(requested.mainUx * t.mainUx + requested.mainUz * t.mainUz) <= 0.82;
+    requested.disabled = state.disabled;
+    requested.pedestrian = state.pedestrian;
+    requested.phase0 = swap ? state.phase1 : state.phase0;
+    requested.phase1 = swap ? state.phase0 : state.phase1;
+    requested.walk0 = swap ? state.walk1 : state.walk0;
+    requested.walk1 = swap ? state.walk0 : state.walk1;
+    requested.displayWalk0 = swap ? state.displayWalk1 : state.displayWalk0;
+    requested.displayWalk1 = swap ? state.displayWalk0 : state.displayWalk1;
+    return requested;
+  }
+  if (t.time === time) return t;
+  t.time = time;
+  t.walk0 = t.walk1 = false;
+  t.displayWalk0 = t.displayWalk1 = 0;
+  if (t.disabled) {
+    t.phase0 = t.phase1 = 'off';
+    return t;
+  }
+  if (t.pedestrian) {
+    const q = time - t.start;
+    t.phase0 = q < 0 || q >= t.duration ? 'green' : q < 3 ? 'amber' : q < t.duration - 2 ? 'red' : 'redAmber';
+    t.phase1 = t.phase0;
+    t.walk1 = q >= 5 && q < 12;
+    t.displayWalk1 = t.walk1 ? 1 : q >= 12 && q < 15 ? 2 : 0;
+    t.displayWalk0 = t.displayWalk1;
+    t.walk0 = t.walk1;
+    return t;
+  }
+  const q = ((time - t.offset) % t.cycle + t.cycle) % t.cycle;
+  t.phase0 = q < t.green0 ? 'green' : q < t.green0 + 3 ? 'amber' : q < t.cycle - 2 ? 'red' : 'redAmber';
+  t.phase1 = q < t.start1 - 2 ? 'red' : q < t.start1 ? 'redAmber' : q < t.cycle - 5 ? 'green' : q < t.cycle - 2 ? 'amber' : 'red';
+  t.walk0 = q < 7;
+  t.walk1 = q >= t.start1 && q < t.start1 + 7;
+  t.displayWalk0 = t.walk0 ? 1 : q < 10 ? 2 : 0;
+  t.displayWalk1 = t.walk1 ? 1 : q >= t.start1 + 7 && q < t.start1 + 10 ? 2 : 0;
+  return t;
+}
+
+function signalPhase(time, isAvenue, node) {
+  const t = updateSignal(time, node);
+  return isAvenue ? t.phase0 : t.phase1;
+}
+
+function walkSignal(time, isAvenue, node) {
+  const t = updateSignal(time, node);
+  return isAvenue ? t.walk0 : t.walk1;
+}
+
+// Called only by a person actually waiting to cross. Repeated requests cannot extend a running pedestrian phase.
+// Batch vehicles for at least 20 s between requests: a 10 s green against 22–33 s of pedestrian clearance made
+// nearby queues spill back. A newly accepted request still waits at most 20 s before the road starts its amber.
+function requestWalkSignal(time, node) {
+  const t = signalTiming(node);
+  if (!t.pedestrian || t.disabled || (Number.isFinite(t.start) && time < t.start + t.duration)) return;
+  if (Number.isFinite(t.start)) t.lastGreen = t.start + t.duration;
+  t.start = Math.max(time + 2, t.lastGreen + 20);
+  t.time = NaN;
+}
+
+// Furniture can prune an OSM junction down to a bend. Only a real crossing warrants keeping its signal.
+function configurePedestrianSignal(node, hasCrosswalk, width = 10) {
+  const t = signalTiming(node);
+  if (!t || !t.pedestrian) return;
+  t.disabled = !hasCrosswalk;
+  t.duration = 19 + Math.max(0, width - 7);
+  t.time = NaN;
+  node.signal = hasCrosswalk;
 }
 
 export {
@@ -768,6 +986,12 @@ export {
   mapCaps,
   formatCount,
   SIGNAL_TIMING,
+  SIGNAL_PLANS,
+  resetSignalPlans,
+  configureSignalClearance,
+  updateSignal,
+  requestWalkSignal,
+  configurePedestrianSignal,
   signalPhase,
   walkSignal
 };

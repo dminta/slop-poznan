@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { Fn, float, color, uniform, mod, fract, step, smoothstep, mix, uv, texture, attribute, vec2, floor, sin, positionWorld } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { SIGNAL_SITES, SIGNAL_TIMING, JUNCTIONS, blockAt, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES } from './city-config.js';
+import { SIGNAL_SITES, SIGNAL_PLANS, updateSignal, JUNCTIONS, blockAt, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES } from './city-config.js';
 import { CROSSWALK, CROSSWALK_REACH, STOP_SETBACK } from './road-network.js';
 import { cityUniforms, createTreeGrateMaterial } from './tsl-materials.js';
 import { createTreeField } from './trees.js';
@@ -172,62 +172,41 @@ function createPosterTexture() {
   return tex;
 }
 
-/**
- * S-1 signal lens material: the lens geometry carries its lamp in uv.y (1 red at the top, 0.5 amber, 0 green), so
- * heads can stand at any height or turn. Driven by the shared signal clock and SIGNAL_TIMING (city-config.js), which
- * js/traffic.js obeys; red and amber light together for the last redAmber seconds of the red.
- */
-function createTrafficSignalLensMaterial(isAvenueHead, clock) {
-  const { cycle, avenueAmber, avenueRed, streetAmber, redAmber } = SIGNAL_TIMING;
+// Each head carries a stable texture coordinate into the shared CPU signal cache. Culling copies the instance
+// attribute, so a pedestrian request still reaches its heads after the original meshes have been chunked.
+function createTrafficSignalLensMaterial(isAvenueHead, stateTexture) {
   const mat = new THREE.MeshBasicNodeMaterial();
   mat.colorNode = Fn(() => {
-    const t = mod(clock, cycle);
+    const state = texture(stateTexture, vec2(attribute('signalIndex', 'float'), 0.5));
+    const phase = (isAvenueHead ? state.r : state.g).mul(255);
+    const band = (v) => step(v - 0.5, phase).sub(step(v + 0.5, phase));
+    const greenActive = band(1);
+    const amberActive = band(2).add(band(4));
+    const redActive = band(3).add(band(4));
     const lamp = uv().y;
     const isTopRed = step(0.75, lamp);
     const isBottomGreen = float(1.0).sub(step(0.25, lamp));
     const isMidAmber = float(1.0).sub(isTopRed).mul(float(1.0).sub(isBottomGreen));
-
-    // Group 0 ("avenue"): green, then amber from avenueAmber, red from avenueRed
-    // Group 1: red until avenueRed, then green, amber from streetAmber
-    // Both: the amber lights up beside the red for the last redAmber seconds of the red (red+amber, then green)
-    const greenActive = isAvenueHead
-      ? float(1.0).sub(step(avenueAmber, t))
-      : step(avenueRed, t).mul(float(1.0).sub(step(streetAmber, t)));
-    const amberActive = isAvenueHead
-      ? step(avenueAmber, t).mul(float(1.0).sub(step(avenueRed, t))).add(step(cycle - redAmber, t))
-      : step(streetAmber, t).add(step(avenueRed - redAmber, t).mul(float(1.0).sub(step(avenueRed, t))));
-    const redActive = isAvenueHead
-      ? step(avenueRed, t)
-      : float(1.0).sub(step(avenueRed, t));
-
     const activeMask = isTopRed.mul(redActive)
       .add(isMidAmber.mul(amberActive))
       .add(isBottomGreen.mul(greenActive));
-
-    const lensHue = mix(
-      mix(color(0x18ff68), color(0xffaa10), isMidAmber),
-      color(0xff2424),
-      isTopRed
-    );
+    const lensHue = mix(mix(color(0x18ff68), color(0xffaa10), isMidAmber), color(0xff2424), isTopRed);
     return mix(color(0x14181e), lensHue.mul(1.35), activeMask);
   })();
   return mat;
 }
 
-// Pedestrian head for walking alongside group 0 (isAvenue) or group 1 traffic, as walkSignal (city-config.js): a
-// steady green figure for `walk` seconds from the start of that green, a flashing one until its amber, then the red
-// figure. uv.y above 0.5 is the red (top) chamber, below it the green; the figure texture is the mask.
-function createWalkSignalMaterial(clock, isAvenue, figureTex) {
-  const { cycle, avenueAmber, avenueRed, walk } = SIGNAL_TIMING;
-  const offset = isAvenue ? 0 : avenueRed;
+function createWalkSignalMaterial(clock, isAvenue, figureTex, stateTexture) {
   const mat = new THREE.MeshBasicNodeMaterial();
   mat.colorNode = Fn(() => {
-    const t = mod(clock.add(cycle - offset), cycle);
-    const steady = float(1.0).sub(step(walk, t));
-    const greenPhase = float(1.0).sub(step(avenueAmber, t));
-    const greenLit = steady.add(greenPhase.sub(steady).mul(step(0.5, fract(t))));
+    const state = texture(stateTexture, vec2(attribute('signalIndex', 'float'), 0.5));
+    const display = (isAvenue ? state.b : state.a).mul(255);
+    const enabled = float(1).sub(step(2.5, display));
+    const greenPhase = step(0.5, display).mul(enabled);
+    const flashing = step(1.5, display);
+    const greenLit = greenPhase.mul(mix(float(1), step(0.5, fract(clock)), flashing));
     const isRed = step(0.5, uv().y);
-    const lit = mix(greenLit, float(1.0).sub(greenPhase), isRed);
+    const lit = mix(greenLit, float(1).sub(greenPhase), isRed).mul(enabled);
     const hue = mix(color(0x30ff8c), color(0xff2a20), isRed);
     const mask = texture(figureTex, uv()).r;
     return mix(color(0x0d0f11), mix(hue.mul(0.08), hue.mul(1.4), lit), mask);
@@ -255,6 +234,31 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
 
   // Signal clock (seconds), set every frame by main.js
   const signalClock = uniform(0);
+  // One RGBA8 texel per plan: the two vehicle phases and the two pedestrian display states. Only changed state
+  // uploads (about 2 KB for the whole city), with no new buffers or allocations in the frame loop.
+  const signalState = new Uint8Array(Math.max(1, SIGNAL_PLANS.length) * 4);
+  const signalTexture = new THREE.DataTexture(signalState, Math.max(1, SIGNAL_PLANS.length), 1, THREE.RGBAFormat);
+  signalTexture.magFilter = THREE.NearestFilter;
+  signalTexture.minFilter = THREE.NearestFilter;
+  signalTexture.generateMipmaps = false;
+  const phaseCode = { off: 0, green: 1, amber: 2, red: 3, redAmber: 4 };
+  function updateSignalTexture() {
+    let changed = false;
+    for (const timing of SIGNAL_PLANS) {
+      const state = updateSignal(signalClock.value, timing);
+      const i = timing.index * 4;
+      const a = phaseCode[state.phase0], b = phaseCode[state.phase1];
+      const c = state.disabled ? 3 : state.displayWalk0, d = state.disabled ? 3 : state.displayWalk1;
+      if (signalState[i] === a && signalState[i + 1] === b && signalState[i + 2] === c && signalState[i + 3] === d) continue;
+      signalState[i] = a;
+      signalState[i + 1] = b;
+      signalState[i + 2] = c;
+      signalState[i + 3] = d;
+      changed = true;
+    }
+    if (changed) signalTexture.needsUpdate = true;
+  }
+  updateSignalTexture();
 
   // Shared materials
   const poleMetalMat = new THREE.MeshStandardNodeMaterial({ color: 0x3b4046, roughness: 0.45, metalness: 0.78 });
@@ -267,11 +271,11 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
     side: THREE.DoubleSide // the visors are open half-tubes
   });
   const backplateBorderMat = new THREE.MeshStandardNodeMaterial({ color: 0xf2c400, roughness: 0.4, metalness: 0.1 });
-  const aveSignalLensMat = createTrafficSignalLensMaterial(true, signalClock);
-  const streetSignalLensMat = createTrafficSignalLensMaterial(false, signalClock);
+  const aveSignalLensMat = createTrafficSignalLensMaterial(true, signalTexture);
+  const streetSignalLensMat = createTrafficSignalLensMaterial(false, signalTexture);
   const figureTex = createPedestrianFigureTexture();
-  const aveWalkMat = createWalkSignalMaterial(signalClock, true, figureTex);
-  const streetWalkMat = createWalkSignalMaterial(signalClock, false, figureTex);
+  const aveWalkMat = createWalkSignalMaterial(signalClock, true, figureTex, signalTexture);
+  const streetWalkMat = createWalkSignalMaterial(signalClock, false, figureTex, signalTexture);
   // LED luminaire lens and gas lantern glass: pale by day, lit after dusk (the gas a warmer, yellower white)
   const lampBulbGlow = new THREE.MeshBasicNodeMaterial();
   lampBulbGlow.colorNode = mix(color(0x8f918c), color(0xfff1d6).mul(2.1), smoothstep(0.4, 1.1, cityUniforms.uInteriorGlow));
@@ -360,6 +364,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   const pedHeadMatrices = [];
   const pedAveMatrices = [];
   const pedStreetMatrices = [];
+  const s1AveIndices = [], s1StreetIndices = [], pedAveIndices = [], pedStreetIndices = [];
   const audioSignals = [];
   const plateSites = []; // { x, z, nx, nz, label }
   const ledLampSites = [];
@@ -506,31 +511,15 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   for (const site of SIGNAL_SITES) {
     if (builtJunctions.has(site.junction)) continue;
     builtJunctions.add(site.junction);
+    // Route pruning happens after furniture construction. Always build the same poles and footprints when a
+    // world is rebuilt; its final walking network later disables the lenses and audio through the shared plan.
+    const signalIndex = (site.timing.index + 0.5) / Math.max(1, SIGNAL_PLANS.length);
     const arms = site.arms || [];
-    // signal groups: arms of one road, ranked like road-network.js sidesAndGroups (major roads first, then width)
-    const road = arms.map((_, i) => i);
-    const findRoad = (i) => (road[i] === i ? i : (road[i] = findRoad(road[i])));
-    for (let i = 0; i < arms.length; i++) {
-      for (let j = i + 1; j < arms.length; j++) {
-        if (Math.abs(arms[i].ux * arms[j].ux + arms[i].uz * arms[j].uz) > 0.82) road[findRoad(i)] = findRoad(j);
-      }
-    }
-    const rank = new Map();
-    arms.forEach((a, i) => {
-      const v = (a.w >= 14.5 || a.lanes >= 3 ? 100 : 0) + a.w / 2;
-      rank.set(findRoad(i), Math.max(rank.get(findRoad(i)) || 0, v));
-    });
-    let top = -1;
-    let topRank = -Infinity;
-    for (const [r, v] of rank) {
-      if (v > topRank) {
-        topRank = v;
-        top = r;
-      }
-    }
+    // Use the plan's original axis for heads and vehicles alike. Transitive angle clustering can join a curved
+    // third arm to the main road even when its own direction belongs to the other phase.
 
-    arms.forEach((a, i) => {
-      const group0 = findRoad(i) === top;
+    arms.forEach((a) => {
+      const group0 = Math.abs(a.ux * site.timing.mainUx + a.uz * site.timing.mainUz) > 0.82;
       const half = a.w / 2;
       const rx = a.uz; // right of the traffic arriving over the arm (it travels along -u)
       const rz = -a.ux;
@@ -587,6 +576,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
           const m = setFacing(p.x + a.ux * 0.18, S1_Y, p.z + a.uz * 0.18, a.ux, a.uz);
           s1Matrices.push(m);
           (group0 ? s1AveMatrices : s1StreetMatrices).push(m);
+          (group0 ? s1AveIndices : s1StreetIndices).push(signalIndex);
           if (big) backplateMatrices.push(m);
         }
         // pedestrian head facing across the arm, for the people waiting on the other curb
@@ -595,8 +585,9 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         const m = setFacing(p.x + fx * 0.17, PED_Y, p.z + fz * 0.17, fx, fz);
         pedHeadMatrices.push(m);
         (group0 ? pedStreetMatrices : pedAveMatrices).push(m);
+        (group0 ? pedStreetIndices : pedAveIndices).push(signalIndex);
         // these heads' WALK is the other group's (walkSignal isAvenue); unplaced poles never become sound sources
-        audioSignals.push({ x: p.x + fx * 0.17, y: PED_Y, z: p.z + fz * 0.17, isAvenue: !group0 });
+        audioSignals.push({ x: p.x + fx * 0.17, y: PED_Y, z: p.z + fz * 0.17, isAvenue: !group0, signalTiming: site.timing });
       }
       // Street name plates for the corner buildings either side of the arm (1B)
       if (a.name) {
@@ -863,15 +854,16 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
     return inst;
   }
 
+  const signalAttrs = (data) => ({ signalIndex: { size: 1, data } });
   addMatrixArrayInstanced(unitCyl, signalPoleMat, signalPoleMatrices);
   addMatrixArrayInstanced(s1HousingGeo, signalHousingMat, s1Matrices);
   addMatrixArrayInstanced(backplateGeo, signalHousingMat, backplateMatrices);
   addMatrixArrayInstanced(backplateBorderGeo, backplateBorderMat, backplateMatrices);
-  addMatrixArrayInstanced(s1LensGeo, aveSignalLensMat, s1AveMatrices, false);
-  addMatrixArrayInstanced(s1LensGeo, streetSignalLensMat, s1StreetMatrices, false);
+  addMatrixArrayInstanced(s1LensGeo, aveSignalLensMat, s1AveMatrices, false, signalAttrs(s1AveIndices));
+  addMatrixArrayInstanced(s1LensGeo, streetSignalLensMat, s1StreetMatrices, false, signalAttrs(s1StreetIndices));
   addMatrixArrayInstanced(pedHousingGeo, signalHousingMat, pedHeadMatrices);
-  addMatrixArrayInstanced(pedPanelGeo, aveWalkMat, pedAveMatrices, false);
-  addMatrixArrayInstanced(pedPanelGeo, streetWalkMat, pedStreetMatrices, false);
+  addMatrixArrayInstanced(pedPanelGeo, aveWalkMat, pedAveMatrices, false, signalAttrs(pedAveIndices));
+  addMatrixArrayInstanced(pedPanelGeo, streetWalkMat, pedStreetMatrices, false, signalAttrs(pedStreetIndices));
   addMatrixArrayInstanced(bentMastGeo, poleMetalMat, mastMatrices);
   addMatrixArrayInstanced(ledHousingGeo, poleMetalMat, ledHeadMatrices);
   addMatrixArrayInstanced(ledLensGeo, lampBulbGlow, ledHeadMatrices, false);
@@ -1273,6 +1265,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   }
 
   function update(camera) {
+    updateSignalTexture();
     if (!camera) return;
     const glow = cityUniforms && cityUniforms.uInteriorGlow ? cityUniforms.uInteriorGlow.value : 0.48;
     // Streetlights fade in smoothly as dusk approaches (matching lampBulbGlow smoothstep(0.4, 1.1, uInteriorGlow))

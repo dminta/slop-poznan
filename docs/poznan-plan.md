@@ -5,28 +5,28 @@ Kaponiera portals and the Combino; Phase 10 the articulated bus, the S-2 arrow a
 the S-2 arrow, signal countdowns, "BUS" lane text, a 4th tree species and real OSM tree positions). The 2026-10-27 audit
 found further gaps; its six functional gaps were fixed on 2026-10-28, the rest is listed in **Open items from the
 2026-10-27 audit** below. Phase 12 is done except the docs rewrite and the
-archiving in 12.5. Phase 15 items 1–4 are done (2026-10-28); item 5 is open. None of the 2026-10-28 work has been
-checked in a browser yet.
+archiving in 12.5. Phase 15 items 1–5 and 7–8 are implemented; 6 is continued in Phase 16, and 9–10 remain open.
+Phase 16 is implemented and meets its headless targets (2026-10-29), with a WebGPU boot/console smoke check;
+the detailed browser checks below remain open.
 Line references are as of commit `46ec12b` and will drift; grep for the named symbol if a line no longer matches. Read `AGENTS.md` and the topic docs (`geodata.md`, `world.md`, `rendering.md`,
 `actors.md`, `audio.md`, `architecture.md`, `testing.md`) before starting any phase. They hold the repo-wide rules
 (modulepreload + boot count, module syntax, source-sliced tests, generated geodata, CSS `?v=` bump).
 
 ## Handoff: where to start (updated 2026-10-29)
 
-`poznan` passes `node --test tests/` (230 tests, about 45 s). Nothing from Phases 7–16 has been checked in a browser yet.
+The working tree passes `node --test tests/` (268 tests, about 34 s). Phase 16 has a WebGPU boot/console smoke check;
+full corridor observation and audio checks remain manual, as does the detailed visual review of earlier phases.
 The user tests in the browser and reports bugs back, so read those reports literally and probe with real coordinates
 before fixing.
 
-**Next task: Phase 16** (signal timing and trams stopping on switches; the full brief is in the Phase 16 section). Its
-inputs are the open items of Phase 15.6.
+**Next task: tram route data (15.10)**: the Zawady loop and routes that end inside the box. Phase 16 fixes the signal,
+tram clearance and opposite-track lane items from 15.6; its measurements and remaining manual checks are below.
 
 **Then, in this order:**
-1. Lanes on the opposite tram track at Rynek Jeżycki (15.6 open).
-2. Tram route data (15.10): the Zawady loop and routes that end inside the box.
-3. Re-measure the docs (15.9).
-4. Phase 12.5: the docs rewrite and archiving this plan.
-5. The central Dworzec node zebras (medians and tram strips as blocks in `tools/`).
-6. Optional skips from Phases 4 and 9–11 (listed in the audit section).
+1. Re-measure the docs (15.9).
+2. Phase 12.5: the docs rewrite and archiving this plan.
+3. The central Dworzec node zebras (medians and tram strips as blocks in `tools/`).
+4. Optional skips from Phases 4 and 9–11 (listed in the audit section), including passing a waiting left-turner (16.5).
 
 **Decisions pending with the user:**
 - Whether to build in the 13 park blocks (15.7). The recommendation is no.
@@ -1302,7 +1302,8 @@ open items). Everything was checked headless only (230 tests).
    - Signal heads move to the left pole when the right curb has no spot, so arms without a head went from 219 to 161.
    - Still open: the central Dworzec node still has no zebras (needs medians and tram strips as blocks in `tools/`).
      One approach at (675, 2738) off Krucza/Zamenhofa has no signal head.
-6. **Traffic gridlock: deadlocks fixed 2026-10-29; the stop-share target is not met.**
+6. **Traffic gridlock: initial fixes 2026-10-29; continued in Phase 16.** The measurements below are the historical
+   baseline before Phase 16, whose final measurements supersede them.
    - Benchmark: `node tools/bench-traffic.mjs` (`docs/testing.md`).
    - Over 7 districts × 5 min:
 
@@ -1321,15 +1322,9 @@ open items). Everything was checked headless only (230 tests).
      - Pedestrians may cross in front of a tram that is waiting for them.
      - A zebra courtesy rule: a car that has waited 5 s gets priority.
    - `tests/traffic-flow.test.mjs` guards against deadlocks.
-   - Open:
-     - Signal timing (26 s green in a 60 s cycle, no offsets) is the main remaining cause. With every signal green, 40%
-       of cars are stopped. Change the timing in `city-config.js` and give coordinated signals offsets.
-     - Two-arm signal nodes whose third OSM arm was dropped (e.g. Wilda (−156, 1992)).
-     - Single-lane give-way approaches block behind a left-turner (Łazarz (−1875, 1299)).
-     - Lanes lie on the opposite tram track at Rynek Jeżycki (a car was held 211 s at (−2023, −448)).
-     - Trams queue back over switches and need a "don't stop on the switch" rule in `js/trams.js` ((−1396, 96),
-       (−851, 1681)).
-     - One tram–pedestrian wait remains at (−854, 46).
+   - Addressed in Phase 16: local timing/offsets, demand-only two-arm crossings, the opposite-track lane at Rynek
+     Jeżycki, whole-tram switch/exit reservations, and the diagonal tram–pedestrian clearance mismatch.
+   - Optional remaining work: passing a left-turner on a wide single-lane give-way approach (Łazarz (−1875, 1299)).
 7. **Villa density: done 2026-10-28.** A new `villaBlock` layout builds detached houses steered to each block's real
    share. Blocks that are empty in OSM stay empty, and Chartowo is now an `ESTATE`. On buildable blocks:
 
@@ -1368,11 +1363,92 @@ open items). Everything was checked headless only (230 tests).
 
 ### Phase 16: Signal timing and trams on switches
 
-**Status: not started** (specified 2026-10-29 from the Phase 15.6 measurements). After 15.6 there are no deadlocks.
-Over 7 districts × 5 min, the mean car speed is 11.6 km/h and 47% of cars are stopped. With every signal forced green,
-stopped falls to about 40%, so signal timing is now the largest single cause.
+**Status: implemented; headless targets met** (2026-10-29). Local timing, pedestrian requests and tram exit
+reservations are complete. The WebGPU smoke check passes; the detailed browser checks below remain manual.
 
-**How signals work today** (read before changing anything):
+Implemented:
+- One shared plan per physical junction; inbound lane/width demand chooses the split. Minor and compact junctions
+  start with 44 s cycles, arterial plans 60/76 s. Named green-wave corridors share 60 s cycles (65 s on Św. Marcin);
+  offsets follow road distance at 40 km/h, with deterministic offsets elsewhere. Compact non-corridor signals joined
+  by 14–100 m links start with 44 s to reduce queue spillback. After the final walking routes are built, splits and
+  cycles reserve enough time for the last WALK entrant to cross the measured width at 1 m/s; all cycles remain
+  within 90 s. This corrected 141 crossings with insufficient clearance. Both groups keep at least 10 s green,
+  3 s amber and 2 s clearance/red+amber; WALK is 7 s steady plus 3 s flashing green.
+  Roosevelta also has a coordinated 60 s arterial plan through Kaponiera, taking precedence at its shared Bukowska
+  and Głogowska sites. Corridor names match OSM's full names, including Jana Henryka Dąbrowskiego and Ewarysta
+  Estkowskiego; the latter's two sites share the one Garbary junction plan.
+- Road nodes, trams, pedestrians, audio and heads consume the same cached plan state. The heads use one RGBA8 texture
+  plus an immutable per-instance plan coordinate rather than duplicating the CPU schedule in TSL; culling copies
+  the coordinate, so requests still work after chunking. Original OSM arm matching preserves head/traffic grouping
+  even when lane centring rotates a runtime arm across the 35° threshold. Merged-site aliases retain orientation.
+- On the furnished graph, 22 two-arm signals become pedestrian requests and 12 without crosswalks are disabled;
+  311 stay regular signals. The 12 disabled sites have dark lenses and no audio; their static poles/housings remain
+  because furniture is built before the final walking network. Their signal-only stop lines are also disabled.
+  Rebuilding the world resets dynamic plans and produces the same furniture, lanes and timing each time.
+- Trams check space for their whole body plus 2 m beyond switches, tram crossings, road/mainline crossings and
+  occupied platforms. A tram already inside keeps going; one waiting for exit room does not claim priority over
+  other approaches. `room` describes a blocked exit, `switch` an actual conflict. The benchmark follows both the
+  following and exit-room leader links, so neither can conceal a deadlock.
+- Benchmarking exposed two traffic constraints alongside the new signals: coarse box claims could retain a
+  physically disjoint turn until its far exit line (a Jeżyce car–tram–car cycle), and one sharp point imposed its
+  speed on an entire long connector (a 38.7 m Centrum turn crawled at 0.9 m/s). Box conflicts now require actual
+  swept-path overlap including the rear/body curvature; curve speed profiles reserve braking distance before local
+  bends. Both cache their sampled geometry and have exact-coordinate regression fixtures.
+- Exit reservations now rank approaches consistently and ignore uncommitted red-light contenders; a stable
+  arrival order at the stop line prevents newer cars from continually jumping a waiting lane. Demand crossings
+  give the road at least 20 s green between requests (WALK and full crossing clearance unchanged), so queues can
+  discharge before the next request closes the road.
+- The Rynek Jeżycki opposite-track lane (15.6) proved necessary to fix the last >120 s car waits. Flagged shared
+  street lanes now align to an unambiguous right-hand track pair only inside the roadway and clear of obstacles;
+  generic, single/ambiguous-track and segregated roads are unchanged. Paint and connectors inherit the correction.
+- Queue/red holds propagate backwards over closely spaced protected zones, preventing a tail from fouling the
+  earlier switch while its nose waits before the next. Straight shared-lane movements are not crossing reservations;
+  real turns, convergence and crossings remain protected. Curb stop nose offsets are clamped only where the whole
+  dwelling body remains clear; fixed island stops keep their boarding geometry.
+- A stationary tram before a crossing no longer reserves car curves 2 m beyond its actual nose. A tram dwelling
+  or held by a red/obstacle also yields its future switch approach priority; its actual body still holds any
+  crossing it occupies. Competing switch/block approaches retain their priority order. Green entry past the
+  effective complex stop line is recorded, so a later interior red cannot strand a tail across an earlier crossing.
+- Pedestrian waiting clearance is 2 m normal to the rails at every angle, matching the tram's actual obstacle
+  envelope (the old 1.8 m still overlapped its diagonal pedestrian square). This removes a two-tram/two-crossing
+  wait cycle exposed by the new protected-complex routing.
+- Optional item 5 (passing a waiting left-turner) is deferred: it needs lane/trajectory safety work.
+
+Final measurement: `node tools/bench-traffic.mjs --minutes 5` (7 districts, seed 4242, 15 fps, 20 s warm-up;
+the same population/spawn rules before and after). Each run used a frozen source snapshot.
+
+| Measure | Before Phase 16 | After | Target |
+|---|---|---|---|
+| Mean car speed | 11.6 km/h | 15.6 km/h | ≥ 15 km/h |
+| Car samples stopped | 46.7% | 32.0% | < 40% |
+| Cars held > 120 s | 35 | 0 | 0 |
+| Trams held continuously for `switch` > 60 s | 1 | 0 | 0 |
+| Longest continuous `switch` wait | 91.5 s | 39.6 s | ≤ 60 s |
+| Persistent deadlocks | 0 | 0 | 0 |
+| Longest stopped car queue | 11 | 10 | — |
+
+The longest car hold after the change was 117 s. By district, mean speed / stopped share:
+Jeżyce 17.7 km/h / 23.1%, Łazarz 13.0 / 27.0%, Centrum 15.0 / 30.8%, Kaponiera 13.6 / 47.5%,
+Stare Miasto 16.8 / 11.2%, Rataje 17.8 / 34.6%, Wilda 13.3 / 42.0%. The aggregate targets are met;
+Kaponiera and Wilda still have substantial queues. With `--no-signals` (all car phases green; pedestrians and tram
+signals retained), the final comparison is 18.5 km/h / 23.4% stopped, with no >120 s car holds or persistent deadlocks.
+
+The benchmark now measures the continuous switch reason every frame, separately from `t.stuck`, which spans all
+reasons during a stop. A 55 s red followed by 6 s at a switch used to be labelled a 61 s switch wait. The original
+total-stop metric is retained; queued trams may still wait over 60 s for exit room, signals or a track block.
+
+Validation: `node --test tests/` passes 268/268, including real furnished-graph crossing clearance and repeat-build
+checks. The five-minute Jeżyce/Centrum flow regression now requires mean >14 km/h, stopped <40%, no car held 120 s,
+no persistent deadlocks and no continuous switch wait over 60 s. Unit regressions cover whole-tram exit reservations,
+protected complexes, original head/arm alignment, local display/audio requests, box clearance, merge order,
+diagonal pedestrian clearance and the Rynek Jeżycki lane geometry. `git diff --check` passes.
+
+Browser smoke checks: Chrome/WebGPU boots and compiles with a clean console; signal lenses render. Forced WebGL2
+boots but reports `GL_INVALID_OPERATION: glDrawElements: Vertex buffer is not big enough for the draw call` on both
+the pre-change snapshot and Phase 16. This is an existing fallback issue, not resolved here. Full corridor observation,
+request cycles at the named junctions and listening checks remain manual work.
+
+**Signal baseline before Phase 16** (historical; implementation notes above supersede this):
 - `SIGNAL_TIMING` in `js/city-config.js` is `{ cycle: 60, avenueAmber: 26, avenueRed: 30, streetAmber: 56, redAmber: 2,
   walk: 7 }`. Every signal in the city runs on **one global clock**, with no per-junction offset.
   - Group 0 is the widest road (`isAvenue`, from `road-network.js` `sidesAndGroups`); group 1 is the rest.

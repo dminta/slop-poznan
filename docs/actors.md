@@ -10,11 +10,13 @@
 - `main.js` calls `trafficSystem.update(dt, elapsed, cameraSystem.currentPos, activeEntity, activeMode, camera)`. The **focus is the camera position, not the player**. Consumers of the returned `cars`/`buses`/`peds`: `audio-sources.js` (reads `edge, x, z, speed, acc, driver.a, yaw, yawOffset, isPolice, isSUV, bus, wait, gap, leaderSpeed, conn, yielding`; for peds `placed, v, conversation, rig.feet`, plus track fields) and the `city-map.js` radar. Renaming these fields breaks those modules.
 
 ## Street simulation model
-- The drivers are IDM + MOBIL-style lane changes. Parameters are `CAR_DRIVER`/`BUS_DRIVER` (`a, b, T, s0, aLat`), with per-vehicle desired speed `v0` = `desiredOn(v, edge)`: the driver's `pace` (cars 0.9–1.1 by `i % 5`, buses 0.7–0.8 by `i % 3`) times the edge's posted `limit` (`road-network.js`, OSM `maxspeed`; 50 km/h without one), at most the vehicle's `vmax` (cars 80, buses 50 km/h). `place()` and `leave()` set it per edge, and approaching the end of an edge a driver eases down to the next edge's `v0` like a bend (`vt` in `accelerate`). `aLat` sets bend speed through connector curves. Traffic has no coasting or physics model. Knocks are a separate decaying `vx/vz` impulse applied by `shove()`, clamped to the road.
+- The drivers are IDM + MOBIL-style lane changes. Parameters are `CAR_DRIVER`/`BUS_DRIVER` (`a, b, T, s0, aLat`), with per-vehicle desired speed `v0` = `desiredOn(v, edge)`: the driver's `pace` (cars 0.9–1.1 by `i % 5`, buses 0.7–0.8 by `i % 3`) times the edge's posted `limit` (`road-network.js`, OSM `maxspeed`; 50 km/h without one), at most the vehicle's `vmax` (cars 80, buses 50 km/h). `place()` and `leave()` set it per edge, and approaching the end of an edge a driver eases down to the next edge's `v0` like a bend (`vt` in `accelerate`). `aLat` sets bend speed through connector curves. `bendSpeed` caches a quarter-metre speed profile per curve and
+  driver class: local curvature limits lateral acceleration, a backward pass reserves braking distance before tighter
+  bends, and the next road limit caps the exit. A short sharp kink no longer makes a car crawl over a long connector. Traffic has no coasting or physics model. Knocks are a separate decaying `vx/vz` impulse applied by `shove()`, clamped to the road.
 - Road graph fields used (from `road-network.js`): edge `sx,sz,dx,dz,rx,rz,len,lanes[]` (lateral offsets, `r` = right), `moves[{to, turn:'S'|'L'|'R', out[]}]` (`out[i]` = target lane or -1), `axis` (`'ave'` for major roads), `axisIndex` (signal group at `e.to`: 0 the widest road, 1+ the others, which share the second phase), `inSide/outSide`, `opposite`. Nodes provide `signal, in, out, groupCount, sideCount, hx, hz`. `connector(e,i,f,j)` and `curvePoint` give intersection curves. A node's sides are its arms, numbered from 0.
 - Occupancy: `e.occ[lane]` holds pooled `{v, s}` entries sorted by `s`, and `buildOccupancy()` rebuilds them once per frame **before** driving. A vehicle inside an intersection is listed in its source lane at `e.len + cs` and in its target lane at negative `s`. A vehicle more than halfway through a lane change is in both lanes (`straddle`).
 - Intersection counters (`n.box`, `n.crossing`, `e.through`, `e.lefts`) are reset only for nodes and edges registered through `touchNode`/`touchEdge`. A new per-node or per-edge counter must be incremented through those helpers or it never resets. `claim()` runs immediately inside `mayEnter`/`enter` so vehicles and pedestrians evaluated later in the same frame see the claim. Keep that ordering.
-- Signals come from `signalPhase`/`walkSignal` in `city-config.js`, the same clock `street-details.js` renders. A phase is `'green'`, `'amber'`, `'red'` or `'redAmber'` (the Polish red+amber, the last `SIGNAL_TIMING.redAmber` 2 s of the red): `mayEnter`, `signalAhead`, `yieldOncoming` and the trams treat `'redAmber'` as red, and any code that tests for `'red'` must test for it too. `phaseOf(e)` picks the phase by `e.axisIndex`. Pedestrians crossing a group-0 road (the widest road at the junction; the track's `group`) walk on `stWalk`, the others on `aveWalk`. At unsignalised crosswalks they always have the WALK: vehicles yield to them through `pedestrianOn`, and they step off once no vehicle holds the crosswalk or can no longer stop. `laneCoord(e, i, arm)` and the walkers' `p.coord` both measure along the arm's crosswalk axis. Drivers find the crosswalks from the stop line: the one ahead starts `e.setbackTo` into the connector and is `CROSSWALK` deep, the one on the way out ends `f.setbackFrom` before the connector's end; a car turning in to wait for walkers stops `shortOfZebra(f)` (0.5 m to spare) before the end.
+- Signals come from `signalPhase`/`walkSignal` in `city-config.js`, the same clock `street-details.js` renders. A phase is `'green'`, `'amber'`, `'red'` or `'redAmber'` (the Polish red+amber, the last `SIGNAL_TIMING.redAmber` 2 s of the red): `mayEnter`, `signalAhead`, `yieldOncoming` and the trams treat `'redAmber'` as red, and any code that tests for `'red'` must test for it too. `phaseOf(e)` picks the phase by `e.axisIndex`. Pedestrians crossing a group-0 road use their node plan's `walk1`, the others `walk0`. At unsignalised crosswalks they always have the WALK: vehicles yield to them through `pedestrianOn`, and they step off once no vehicle holds the crosswalk or can no longer stop. `laneCoord(e, i, arm)` and the walkers' `p.coord` both measure along the arm's crosswalk axis. Drivers find the crosswalks from the stop line: the one ahead starts `e.setbackTo` into the connector and is `CROSSWALK` deep, the one on the way out ends `f.setbackFrom` before the connector's end; a car turning in to wait for walkers stops `shortOfZebra(f)` (0.5 m to spare) before the end.
 - **Why a car waits**: `accelerate` records the binding term in `v.waitReason` (like a tram's): `'car'` (the vehicle ahead, `v.leader`; a tram proxy's `leader.tram` is the tram), why `mayEnter` refused (`v.held`, set through `refuse()`: `'signal'`, `'box'`, `'tram'`, `'turner'`, `'bus'`, `'oncoming'`, `'crossing'`, `'pedestrian'`, `'room'`, `'merge'`, `'lane'`), `'signal'` (a red beyond), `'merge'`, `'turn'` (waiting inside to turn), `'pedestrian'` (inside, for walkers on its way out), `'player'` or `''`. Nothing in the app reads them; `tools/bench-traffic.mjs` does.
 - **Pedestrian courtesy** at unsignalised zebras: walkers have the right of way and step off whenever the car at the line can stop, which it always can, so a steady trickle of walkers held a car for good. `v.pedWait` counts the seconds a car stands with `waitReason 'pedestrian'` (kept while it stands for anything else, reset once it moves); past `PED_COURTESY` (5 s) its turn has come: `buildOccupancy` calls `courtesy(v)`, which raises `n.crossing` for the crosswalks it passes, so people at the curb wait (`mayCross`), and `mayEnter` passes `onIt` to `pedestrianOn`, so the car ignores them and waits only for those already on the zebra. The car behind starts its own count at the line. Not at signals (the WALK decides there).
 - Routing is random per edge (`chooseMove`): straight-biased, buses strongly straight and avoiding single-lane turns. Routes deliberately do **not** steer toward the camera. Recycling keeps the population local (the old drift-to-focus weighting was removed).
@@ -58,13 +60,48 @@ Root causes found and fixed: jam density from a full pool on sparse networks (`V
 as junctions (road-network.js step 7, docs/world.md); trams holding junction curves ahead while they could not go;
 trams and pedestrians waiting for each other at the rails; a trickle of walkers starving a car at a zebra (courtesy);
 cycles found: 6 cars and trams at (-1863, -391) and 3 around a car stuck in the (-986, 161) box behind a tram, both gone.
-Left (the benchmark's `--no-signals` run gives 40% stopped, so about 7 points are red lights): signals give each group
-26 s of a 60 s cycle with no offsets, two-arm signal nodes whose third OSM arm was dropped still stop the road 34 s per
-cycle (Wilda (-156, 1992)); single-lane give-way approaches block behind a left-turner (Łazarz (-1875, 1299)); lanes
-lying on the opposite tram track (the 15.2 leftover) put cars behind trams dwelling at Rynek Jeżycki, one stuck in the
-(-2023, -448) box for 211 s; tram queues on busy stretches (line 20 at Rynek Wildecki, Most Teatralny) back up over
-switches, and a tram there waits `switch` up to 90 s ((-851, 1681), (-1396, 96) by Kaponiera) until respawned; one
-tram–pedestrian wait between two tracks at (-854, 46) remains.
+Phase 16 replaces the global clock with `node.signalTiming` (shared with `SIGNAL_SITES[].timing`).
+`updateSignal(time, node)` caches both vehicle groups and WALK/display states once per plan and time. Traffic updates
+its signal nodes once per frame, and cars read `phaseOf(e)`. Plan splits use inbound lanes and width; minor and compact
+junctions start with 44 s cycles, arterials 60 or 76 s. After walking routes are built, each group's minimum green
+also allows the last WALK entrant to cross the full width at 1 m/s before opposing traffic starts; a cycle grows only
+when both minima cannot fit. Named corridor signals share 60 s cycles (65 s on Św. Marcin) and offsets from road
+distance at 40 km/h; other offsets are deterministic. Each transition has 3 s amber followed by 2 s clearance
+including the next group's red+amber. WALK admits new entrants for 7 s, then displays flashing green for 3 s.
+Two-arm nodes with crossings stay road-green until a walker requests a phase (2 s request delay, at least 20 s road
+green); their red clearance allows a 1 m/s walker to finish the measured crossing. Nodes without crossings are disabled.
+The furnished graph has 311 regular plans, 22 demand crossings and 12 disabled signals (2026-10-29).
+
+`boxBusy` refines coarse group counts against each holder's remaining swept connector, including the rear and rigid
+body curvature allowance; it keeps zebra and exit occupancy claims. This breaks the Jeżyce car–tram–car cycle where
+an already disjoint turn owned the box until a far stop line. Path/width/body-length pairs are cached, and repeated
+frames reuse their geometry.
+
+Pedestrians wait at least 2 m normal to the rails at any crossing angle. The tram's 1.2 m half-body plus the
+world-aligned person's 0.71 m diagonal and 0.05 m margin exceeded the old 1.8 m waiting clearance on diagonal
+streets. Two trams could therefore brake for people waiting safely before the other track and hold each other.
+The waiting distance and tram obstacle envelope are regression-tested together.
+
+Exit reservations use one transitive approach order and the same `mergeFirst` order within an approach. Uncommitted
+red-light approaches do not reserve an empty exit against green traffic. `mergeArrival` records arrival within 2 m
+of the line, so a later vehicle stopping a few centimetres farther forward cannot starve a neighbouring lane.
+
+Trams reserve space for their full length plus 2 m beyond switches, track crossings, mapped road/mainline crossings
+and occupied platforms. A tram already inside continues through. A tram held before entry records `waitReason: 'room'`
+and its downstream `leader`; conflicting approaches can pass it. Actual switch conflicts retain `'switch'`.
+Stationary dwelling/red/obstacle-held trams do not claim future switch approaches; their actual body occupancy still
+blocks the conflict. Switch/block contenders retain their ordering. Car-curve reservations of a stationary held
+tram end at its nose; moving trams keep the approach lookahead. This avoids a 2 m phantom claim beyond a safe gate.
+The benchmark follows both `'tram'` and `'room'` leaders, so a reservation cannot hide a deadlock. The opposite-track
+lane at Rynek Jeżycki is corrected before connectors and road paint are built (see `world.md`). Passing a waiting
+left-turner on a wide single-lane approach remains optional work.
+
+Final Phase 16 benchmark (7 districts × 5 minutes, seed 4242): 15.6 km/h mean, 32.0% stopped, no car held over 120 s,
+no persistent deadlocks and no continuous `switch` wait over 60 s (maximum 39.6 s). Before Phase 16: 11.6 km/h,
+46.7% stopped, 35 cars held over 120 s and one >60 s switch hold. The longest car hold is now 117 s. The
+`--no-signals` comparison is 18.5 km/h / 23.4% stopped. Full measurements and browser limitations are in
+`poznan-plan.md`, Phase 16.
+
 
 ## Player interaction
 - `player.active` is false in the helicopter or when the entity is at y >= 2.6. Mode-specific `halfW/halfL/push` values are set in `update()`. Drivers treat the player as a leader (`playerGap`), and lane changes avoid the player.
@@ -122,14 +159,17 @@ reads the road network (signal nodes, lanes and junction curves for `mapTramsToR
 - **Signals** (`findTrackSignals`): every `n.signal` road node within 9 m of a track puts a stop line on that edge, as
   far out as the stop line of the road arm the tram arrives along (the in-edge within 60° of the track tangent 12 m
   before the junction). Its group is that arm's (`axisIndex === 0` → group 0), else the group the roads don't use.
-  The phase is `signalPhase(elapsed, group === 0)` from `city-config.js`, the cars' clock. Trams stop on red and
-  red+amber, and on amber when they can stop at 3 m/s².
+  The phase is `signalPhase(elapsed, group === 0, node)` from `city-config.js`, the same local plan the cars and
+  heads use. Trams stop on red and red+amber, and on amber when they can stop at 3 m/s². The effective stop line
+  moves upstream over a protected complex when the whole body cannot fit between its crossings. Entry on green is
+  recorded in a fixed pool: a later red at an interior head allows the tram to finish clearing that complex. A
+  boarding dwell clears that commitment before the next departure.
 - **Driving**: IDM (`TRAM_DRIVER`: a 1.15, b 1.4, T 1.6 s, s0 3 m; 50 km/h street-running, 65 km/h segregated, ×0.9–1.0
   per tram; a street track also keeps to the lowest posted `limit` of the car lanes it runs along for 10 m or more,
   `te.roadLimit` from `mapTramsToRoads`, and eases down to a lower limit ahead like a curve). The acceleration is the minimum over the free road, trams ahead on the path (their rear, minus the
   clearance point while it is still on another branch; head-on on two-way track counts as stopped), switches, crossings
   and blocks another tram holds or reaches first, the next stop, red signals, curves and a buffer stop. `waitReason`
-  names the binding one (`tram`, `switch`, `block`, `stop`, `signal`, `curve`, `end`, or empty).
+  names the binding one (`tram`, `room`, `switch`, `block`, `stop`, `signal`, `curve`, `end`, or empty).
 - **Population**: 24 pooled trams (every third is a Tramino), kept within 900 m of the camera focus and respawned
   120–800 m away, never within 300 m in view or 70 m from another tram. After a camera jump of more than 140 m they are
   all respawned. A tram waiting at a buffer stop is respawned after 8 s out of view (40 s in view). A tram stopped

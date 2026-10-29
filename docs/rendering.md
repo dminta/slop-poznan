@@ -95,6 +95,12 @@
 - Anything that changes after the build must stay out of this pass: moving parts, re-filled pools, `count < capacity`. Ways to opt out: set `frustumCulled = false`, keep it outside the roots (traffic and pedestrians live under `TrafficAndPedestrians`), or set `visible = false` on the mesh itself at setup time. Meshes with `count !== instanceMatrix.count` are skipped as well.
 - Chunks and stand-ins set `userData.sharesPipelineWith` to a representative, so `precompileShaders` and the warm-up frame compile one object per pipeline. If you build a family of meshes that share a material, mark them the same way (`trees.js` does). `precompileShaders` skips stand-ins, which compile in the warm-up frame instead.
 
+- Signal lenses share an RGBA8 `DataTexture`, one texel per `SIGNAL_PLANS` entry: two vehicle phases and two pedestrian
+  display states. An immutable `signalIndex` instance attribute selects the texel; scene culling copies it with the
+  geometry. `street-details.update` refreshes changed state from `updateSignal` even in daylight or without a camera.
+  This keeps dynamic pedestrian requests and disabled signals in sync after chunking, with one extra vertex buffer
+  and about 1.6 KB per changed upload. The shader only decodes the phase and flashes green at 1 Hz.
+
 ## Start-up compile and warm-up
 - The order matters. First an empty `renderPipeline.render()` with `scene.visible = false`, which configures the MSAA and depth formats of the scene target. Then `compileAsync` over 16 parallel workers, with the scene pass's render target and MRT bound. Then the first loop frame runs with frustum culling off and `updateSceneCulling` skipped, so the shadow-pass pipelines compile behind the loading screen.
 - Objects or materials that first appear after this point compile on first sight and cause a hitch. Create them during the build, visible or in their pool, so these passes see them.

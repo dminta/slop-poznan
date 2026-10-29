@@ -114,10 +114,9 @@ function buildWorld() {
   }
   if (NO_SIGNALS) {
     // an experiment: every signal green for every road (crossing traffic still keeps out of an occupied box)
-    for (const phase of ['avePhase = signalPhase(elapsed, true);', 'stPhase = signalPhase(elapsed, false);']) {
-      if (!trafficSource.includes(phase)) throw new Error(`--no-signals: traffic.js no longer has "${phase}"`);
-      trafficSource = trafficSource.replace(phase, `${phase.split(' =')[0]} = 'green';`);
-    }
+    const phase = "const phaseOf = (e) => (e.axisIndex === 0 ? e.to.signalTiming.phase0 : e.to.signalTiming.phase1);";
+    if (!trafficSource.includes(phase)) throw new Error('--no-signals: traffic.js no longer has the cached phaseOf helper');
+    trafficSource = trafficSource.replace(phase, "const phaseOf = () => 'green';");
   }
   const { createTrafficSystem } = loadModule(trafficSource, {
     imports: {
@@ -168,7 +167,7 @@ const junctionOf = (v) => v.edge.to;
 function blocker(o, box) {
   if (isTram(o)) {
     if (o.waitReason === 'car') return o.obstacle && o.obstacle.edge ? o.obstacle : null;
-    if (o.waitReason === 'tram') return o.leader;
+    if (o.waitReason === 'tram' || o.waitReason === 'room') return o.leader;
     return null;
   }
   const v = o;
@@ -247,7 +246,8 @@ function runDistrict(d) {
   const r = {
     samples: 0, longestHeld: 0, speed: 0, moving: 0, movingSpeed: 0, stopped: 0, queue: 0, queueAt: null,
     waits: [], held60: new Set(), held120: new Set(), reasons: {}, rootReasons: {},
-    junctions: new Map(), deadlocks: new Map(), boxStuck: new Map(), tramHeld: new Map(), worstSnapshot: null
+    junctions: new Map(), deadlocks: new Map(), boxStuck: new Map(), tramHeld: new Map(),
+    switchHeld: new Set(), maxSwitchWait: 0, switchSeconds: 0, worstSnapshot: null
   };
   const J = (n) => {
     let j = r.junctions.get(n);
@@ -255,6 +255,7 @@ function runDistrict(d) {
     return j;
   };
   const lastConn = new Map();
+  const switchWait = new Map();
   const box = new Map();
   let time = 0;
   for (let frame = 0; time < seconds; frame++) {
@@ -262,6 +263,17 @@ function runDistrict(d) {
     if (!NO_TRAMS) trams.update(dt, time, focus, null, player, 'person');
     traffic.update(dt, time, focus, player, 'person', null);
     const sampling = time >= WARMUP;
+    // t.stuck spans every reason in a continuous stop. Measure switch time separately: a 55 s signal wait
+    // followed by 6 s for a moving tram must not be reported as a 61 s switch blockage.
+    for (const t of NO_TRAMS ? [] : trams.trams) {
+      const waiting = !t.atStop && t.speed < 0.5 && t.waitReason === 'switch';
+      const wait = waiting ? (switchWait.get(t) || 0) + dt : 0;
+      switchWait.set(t, wait);
+      if (!sampling || Math.hypot(t.x - d.x, t.z - d.z) > 900) continue;
+      r.maxSwitchWait = Math.max(r.maxSwitchWait, wait);
+      if (waiting) r.switchSeconds += dt;
+      if (wait > 60) r.switchHeld.add(t.id);
+    }
     // throughput: vehicles entering a junction curve, every frame
     for (const v of vehicles) {
       if (!v.edge) continue;
@@ -413,7 +425,8 @@ for (const d of districts) {
     stoppedPct: round((100 * r.stopped) / r.samples), longestQueue: r.queue,
     waitP50: round(pct(waits, 0.5), 0), waitP90: round(pct(waits, 0.9), 0), waitMax: round(waits[waits.length - 1] || 0, 0),
     held60: r.held60.size, held120: r.held120.size, longestHeld: round(r.longestHeld, 0), deadlocks: r.deadlocks.size, boxStuck: r.boxStuck.size,
-    tramsHeld60: r.tramHeld.size
+    tramsHeld60: r.tramHeld.size, switchHeld60: r.switchHeld.size,
+    maxSwitchWait: round(r.maxSwitchWait), switchSeconds: round(r.switchSeconds)
   };
   report.push(row);
   console.log(`\n== ${d.name} ${where(d)}  (${round((Date.now() - t0) / 1000, 0)} s)`);
@@ -439,8 +452,9 @@ for (const d of districts) {
       .map(([n, w]) => `${where(n)} ${round(w, 0)} s`).join(', ')}`);
   }
   if (r.tramHeld.size) {
-    console.log(`  trams stopped > 60 s: ${[...r.tramHeld.values()].map((t) => `line ${t.line || '-'} ${t.reason} ${round(t.stuck, 0)} s at ${t.at}`).join(', ')}`);
+    console.log(`  trams stopped > 60 s (total stop, reason at longest sample): ${[...r.tramHeld.values()].map((t) => `line ${t.line || '-'} ${t.reason} ${round(t.stuck, 0)} s at ${t.at}`).join(', ')}`);
   }
+  console.log(`  switch waits: ${row.switchHeld60} trams over 60 s, longest ${row.maxSwitchWait} s, total ${row.switchSeconds} tram-s`);
   if (r.worstSnapshot) console.log(`  longest wait, as it stood:\n${r.worstSnapshot.text.replace(/^/gm, '    ')}`);
   all.samples += r.samples;
   all.speed += r.speed;

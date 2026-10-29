@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { buildRoadNetwork, CROSSWALK } from './road-network.js';
 import { createPedestrianRoutes } from './pedestrian-routes.js';
-import { signalPhase, walkSignal, blockAt } from './city-config.js';
+import { updateSignal, requestWalkSignal, configurePedestrianSignal, configureSignalClearance, blockAt } from './city-config.js';
 import { cityUniforms, createContactShadowMaterial } from './tsl-materials.js';
 import { HEADLIGHTS, createVehicleHeadlight, placeVehicleHeadlight } from './vehicle-lights.js';
 import {
@@ -158,6 +158,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
 
   for (const n of nodes) {
     n.box = new Array(n.groupCount).fill(0); // vehicles crossing it from each road (group 0: the widest)
+    n.boxVehicles = []; // the holders, for geometric clearance where stop lines extend beyond the crossing roads
     n.crossing = new Array(n.sideCount).fill(0); // vehicles crossing (or about to cross) the crosswalk on each side
     n.approach = new Array(n.sideCount).fill(null); // the edge arriving over each side's crosswalk
     n.walkers = []; // pedestrians on its crosswalks
@@ -171,11 +172,85 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     e.through = 0; // vehicles from e crossing e.to straight on or to the right
     e.lefts = 0; // and to the left
   }
-  // Is the intersection box held by vehicles of any road but group g's?
-  const boxBusy = (n, g) => {
-    for (let k = 0; k < n.box.length; k++) if (k !== g && n.box[k] > 0) return true;
+  // Is the box held by other groups, or by an oncoming left turn across this particular movement?
+  function boxBusy(n, g, v, leftOf = null) {
+    let busy = leftOf ? leftOf.lefts > 0 : false;
+    if (!leftOf) for (let k = 0; k < n.box.length; k++) if (k !== g && n.box[k] > 0) busy = true;
+    if (!busy) return false;
+    if (!v || !n.boxVehicles) return true;
+    const c = connector(v.edge, v.lane, v.move.to, v.move.out[v.lane]);
+    for (const holder of n.boxVehicles) {
+      if (leftOf) {
+        if (holder.edge !== leftOf || holder.move.turn !== 'L' || holder.yielding) continue;
+      } else if (holder.edge.axisIndex === g) continue;
+      if (!holder.conn || holder.yielding) return true;
+      // A long connector can reach well past the other road. Keep its exit occupancy and zebra claims, but let
+      // this approach pass once the holder's rear has cleared its entire swept path (Jeżyce car/tram wait cycle).
+      // A rigid body cuts inside the curved centreline. The maximum-curvature sagitta bound also covers its
+      // overhang beyond the axles; buses therefore keep more room on tight bends than a short car does.
+      const width = v.halfWidth + holder.halfWidth
+        + (c.curv || 0) * v.half * v.half / 2;
+      const end = boxConflictEnd(c, holder.conn, width, holder.half);
+      if (holder.cs - holder.half <= end) return true;
+    }
     return false;
-  };
+  }
+
+  const boxSample = { x: 0, z: 0, dx: 0, dz: 0 };
+  function boxSamples(c) {
+    if (c.boxSamples) return c.boxSamples;
+    const count = Math.max(1, Math.ceil(c.len / 0.25));
+    const points = new Float64Array((count + 1) * 2);
+    const bends = new Float64Array(count + 1);
+    for (let k = 0; k <= count; k++) {
+      const s = c.len * k / count;
+      curvePoint(c, s, boxSample);
+      points[k * 2] = boxSample.x;
+      points[k * 2 + 1] = boxSample.z;
+      let h = 1;
+      while (h < 16 && c.lut[h] < s) h++;
+      const t = (h - 1 + Math.min(1, Math.max(0, (s - c.lut[h - 1]) / (c.lut[h] - c.lut[h - 1] || 1)))) / 16;
+      const u = 1 - t;
+      const dx = 3 * u * u * (c.x1 - c.x0) + 6 * u * t * (c.x2 - c.x1) + 3 * t * t * (c.x3 - c.x2);
+      const dz = 3 * u * u * (c.z1 - c.z0) + 6 * u * t * (c.z2 - c.z1) + 3 * t * t * (c.z3 - c.z2);
+      const ddx = 6 * u * (c.x2 - 2 * c.x1 + c.x0) + 6 * t * (c.x3 - 2 * c.x2 + c.x1);
+      const ddz = 6 * u * (c.z2 - 2 * c.z1 + c.z0) + 6 * t * (c.z3 - 2 * c.z2 + c.z1);
+      bends[k] = Math.abs(dx * ddz - dz * ddx) / Math.max(1e-6, Math.hypot(dx, dz) ** 3);
+    }
+    c.boxSamples = points;
+    c.boxBends = bends;
+    return points;
+  }
+
+  // Last position along b that can conflict with a. Sampling at 0.25 m adds at most 0.25 m to the distance
+  // between the nearest pair of samples; the 0.3 m margin covers it. Curves and width pairs are cached once.
+  function boxConflictEnd(a, b, width, half = 0) {
+    if (!b.boxConflicts) b.boxConflicts = new Map();
+    let cache = b.boxConflicts.get(a);
+    if (!cache) b.boxConflicts.set(a, (cache = new Map()));
+    let lengths = cache.get(width);
+    if (!lengths) cache.set(width, (lengths = new Map()));
+    if (lengths.has(half)) return lengths.get(half);
+    const A = boxSamples(a), B = boxSamples(b);
+    const steps = Math.ceil(2 * half / (b.len / (b.boxBends.length - 1))) + 1;
+    let end = -Infinity;
+    for (let j = B.length - 2; j >= 0 && end === -Infinity; j -= 2) {
+      // Any rigid body covering this point spans at most two half-lengths either side of it. Curvature behind
+      // that interval no longer matters: a completed tight turn must not inflate the straight exit forever.
+      let bend = 0;
+      for (let k = Math.max(0, j / 2 - steps); k <= Math.min(b.boxBends.length - 1, j / 2 + steps); k++) {
+        bend = Math.max(bend, b.boxBends[k]);
+      }
+      const reach2 = (width + 0.3 + bend * half * half / 2) ** 2;
+      for (let i = 0; i < A.length; i += 2) {
+        if ((A[i] - B[j]) ** 2 + (A[i + 1] - B[j + 1]) ** 2 > reach2) continue;
+        end = Math.min(b.len, b.len * j / (B.length - 2) + 0.25);
+        break;
+      }
+    }
+    lengths.set(half, end);
+    return end;
+  }
 
   // =========================================================================
   // 1. 3D LOFTED CARS, TAXIS, VANS & EMERGENCY VEHICLES (200 VEHICLES)
@@ -186,7 +261,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       bus, half, halfWidth, axle, driver, pace, vmax, v0: Math.min(vmax, pace * URBAN_LIMIT),
       edge: null, lane: 0, s: 0, speed: 0, acc: 0, gap: Infinity, leaderSpeed: 0,
       move: null, out: 0, conn: null, cs: 0, trail: null, commit: null, claimed: false, yielding: false, yieldAt: 0,
-      wait: 0, pedWait: 0, waitReason: '', held: '', leader: null, laneTimer: Math.random() * 0.5,
+      wait: 0, pedWait: 0, mergeArrival: Infinity, waitReason: '', held: '', leader: null, laneTimer: Math.random() * 0.5,
       dl: 0, dlv: 0, blink: 0, blinkPhase: Math.random() * 0.8,
       x: 0, z: 0, prevX: 0, prevZ: 0, tx: 0, tz: 1, nose: 0, yaw: 0, yawRate: 0, steer: 0,
       pitch: 0, roll: 0, pitchVel: 0, rollVel: 0, vx: 0, vz: 0, yawOffset: 0, yawVel: 0,
@@ -503,13 +578,13 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // 4. WHO IS WHERE: LANE OCCUPANCY, INTERSECTIONS, VIEW, PLAYER
   // =========================================================================
   let clock = 0;
-  // Signal phases of group 0 (ave*: the widest road at the junction) and of every other
-  // group (st*), from sidesAndGroups in road-network.js
-  let avePhase = 'green';
-  let stPhase = 'red';
-  let aveWalk = true;
-  let stWalk = false;
-  const phaseOf = (e) => (e.axisIndex === 0 ? avePhase : stPhase);
+  // Refresh each junction once, before driving. Vehicles and walkers read the same cached timing as the heads,
+  // trams and crossing audio; adding vehicles does not add phase calculations.
+  const signalNodes = [];
+  const phaseOf = (e) => (e.axisIndex === 0 ? e.to.signalTiming.phase0 : e.to.signalTiming.phase1);
+  function updateSignals(time) {
+    for (const n of signalNodes) updateSignal(time, n);
+  }
   let focusX = 0;
   let focusZ = 140;
   const player = { active: false, entity: null, x: 0, z: 0, vx: 0, vz: 0, halfW: 0.86, halfL: 2.23, push: 0.5 };
@@ -564,6 +639,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     const e = v.edge;
     const f = v.move.to;
     touchNode(e.to).box[e.axisIndex]++;
+    e.to.boxVehicles.push(v);
     if (!v.conn || v.cs < v.half + e.setbackTo + CROSSWALK) e.to.crossing[e.inSide]++; // until its tail is past the crosswalk on its way in
     if (v.move.turn !== 'L') touchEdge(e).through++;
     if (!v.yielding) cross(v);
@@ -597,6 +673,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     poolUsed = 0;
     for (const n of touchedNodes) {
       n.box.fill(0);
+      n.boxVehicles.length = 0;
       n.crossing.fill(0);
       n.touched = false;
     }
@@ -896,21 +973,47 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // left, for oncoming traffic?
   const holdsOn = (v, peds) => peds || (v.move.turn === 'L' && yieldOncoming(v.edge.opposite, false));
 
-  // Of two vehicles on the same road headed for the same lane, the one whose front is nearer the line goes first (by
-  // the front: a bus waiting at the line goes before the cars that pull up beside it)
+  // Before the stop line, fronts determine merge order. Once queued at the line, retain arrival order so a
+  // newcomer stopping a few centimetres farther forward cannot repeatedly jump ahead of a waiting lane.
   const precedence = (u, s) => s + u.half;
+  function mergeFirst(u, us, v, vs) {
+    const ua = Number.isFinite(u.mergeArrival), va = Number.isFinite(v.mergeArrival);
+    if (ua !== va) return ua;
+    if (ua && u.mergeArrival !== v.mergeArrival) return u.mergeArrival < v.mergeArrival;
+    if (!ua && precedence(u, us) !== precedence(v, vs)) return precedence(u, us) > precedence(v, vs);
+    return u.lane < v.lane;
+  }
 
   // Would there be room for v in lane j of edge f if everyone headed there queued bumper to bumper behind its far
-  // stop line? (An empty lane always has room, however short.) Vehicles take turns for it: whoever has waited longer
-  // to go there from another side, or goes first from v's own road, counts as already in.
+  // stop line? (An empty lane always has room, however short.) Rank approaches by their oldest eligible waiting
+  // lead, then fronts within that approach. Ranking individual wait across roads and fronts within one road was
+  // non-transitive: three cars could each reserve the same empty exit against the next at Kaponiera.
   function room(f, j, v) {
     let free = f.len - 1;
     for (const o of f.occ[j]) if (o.v !== v && o.s - o.v.half < f.len) free -= 2 * o.v.half + o.v.driver.s0;
+    let priority = null, waited = 0, arrival = Infinity;
     for (const a of f.from.in) {
       for (const list of a.occ) {
         const o = leadOf(list);
         if (!o || o.v.claimed || !o.v.move || o.v.move.to !== f || o.v.move.out[o.v.lane] !== j) continue;
-        if (a === v.edge ? precedence(o.v, o.s) > precedence(v, v.s) : o.v.wait > v.wait) free -= 2 * o.v.half + o.v.driver.s0;
+        if (a.to.signal && !o.v.isPolice && o.v.commit !== a.to && phaseOf(a) !== 'green') continue;
+        const at = Number.isFinite(o.v.mergeArrival) ? o.v.mergeArrival : Infinity;
+        const first = Number.isFinite(at) ? priority && a.id < priority.id
+          : o.v.wait > waited || (priority && o.v.wait === waited && a.id < priority.id);
+        if (at < arrival || (at === arrival && first)) {
+          priority = a;
+          waited = o.v.wait;
+          arrival = at;
+        }
+      }
+    }
+    for (const a of f.from.in) {
+      for (const list of a.occ) {
+        const o = leadOf(list);
+        if (!o || o.v.claimed || !o.v.move || o.v.move.to !== f || o.v.move.out[o.v.lane] !== j) continue;
+        if (a.to.signal && !o.v.isPolice && o.v.commit !== a.to && phaseOf(a) !== 'green') continue;
+        const first = a === v.edge ? mergeFirst(o.v, o.s, v, v.s) : a === priority;
+        if (first) free -= 2 * o.v.half + o.v.driver.s0;
       }
     }
     return free >= Math.min(2 * v.half + 0.5, f.len - 1);
@@ -958,7 +1061,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     merger.v = null;
     for (let i = 0; i < e.lanes.length; i++) {
       const o = i === v.lane ? null : leadOf(e.occ[i]);
-      if (!o || o.v === v || o.v.claimed || o.v.move.to !== f || precedence(o.v, o.s) <= precedence(v, v.s)) continue;
+      if (!o || o.v === v || o.v.claimed || o.v.move.to !== f || !mergeFirst(o.v, o.s, v, v.s)) continue;
       if (o.v.bus && besideTail(o.v)) continue; // it waits for the bus beside its tail
       const oj = o.v.move.out[o.v.lane];
       if (oj < 0 || (oj !== j && !(Math.abs(oj - j) === 1 && v.move.turn !== 'S' && (v.bus || o.v.bus)))) continue;
@@ -982,6 +1085,9 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   function mayEnter(v, d) {
     const e = v.edge;
     const n = e.to;
+    // Both lane leads at the line have arrived even if IDM leaves one a few centimetres farther back. Keep
+    // that queue order through acceleration, so repeated newcomers cannot starve the same waiting van.
+    if (d <= 2 && !Number.isFinite(v.mergeArrival)) v.mergeArrival = clock;
     const phase = n.signal ? phaseOf(e) : 'green';
     // Could it still stop? For a light that isn't green, also by crawling up to it, closer than it stops for lines
     const stoppable = canStopBefore(v, d) || (phase !== 'green' && v.speed * v.speed < 2 * v.driver.b * d);
@@ -1003,7 +1109,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       return refuse(v, 'lane');
     }
     if (!v.isPolice && (phase === 'red' || phase === 'redAmber' || (phase === 'amber' && stoppable))) return refuse(v, 'signal');
-    if (boxBusy(n, e.axisIndex)) return refuse(v, 'box'); // crossing traffic inside
+    if (boxBusy(n, e.axisIndex, v)) return refuse(v, 'box'); // crossing traffic inside
     if (tramBlocks(v, n, f, j)) return refuse(v, 'tram'); // a tram over its way across, or coming up to it
     const lead = ahead(e.occ[v.lane], v.s, v);
     if (lead && lead.v.yielding) return refuse(v, 'turner'); // the vehicle ahead waits inside to turn: wait behind the line
@@ -1015,7 +1121,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     const first = n.signal && (!v.isPolice || phase === 'green') && m.turn !== 'S' && !lead;
     const across = m.turn === 'L' && !!e.opposite;
     const wait = first ? (across ? yieldPoint(v, c, e) : c.len - shortOfZebra(f) - v.half) : -1; // < 0: no room inside to wait
-    if (m.turn === 'L' ? across && wait < 0 && yieldOncoming(e.opposite, v.wait > 8, v) : e.opposite && e.opposite.lefts > 0) return refuse(v, 'oncoming');
+    if (m.turn === 'L' ? across && wait < 0 && yieldOncoming(e.opposite, v.wait > 8, v)
+      : e.opposite && boxBusy(n, e.axisIndex, v, e.opposite)) return refuse(v, 'oncoming');
     if ((n.signal ? v.isPolice && phase !== 'green' : e.axisIndex !== 0) && yieldToCrossTraffic(v, n)) return refuse(v, 'crossing');
     // nobody on the crosswalks while it passes over them, on the way in and on the way out, and a free place to
     // clear the intersection to, taking turns with lanes merging into it
@@ -1098,8 +1205,28 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     return freeAcc(v) + worst;
   }
 
-  // Fastest v can take curve c at without exceeding the sideways acceleration its driver accepts
-  const bendSpeed = (v, c) => Math.sqrt(v.driver.aLat / Math.max(c.curv, 1e-3));
+  // Brake for the bends ahead, rather than crawling through a whole connector at its sharpest point's speed.
+  // The 38.7 m turn at Św. Marcin has a short 0.9 m/s exit kink; applying it to the entire curve held a queue
+  // for over 40 s. Profiles reuse the quarter-metre curvature samples and are cached for the two driver classes.
+  function bendSpeed(v, c, s = 0) {
+    if (!c.lut || c.len <= 1e-6) return Math.sqrt(v.driver.aLat / Math.max(c.curv, 1e-3));
+    if (!c.bendProfiles) c.bendProfiles = new Map();
+    let speeds = c.bendProfiles.get(v.driver);
+    if (!speeds) {
+      boxSamples(c);
+      const bends = c.boxBends;
+      speeds = new Float64Array(bends.length);
+      const step = c.len / (bends.length - 1);
+      for (let i = bends.length - 1; i >= 0; i--) {
+        const curvature = Math.max(bends[Math.max(0, i - 1)], bends[i], bends[Math.min(bends.length - 1, i + 1)], 1e-3);
+        const local = v.driver.aLat / curvature;
+        speeds[i] = i === bends.length - 1 ? local : Math.min(local, speeds[i + 1] + 2 * v.driver.b * step);
+      }
+      c.bendProfiles.set(v.driver, speeds);
+    }
+    const i = Math.min(speeds.length - 1, Math.max(0, Math.floor(s / c.len * (speeds.length - 1))));
+    return Math.sqrt(Math.min(speeds[i], speeds[Math.min(i + 1, speeds.length - 1)]));
+  }
 
   // IDM acceleration for vehicles ahead in the lane (and, through the intersection, in the lane it leads to),
   // the stop line while v may not go, a red beyond, the player, and slowing down for turns and give-way lines.
@@ -1162,7 +1289,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
         if (v.yielding) cross(v);
         if (peds && (t = stopAt(v, d, 0.5)) < worst) { worst = t; why = 'pedestrian'; }
       }
-      cap = bendSpeed(v, v.conn);
+      cap = Math.min(bendSpeed(v, v.conn, v.cs),
+        Math.sqrt(desiredOn(v, f) ** 2 + 2 * v.driver.b * Math.max(0, v.conn.len - v.cs)));
     }
     const pg = playerGap(v, 0);
     if (pg < LOOKAHEAD) {
@@ -1197,6 +1325,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   }
 
   function leave(v) {
+    v.mergeArrival = Infinity;
     v.s = v.cs - v.conn.len;
     v.edge = v.move.to;
     v.v0 = desiredOn(v, v.edge);
@@ -1523,6 +1652,9 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       const held = t.waitReason === 'car' || t.atStop || (t.speed < 1 && t.waitReason !== '' && t.waitReason !== 'curve');
       const near = path.u + 4 + t.speed;
       const far = path.u + (held ? 2 : Math.min(TRAM_REACH, 8 + t.speed * 6));
+      // Conflict spans already include the tram's width. A stopped nose 0.5 m before a keep-clear gate must leave
+      // its crossing free; the lane proxy's extra 2 m otherwise reserves it through the whole opposing green.
+      const junctionFar = held && t.speed < 0.1 ? path.u : far;
       for (let i = 0; i < path.n; i++) {
         const te = path.edges[i];
         const base = path.start[i];
@@ -1531,7 +1663,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
         const a = rear - base; // the body on te: [a, b]
         const b = path.u - base;
         for (const c of te.junctions) {
-          if (c.s1 < a || c.s0 > far - base) continue;
+          if (c.s1 < a || c.s0 > junctionFar - base) continue;
           c.held = tramFrame;
           c.by = t;
         }
@@ -1695,6 +1827,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   }
 
   function place(v, e, lane, s) {
+    v.mergeArrival = Infinity;
     v.edge = e;
     v.lane = lane;
     v.s = s;
@@ -1719,6 +1852,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
 
   // Take v off the road until it is placed again; far off the map, so the radar draws no stale blip
   function park(v) {
+    v.mergeArrival = Infinity;
     v.edge = null;
     v.conn = null;
     v.commit = null;
@@ -1754,6 +1888,31 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // =========================================================================
   const KERB = 1.6; // how far along a crosswalk track pedestrians wait to cross (the curb is 2 m along)
   const pedRoutes = createPedestrianRoutes(network, blockAt, railClearance);
+  // Decide demand-only crossings after the real walking routes are known: a dropped OSM arm can leave a road
+  // stopping for nobody. Use the curb-to-curb walk, not crosswalk.span (the approach road's length), for clearance.
+  function configureSignals() {
+    const widths = new Map();
+    for (const n of nodes) {
+      if (!n.signal) continue;
+      if (n.signalTiming.pedestrian || n.sideCount < 3) {
+        const crossings = pedRoutes.across(n);
+        let width = 0;
+        for (const route of crossings) width = Math.max(width, route.len - 2 * KERB);
+        configurePedestrianSignal(n, crossings.length > 0, width);
+      } else {
+        let width = widths.get(n.signalTiming);
+        if (!width) widths.set(n.signalTiming, (width = [0, 0]));
+        for (const route of pedRoutes.across(n)) {
+          const group = route.group === 0 ? 1 : 0;
+          width[group] = Math.max(width[group], route.len - 2 * KERB);
+        }
+      }
+      if (n.paintNode) n.paintNode.signal = n.signal;
+      if (n.signal) signalNodes.push(n);
+    }
+    configureSignalClearance(widths);
+  }
+  configureSignals();
   // Every junction with a crosswalk, signalised or not, where crossing pedestrians may start (refreshNear). At an
   // unsignalised one they always have the WALK and vehicles yield to them (walkOn, mayCross, pedestrianOn).
   const crossingNodes = nodes.filter((n) => pedRoutes.across(n).length > 0);
@@ -1837,14 +1996,24 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // Does p, on a crosswalk, have the WALK? Over group 0's road (the widest road at the junction)
   // with the other roads' traffic, over the others with group 0's. Without a signal always: people waiting at the curb
   // have priority, and vehicles yield to them through pedestrianOn as on the WALK.
-  const walkOn = (p) => !p.node.signal || (p.group === 0 ? stWalk : aveWalk);
+  function walkOn(p) {
+    if (!p.node.signal) return true;
+    const timing = p.node.signalTiming;
+    return timing.pedestrian || p.group === 0 ? timing.walk1 : timing.walk0;
+  }
 
   // May p step off the curb onto its crosswalk? On the WALK (early in the parallel traffic's green, so red for the
   // traffic arriving over it), once no vehicle is crossing it or committed to, and none is too close to stop. Reads only
   // `node, side, group`, so a crosswalk track will do for p (the strip ends people hold at, walk()).
   function mayCross(p) {
     const n = p.node;
-    if (!walkOn(p) || n.crossing[p.side] > 0) return false;
+    if (!walkOn(p)) {
+      // Repeated attempts preserve the first request's time. Only walkers at a curb (or a refuge hold) ask,
+      // so a two-arm road stays green when no pedestrian actually wants to cross it.
+      requestWalkSignal(clock, n);
+      return false;
+    }
+    if (n.crossing[p.side] > 0) return false;
     const e = n.approach[p.side];
     if (!e) return true;
     for (const list of e.occ) {
@@ -1911,7 +2080,10 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
         const k = ((qx - ax) * uz - (qz - az) * ux) / den;
         if (t < 0 || t > len || k < 0 || k > 1) continue;
         const sin = Math.abs(den) / Math.hypot(vx, vz);
-        out.push({ t, edge: e, s: e.cum[i] + k * (e.cum[i + 1] - e.cum[i]), clear: Math.min(6, 1.8 / Math.max(sin, 0.3)) });
+        // The tram checks a world-aligned pedestrian square: its diagonal reach is 0.71 m, plus the 1.2 m
+        // half-body and 0.05 m safety margin. Waiting 1.8 m away still blocked diagonal trams, so people on two
+        // adjacent tracks could wait for each other's tram forever. Keep 2 m normal clearance at any angle.
+        out.push({ t, edge: e, s: e.cum[i] + k * (e.cum[i + 1] - e.cum[i]), clear: 2.0 / sin });
       }
     }
     return out;
@@ -2431,10 +2603,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
 
   function update(dt, elapsed, focusPos = null, playerEntity = null, activeMode = 'car', camera = null) {
     clock = elapsed;
-    avePhase = signalPhase(elapsed, true);
-    stPhase = signalPhase(elapsed, false);
-    aveWalk = walkSignal(elapsed, true);
-    stWalk = walkSignal(elapsed, false);
+    updateSignals(elapsed);
     focusX = focusPos ? focusPos.x : 0;
     focusZ = focusPos ? focusPos.z : 140;
     // a jump of the camera (teleport, first frame): everything far away can be placed anywhere around it

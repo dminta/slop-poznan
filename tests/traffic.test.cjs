@@ -24,6 +24,7 @@ function intersectionHarness() {
     driver: { b: 3 }, half: 2.25, wait: 0, commit: null, isPolice: false };
   const state = { phase: 'red', occupied: false, pedestrians: false, space: true, conflict: false, tram: false };
   const context = {
+    clock: 0,
     LOOKAHEAD: 70,
     CROSSWALK: 4.3,
     shortOfZebra: (f) => f.setbackFrom + 4.3 + 0.5,
@@ -44,8 +45,196 @@ function intersectionHarness() {
     refuse: (v, why) => { v.held = why; return false; },
     PED_COURTESY: 5
   };
-  return { car, state, mayEnter: trafficFunction('mayEnter', context), signalAhead: trafficFunction('signalAhead', context) };
+  return { car, state, context, mayEnter: trafficFunction('mayEnter', context), signalAhead: trafficFunction('signalAhead', context) };
 }
+
+test('a turned Jeżyce car releases a disjoint approach before its distant exit stop line', () => {
+  const roadSource = readFileSync(join(__dirname, '../js/road-network.js'), 'utf8');
+  const curvePoint = vm.runInNewContext(`(${roadSource.match(/^function curvePoint\([^]*?\n\}/m)[0]})`);
+  // The two actual connectors in the car 52 -> tram 18 -> car 51 wait cycle (seed 4242, t=300 s).
+  const candidate = {
+    x0: -2006.5141968646772, z0: -444.83928839663344, x1: -2020.2024314739708, z1: -447.76114619278775,
+    x2: -2033.0030894386184, z2: -453.8944170390878, x3: -2046.1926269820087, z3: -458.5785518675815,
+    len: 42.033203515292605, curv: 0.011318223190769574,
+    lut: [0, 2.62238765, 5.24252939, 7.86227703, 10.48296356, 13.10546303, 15.73024178, 18.35742188,
+      20.98683739, 23.61808968, 26.25061226, 28.88372231, 31.51667595, 34.14872742, 36.77919388, 39.40748596, 42.03320313]
+  };
+  const curve = {
+    x0: -2038.9326693778683, z0: -438.6485354828496, x1: -2036.0473278029735, z1: -445.9832355610863,
+    x2: -2019.5374819713206, z2: -446.9538398140908, x3: -2002.080334932214, z3: -440.8150628333061,
+    len: 39.43346032690097, curv: 0.16106215152412098,
+    lut: [0, 1.47576737, 2.99882746, 4.62286711, 6.38378143, 8.30244827, 10.38873577, 12.64495659,
+      15.06837654, 17.65290833, 20.39025497, 23.27067947, 26.28353119, 29.41763878, 32.66158676, 36.00394440, 39.43346024]
+  };
+  const holder = { edge: { axisIndex: 0 }, conn: curve, cs: 36.88202741072315, half: 2.34, halfWidth: 0.88 };
+  const v = { edge: {}, lane: 0, move: { to: {}, out: [0] }, half: 2.23, halfWidth: 0.895 };
+  const n = { box: [1, 0], boxVehicles: [holder] };
+  let entering = candidate;
+  let samples = 0;
+  const context = { curvePoint: (...args) => { samples++; return curvePoint(...args); }, boxSample: {}, connector: () => entering };
+  context.boxSamples = trafficFunction('boxSamples', context);
+  context.boxConflictEnd = trafficFunction('boxConflictEnd', context);
+  const boxBusy = trafficFunction('boxBusy', context);
+  assert.equal(boxBusy(n, 1, v), false, 'car 51 can clear the tram instead of waiting for the far exit line');
+  assert.equal(context.boxConflictEnd(candidate, curve, v.halfWidth + holder.halfWidth), -Infinity,
+    'the two opposing lane paths stay disjoint even while the right turn completes');
+  const initialSamples = samples;
+  for (let i = 0; i < 100; i++) assert.equal(boxBusy(n, 1, v), false);
+  assert.equal(samples, initialSamples, 'cached pairs require no further curve sampling');
+  holder.half = 6;
+  assert.equal(boxBusy(n, 1, v), true, 'a long rigid body on the tight turn still sweeps the opposing lane');
+  holder.half = 2.34;
+  const line = (x0, z0, x3, z3) => ({ x0, z0, x3, z3, x1: x0 + (x3 - x0) / 3, z1: z0 + (z3 - z0) / 3,
+    x2: x0 + 2 * (x3 - x0) / 3, z2: z0 + 2 * (z3 - z0) / 3,
+    len: 20, lut: Array.from({ length: 17 }, (_, k) => k * 20 / 16) });
+  entering = line(0, -10, 0, 10);
+  holder.conn = line(-10, 0, 10, 0);
+  const last = context.boxConflictEnd(entering, holder.conn, v.halfWidth + holder.halfWidth);
+  assert.ok(Number.isFinite(last) && last > 10, 'a perpendicular crossing retains a physical conflict');
+  holder.cs = last + holder.half - 0.01;
+  assert.equal(boxBusy(n, 1, v), true, 'the tail still across the conflicting path holds its box');
+  holder.cs = last + holder.half + 0.01;
+  assert.equal(boxBusy(n, 1, v), false);
+  holder.yielding = true;
+  assert.equal(boxBusy(n, 1, v), true, 'a car waiting inside to turn retains its claim');
+  assert.deepEqual(n.box, [1, 0], 'clearance does not alter the occupancy or crossing counters');
+});
+
+test('merge room uses a transitive approach order, so three cars cannot reserve an empty exit against each other', () => {
+  const n = { signal: true, in: [] };
+  const a = { id: 2, to: n, occ: [], phase: 'green' };
+  const b = { id: 3, to: n, occ: [], phase: 'red' };
+  const exit = { len: 10.415, occ: [[]], from: n };
+  const car = (edge, s, wait) => ({ edge, lane: 0, s, wait, half: 2.2, driver: { s0: 2 }, move: { to: exit, out: [0] } });
+  // Kaponiera #7 waits longest, #46 is a little farther forward in its neighbouring lane, and #80 on the other
+  // approach has waited longer than #46. Mixing individual wait with same-road front order creates a cycle.
+  const oldest = car(a, 7, 62), front = car(a, 7.2, 24), other = car(b, 7, 27);
+  front.lane = 1;
+  front.move.out.push(0);
+  a.occ = [[{ v: oldest, s: oldest.s }], [{ v: front, s: front.s }]];
+  b.occ = [[{ v: other, s: other.s }]];
+  n.in = [a, b];
+  const context = {
+    leadOf: (list) => list.at(-1), precedence: (v, s) => s + v.half, phaseOf: (e) => e.phase
+  };
+  context.mergeFirst = trafficFunction('mergeFirst', context);
+  const room = trafficFunction('room', context);
+  assert.equal(room(exit, 0, front), true, 'a red approach cannot reserve the green approach\'s empty exit');
+  assert.equal(room(exit, 0, oldest), false, 'the nearer front in the same approach still merges first');
+  n.signal = false;
+  assert.equal(room(exit, 0, front), true, 'the oldest waiting approach wins; its front car goes first');
+  assert.equal(room(exit, 0, other), false, 'cross-approach priority agrees with same-approach order');
+  a.occ[0][0].s = front.s;
+  oldest.s = front.s;
+  assert.equal(room(exit, 0, oldest), true, 'equal fronts have a stable lane order');
+  assert.equal(room(exit, 0, front), false, 'equal fronts cannot both claim a one-car exit');
+  a.occ[0][0].s = oldest.s = 7;
+  oldest.mergeArrival = 38;
+  front.mergeArrival = 151;
+  other.mergeArrival = 80;
+  assert.equal(room(exit, 0, oldest), true, 'arrival at the line outranks centimetres of stopping position');
+  assert.equal(room(exit, 0, front), false, 'the newer lane queue waits for its predecessor');
+  exit.occ[0].push({ v: other, s: 4 });
+  assert.equal(room(exit, 0, front), false, 'a committed vehicle already in the exit still reserves physical room');
+});
+
+test('a newcomer stopping centimetres farther forward cannot repeatedly pass an older merge queue', () => {
+  const exit = { lanes: [0] };
+  const edge = { len: 10, lanes: [0, 1], occ: [] };
+  const old = { edge, lane: 0, s: 6.5843, half: 2.8, mergeArrival: 38, move: { to: exit, out: [0] } };
+  const newcomer = { edge, lane: 1, s: 7.2, half: 2.3, mergeArrival: 151, move: { to: exit, out: [-1, 0] } };
+  edge.occ = [[{ v: old, s: old.s }], [{ v: newcomer, s: newcomer.s }]];
+  const context = { merger: {}, connector: () => ({ len: 30 }), besideTail: () => false, leadOf: (list) => list.at(-1),
+    precedence: (v, s) => s + v.half };
+  context.mergeFirst = trafficFunction('mergeFirst', context);
+  const mergingAhead = trafficFunction('mergingAhead', context);
+  assert.equal(mergingAhead(old, exit, 0), null, 'the older queue keeps its turn through acceleration');
+  assert.equal(mergingAhead(newcomer, exit, 0).v, old, 'the newcomer follows its predecessor');
+});
+
+test('traffic reads each junction timing once per frame, independently of vehicle count', () => {
+  const nodes = [
+    { signalTiming: { phase0: 'green', phase1: 'red' } },
+    { signalTiming: { phase0: 'red', phase1: 'green' } }
+  ];
+  let calculations = 0;
+  const updateSignals = trafficFunction('updateSignals', {
+    signalNodes: nodes,
+    updateSignal(time, node) {
+      assert.equal(time, 17);
+      assert.ok(nodes.includes(node));
+      calculations++;
+    }
+  });
+  const phase = source.match(/const phaseOf = ([^;]+);/);
+  assert.ok(phase);
+  const phaseOf = vm.runInNewContext(`(${phase[1]})`);
+  const green = intersectionHarness();
+  const red = intersectionHarness();
+  green.car.edge.to.signalTiming = nodes[0].signalTiming;
+  red.car.edge.to.signalTiming = nodes[1].signalTiming;
+  updateSignals(17);
+  for (let i = 0; i < 200; i++) {
+    assert.equal(phaseOf(green.car.edge), 'green');
+    assert.equal(phaseOf(red.car.edge), 'red');
+    assert.equal(phaseOf({ to: nodes[1], axisIndex: 1 }), 'green');
+  }
+  assert.equal(calculations, 2, 'phase computation scales with junctions, not cars');
+});
+
+test('two-arm signals use actual crossing width and disappear when no walking route remains', () => {
+  const nodes = [
+    { signal: true, sideCount: 2, signalTiming: {} },
+    { signal: true, sideCount: 2, signalTiming: {} },
+    { signal: true, sideCount: 4, signalTiming: {} }
+  ];
+  const signalNodes = [];
+  const configured = [];
+  const configureSignals = trafficFunction('configureSignals', {
+    nodes, signalNodes, KERB: 1.6,
+    configureSignalClearance: () => {},
+    pedRoutes: { across: (n) => n === nodes[0] ? [{ len: 13.2, span: 150 }, { len: 15.2, span: 150 }] : [] },
+    configurePedestrianSignal(n, crossing, width) {
+      configured.push({ n, crossing, width });
+      if (!crossing) n.signal = false;
+    }
+  });
+  configureSignals();
+  assert.equal(configured.length, 2);
+  assert.equal(configured[0].crossing, true);
+  close(configured[0].width, 12, 'clearance covers the walk between the waiting curbs');
+  assert.equal(nodes[1].signal, false);
+  assert.deepEqual(signalNodes, [nodes[0], nodes[2]]);
+});
+
+test('pedestrians request a two-arm crossing and wait for its cached WALK', () => {
+  const node = { signal: true, signalTiming: { pedestrian: true, walk0: true, walk1: false }, crossing: [0], approach: [null] };
+  const pedestrian = { node, side: 0, group: 1 };
+  const requests = [];
+  const context = { clock: 18, requestWalkSignal: (time, n) => requests.push([time, n]) };
+  context.walkOn = trafficFunction('walkOn', context);
+  const mayCross = trafficFunction('mayCross', context);
+  assert.equal(mayCross(pedestrian), false, 'parallel road green does not release pedestrians');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0][0], 18);
+  assert.equal(requests[0][1], node);
+  node.signalTiming.walk1 = true;
+  assert.equal(mayCross(pedestrian), true);
+  assert.equal(requests.length, 1, 'no new request during WALK');
+  node.crossing[0] = 1;
+  assert.equal(mayCross(pedestrian), false, 'a vehicle already crossing still has to clear');
+});
+
+test('ordinary crossing WALK comes from its own junction and opposing road group', () => {
+  const walkOn = trafficFunction('walkOn', {});
+  const a = { signal: true, signalTiming: { walk0: true, walk1: false } };
+  const b = { signal: true, signalTiming: { walk0: false, walk1: true } };
+  assert.equal(walkOn({ node: a, group: 0 }), false);
+  assert.equal(walkOn({ node: a, group: 1 }), true);
+  assert.equal(walkOn({ node: b, group: 0 }), true);
+  assert.equal(walkOn({ node: b, group: 1 }), false);
+  assert.equal(walkOn({ node: { signal: false }, group: 0 }), true);
+});
 
 test('police pass red and amber signals while ordinary cars stop', () => {
   const { car, state, mayEnter, signalAhead } = intersectionHarness();
@@ -404,7 +593,7 @@ test('pedestrians stop short of a tram track while a tram is over it or coming',
   context.tramNear = trafficFunction('tramNear', context);
   const tramRoom = trafficFunction('tramRoom', context);
   const p = { route, t: 2, dir: 1 };
-  assert.ok(Math.abs(tramRoom(p) - 6.2) < 1e-9, 'stops 1.8 m before the rails (10 m along)');
+  assert.ok(Math.abs(tramRoom(p) - 6.0) < 1e-9, 'stops 2 m before the rails (10 m along)');
   assert.equal(route.tramCrossings.length, 1, 'worked out once and kept on the track');
   t.path.u = -100;
   assert.equal(tramRoom(p), Infinity, 'tram far off');
@@ -414,7 +603,7 @@ test('pedestrians stop short of a tram track while a tram is over it or coming',
   assert.equal(tramRoom(p), Infinity, 'gone by');
   t.path.u = 30;
   assert.equal(tramRoom({ route, t: 9.5, dir: 1 }), Infinity, 'already on the rails: walks on');
-  assert.ok(Math.abs(tramRoom({ route, t: 18, dir: -1 }) - 6.2) < 1e-9, 'from the other side');
+  assert.ok(Math.abs(tramRoom({ route, t: 18, dir: -1 }) - 6.0) < 1e-9, 'from the other side');
   t.path.edges[0] = { reverse: te };
   te.reverse = t.path.edges[0];
   t.path.edges[0].len = 100;
@@ -464,6 +653,37 @@ test('a tram held at a stop, a red or behind another tram holds only the junctio
   assert.equal(road.occ[0].length, 0);
 });
 
+test('a stopped tram before a protected crossing leaves it free while its body and approaching trams still hold it', () => {
+  // Measured at Św. Marcin / aleja Niepodległości: the tram stops 0.432 m before a protected car curve. The former
+  // 2 m reservation ahead of its nose held the green approach for 139 s across successive waiting trams.
+  const te = {
+    len: 300, lanes: [],
+    junctions: [{ s0: 219.291781584148, s1: 222.52674903824297, held: -1, by: null }]
+  };
+  const t = tramOn(te, 218.8595495175313, 0);
+  const context = tramLaneContext([t]);
+  for (const reason of ['signal', 'switch', 'tram', 'car']) {
+    t.waitReason = reason;
+    context.tramFrame++;
+    context.occupyTrams();
+    assert.notEqual(te.junctions[0].held, context.tramFrame, `${reason}: stopped short of the protected crossing`);
+  }
+  t.speed = 2;
+  t.waitReason = 'signal';
+  context.tramFrame++;
+  context.occupyTrams();
+  assert.equal(te.junctions[0].held, context.tramFrame, 'an approaching tram retains its lookahead');
+  t.waitReason = 'car';
+  context.tramFrame++;
+  context.occupyTrams();
+  assert.equal(te.junctions[0].held, context.tramFrame, 'a tram still braking for a car retains its lookahead');
+  t.speed = 0;
+  t.path.u = 220;
+  context.tramFrame++;
+  context.occupyTrams();
+  assert.equal(te.junctions[0].held, context.tramFrame, 'a stopped body over the crossing still blocks it');
+});
+
 test('a driver kept waiting at an unsignalised zebra gets its turn: people still at the curb no longer hold it', () => {
   const { car } = intersectionHarness();
   car.edge.to.signal = false;
@@ -471,6 +691,7 @@ test('a driver kept waiting at an unsignalised zebra gets its turn: people still
   const match = source.match(/  function mayEnter\([^]*?\n  \}/)[0];
   const calls = [];
   const enter = vm.runInNewContext(`(${match.trim()})`, {
+    clock: 0,
     LOOKAHEAD: 70, CROSSWALK: 4.3, PED_COURTESY: 5, shortOfZebra: () => 6.55, phaseOf: () => 'green', canStopBefore: () => true,
     stopAt: () => -3, boxBusy: () => false, ahead: () => null, connector: () => ({ len: 20 }), yieldToCrossTraffic: () => false,
     pedestrianOn: (n, side, coord, t0, t1, onIt) => (calls.push(onIt), !onIt), laneCoord: () => 0, timeTo: () => 1, room: () => true,
@@ -504,4 +725,56 @@ test('drivers aim at their pace times the posted limit, within the vehicle top s
   close(desiredOn(car, { limit: 30 / 3.6 }), 33 / 3.6);
   close(desiredOn(car, {}), 55 / 3.6); // no limit on the edge: the built-up 50 km/h
   close(desiredOn({ pace: 0.8, vmax: 50 / 3.6 }, { limit: 70 / 3.6 }), 50 / 3.6); // a bus on a 70 km/h artery
+});
+
+test('a pedestrian waiting before a diagonal track stays outside the tram safety envelope', () => {
+  const h = Math.SQRT1_2;
+  const te = { pts: new Float64Array([0, 0, 100, 100]), cum: new Float64Array([0, Math.SQRT2 * 100]),
+    len: Math.SQRT2 * 100, box: [0, 100, 0, 100], flip: false, reverse: null };
+  const route = { ax: 50 + 10 * h, az: 50 - 10 * h, ux: -h, uz: h, len: 20 };
+  const t = { path: { edges: [te], start: [0], n: 1, u: 60 }, length: 32, speed: 2, waitReason: '' };
+  const context = { trams: [t], tramGraph: { edges: [te] }, PED_TRAM_TIME: 6, Math, Infinity };
+  context.tramCrossings = trafficFunction('tramCrossings', context);
+  context.tramNear = trafficFunction('tramNear', context);
+  const room = trafficFunction('tramRoom', context);
+  const tramSource = readFileSync(join(__dirname, '../js/trams.js'), 'utf8');
+  const number = (name) => Number(tramSource.match(new RegExp(`const ${name} = ([0-9.]+);`))[1]);
+  const reach = number('PED_REACH');
+  const gap = vm.runInNewContext(`(${tramSource.match(/  function obstacleGap\([^]*?\n  \}/)[0].trim()})`, {
+    Math, Infinity, TRAM_HALF_WIDTH: number('TRAM_HALF_WIDTH'), SWEEP_STEP: number('SWEEP_STEP'),
+    sweepN: 3, sx0: 50 - 2 * h, sx1: 50 + 2 * h, sz0: 50 - 2 * h, sz1: 50 + 2 * h,
+    sweepX: [50 - 2 * h, 50, 50 + 2 * h], sweepZ: [50 - 2 * h, 50, 50 + 2 * h],
+    sweepTX: [h, h, h], sweepTZ: [h, h, h], _obsV: 0
+  });
+  for (const dir of [1, -1]) {
+    const p = { route, t: dir > 0 ? 2 : 18, dir };
+    const stop = p.t + dir * room(p);
+    assert.equal(gap(route.ax + route.ux * stop, route.az + route.uz * stop, 0, reach, reach, 0, 0, true), Infinity,
+      'a walker holding for the other track must not stop this tram and create a two-track wait cycle');
+  }
+});
+
+test('straight traffic passes after the rear of an oncoming left turn clears its path, before the far exit line', () => {
+  const h = intersectionHarness();
+  h.state.phase = 'green';
+  h.car.halfWidth = 0.9;
+  const line = (x0, z0, x3, z3) => ({ x0, z0, x3, z3, x1: x0 + (x3 - x0) / 3, z1: z0 + (z3 - z0) / 3,
+    x2: x0 + 2 * (x3 - x0) / 3, z2: z0 + 2 * (z3 - z0) / 3,
+    len: 20, curv: 0, lut: Array.from({ length: 17 }, (_, k) => k * 20 / 16) });
+  const candidate = line(0, -10, 0, 10);
+  const opposite = { axisIndex: 0, lefts: 1 };
+  const holder = { edge: opposite, move: { turn: 'L' }, conn: line(-10, 0, 10, 0), cs: 12, half: 2.3, halfWidth: 0.9 };
+  h.car.edge.opposite = opposite;
+  Object.assign(h.car.edge.to, { box: [1, 0], boxVehicles: [holder] });
+  const roads = readFileSync(join(__dirname, '../js/road-network.js'), 'utf8');
+  h.context.curvePoint = vm.runInNewContext(`(${roads.match(/^function curvePoint\([^]*?\n\}/m)[0]})`);
+  h.context.boxSample = {};
+  h.context.connector = () => candidate;
+  h.context.boxSamples = trafficFunction('boxSamples', h.context);
+  h.context.boxConflictEnd = trafficFunction('boxConflictEnd', h.context);
+  h.context.boxBusy = trafficFunction('boxBusy', h.context);
+  assert.equal(h.mayEnter(h.car, 0), false, 'the turning tail still sweeps the straight path');
+  holder.cs = 19;
+  assert.equal(h.mayEnter(h.car, 0), true, 'the left-turn counter alone cannot reserve the disjoint distant exit');
+  assert.equal(opposite.lefts, 1, 'the existing turn/exit occupancy remains claimed');
 });

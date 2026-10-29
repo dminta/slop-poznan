@@ -4,7 +4,7 @@ No package.json, no npm, no dependencies. The tests use only Node built-ins (`no
 
 ## Commands (verified)
 
-- Full suite: `node --test tests/`. 215 tests, about 36 s (13 s before the detail box grew in Phase 13.2). Nearly all of that is `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`.
+- Full suite: `node --test tests/`. 268 tests, about 33 s (2026-10-29). Most time is spent in `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`, and the five-minute traffic-flow regression.
 - Quick loop that skips the geodata rebuild: `node --test tests/*.cjs` (about 9 s, most of it `road-network`, `tram-infra` and `tram-clearance` building the network and the street furniture on the real Poznań graph, and `buildings-density` running `buildCityBlocks` twice).
 - One file: `node --test tests/cameras.test.cjs`. Running `node tests/cameras.test.cjs` directly also works.
 - By test name: `node --test --test-name-pattern="police" tests/`
@@ -22,6 +22,8 @@ Know which one covers the code you are editing. Two of them are coupled to the e
 1. **`loadModule(source, { imports, globals, filename })`** from `tests/helpers/module.cjs`. It reads a whole `js/*.js` file, rewrites its static `import`/`export` declarations, and runs it in a `vm` context. Used by cameras, controllers, city-map, road-network, pedestrian-routes, touch-controls and vehicle-lights tests, and by the benchmark. `buildings-density` loads `js/buildings.js` with one catch-all Proxy stub for three.js, TSL, the materials, roofs and balconies (every property, call and `new` returns the stub) and the real `city-config.js` and `geodata.js`, so the lot layout runs for real; it also needs a `document` global.
 2. **Slicing source text.** The test cuts out a function or block with a regex or `indexOf` and runs it in `vm.runInNewContext` with hand-built context variables:
    - `traffic*.test.cjs` match `^  function NAME(` through `\n  }` (two-space indent) in `js/traffic.js`.
+   - `signal-display.test.cjs` captures the head group before `      const half = a.w / 2;` in street-details.js, then
+     compares the rendered groups with real incoming road lanes. It also checks the shared texture and crossing audio.
    - `teleports.test.cjs` runs the part of `js/main.js` from `  function teleportTo(` to `  const openMapBtn`.
    - `facade-projection` slices `js/tsl-materials.js` between markers: `const facadeNormalVertex =`, `function facadeCell(`, `let bayWidth`, `const evaluateApartmentInterior`, `const rayWorld =` and `// Slab intersection`.
 
@@ -96,9 +98,12 @@ Per district it prints the cars sampled, mean speed (and of the moving ones), th
 stopped queue in a lane, the distribution of finished waits (p50/p90/max), cars held over 60 and 120 s, why the stopped
 cars stand (`v.waitReason`) and the **root cause**: it follows the wait-for graph (the leader, the tram whose proxy or
 held curve is in the way, the cross traffic in the box, the last car in a full exit lane, the oncoming lead; a tram
-follows its `obstacle` or `leader`) to the vehicle the queue really waits for (`queue moving`: the queue ahead is moving,
+follows its `obstacle` or `leader` (including an exit-room reservation's leader)) to the vehicle the queue really waits for (`queue moving`: the queue ahead is moving,
 v only waits its turn). Then the junctions by stopped car-seconds with their throughput (cars entering a junction curve)
 and root causes, deadlocks (cycles in that graph whose members all stood over 30 s), junction boxes with a car stopped
 inside over 20 s, and trams stopped over 60 s off a stop (with the pedestrian holding one). Last, a Markdown table of
-every district. `tests/traffic-flow.test.mjs` runs it for 2.5 simulated minutes at Jeżyce and Centrum as a regression
-test.
+every district. `tramsHeld60` retains the total continuous stop across all reasons; its text records the reason at
+the longest sample. Separately, `switchHeld60`, `maxSwitchWait` and `switchSeconds` measure the actual switch reason
+every frame while speed is below 0.5 m/s, excluding boarding dwells. A long red followed by a short switch wait is
+therefore distinguishable from a tram blocking a switch for over a minute. `tests/traffic-flow.test.mjs` runs the
+benchmark for 5 simulated minutes at Jeżyce and Centrum as a regression test.

@@ -1,4 +1,4 @@
-// Gridlock regression on the real network (Phase 15.6): a short seeded run of tools/bench-traffic.mjs in the two
+// Gridlock regression on the real network (Phases 15.6 and 16): a seeded five-minute run in the two
 // districts that jammed worst. Before the fixes Jeżyce ran at 4.9 km/h with 67% of cars stopped, cars held 190 s and
 // cars and trams waiting on each other in a cycle; Centrum at 3.3 km/h, 78% stopped, a car stuck in a junction box
 // behind a tram that waited for it.
@@ -16,15 +16,16 @@ test('traffic flows at Jeżyce and Centrum: no deadlock, nobody held over 2 minu
   const dir = mkdtempSync(join(tmpdir(), 'traffic-flow-'));
   try {
     const out = join(dir, 'flow.json');
-    const run = spawnSync(process.execPath, [bench, '--minutes', '2.5', '--only', 'jezyce,centrum', '--json', out], { encoding: 'utf8' });
+    const run = spawnSync(process.execPath, [bench, '--minutes', '5', '--only', 'jezyce,centrum', '--json', out], { encoding: 'utf8' });
     assert.equal(run.status, 0, run.stderr);
     const { districts } = JSON.parse(readFileSync(out, 'utf8'));
     assert.equal(districts.length, 2);
     for (const d of districts) {
       assert.equal(d.deadlocks, 0, `${d.district}: vehicles waiting on each other in a cycle`);
+      assert.equal(d.switchHeld60, 0, `${d.district}: a tram held at a switch for over a minute`);
       assert.ok(d.longestHeld < 120, `${d.district}: a car held ${d.longestHeld} s`);
-      assert.ok(d.stoppedPct < 60, `${d.district}: ${d.stoppedPct}% of cars stopped`);
-      assert.ok(d.meanKmh > 8, `${d.district}: mean ${d.meanKmh} km/h`);
+      assert.ok(d.stoppedPct < 40, `${d.district}: ${d.stoppedPct}% of cars stopped`);
+      assert.ok(d.meanKmh > 14, `${d.district}: mean ${d.meanKmh} km/h`);
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
