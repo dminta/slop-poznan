@@ -5,7 +5,7 @@ Kaponiera portals and the Combino; Phase 10 the articulated bus, the S-2 arrow a
 the S-2 arrow, signal countdowns, "BUS" lane text, a 4th tree species and real OSM tree positions). The 2026-10-27 audit
 found further gaps; its six functional gaps were fixed on 2026-10-28, the rest is listed in **Open items from the
 2026-10-27 audit** below. Phase 12 is done except the docs rewrite and the
-archiving in 12.5. Phase 15 items 1–5, 7–8 and 10 are implemented; 6 is continued in Phase 16, and 9 remains open.
+archiving in 12.5. Phase 15 items 1–5 and 7–10 are implemented; 6 is continued in Phase 16.
 Phase 16 is implemented and meets its headless targets (2026-10-29), with a WebGPU boot/console smoke check;
 the detailed browser checks below remain open.
 Line references are as of commit `46ec12b` and will drift; grep for the named symbol if a line no longer matches. Read `AGENTS.md` and the topic docs (`geodata.md`, `world.md`, `rendering.md`,
@@ -19,11 +19,12 @@ full corridor observation and audio checks remain manual, as does the detailed v
 The user tests in the browser and reports bugs back, so read those reports literally and probe with real coordinates
 before fixing.
 
-**Next task: re-measure the docs (15.9)**, especially the furniture, road paint and track counts from before 15.2 and
-13.2. Phase 15.10 now completes the Zawady/Ogrody loops and Starołęka boundary routes. Phase 16 fixes the signal,
+**Next task: the docs rewrite and archiving (12.5).** The static counts in `world.md` and `actors.md` were re-measured
+on 2026-10-29 (15.9); both docs describe the headless snapshot and its differences from the traffic benchmark and
+the full browser scene. Phase 15.10 completes the Zawady/Ogrody loops and Starołęka boundary routes. Phase 16 fixes the signal,
 tram clearance and opposite-track lane items from 15.6; its measurements and remaining manual checks are below.
 
-**Then, in this order:**
+**Remaining work, in this order:**
 1. Phase 12.5: the docs rewrite and archiving this plan.
 2. The central Dworzec node zebras (medians and tram strips as blocks in `tools/`).
 3. Optional skips from Phases 4 and 9–11 (listed in the audit section), including passing a waiting left-turner (16.5).
@@ -1215,7 +1216,7 @@ from the 2026-10-27 audit**; grep case-insensitively.
 
 ### Phase 15: Bug fixes and Polish vehicles
 
-**Status: items 1–5, 7 and 8 done, item 6 partly done (2026-10-29), items 9–10 open** (opened 2026-10-28 from in-browser reports and the agents'
+**Status: items 1–5 and 7–10 done, item 6 implemented in Phase 16 (2026-10-29)** (opened 2026-10-28 from in-browser reports and the agents'
 open items). Everything was checked headless only (230 tests).
 - 15.1: Plac Cyryla Ratajskiego and Plac Wielkopolski are paved round a 2.29 m cut on each side of the track
   (`cutSlab`). Every prop keeps 2 m off any rail (`clearOfRails`); 48 square/park props, 154 street props and 66 street
@@ -1356,8 +1357,14 @@ open items). Everything was checked headless only (230 tests).
    - Covered by `tests/rail-crossings.test.cjs`.
    - Open: sidewalks stop under rail bridges, because giving them back joined blocks into rings. There is no viaduct
      deck or raised track, and level crossings have no barriers.
-9. **Re-measure the docs**: the counts in `docs/world.md` and `docs/actors.md` measured before 15.2 and 13.2
-   (furniture, stop lines, lane-line km, track km).
+9. **Re-measure the docs: done 2026-10-29.** Refreshed `docs/world.md` and `docs/actors.md`: grid and street furniture,
+   road paint, network and crosswalk counts, tram infrastructure and tram–road mappings. The documented headless
+   snapshot builds the grid before the furniture, passes its sidewalks and both footprint sets to traffic, and
+   measures paint after the final pedestrian/signal configuration. Rendering is stubbed; building, landmark and
+   bridge colliders are omitted. It has 442.8 lane-km, 864 stop-line strips, 205.3 km of P-1b, 2.3 km of P-1a,
+   0.95 km of P-4 strips and 130.4 km of directed tram edges. Historical comparisons and the benchmark variant
+   are labelled separately. The measurement scripts were re-run independently with matching totals; browser
+   rendering/audio and dynamic traffic benchmarks were not re-checked for this docs-only update.
 10. **Tram route data: done 2026-10-29.** The rail geometry already existed; its route membership was missing.
     `TRAM_ROUTE_EXTENSIONS` in `tools/poz-roads.mjs` completes five ways using adjacent OSM member-way anchors:
     - Zawady line 5: the two missing member ways from the arrival stop `(1635.7, −502.7)` through the proper departure
