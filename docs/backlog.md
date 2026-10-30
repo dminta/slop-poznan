@@ -54,11 +54,21 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 - Validation: `node --test tests/` passes 286/286 (36.30 s), including six new population regressions and the
   unchanged Jeżyce/Centrum traffic-flow limits.
 
+## WebGL2 pedestrian rendering fixed
+
+- The undersized draw-buffer error came from pedestrian pose storage, reproduced with one `PeopleNear` mesh.
+  WebGL2 bound 31 pose vec4s as per-vertex input for 2189 vertices. Enabling indexed PBO texture reads fixes the
+  draw; invalidating that texture after CPU updates also prevents frozen animation. WebGPU keeps storage buffers.
+- Two-frame rendered checks cover both pedestrian LODs. Full Edge WebGL2 and WebGPU scenes booted and rendered
+  60 frames with no console errors or warnings; WebGL2 recorded 76,154 draws and no GL errors. These are smoke
+  checks, not a complete visual or performance audit. See the [observation record](observations/webgl2-2026-10-30.md).
+- Validation: `node --test tests/` passes 289/289 (33.27 s), including pose packing, PBO uploads, padded buffer
+  replacement and ordinary WebGPU storage uploads.
+
 ## Known gaps and follow-up investigations
 
 | Topic | Remaining work | Original reference |
 |---|---|---|
-| WebGL2 fallback | Diagnose `GL_INVALID_OPERATION: glDrawElements: Vertex buffer is not big enough for the draw call`, observed on both the pre-change and final signal-timing snapshots. A clean WebGPU boot does not validate this backend. | 16 |
 | Railway crossings | Restore sidewalks under rail bridges without joining blocks into filled rings; model raised track/viaduct decks and add level-crossing barriers. Current roadways are clear, while the railway remains flat. | 15.8 |
 | Zebra visibility | Keep crossings over ballasted tram track visible; the bed can still cover their paint. | 15.8 |
 | Missing signal head | Find a safe position for the approach near Krucza/Zamenhofa at `675, 2738`; both curbs are close to track. Recount any other missing heads against the full scene before choosing fixes. | 15.5 |
@@ -106,8 +116,8 @@ and [actors.md](actors.md); they do not validate the full rendered scene or soun
 - Check load time and frame rate over the enlarged detail box, roof/dormer coverage and pool limits, estate
   slabs and transitions to the outskirts. The balcony pool was close to its limit in the historical scan.
 - Listen to sirens, bells, tram motors/squeal and the noon show; verify their local timing and audible range.
-- Verify map labels/pin clustering, English UI with Polish names, metric readings and the WebGL2 fallback
-  after resolving its known draw-buffer error.
+- Verify map labels/pin clustering, English UI with Polish names and metric readings on both backends. The WebGL2
+  draw-buffer error is fixed; detailed fallback appearance and performance checks remain.
 
 For each implemented fix, record the before/after measurement, run the relevant regression checks, and state
 which browser checks were actually performed. Keep unresolved items here rather than reopening archived phase notes.

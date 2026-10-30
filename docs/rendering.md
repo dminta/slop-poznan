@@ -13,6 +13,12 @@
   - Do not swap on WebGL2. Commit "Fix instanced geometry on the WebGL2 fallback" reverted an unconditional swap that broke transforms there.
   - Code that updates instances later must read `mesh.instanceMatrix` again each time instead of caching the original attribute (see `rebuild()` in `trees.js`).
   - The swap covers only InstancedMeshes that are already in the scene when it runs. Create a mesh before that point if you want it swapped.
+- **Pedestrian pose storage:** `PersonCrowd` enables `setPBO(true)` on its read-only pose arrays. WebGPU keeps
+  storage-buffer reads; WebGL2 uses a texture for indexed bone reads. Without this flag, the fallback binds the
+  pose as a per-vertex attribute and `PeopleNear` draws fail with an undersized buffer. WebGL2 compilation pads
+  and replaces `pose.value.array`, so always access the current array. `end()` also invalidates the backend-created
+  `attribute.pbo` texture: updating only the buffer attribute leaves rendered poses frozen. This property is a
+  three.js backend dependency; recheck both draw errors and movement after CDN updates.
 - **Reversed depth:** a custom `vertexNode` that has to sit on the far plane writes clip `z = 0`, not `z = w`. The SkyMesh patch in `LightingSystem` shows how.
 - Leave `scene.background = null`. Setting a Color forces a clear inside `Background.update`, which wipes cascade 0 while cascade 1 renders. The sky is the `SkyMesh` dome, scaled to 200 km so the camera stays inside it anywhere over the outskirts.
 
@@ -109,7 +115,7 @@
 
 ## Browser validation status
 
-The 2026-10-29 WebGPU smoke check booted and compiled with a clean console and visible signal lenses. Forced
-WebGL2 booted but reported `GL_INVALID_OPERATION: glDrawElements: Vertex buffer is not big enough for the draw call`
-on both snapshots checked before and after the signal-timing changes (see the [archived validation record](archive/poznan-plan.md)). The fallback remains an open bug; this documentation review did
-not run a browser. Detailed roof, material, culling and performance checks remain in the [backlog](backlog.md).
+The 2026-10-29 WebGPU smoke check booted and compiled with a clean console and visible signal lenses. The WebGL2
+draw-buffer error recorded then was traced to pedestrian pose storage and fixed on 2026-10-30; see the
+[observation record](observations/webgl2-2026-10-30.md) for reproduction, movement checks and full-scene validation.
+Detailed roof, material, culling and performance checks remain in the [backlog](backlog.md).

@@ -899,7 +899,8 @@ class PersonCrowd {
   constructor(maxCount, { farDistance = 34, castShadow = true } = {}) {
     this.farDistance = farDistance;
     this.lods = [1, 0].map((detail) => {
-      const pose = attributeArray(maxCount * STRIDE, 'vec4').toReadOnly();
+      // WebGL2 needs texture-backed storage for indexed bone reads; the default fallback is a vertex attribute.
+      const pose = attributeArray(maxCount * STRIDE, 'vec4').toReadOnly().setPBO(true);
       const mesh = new THREE.Mesh(buildPersonGeometry(detail), createPersonMaterial(pose));
       mesh.name = detail ? 'PeopleNear' : 'PeopleFar';
       mesh.count = 1; // one (degenerate) person until the first frame, so the pipelines compile up front
@@ -930,6 +931,8 @@ class PersonCrowd {
       attr.clearUpdateRanges();
       attr.addUpdateRange(0, l.count * STRIDE * 4);
       attr.needsUpdate = true;
+      // three.js creates this texture for WebGL2 PBO reads, but CPU buffer updates do not invalidate it.
+      if (attr.pbo) attr.pbo.needsUpdate = true;
     }
   }
 }
