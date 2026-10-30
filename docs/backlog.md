@@ -65,12 +65,22 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 - Validation: `node --test tests/` passes 289/289 (33.27 s), including pose packing, PBO uploads, padded buffer
   replacement and ordinary WebGPU storage uploads.
 
+## Zebra visibility verified
+
+- The remaining ballast-occlusion report was stale: the existing 1.7 m rail cuts and narrowed tram beds already
+  keep the paint visible. The furnished-network regression finds **0 m²** of zebra/ballast overlap across 2563
+  zebra pieces and 7760 ballast beds. Disabling the rail cuts reproduces the conflict on the same crossings.
+- Full Chrome scenes on WebGPU and forced WebGL2 confirm zero overlap using actual mesh buffers and instance
+  matrices; the closest paint-to-bed gap is 0.386 m. Midday rendered spot checks show visible stripes and the
+  deliberate unpainted track corridor. No production geometry change was needed.
+- Validation: `node --test tests/` passes 290/290 (36.60 s). See the
+  [observation record](observations/zebra-visibility-2026-10-30.md) for scope and limits.
+
 ## Known gaps and follow-up investigations
 
 | Topic | Remaining work | Original reference |
 |---|---|---|
 | Railway crossings | Restore sidewalks under rail bridges without joining blocks into filled rings; model raised track/viaduct decks and add level-crossing barriers. Current roadways are clear, while the railway remains flat. | 15.8 |
-| Zebra visibility | Keep crossings over ballasted tram track visible; the bed can still cover their paint. | 15.8 |
 | Missing signal head | Find a safe position for the approach near Krucza/Zamenhofa at `675, 2738`; both curbs are close to track. Recount any other missing heads against the full scene before choosing fixes. | 15.5 |
 | Hetmańska geometry | Confirm the two remaining visual candidates before changing them: outer lanes about 0.5 m beyond the three-lane carriageway, and rails over a 0.22 m curb sliver near Dmowskiego at `−2448, 2214`. The reported 80 m road gap under the Górczyn railway bridge was fixed. | 15.8 |
 | Sparse OSM blocks | Check the nine large blocks with under 5% mapped building coverage against BDOT10k; supplement only confirmed omissions. The original audit covered 0.69 km² and needs rechecking against the current enlarged box. Verify source terms before adding data. | 14.3 |
