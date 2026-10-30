@@ -27,11 +27,16 @@ test('the Dworzec refuges connect the western sidewalk to the southern sidewalk 
   const { GEO } = await import('../js/geodata.js');
   const source = (name) => readFileSync(join(__dirname, '../js', name + '.js'), 'utf8');
   const quiet = { info() {}, log() {}, warn() {} };
+  // Record the rendered head directions as well as the matching audio plan; presence alone misses a backwards head.
+  const headFacings = [];
   const load = (name, imports, extra = '') => loadModule(source(name).replace(
+    '    dummy.rotation.set(0, Math.atan2(fx, fz), 0);',
+    '    headFacings.push({ x, z, fx, fz });\n    dummy.rotation.set(0, Math.atan2(fx, fz), 0);'
+  ).replace(
     'return { along, across, next, crosswalks };', 'return { along, across, next, crosswalks, links };'
   ) + extra, {
     imports,
-    globals: { console: quiet, document: inert() },
+    globals: { console: quiet, document: inert(), headFacings },
     filename: name + '.js'
   });
   const rendering = {
@@ -93,6 +98,37 @@ test('the Dworzec refuges connect the western sidewalk to the southern sidewalk 
   const landing = south.tracks[0];
   assert.ok(Math.hypot(landing.ax + landing.ux * landing.len + 1558,
     landing.az + landing.uz * landing.len - 579.5) < 1, 'the compound walk ends on the exact southern sidewalk');
+  const westEnd = { x: landing.ax, z: landing.az };
+  const southEnd = { x: landing.ax + landing.ux * landing.len, z: landing.az + landing.uz * landing.len };
+  const facingSouth = street.audioSignals.find((head) => {
+    if (head.signalTiming !== central.signalTiming || head.isAvenue !== (south.group !== 0) ||
+      Math.hypot(head.x - westEnd.x, head.z - westEnd.z) > 8) return false;
+    const facing = headFacings.find((f) => Math.hypot(f.x - head.x, f.z - head.z) < 0.01);
+    const dx = southEnd.x - head.x, dz = southEnd.z - head.z;
+    return facing && (dx * facing.fx + dz * facing.fz) / Math.hypot(dx, dz) > 0.95;
+  });
+  assert.ok(facingSouth, 'pedestrians on the southern sidewalk can read their WALK head across the shared zebra');
+  const pole = street.footprints.find((r) => r.kind === 'signal' &&
+    Math.hypot((r.minX + r.maxX) / 2 - facingSouth.x, (r.minZ + r.maxZ) / 2 - facingSouth.z) < 0.3);
+  assert.ok(pole, 'the extra head has a physical signal pole registered before the network is built');
+  const poleX = (pole.minX + pole.maxX) / 2, poleZ = (pole.minZ + pole.maxZ) / 2;
+  assert.ok(gridModule.railClearance(poleX, poleZ, 10) >= 2.22, 'the pole keeps its full footprint off the rails');
+  assert.ok(config.roadClearance(poleX, poleZ) >= 0.8, 'the pole stays clear of the carriageways');
+  const withoutPole = road.buildRoadNetwork(grid.sidewalks, [...grid.footprints, ...street.footprints.filter((r) => r !== pole)]);
+  assert.deepEqual(lanes(network), lanes(withoutPole), 'the supplementary signal pole preserves every car lane');
+  for (const crossing of [south, ...crossings]) {
+    for (const track of crossing.tracks) {
+      for (const direction of [-1, 1]) {
+        for (const path of routes.links(track, direction)) {
+          for (const { track: leg } of path) {
+            const t = Math.max(0, Math.min(leg.len, (poleX - leg.ax) * leg.ux + (poleZ - leg.az) * leg.uz));
+            assert.ok(Math.hypot(poleX - leg.ax - leg.ux * t, poleZ - leg.az - leg.uz * t) > 0.65,
+              'the pole leaves the actual crossing and refuge links clear');
+          }
+        }
+      }
+    }
+  }
   const peer = central.arms.find((a) => a.side === 0);
   const originalGroup = peer.group;
   peer.group = 1;

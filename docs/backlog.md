@@ -1,6 +1,6 @@
 # Poznań backlog
 
-Updated 2026-10-29. The port and documentation cleanup are implemented; the remaining work is below.
+Updated 2026-10-30. The port and documentation cleanup are implemented; the remaining work is below.
 Implementation details live in the [topic docs](../AGENTS.md#docs). Original phase numbers refer to the
 [archived port plan](archive/poznan-plan.md), which retains historical measurements and decisions.
 
@@ -14,11 +14,28 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
   to the southern sidewalk near `−1558, 579.5`. Crossings within 100 m increase from 1 to 2. Exact-coordinate tests
   walk the real pedestrian links in both directions; they retain queued-roadway and 2 m rail-waiting clearance
   checks. Connector reservations cover the actual crossing and a bus's rear after it leaves the connector.
-- **Remaining:** inspect the connected route, pedestrian heads and vehicle yielding in the full browser scene.
-  Geodata and signal groups are unchanged. See [world.md](world.md) and [actors.md](actors.md).
-- **Validation:** `node --test tests/` passes 279/279 (32.6 s), including exact connectivity, vehicle rear clearance,
-  signal clearance and the unchanged traffic-flow thresholds. A baseline WebGPU boot and console check passed;
-  the final connected route has not yet had a full rendered walkthrough.
+- **Browser inspection (2026-10-30, commit `482ebdf`):** local Chrome/WebGPU, Midday, full scene. Walked the western
+  zebra onto the refuge and the shared connection to the southern sidewalk and back. The shared zebra is visible
+  on the carriageway and the player can traverse the connection in both directions. The console contained eight
+  informational builder/init messages and no errors or warnings at the console check. These are manual spot
+  checks, not a recorded continuous traffic trace or a WebGL2 check.
+- **Return-direction head fixed (2026-10-30):** added a southeast-facing pedestrian head on the western refuge at
+  `−1580.5, 552`, using the central junction's existing `walk1` plan. The completed grid-and-furniture regression
+  checks its facing from the real southern landing, its pole footprint, unchanged car lanes, clear refuge links
+  and full rail clearance. The full browser scene now has 1304 pedestrian heads/poles (previously 1303).
+- **Refuge planting fixed (2026-10-30):** a 3 m corridor through the hedge follows the measured refuge link, with
+  1.5 m end padding. The local hedge area changes from 45.949 to 33.451 m²; northern planting remains. Tests observe
+  the polygons actually extruded and verify clear walking/waiting space. Median slabs and traffic blockers stay.
+- **Remaining traffic verification:** observe yielding on both protected carriageways and a bus's complete rear
+  clearance in the rendered scene. Vehicles, trams and pedestrians were present during the walkthrough, but
+  the spot checks do not establish the full yielding/rear-clearance sequence. See [world.md](world.md) and
+  [actors.md](actors.md).
+- **Validation after both fixes:** `node --test tests/` passes 280/280 (38.25 s), including head orientation,
+  rendered hedge geometry, bidirectional connectivity, vehicle rear clearance and unchanged traffic-flow limits.
+  The initial regression for each visual defect failed before its fix. Browser recheck uses a hard reload to
+  bypass cached modules; WebGPU boot and console checks pass. Walked the route in both directions through the
+  clear hedge corridor; observed red and green on the new head from the southern landing, and checked visibility
+  of the existing head from the refuge. Detailed yielding/rear-clearance observation above remains open.
 
 ## Known gaps and follow-up investigations
 

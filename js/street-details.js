@@ -507,6 +507,26 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   const S1_Y = 3.55; // head centre: its red lamp at 3.82 m, the green at 3.28 m
   const PED_Y = 2.45;
 
+  function addSignalPole(p) {
+    addPole(p);
+    addFootprint(p.x, p.z, 0.3, 0.3, 'signal');
+    addCollider(p.x, p.z, 0.08, 0.08, 0.1 + SIGNAL_POLE_H);
+    dummy.position.set(p.x, 0.1 + SIGNAL_POLE_H / 2, p.z);
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.set(0.055, SIGNAL_POLE_H, 0.055);
+    dummy.updateMatrix();
+    signalPoleMatrices.push(dummy.matrix.clone());
+  }
+  function addPedestrianHead(p, fx, fz, isAvenue, timing) {
+    const x = p.x + fx * 0.17, z = p.z + fz * 0.17;
+    const m = setFacing(x, PED_Y, z, fx, fz);
+    const signalIndex = (timing.index + 0.5) / Math.max(1, SIGNAL_PLANS.length);
+    pedHeadMatrices.push(m);
+    (isAvenue ? pedAveMatrices : pedStreetMatrices).push(m);
+    (isAvenue ? pedAveIndices : pedStreetIndices).push(signalIndex);
+    audioSignals.push({ x, y: PED_Y, z, isAvenue, signalTiming: timing });
+  }
+
   const builtJunctions = new Set();
   for (const site of SIGNAL_SITES) {
     if (builtJunctions.has(site.junction)) continue;
@@ -562,14 +582,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         const p = spot(side);
         if (!p) continue;
         if (side === 1) rightPole = true;
-        addPole(p);
-        addFootprint(p.x, p.z, 0.3, 0.3, 'signal');
-        addCollider(p.x, p.z, 0.08, 0.08, 0.1 + SIGNAL_POLE_H);
-        dummy.position.set(p.x, 0.1 + SIGNAL_POLE_H / 2, p.z);
-        dummy.rotation.set(0, 0, 0);
-        dummy.scale.set(0.055, SIGNAL_POLE_H, 0.055);
-        dummy.updateMatrix();
-        signalPoleMatrices.push(dummy.matrix.clone());
+        addSignalPole(p);
         // vehicle head facing the arriving traffic: on the right, and on the left as a repeater on wide arms, or as the
         // only head where the right curb has no spot for a pole (a tram track or a crosswalk landing in the way)
         if (a.inbound && (side === 1 || a.w >= 12 || a.lanes >= 3 || !rightPole)) {
@@ -582,12 +595,8 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         // pedestrian head facing across the arm, for the people waiting on the other curb
         const fx = -rx * side;
         const fz = -rz * side;
-        const m = setFacing(p.x + fx * 0.17, PED_Y, p.z + fz * 0.17, fx, fz);
-        pedHeadMatrices.push(m);
-        (group0 ? pedStreetMatrices : pedAveMatrices).push(m);
-        (group0 ? pedStreetIndices : pedAveIndices).push(signalIndex);
-        // these heads' WALK is the other group's (walkSignal isAvenue); unplaced poles never become sound sources
-        audioSignals.push({ x: p.x + fx * 0.17, y: PED_Y, z: p.z + fz * 0.17, isAvenue: !group0, signalTiming: site.timing });
+        // these heads' WALK is the other group's; unplaced poles never become sound sources
+        addPedestrianHead(p, fx, fz, !group0, site.timing);
       }
       // Street name plates for the corner buildings either side of the arm (1B)
       if (a.name) {
@@ -596,6 +605,19 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         }
       }
     });
+  }
+
+  // The shared Dworzec zebra is generated after furniture, from two original same-phase arms. Their heads leave
+  // its western refuge uncovered for walkers starting at the southern landing. This surveyed position is 6.68 m
+  // from the rails and outside the actual refuge links (regression-tested with the completed walking network).
+  // Register it before building that network so its shaft participates in obstacle and player collision checks.
+  const dworzec = SIGNAL_SITES.find((site) => Math.hypot(site.x + 1566.1, site.z - 566.1) < 1);
+  const refugePole = { x: -1580.5, z: 552 };
+  if (dworzec && signalPoleSpot(refugePole.x, refugePole.z)) {
+    const dx = -1557.93 - refugePole.x, dz = 579.52 - refugePole.z;
+    const length = Math.hypot(dx, dz);
+    addSignalPole(refugePole);
+    addPedestrianHead(refugePole, dx / length, dz / length, false, dworzec.timing);
   }
 
   // =========================================================================

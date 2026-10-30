@@ -27,6 +27,10 @@ let parkLampSites;
 let pavedPlazaRects;
 let sidewalkBlocks;
 
+// Surveyed refuge link between the western Dworzec zebra and the shared crossing to the southern sidewalk.
+// Routing is built after the grid; keep its 3 m walking/queuing corridor out of the earlier planted median.
+const MEDIAN_REFUGE_CORRIDORS = [[-1582.819, 563.234, -1580.760, 558.363]];
+
 // js/city-grid.js
 // Builds the city's ground: the Warta and the ponds at CITY_BOUNDS.waterLevel, the street-level land deck (LAND_RINGS
 // minus the ponds) with stone embankments down to the water, the raised sidewalks & curbs of every curb island
@@ -662,7 +666,14 @@ function buildCityGrid(scene) {
     // Planted malls down the middle of the wide streets: a clipped hedge on the slab
     if (b.median && Math.min(b.maxX - b.minX, b.maxZ - b.minZ) > 2.2) {
       const hedge = offsetPolygonInward(b.poly, 1.0);
-      if (hedge) hedgeGeos.push(createExtrudedPolygonMesh(hedge, SW_TOP, 0.55, medianHedgeMat).geometry);
+      if (hedge) {
+        const walks = MEDIAN_REFUGE_CORRIDORS.filter(([ax, az, bx, bz]) =>
+          pointInPolygonXZ(b.poly, ax, az) && pointInPolygonXZ(b.poly, bx, bz));
+        const pieces = walks.length ? cutSlab(hedge, walks, 1.5) : [hedge];
+        for (const piece of pieces) {
+          hedgeGeos.push(createExtrudedPolygonMesh(piece, SW_TOP, 0.55, medianHedgeMat).geometry);
+        }
+      }
     }
   }
   const mergeInto = (geos, mat, cast = false) => {
