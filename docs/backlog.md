@@ -26,16 +26,20 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 - **Refuge planting fixed (2026-10-30):** a 3 m corridor through the hedge follows the measured refuge link, with
   1.5 m end padding. The local hedge area changes from 45.949 to 33.451 m²; northern planting remains. Tests observe
   the polygons actually extruded and verify clear walking/waiting space. Median slabs and traffic blockers stay.
-- **Remaining traffic verification:** observe yielding on both protected carriageways and a bus's complete rear
-  clearance in the rendered scene. Vehicles, trams and pedestrians were present during the walkthrough, but
-  the spot checks do not establish the full yielding/rear-clearance sequence. See [world.md](world.md) and
-  [actors.md](actors.md).
+- **Traffic verification completed (2026-10-30, `d2ebe36`):** full Chrome/WebGPU scene, Midday. Recorded
+  pedestrian-related stops on both protected carriageways; the turning movement was additionally checked with
+  opposing traffic excluded as the cause. Two controlled 12 m bus trials verified the rear-clearance reservation
+  across connector handoffs, with rendered inspections of the rear over the zebra and subsequent clearance.
+  In the measured release trial, the NPC began walking about 0.53 s after the first sampled body clearance.
+  These bus trials started with an already committed bus; a natural end-to-end bus approach was not recorded.
+  See the [observation record](observations/dworzec-2026-10-30.md) for setup, timings and limits.
 - **Validation after both fixes:** `node --test tests/` passes 280/280 (38.25 s), including head orientation,
   rendered hedge geometry, bidirectional connectivity, vehicle rear clearance and unchanged traffic-flow limits.
   The initial regression for each visual defect failed before its fix. Browser recheck uses a hard reload to
   bypass cached modules; WebGPU boot and console checks pass. Walked the route in both directions through the
   clear hedge corridor; observed red and green on the new head from the southern landing, and checked visibility
-  of the existing head from the refuge. Detailed yielding/rear-clearance observation above remains open.
+  of the existing head from the refuge. The later traffic observations above cover yielding and controlled bus
+  rear clearance; WebGL2 remains a separate open item.
 
 ## Known gaps and follow-up investigations
 
@@ -50,6 +54,7 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 | Footbridges and camera | Add Most Jordana, the Brama Poznania footbridge and the Berdychowskie crossings to the data/models. Revisit the `katedra` camera, currently above the Cybina, and test landmark lines of sight. | 4, 7, 12.3 |
 | Building accuracy | Replace estimated landmark heights and massing where supported by measurements; real building footprints/roof heights remain optional. Candidates include Ratusz, Fara, Zamek Królewski, Teatr Wielki, Brama Poznania, tower placements, Iglica and AND2. | 4.4, 7 |
 | Tram route quality | Re-measure global off-route samples after the Zawady/Ogrody/Starołęka membership correction. The loops have coordinate regressions; the former off-route percentages are historical. | 15.10 |
+| Bus pool availability | Investigate whether cars can fill the local density target before buses receive a placement attempt. During the instrumented Dworzec observation all 12 buses remained unplaced; rear-clearance checks therefore used explicitly controlled placement. See the [observation record](observations/dworzec-2026-10-30.md). | 2026-10-30 observation |
 
 ## Decisions awaiting the user
 
