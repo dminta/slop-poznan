@@ -431,7 +431,8 @@ function populationContext() {
     focusX: 0, focusZ: 0, player: { active: false },
     clock: 0,
     VEHICLE_SPAWN_DISTANCE: 250, PED_SPAWN_DISTANCE: 150, NEAR_RADIUS: 350,
-    VEHICLE_DENSITY: 20, MIN_VEHICLES: 30, vehicles: new Array(212), nearLanes: 0, nearTarget: 0,
+    VEHICLE_DENSITY: 20, MIN_VEHICLES: 30, vehicles: new Array(212), buses: [{ half: 6 }],
+    nearLanes: 0, nearTarget: 0, nearBusTarget: 0,
     nearEdges: [], nearCrossings: [], track: {}, KERB: 1.6, QUEUE_GAP: 0.62,
     atCurb: () => {}, laneClear: () => true, nearTram: () => false,
     place: (v, e, lane, s) => Object.assign(v, { edge: e, lane, s })

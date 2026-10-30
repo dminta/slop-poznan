@@ -41,6 +41,19 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
   of the existing head from the refuge. The later traffic observations above cover yielding and controlled bus
   rear clearance; WebGL2 remains a separate open item.
 
+## Bus pool availability fixed
+
+- Cars could fill every local density slot before a bus received a placement attempt. The pool now reserves its
+  proportional bus share within the same total target, only where a nearby major road can accommodate a bus.
+  Safe-placement failures leave room for later retries; the normal four-attempt budget remains unchanged.
+- Seeded furnished-network Dworzec measurement, 120 s: **72 cars / 0 buses → 67 cars / 5 buses**, 72 vehicles total.
+  A naturally spawned bus approached and fully cleared the shared zebra. Full Chrome/WebGPU inspection also
+  confirmed five active buses and natural movement through the junction. The geometric zebra-clearance measurement
+  was headless; a complete rendered pedestrian interaction trace and WebGL2 remain outside this check.
+  See the [observation record](observations/bus-population-2026-10-30.md) for method, timings and limits.
+- Validation: `node --test tests/` passes 286/286 (36.30 s), including six new population regressions and the
+  unchanged Jeżyce/Centrum traffic-flow limits.
+
 ## Known gaps and follow-up investigations
 
 | Topic | Remaining work | Original reference |
@@ -54,7 +67,6 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 | Footbridges and camera | Add Most Jordana, the Brama Poznania footbridge and the Berdychowskie crossings to the data/models. Revisit the `katedra` camera, currently above the Cybina, and test landmark lines of sight. | 4, 7, 12.3 |
 | Building accuracy | Replace estimated landmark heights and massing where supported by measurements; real building footprints/roof heights remain optional. Candidates include Ratusz, Fara, Zamek Królewski, Teatr Wielki, Brama Poznania, tower placements, Iglica and AND2. | 4.4, 7 |
 | Tram route quality | Re-measure global off-route samples after the Zawady/Ogrody/Starołęka membership correction. The loops have coordinate regressions; the former off-route percentages are historical. | 15.10 |
-| Bus pool availability | Investigate whether cars can fill the local density target before buses receive a placement attempt. During the instrumented Dworzec observation all 12 buses remained unplaced; rear-clearance checks therefore used explicitly controlled placement. See the [observation record](observations/dworzec-2026-10-30.md). | 2026-10-30 observation |
 
 ## Decisions awaiting the user
 

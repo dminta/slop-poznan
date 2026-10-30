@@ -756,6 +756,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   const nearCrossings = [];
   let nearLanes = 0; // metres of lane within NEAR_RADIUS of the focus
   let nearTarget = 0; // how many vehicles drive there (VEHICLE_DENSITY)
+  let nearBusTarget = 0; // reserve the pool's bus share so cars cannot consume every local slot
   let nearX = Infinity;
   let nearZ = Infinity;
   function refreshNear() {
@@ -777,6 +778,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       nearLanes += Math.max(0, Math.min(e.len, along + half) - Math.max(0, along - half)) * e.lanes.length;
     }
     nearTarget = Math.min(vehicles.length, Math.max(MIN_VEHICLES, Math.round((nearLanes / 1000) * VEHICLE_DENSITY)));
+    nearBusTarget = nearEdges.some((e) => e.major && e.len >= 2 * buses[0].half + 10)
+      ? Math.ceil(nearTarget * buses.length / vehicles.length) : 0;
     for (const n of crossingNodes) {
       const dx = n.x - focusX, dz = n.z - focusZ;
       if (dx * dx + dz * dz < NEAR_RADIUS * NEAR_RADIUS) nearCrossings.push(n);
@@ -2651,13 +2654,22 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     // Limit attempted placements, not just successes, and rotate through the pool so an awkward location
     // cannot monopolize a frame. Previous-frame lane lists protect spawn spacing; rebuild before driving.
     // Only as many drive as the lanes around the focus carry at VEHICLE_DENSITY: the rest are parked (no edge) as
-    // they leave, and placed again when more road comes into reach
+    // they leave, and placed again when more road comes into reach. Reserve the pool's proportional bus share
+    // (2 at the minimum population): cars used to fill the target before any bus received a placement attempt.
+    // Blocked bus placements leave their slots free until safe, rather than relaxing spacing or view protection.
     let active = 0;
-    for (const v of vehicles) if (v.edge) active++;
-    for (let i = 0; jump && i < vehicles.length && active > nearTarget; i++) {
-      if (vehicles[i].edge) {
-        park(vehicles[i]);
+    let activeBuses = 0;
+    const carTarget = nearTarget - nearBusTarget;
+    for (const v of vehicles) if (v.edge) {
+      active++;
+      if (v.bus) activeBuses++;
+    }
+    for (let i = 0; jump && i < vehicles.length; i++) {
+      const v = vehicles[i];
+      if (v.edge && (v.bus ? activeBuses > nearBusTarget : active - activeBuses > carTarget)) {
+        park(v);
         active--;
+        if (v.bus) activeBuses--;
       }
     }
     let budget = jump ? vehicles.length : 4;
@@ -2670,8 +2682,13 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       if (v.edge) {
         park(v);
         active--;
+        if (v.bus) activeBuses--;
       }
-      if (active < nearTarget && spawnVehicle(v, jump ? 0 : 100, NEAR_RADIUS, !jump)) active++;
+      const room = v.bus ? activeBuses < nearBusTarget : active - activeBuses < carTarget;
+      if (active < nearTarget && room && spawnVehicle(v, jump ? 0 : 100, NEAR_RADIUS, !jump)) {
+        active++;
+        if (v.bus) activeBuses++;
+      }
     }
     buildOccupancy();
     for (const m of bodyMeshes) m.count = 0;
