@@ -76,13 +76,29 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 - Validation: `node --test tests/` passes 290/290 (36.60 s). See the
   [observation record](observations/zebra-visibility-2026-10-30.md) for scope and limits.
 
+## Krucza signal restored and Hetmańska inspected
+
+- **Krucza/Zamenhofa:** restored the vehicle head on the live western Krucza approach. The historical short
+  approach near `675, 2738` is removed/disabled by the furnished network; the active junction is at `699.25, 2750.75`.
+  A large park bounding box incorrectly excluded its sidewalk. The surveyed approach now checks the actual park
+  outline, retaining the normal road, rail and crossing clearances. Vehicle heads **743 → 744**, pedestrian
+  heads/poles **1304 → 1305**; all furnished-network lanes, crossings and other furniture remain unchanged.
+- **Hetmańska:** the examined three-lane runs keep their outer lane centres 1.3 m inside the 9.8 m carriageway.
+  The historical 0.5 m excess describes a nominal 3.6 m lane envelope, not a centreline outside the roadway;
+  no lane-placement change was justified. The Dmowskiego curb/rail conflict is confirmed and remains below.
+- Validation: **292/292** tests pass (39.89 s). Full Edge WebGPU and forced WebGL2 scenes rendered at least 60
+  frames without captured console warnings/errors on the final runs. The restored head was viewed on both
+  backends; WebGPU spot checks observed red and green. Hetmańska received WebGPU geometry spot checks.
+  See the [observation record](observations/krucza-hetmanska-2026-10-31.md) for measurements and limits.
+
 ## Known gaps and follow-up investigations
 
 | Topic | Remaining work | Original reference |
 |---|---|---|
 | Railway crossings | Restore sidewalks under rail bridges without joining blocks into filled rings; model raised track/viaduct decks and add level-crossing barriers. Current roadways are clear, while the railway remains flat. | 15.8 |
-| Missing signal head | Find a safe position for the approach near Krucza/Zamenhofa at `675, 2738`; both curbs are close to track. Recount any other missing heads against the full scene before choosing fixes. | 15.5 |
-| Hetmańska geometry | Confirm the two remaining visual candidates before changing them: outer lanes about 0.5 m beyond the three-lane carriageway, and rails over a 0.22 m curb sliver near Dmowskiego at `−2448, 2214`. The reported 80 m road gap under the Górczyn railway bridge was fixed. | 15.8 |
+| Other missing signal heads | The full-scene audit leaves 271 incoming edges without a nearby matching plan/facing head; these are investigation candidates, not 271 confirmed missing heads. The eastern Krucza approach at `699.25, 2750.75` remains one local candidate. Find safe placements without losing lanes. | 15.5 |
+| Park bounding boxes | Audit the remaining signal/furniture exclusions and traffic footprints that use bounds of irregular park islands. The Krucza correction is deliberately limited to one surveyed approach; broader placement changes need lane-preservation checks. | Follow-up |
+| Hetmańska geometry | Confirmed near Dmowskiego at `−2446, 2204`: a 47.5 m² curb island lifts 7.992 m of rail by 0.22 m. Cut the conflicting slab/corridor before lowering rails; lowering rails alone would bury them. The three-lane centreline report did not reproduce; the 80 m road gap under the Górczyn railway bridge was already fixed. | 15.8 |
 | Sparse OSM blocks | Check the nine large blocks with under 5% mapped building coverage against BDOT10k; supplement only confirmed omissions. The original audit covered 0.69 km² and needs rechecking against the current enlarged box. Verify source terms before adding data. | 14.3 |
 | Footbridges and camera | Add Most Jordana, the Brama Poznania footbridge and the Berdychowskie crossings to the data/models. Revisit the `katedra` camera, currently above the Cybina, and test landmark lines of sight. | 4, 7, 12.3 |
 | Building accuracy | Replace estimated landmark heights and massing where supported by measurements; real building footprints/roof heights remain optional. Candidates include Ratusz, Fara, Zamek Królewski, Teatr Wielki, Brama Poznania, tower placements, Iglica and AND2. | 4.4, 7 |

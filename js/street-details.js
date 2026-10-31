@@ -382,8 +382,22 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   };
 
   const plazaRects = pavedPlazaRects || [];
-  const inPlaza = (x, z, m = 1.0) =>
-    plazaRects.some((r) => x > r.minX - m && x < r.maxX + m && z > r.minZ - m && z < r.maxZ + m);
+  const inPlaza = (x, z, m = 1.0, exact = false) => plazaRects.some((r) => {
+    if (x <= r.minX - m || x >= r.maxX + m || z <= r.minZ - m || z >= r.maxZ + m) return false;
+    if (!exact || !r.ring) return true;
+    // A park's bounds can span several streets (the Rataje island covers 0.7 × 1.7 km). Keep its actual outline,
+    // including the margin at each edge, rather than suppressing furniture on unrelated sidewalks in that box.
+    let inside = false;
+    for (let i = 0, j = r.ring.length - 1; i < r.ring.length; j = i++) {
+      const a = r.ring[j], b = r.ring[i];
+      if ((a.z > z) !== (b.z > z) && x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x) inside = !inside;
+      const dx = b.x - a.x, dz = b.z - a.z;
+      const len2 = dx * dx + dz * dz;
+      const t = len2 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / len2)) : 0;
+      if (Math.hypot(x - a.x - t * dx, z - a.z - t * dz) <= m) return true;
+    }
+    return inside;
+  });
 
   // True only when (x, z) and its surrounding pad-meter footprint sit on a real curb island (never in a road or median)
   const isOnCurbIsland = (x, z, pad = 0.55) => {
@@ -483,10 +497,10 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   // A signal pole may stand on a sidewalk 0.4 m clear of its curb, or in the middle of a median at least 1.8 m wide
   // (0.9 m clear: lanes keep LANE_CLEAR 1.2 m from their centrelines, which stand >= 1.2 m inside the curbs), 0.8 m
   // outside the nearest roadway (0.35 m left a few poles in lanes)
-  const signalPoleSpot = (x, z) => {
+  const signalPoleSpot = (x, z, exactPark = false) => {
     const b = blockAt(x, z);
-    if (!b || inPlaza(x, z, 0.5) || !isClearOfPoles(x, z, 1.4) || !clearOfRoads(x, z, 0.5) || !clearOfCrosswalks(x, z, 0.15) ||
-      !clearOfRails(x, z, 0.22)) return false;
+    if (!b || inPlaza(x, z, 0.5, exactPark) || !isClearOfPoles(x, z, 1.4) || !clearOfRoads(x, z, 0.5) ||
+      !clearOfCrosswalks(x, z, 0.15) || !clearOfRails(x, z, 0.22)) return false;
     const pad = b.median ? 0.9 : 0.4;
     for (const [ox, oz] of [[pad, 0], [-pad, 0], [0, pad], [0, -pad]]) {
       const q = blockAt(x + ox, z + oz);
@@ -565,13 +579,16 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
       // its turning curves from stop line to stop line and they cut the corners, so a pole 1-4 m past the corner stood
       // within a curve's 0.8 m clearance at 58 corners and cost 4.2 km of the network; further back along the curb only
       // the lanes pass it
+      // The western Krucza approach lies inside a park's bounds but outside its actual island. Restore only this
+      // surveyed live approach: applying exact outlines to every arm needs a separate furnished-network audit.
+      const exactPark = Math.hypot(site.x - 700.6, site.z - 2745.7) < 1 && a.inbound && a.ux < -0.9;
       const spot = (side) => {
         for (const back of [0.75, 1.0, 1.3]) {
           for (let dt = CROSSWALK + 0.5; dt < 16; dt += 1.2) {
             const t = corner + dt;
             const x = a.x + a.ux * t + rx * (half + back) * side;
             const z = a.z + a.uz * t + rz * (half + back) * side;
-            if (signalPoleSpot(x, z)) return { x, z };
+            if (signalPoleSpot(x, z, exactPark)) return { x, z };
           }
         }
         return null;

@@ -32,6 +32,17 @@ same plan's `walk1`, with its normal geometry, collider, footprint and audio reg
 heads/poles rise 1303 → 1304; vehicle heads remain 743. The completed-route regression checks the new pole against
 actual crossing/refuge links, roads and rails and confirms unchanged lanes.
 
+The 2026-10-31 Krucza follow-up restores one vehicle/pedestrian pole at `680.5603, 2754.9864` on the active western
+Krucza approach: vehicle heads rise **743 → 744**, pedestrian heads/poles **1304 → 1305**. The earlier short-link
+report near `675, 2738` does not identify an active signal in the full furnished scene. A park island's bounding
+box spans this sidewalk despite its polygon lying elsewhere; `pavedPlazaRects` now retains park `ring` data, and
+only the surveyed Krucza arm uses that polygon plus a 0.5 m margin for its exclusion check. Other furniture and
+park traffic footprints retain their existing bounds. The new pole keeps 3.081 m from the nearest track centreline
+and 4.006 m outside the roadway. `tests/signal-placement.test.cjs` checks the actual incoming lane's head/group/
+facing and unchanged furnished-network lanes, crossing geometry and non-signal furniture. Full-scene Edge
+WebGPU/WebGL2 checks and remaining candidates are recorded in
+[the observation record](observations/krucza-hetmanska-2026-10-31.md).
+
 ## Map (non-obvious ownership)
 - `city-grid.js` `buildCityGrid`: the water plane at `waterLevel`, the street-level land deck (`LAND_RINGS` minus the ponds in `LAND_HOLES`), battered stone embankments from the deck edge down below the water, raised sidewalks and curbs of every `BLOCKS` curb island (instanced slabs for rect islands, extruded outlines for the rest), hedged medians, the paved squares (`PLAZAS`, deduplicated, minus outlines carrying > 30 m of road centreline; see **Tram track on squares** below) and the park blocks (lawn, trees, lamps, ponds cut out). It also exports `batchStaticGroupMeshes`, which landmarks.js reuses.
   - **Square & park colliders** (`propColliders`, not `colliders`): every bench (an `obb` turned with it, 1.9 × 0.54 m, 0.92 m tall), lamppost (0.4 m box up to the globe, 4.45 m), granite planter (its full 2.4 m box with the hedge, 0.85 m) and the trunk of every tree city-grid.js plants (planters, park beds and the part-park lawns: a box 0.56 × `scale` m wide, 3 m above its base, so a jump off a planter can't clear it) is a player collider. Measured headlessly on 2026-10-29: 299 benches, 2,995 lampposts, 37,031 trees, 40,461 colliders in all (logged as `[cityGrid]`). main.js appends them after the road network is built, like the street furniture's, so they are neither traffic obstacles nor name-plate walls; the network is unchanged. Park bed copings and lawns don't collide. `tests/controllers.test.cjs` builds the grid headless and walks into a Stary Rynek bench, lamppost and planter.

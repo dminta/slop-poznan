@@ -6,7 +6,7 @@ as ESM without a package.json depends on Node's automatic module-syntax detectio
 
 ## Commands (verified)
 
-- Full suite: `node --test tests/`. 290 tests, about 37 s (2026-10-30). Most time is spent in `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`, and the five-minute traffic-flow regression.
+- Full suite: `node --test tests/`. 292 tests, about 40 s (2026-10-31). Most time is spent in `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`, and the five-minute traffic-flow regression.
 - Quick loop that skips the geodata rebuild: `node --test tests/*.cjs` (about 9 s, most of it `road-network`, `tram-infra` and `tram-clearance` building the network and the street furniture on the real Poznań graph, and `buildings-density` running `buildCityBlocks` twice).
 - One file: `node --test tests/cameras.test.cjs`. Running `node tests/cameras.test.cjs` directly also works.
 - By test name: `node --test --test-name-pattern="police" tests/`
@@ -32,6 +32,8 @@ Know which one covers the code you are editing. Two of them are coupled to the e
      `return { along, across, next, crosswalks };` in pedestrian-routes.js to check real bidirectional connectivity.
      It also records `setFacing` at `dummy.rotation.set(0, Math.atan2(fx, fz), 0);` in street-details.js to check
      that the refuge head faces walkers at the actual southern landing.
+   - `signal-placement.test.cjs` records actual vehicle-head placement at `          s1Matrices.push(m);` and the
+     same `setFacing` marker to compare the restored Krucza head with its live incoming lane.
    - `median-refuge.test.cjs` records `createExtrudedPolygonMesh` at `const shape = createWorldXZShape(pts, holes);`
      in city-grid.js, checking emitted hedge polygons against the measured walking/waiting corridor.
    - `teleports.test.cjs` runs the part of `js/main.js` from `  function teleportTo(` to `  const openMapBtn`.

@@ -869,7 +869,7 @@ function buildCityGrid(scene) {
     const top = createExtrudedPolygonMesh(slab, 0.0, PARK_Y, pavingMat, true, false, ponds.filter((h) => ringInside(slab, h)));
     setPavingStyle(top.geometry, 0);
     group.add(top);
-    pavedRects.push({ minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ });
+    pavedRects.push({ minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ, ring: b.poly });
     addFootprint((b.minX + b.maxX) * 0.5, (b.minZ + b.maxZ) * 0.5, b.maxX - b.minX, b.maxZ - b.minZ);
     const bed = offsetPolygonInward(b.poly, Math.min(5, Math.min(b.maxX - b.minX, b.maxZ - b.minZ) * 0.2));
     if (!bed) continue;
