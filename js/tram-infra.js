@@ -1012,8 +1012,135 @@ function layoutRailInfrastructure(network) {
       return !!tile && tile[(ix & 63) + ((iz & 63) << 6)] === 1;
     }
   };
-  // Ground footprints (masts, and the boundary sampled every 2 m) for tests/tram-infra.test.cjs's network check
+  // --- Level crossings (barriers & warning signals) -----------------------------------------------------------------
+  // At-grade railway crossings across the network roadways (GEO.levelCrossings).
+  // Barriers stand before the first track and behind the last track on both curbs, outside the carriageway,
+  // clear of vehicle lanes and the rail structure gauge.
+  const crossingSites = [
+    {
+      street: 'Świętego Michała',
+      barriers: [
+        { name: 'Św. Michała North R', x: 2154.6, z: -813.5, yaw: 0.11, side: 1, armLen: 3.8 },
+        { name: 'Św. Michała North L', x: 2147.5, z: -814.3, yaw: 0.11, side: -1, armLen: 3.8 },
+        { name: 'Św. Michała South R', x: 2163.3, z: -885.1, yaw: -3.03, side: 1, armLen: 3.8 },
+        { name: 'Św. Michała South L', x: 2155.6, z: -884.4, yaw: -3.03, side: -1, armLen: 3.8 }
+      ],
+      signals: [
+        { name: 'Św. Michała North Signal R', x: 2155.0, z: -813.5, yaw: 0.11 },
+        { name: 'Św. Michała North Signal L', x: 2147.5, z: -813.9, yaw: 0.11 },
+        { name: 'Św. Michała South Signal R', x: 2163.7, z: -885.1, yaw: -3.03 },
+        { name: 'Św. Michała South Signal L', x: 2155.6, z: -884.0, yaw: -3.03 }
+      ]
+    },
+    {
+      street: 'Krańcowa',
+      barriers: [
+        { name: 'Krańcowa South R', x: 2858.5, z: -1247.2, yaw: 0.40, side: 1, armLen: 3.8 },
+        { name: 'Krańcowa South L', x: 2865.1, z: -1250.0, yaw: 0.40, side: -1, armLen: 3.8 },
+        { name: 'Krańcowa North R', x: 2884.0, z: -1189.0, yaw: -2.43, side: 1, armLen: 3.8 },
+        { name: 'Krańcowa North L', x: 2871.9, z: -1189.0, yaw: -2.43, side: -1, armLen: 3.8 }
+      ],
+      signals: [
+        { name: 'Krańcowa South Signal R', x: 2858.5, z: -1246.8, yaw: 0.40 },
+        { name: 'Krańcowa South Signal L', x: 2865.5, z: -1250.0, yaw: 0.40 },
+        { name: 'Krańcowa North Signal R', x: 2884.4, z: -1189.0, yaw: -2.43 },
+        { name: 'Krańcowa North Signal L', x: 2871.9, z: -1188.6, yaw: -2.43 }
+      ]
+    },
+    {
+      street: 'Bałtycka',
+      barriers: [
+        { name: 'Bałtycka EB West R', x: 3077.9, z: -1967.1, yaw: 1.57, side: 1, armLen: 3.8 },
+        { name: 'Bałtycka EB West L', x: 3078.5, z: -1974.7, yaw: 1.57, side: -1, armLen: 3.8 },
+        { name: 'Bałtycka EB East R', x: 3096.8, z: -1966.1, yaw: -1.57, side: 1, armLen: 3.8 },
+        { name: 'Bałtycka EB East L', x: 3096.9, z: -1973.6, yaw: -1.57, side: -1, armLen: 3.8 },
+        { name: 'Bałtycka WB East R', x: 3097.3, z: -1985.9, yaw: -1.57, side: 1, armLen: 3.8 },
+        { name: 'Bałtycka WB East L', x: 3097.0, z: -1978.3, yaw: -1.57, side: -1, armLen: 3.8 },
+        { name: 'Bałtycka WB West R', x: 3075.3, z: -1988.6, yaw: 1.57, side: 1, armLen: 3.8 },
+        { name: 'Bałtycka WB West L', x: 3073.6, z: -1977.7, yaw: 1.57, side: -1, armLen: 3.8 }
+      ],
+      signals: [
+        { name: 'Bałtycka EB West Signal R', x: 3078.3, z: -1967.1, yaw: 1.57 },
+        { name: 'Bałtycka EB West Signal L', x: 3078.9, z: -1974.7, yaw: 1.57 },
+        { name: 'Bałtycka EB East Signal R', x: 3097.2, z: -1966.1, yaw: -1.57 },
+        { name: 'Bałtycka EB East Signal L', x: 3097.3, z: -1973.6, yaw: -1.57 },
+        { name: 'Bałtycka WB East Signal R', x: 3097.7, z: -1985.9, yaw: -1.57 },
+        { name: 'Bałtycka WB East Signal L', x: 3097.4, z: -1978.3, yaw: -1.57 },
+        { name: 'Bałtycka WB West Signal R', x: 3075.0, z: -1988.9, yaw: 1.57 },
+        { name: 'Bałtycka WB West Signal L', x: 3073.9, z: -1977.4, yaw: 1.57 }
+      ]
+    },
+    {
+      street: 'Gdyńska',
+      barriers: [
+        { name: 'Gdyńska NB South R', x: 3035.3, z: -2062.3, yaw: -0.10, side: 1, armLen: 3.8 },
+        { name: 'Gdyńska NB South L', x: 3027.8, z: -2063.6, yaw: -0.10, side: -1, armLen: 3.8 },
+        { name: 'Gdyńska NB North R', x: 3039.6, z: -2115.1, yaw: 3.12, side: 1, armLen: 3.8 },
+        { name: 'Gdyńska NB North L', x: 3032.0, z: -2115.3, yaw: 3.12, side: -1, armLen: 3.8 },
+        { name: 'Gdyńska SB North R', x: 3018.1, z: -2127.8, yaw: 3.12, side: 1, armLen: 6.5 },
+        { name: 'Gdyńska SB North L', x: 3030.8, z: -2126.6, yaw: 3.12, side: -1, armLen: 6.5 },
+        { name: 'Gdyńska SB South R', x: 3014.1, z: -2079.8, yaw: -0.10, side: 1, armLen: 6.5 },
+        { name: 'Gdyńska SB South L', x: 3027.6, z: -2077.5, yaw: -0.10, side: -1, armLen: 6.5 }
+      ],
+      signals: [
+        { name: 'Gdyńska NB South Signal R', x: 3035.7, z: -2062.3, yaw: -0.10 },
+        { name: 'Gdyńska NB South Signal L', x: 3027.5, z: -2063.3, yaw: -0.10 },
+        { name: 'Gdyńska NB North Signal R', x: 3040.0, z: -2115.1, yaw: 3.12 },
+        { name: 'Gdyńska NB North Signal L', x: 3032.0, z: -2114.9, yaw: 3.12 },
+        { name: 'Gdyńska SB North Signal R', x: 3018.1, z: -2127.4, yaw: 3.12 },
+        { name: 'Gdyńska SB North Signal L', x: 3031.2, z: -2126.6, yaw: 3.12 },
+        { name: 'Gdyńska SB South Signal R', x: 3014.1, z: -2079.4, yaw: -0.10 },
+        { name: 'Gdyńska SB South Signal L', x: 3028.0, z: -2077.5, yaw: -0.10 }
+      ]
+    },
+    {
+      street: 'Wrzesińska',
+      barriers: [
+        { name: 'Wrzesińska West R', x: 3622.4, z: -1103.6, yaw: 1.30, side: 1, armLen: 3.8 },
+        { name: 'Wrzesińska West L', x: 3618.2, z: -1104.4, yaw: 1.30, side: -1, armLen: 3.8 },
+        { name: 'Wrzesińska East R', x: 3648.3, z: -1107.9, yaw: -1.80, side: 1, armLen: 3.8 },
+        { name: 'Wrzesińska East L', x: 3648.6, z: -1117.3, yaw: -1.80, side: -1, armLen: 3.8 }
+      ],
+      signals: [
+        { name: 'Wrzesińska West Signal R', x: 3622.8, z: -1103.6, yaw: 1.30 },
+        { name: 'Wrzesińska West Signal L', x: 3618.5, z: -1104.1, yaw: 1.30 },
+        { name: 'Wrzesińska East Signal R', x: 3648.7, z: -1107.9, yaw: -1.80 },
+        { name: 'Wrzesińska East Signal L', x: 3648.2, z: -1117.3, yaw: -1.80 }
+      ]
+    }
+  ];
+
+  const crossings = [];
+  const barriers = [];
+  const signals = [];
+
+  for (const cs of crossingSites) {
+    const bList = cs.barriers.map((b) => ({
+      ...b,
+      street: cs.street,
+      y: blockAt(b.x, b.z) ? SW_TOP : 0,
+      armYaw: b.side === 1 ? b.yaw - Math.PI / 2 : b.yaw + Math.PI / 2
+    }));
+    const sList = cs.signals.map((s) => ({
+      ...s,
+      street: cs.street,
+      y: blockAt(s.x, s.z) ? SW_TOP : 0
+    }));
+    const cx = bList.reduce((sum, b) => sum + b.x, 0) / bList.length;
+    const cz = bList.reduce((sum, b) => sum + b.z, 0) / bList.length;
+    const nodes = [];
+    for (let k = 0; k + 1 < lx.length; k += 2) {
+      if (Math.hypot(lx[k] - cx, lx[k + 1] - cz) < 70) nodes.push({ x: lx[k], z: lx[k + 1] });
+    }
+    crossings.push({ street: cs.street, center: { x: cx, z: cz }, nodes, barriers: bList, signals: sList });
+    barriers.push(...bList);
+    signals.push(...sList);
+  }
+
+  // Ground footprints (masts, barriers, signals and the boundary sampled every 2 m) for tests/tram-infra.test.cjs's network check
   const footprints = masts.map((q) => ({ minX: q.x - 0.25, maxX: q.x + 0.25, minZ: q.z - 0.25, maxZ: q.z + 0.25 }));
+  for (const b of barriers) footprints.push({ minX: b.x - 0.25, maxX: b.x + 0.25, minZ: b.z - 0.25, maxZ: b.z + 0.25 });
+  for (const s of signals) footprints.push({ minX: s.x - 0.15, maxX: s.x + 0.15, minZ: s.z - 0.15, maxZ: s.z + 0.15 });
   for (const r of runs) {
     for (let k = 0; k + 1 < r.pts.length; k++) {
       const a = r.pts[k];
@@ -1027,7 +1154,7 @@ function layoutRailInfrastructure(network) {
     }
   }
   return { tracks, pieces, dropped, level, ends, runs, corridor, masts, arms, portals, droppers, footprints, laneDist, roadDist,
-    tramDist, railDist };
+    tramDist, railDist, crossings, barriers, signals };
 }
 
 // --- Rendering ---------------------------------------------------------------------------------------------------------
@@ -1426,6 +1553,92 @@ function buildTramInfrastructure(scene, network) {
     instanced('RailFence', new THREE.PlaneGeometry(1, 1), fenceMat, fenceM, { fence: { size: 2, data: fenceAttr } }, false)
   ]) if (mesh) group.add(mesh);
 
+  // --- 2c. Level crossings (barriers & warning signals) -------------------------------------------------------------
+  const barrierCabinetM = [];
+  const barrierBoomM = [];
+  const boomLens = [];
+  const signalMastM = [];
+  const stAndrewCrossM = [];
+  const signalLampM = [];
+
+  const barrierCabinetMat = new THREE.MeshStandardNodeMaterial({ color: 0x82888c, roughness: 0.5, metalness: 0.4 });
+  const barrierBoomMat = new THREE.MeshStandardNodeMaterial({ roughness: 0.4, metalness: 0.1 });
+  barrierBoomMat.colorNode = Fn(() => {
+    const along = positionGeometry.x.mul(attribute('armLen', 'float'));
+    const stripe = step(0.5, fract(along.div(0.6)));
+    return mix(color(0xf5f5f5), color(0xd41111), stripe);
+  })();
+  const stAndrewMat = new THREE.MeshStandardNodeMaterial({ roughness: 0.4 });
+  stAndrewMat.colorNode = Fn(() => {
+    const edgeY = step(0.042, abs(positionGeometry.y));
+    const edgeX = step(0.48, abs(positionGeometry.x));
+    const border = max(edgeY, edgeX);
+    return mix(color(0xf5f5f5), color(0xd41111), border);
+  })();
+  const signalLampMat = new THREE.MeshBasicNodeMaterial({ color: 0xee1515 });
+
+  const barrierCabinetGeo = mergeGeometries([
+    new THREE.BoxGeometry(0.44, 1.15, 0.4).translate(0, 0.575, 0),
+    new THREE.CylinderGeometry(0.07, 0.07, 0.16, 10).rotateZ(Math.PI / 2).translate(0, 0.95, 0.2),
+    new THREE.BoxGeometry(0.32, 0.22, 0.28).translate(0, 0.95, -0.2)
+  ].map((g) => g.toNonIndexed()));
+
+  const barrierBoomGeo = new THREE.BoxGeometry(1, 0.12, 0.07).translate(0.5, 0, 0);
+
+  const signalMastGeo = mergeGeometries([
+    new THREE.CylinderGeometry(0.045, 0.05, 2.9, 10).translate(0, 1.45, 0),
+    new THREE.BoxGeometry(0.58, 0.05, 0.05).translate(0, 2.05, 0.02),
+    new THREE.CylinderGeometry(0.105, 0.105, 0.08, 12).rotateX(Math.PI / 2).translate(-0.22, 2.05, 0.04),
+    new THREE.CylinderGeometry(0.105, 0.105, 0.08, 12).rotateX(Math.PI / 2).translate(0.22, 2.05, 0.04)
+  ].map((g) => g.toNonIndexed()));
+
+  const stAndrewCrossGeo = mergeGeometries([
+    new THREE.BoxGeometry(1.1, 0.11, 0.02).rotateZ(0.61).translate(0, 2.5, 0.03),
+    new THREE.BoxGeometry(1.1, 0.11, 0.02).rotateZ(-0.61).translate(0, 2.5, 0.03)
+  ].map((g) => g.toNonIndexed()));
+
+  const signalLampGeo = mergeGeometries([
+    new THREE.CylinderGeometry(0.09, 0.09, 0.02, 12).rotateX(Math.PI / 2).translate(-0.22, 2.05, 0.05),
+    new THREE.CylinderGeometry(0.09, 0.09, 0.02, 12).rotateX(Math.PI / 2).translate(0.22, 2.05, 0.05)
+  ]);
+
+  for (const b of rail.barriers) {
+    const y0 = b.y ?? (blockAt(b.x, b.z) ? SW_TOP : 0);
+    dummy.position.set(b.x, y0, b.z);
+    dummy.rotation.set(0, b.yaw, 0);
+    dummy.scale.set(1, 1, 1);
+    barrierCabinetM.push(M());
+
+    dummy.position.set(b.x, y0 + 0.95, b.z);
+    dummy.rotation.set(0, b.armYaw, 1.43, 'YXZ');
+    dummy.scale.set(b.armLen, 1, 1);
+    barrierBoomM.push(M());
+    boomLens.push(b.armLen);
+
+    colliders.push({ minX: b.x - 0.25, maxX: b.x + 0.25, minZ: b.z - 0.25, maxZ: b.z + 0.25, maxY: y0 + 1.2 });
+  }
+
+  for (const s of rail.signals) {
+    const y0 = s.y ?? (blockAt(s.x, s.z) ? SW_TOP : 0);
+    dummy.position.set(s.x, y0, s.z);
+    dummy.rotation.set(0, s.yaw, 0);
+    dummy.scale.set(1, 1, 1);
+    const m = M();
+    signalMastM.push(m);
+    stAndrewCrossM.push(m);
+    signalLampM.push(m);
+
+    colliders.push({ minX: s.x - 0.15, maxX: s.x + 0.15, minZ: s.z - 0.15, maxZ: s.z + 0.15, maxY: y0 + 2.9 });
+  }
+
+  for (const mesh of [
+    instanced('CrossingBarrierCabinets', barrierCabinetGeo, barrierCabinetMat, barrierCabinetM),
+    instanced('CrossingBarrierBooms', barrierBoomGeo, barrierBoomMat, barrierBoomM, { armLen: { size: 1, data: boomLens } }),
+    instanced('CrossingSignalMasts', signalMastGeo, steelMat, signalMastM),
+    instanced('CrossingStAndrewCrosses', stAndrewCrossGeo, stAndrewMat, stAndrewCrossM),
+    instanced('CrossingSignalLamps', signalLampGeo, signalLampMat, signalLampM, {}, false)
+  ]) if (mesh) group.add(mesh);
+
   // --- 3. Stops -----------------------------------------------------------------------------------------------------
   const platformM = [];
   const edgeM = [];
@@ -1554,7 +1767,8 @@ function buildTramInfrastructure(scene, network) {
   console.info(`[tram-infra] ${tracks.length} tracks, ${poles.length} poles, ${spans.length} span wires, ${arms.length} arms, ` +
     `${rosettes.length} rosettes; ${stops.length} stops (${stops.filter((s) => s.kind === 'island').length} islands) ` +
     `of ${GEO.tramStops.length} stop nodes; rail: ${rail.tracks.length} tracks, ${railBedM.length} bed pieces, ` +
-    `${rail.ends.length} end walls, ${fenceM.length} boundary segments, ${rail.masts.length} masts, ${rail.arms.length} cantilevers, ${rail.portals.length} portals`);
+    `${rail.ends.length} end walls, ${fenceM.length} boundary segments, ${rail.masts.length} masts, ${rail.arms.length} cantilevers, ${rail.portals.length} portals, ` +
+    `${rail.crossings.length} level crossings (${rail.barriers.length} barriers, ${rail.signals.length} signals)`);
   // railCorridor(x, z): the ground players' keep-out (controllers.js), true inside the railway corridor
   return { group, colliders, stops: publicStops, railCorridor: rail.corridor.has };
 }

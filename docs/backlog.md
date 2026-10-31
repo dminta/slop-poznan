@@ -125,11 +125,24 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 - Validation: `node --test tests/` passes **301/301** (33.38 s). See the
   [observation record](observations/footbridges-2026-10-31.md).
 
+## Railway level crossing barriers and signals added
+
+- Added 28 level crossing barrier mechanisms (`CrossingBarrierCabinets`, `CrossingBarrierBooms` with red/white
+  striped procedural material) and 28 St. Andrew's cross warning signals (`CrossingSignalMasts`, `CrossingStAndrewCrosses`,
+  `CrossingSignalLamps`) across all 5 active level crossings covering 25 `GEO.levelCrossings` nodes on public streets
+  (ul. Św. Michała, ul. Krańcowa, ul. Bałtycka, ul. Gdyńska, ul. Wrzesińska).
+- Positions strictly respect road clearance (`roadDist >= 0.15 m`), vehicle lane envelopes (`laneDist >= 1.85 m`),
+  rail structure gauge (`railDist >= 2.6 m`) and tram clearance (`tramDist >= 3.0 m`).
+- Barrier drive cabinets and signal masts add physical colliders outside vehicle lanes.
+- Roadway network and traffic flow remain 100% preserved (8,756 edges, 435.479 km).
+- Validation: `node --test tests/` passes **305/305** (33.45 s). See the
+  [observation record](observations/rail-crossings-2026-10-31.md).
+
 ## Known gaps and follow-up investigations
 
 | Topic | Remaining work | Original reference |
 |---|---|---|
-| Railway crossings | Restore sidewalks under rail bridges without joining blocks into filled rings; model raised track/viaduct decks and add level-crossing barriers. Current roadways are clear, while the railway remains flat. | 15.8 |
+| Railway viaducts and underpasses | Restore sidewalks under rail bridges without joining blocks into filled rings; model raised track/viaduct decks bridging cut tracks over roadways. Level-crossing barriers are implemented. | 15.8 |
 | Other missing signal heads | The full-scene audit leaves incoming edges without a nearby matching plan/facing head; these are investigation candidates, not confirmed missing heads (many approach on curves with `dot` between 0.70 and 0.98, or border parks whose bounding boxes exclude sidewalks). Find safe placements without losing lanes. | 15.5 |
 | Park bounding boxes | Audit the remaining signal/furniture exclusions and traffic footprints that use bounds of irregular park islands. The Krucza correction is deliberately limited to one surveyed approach; broader placement changes need lane-preservation checks. | Follow-up |
 | Sparse OSM blocks | Check the nine large blocks with under 5% mapped building coverage against BDOT10k; supplement only confirmed omissions. The original audit covered 0.69 km² and needs rechecking against the current enlarged box. Verify source terms before adding data. | 14.3 |
