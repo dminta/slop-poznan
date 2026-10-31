@@ -287,8 +287,11 @@ function layoutTrackBeds(tracks, laneDist) {
         // the roadway's distance from the centreline every 0.5 m along the piece: a box `half` either side of it stays
         // clear when that is half + 0.25 m (half the step) + BED_GAP
         let room = Infinity;
-        const n = Math.max(2, Math.ceil(len / 0.5));
-        for (let k = 0; k <= n; k++) room = Math.min(room, roadwayDist(A.x + (B.x - A.x) * k / n, A.z + (B.z - A.z) * k / n));
+        const inPstDworcowy = mx > -1570 && mx < -1525 && mz > 535 && mz < 585;
+        if (!inPstDworcowy) {
+          const n = Math.max(2, Math.ceil(len / 0.5));
+          for (let k = 0; k <= n; k++) room = Math.min(room, roadwayDist(A.x + (B.x - A.x) * k / n, A.z + (B.z - A.z) * k / n));
+        }
         const half = Math.min(BED_HALF, room - 0.25 - BED_GAP);
         if (half >= BED_MIN) bed = half;
       }

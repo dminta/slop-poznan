@@ -258,6 +258,7 @@ for (const r of osmTramRoutes.elements) {
 const trackWays = [];
 const trackUnderpasses = railwayUnderpasses(osmRail.elements.filter((e) => e.type === 'way' && e.geometry &&
   ['tram', 'rail', 'light_rail'].includes(tagOf(e).railway)));
+const isPst = (t) => /Pestka|Poznański Szybki Tramwaj/i.test((t && (t.name || t.loc_name)) || '');
 let droppedRailTunnel = 0;
 let closedTram = 0;
 for (const e of osmRail.elements) {
@@ -265,7 +266,7 @@ for (const e of osmRail.elements) {
   if (e.type !== 'way' || !e.geometry) continue;
   const closed = CLOSED_TRACK.has(t.railway) && routeWays.has(e.id);
   if (!closed && !['tram', 'rail', 'light_rail'].includes(t.railway)) continue;
-  if (underground(t) && !trackUnderpasses.has(e.id)) { droppedRailTunnel++; continue; }
+  if (underground(t) && !trackUnderpasses.has(e.id) && !isPst(t)) { droppedRailTunnel++; continue; }
   const pts = e.geometry.map((g) => toWorld(g.lon, g.lat));
   if (!touchesBox(pts, PIECE_PAD)) continue;
   // oneway=-1 tracks are turned round so every one-way track runs along its points (85% of the tram ways carry oneway)
@@ -274,7 +275,7 @@ for (const e of osmRail.elements) {
   if (oneway < 0) { pts.reverse(); nodes.reverse(); }
   if (closed) closedTram++;
   trackWays.push({ id: e.id, kind: t.railway === 'tram' || closed ? 'tram' : 'rail', tracks: parseInt(t.tracks, 10) || 1,
-    oneway: oneway ? 1 : 0, bridge: t.bridge && t.bridge !== 'no' ? 1 : 0, pts, nodes });
+    oneway: oneway ? 1 : 0, bridge: t.bridge && t.bridge !== 'no' ? 1 : 0, tags: t, pts, nodes });
 }
 // Track pieces for GEO.rail: every track way cut at the nodes it shares with another track way (switches, crossings),
 // like the road pieces, so a chain end is a real junction and the runtime can join the tram network by end coordinates
@@ -311,15 +312,15 @@ function segGrid(lines) {
   }
   return g;
 }
-// Is there a segment within `maxD` of (x, z) running parallel (|cos| ≥ minCos) to (dx, dz)?
-function nearParallel(g, x, z, dx, dz, maxD, minCos) {
+// Is there a segment within `maxD` of (x, z) running parallel (|cos| ≥ minCos) to (dx, dz), or within `matchDist`?
+function nearParallel(g, x, z, dx, dz, maxD, minCos, matchDist = 0) {
   const ix = Math.floor(x / GRID), iz = Math.floor(z / GRID);
   for (let a = ix - 1; a <= ix + 1; a++) {
     for (let b = iz - 1; b <= iz + 1; b++) {
       for (const [ax, az, , , ux, uz, L] of g.get(a * 100003 + b) || []) {
-        if (Math.abs(ux * dx + uz * dz) < minCos) continue;
         const s = Math.max(0, Math.min(L, (x - ax) * ux + (z - az) * uz));
-        if (Math.hypot(ax + ux * s - x, az + uz * s - z) <= maxD) return true;
+        const d = Math.hypot(ax + ux * s - x, az + uz * s - z);
+        if ((matchDist && d <= matchDist) || (Math.abs(ux * dx + uz * dz) >= minCos && d <= maxD)) return true;
       }
     }
   }
@@ -406,7 +407,14 @@ for (const [i, p] of pieces.entries()) {
 // other way round. Tracks on their own right of way away from roads (the PST cutting's open stretches, loops, depots)
 // stay street 0
 const streetGrid = segGrid(pieces.filter((p) => p.cls !== 'service').map((p) => p.pts));
-const onStreet = (pts) => shareAlong(pts, (x, z, dx, dz) => nearParallel(streetGrid, x, z, dx, dz, TRAM_D, TRAM_COS)) >= 0.5;
+const onStreet = (pts) => shareAlong(pts, (x, z, dx, dz) => nearParallel(streetGrid, x, z, dx, dz, TRAM_D, TRAM_COS, 8.0)) >= 0.5;
+function isStreetTram(t, tags, pts) {
+  if (isPst(tags)) return false;
+  if (tags.bridge && tags.bridge !== 'no') return true;
+  if (tags.embedded_rails === 'tram' || ['asphalt', 'paving_stones', 'sett'].includes(tags.surface)) return true;
+  if (pts.some(([x, z]) => x >= -1530 && x <= -1390 && z >= 30 && z <= 150)) return true;
+  return onStreet(pts);
+}
 
 // Chain lines sharing end nodes into longer polylines. Items: { key, pts, nodes, directed, id? }. A chain grows through a
 // node only where exactly two items of the same key meet, so junctions stay chain ends; undirected items are reversed as
@@ -504,7 +512,7 @@ for (const [anchor, ways] of TRAM_ROUTE_EXTENSIONS) {
 }
 log(`tram route extensions: ${extendedRouteWays} missing way memberships completed`);
 
-for (const t of trackWays) t.street = t.kind === 'tram' && onStreet(t.pts) ? 1 : 0;
+for (const t of trackWays) t.street = t.kind === 'tram' && isStreetTram(t, t.tags || {}, t.pts) ? 1 : 0;
 // A switch whose branches differ in key (one street-running, one not; one-way and two-way) must stay a chain end too, or
 // the branch would meet the other chain mid-way and the runtime would find no junction there
 const pieceEnds = new Map();

@@ -679,7 +679,8 @@ function buildCityGrid(scene) {
       if (hedge) {
         const walks = MEDIAN_REFUGE_CORRIDORS.filter(([ax, az, bx, bz]) =>
           pointInPolygonXZ(b.poly, ax, az) && pointInPolygonXZ(b.poly, bx, bz));
-        const pieces = walks.length ? cutSlab(hedge, walks, 1.5) : [hedge];
+        let pieces = walks.length ? cutSlab(hedge, walks, 1.5) : [hedge];
+        if (b.tramCut) pieces = pieces.flatMap((p) => cutSlab(p, b.tramCut.segs, b.tramCut.half));
         for (const piece of pieces) {
           hedgeGeos.push(createExtrudedPolygonMesh(piece, SW_TOP, 0.55, medianHedgeMat).geometry);
         }

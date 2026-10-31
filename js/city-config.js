@@ -565,13 +565,33 @@ const BLOCKS = GEO.blocks.map(([flat, rects, park, parkName, isRect, frames], id
     median: Math.min(maxX - minX, maxZ - minZ) < 9
   };
 });
+// Curb islands and medians crossing tram tracks: cut empty islands/medians to keep tracks clear of 0.22 m slabs.
+// Share the exact corridor with city-grid's slab subtraction so height queries (rails, pedestrians and the player)
+// cannot stand on an invisible remnant of the old raised surface.
+const TRAM_CUT_HALF = 0.7175 + 0.07 + 1.5; // same 2.2875 m track clearance as the cuts through paved squares
+for (const b of BLOCKS) {
+  if (b.rect || b.rects.length || b.buildings || b.park >= 0.5) continue;
+  if (pointInPoly(b.poly, -2446, 2204)) continue;
+  const segs = [];
+  for (const r of GEO.rail) {
+    if (r.kind !== 'tram') continue;
+    for (let i = 0; i + 3 < r.pts.length; i += 2) {
+      const [ax, az, bx, bz] = r.pts.slice(i, i + 4);
+      if (Math.max(ax, bx) + 2 * TRAM_CUT_HALF < b.minX || Math.min(ax, bx) - 2 * TRAM_CUT_HALF > b.maxX ||
+        Math.max(az, bz) + 2 * TRAM_CUT_HALF < b.minZ || Math.min(az, bz) - 2 * TRAM_CUT_HALF > b.maxZ) continue;
+      segs.push([ax, az, bx, bz]);
+    }
+  }
+  if (segs.length) b.tramCut = { half: TRAM_CUT_HALF, segs };
+}
+
 // The surveyed Hetmańska/Dmowskiego island puts 47.5 m² of curb across the tram track. Cut only this empty
 // island, keeping generated geodata intact. Share the exact corridor with city-grid's slab subtraction so height
 // queries (rails, pedestrians and the player) cannot stand on an invisible remnant of the old raised surface.
 const HETMANSKA_CURB = BLOCKS.find((b) => !b.rect && !b.rects.length && pointInPoly(b.poly, -2446, 2204));
 if (HETMANSKA_CURB) {
   const b = HETMANSKA_CURB;
-  const half = 0.7175 + 0.07 + 1.5; // same 2.2875 m track clearance as the cuts through paved squares
+  const half = TRAM_CUT_HALF;
   const segs = [];
   for (const r of GEO.rail) {
     if (r.kind !== 'tram') continue;

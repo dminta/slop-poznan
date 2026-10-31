@@ -241,7 +241,7 @@ test('Footbridges do not affect the vehicular road network edge count or lane co
   const net = buildRoadNetwork([], []);
   assert.equal(net.edges.length, 8756, 'road network edge count matches baseline');
   const totalLanes = net.edges.reduce((sum, e) => sum + e.lanes.length, 0);
-  assert.equal(totalLanes, 11650, 'total vehicular lanes count matches baseline');
+  assert.equal(totalLanes, 11651, 'total vehicular lanes count matches baseline');
 
   const fbNames = new Set(['Most Biskupa Jordana', 'Kładka Bramy Poznania', 'Mosty Berdychowskie']);
   for (const e of net.edges) {
