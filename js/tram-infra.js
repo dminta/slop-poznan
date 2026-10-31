@@ -280,20 +280,22 @@ function layoutTrackBeds(tracks, laneDist) {
       const mx = (A.x + B.x) / 2;
       const mz = (A.z + B.z) / 2;
       const len = Math.hypot(B.x - A.x, B.z - A.z);
-      if (!isLand(mx, mz) || len < 0.01) continue;
-      const ground = blockAt(mx, mz) ? SW_TOP : 0;
+      if ((!isLand(mx, mz) && (tr.street !== 1 || !isWater(mx, mz))) || len < 0.01) continue;
+      const ground = tr.street === 1 ? 0 : (blockAt(mx, mz) ? SW_TOP : 0);
       let bed = 0;
       if (tr.street !== 1 && !ground) {
         // the roadway's distance from the centreline every 0.5 m along the piece: a box `half` either side of it stays
         // clear when that is half + 0.25 m (half the step) + BED_GAP
         let room = Infinity;
-        const inPstDworcowy = mx > -1570 && mx < -1525 && mz > 535 && mz < 585;
-        if (!inPstDworcowy) {
+        const underBridgeDeck = (mx > -1570 && mx < -1520 && mz > 535 && mz < 620) ||
+          (mx > -1445 && mx < -1395 && mz > 50 && mz < 135) ||
+          (mx > -1380 && mx < -1345 && mz > -230 && mz < -170);
+        if (!underBridgeDeck) {
           const n = Math.max(2, Math.ceil(len / 0.5));
           for (let k = 0; k <= n; k++) room = Math.min(room, roadwayDist(A.x + (B.x - A.x) * k / n, A.z + (B.z - A.z) * k / n));
+          const half = Math.min(BED_HALF, room - 0.25 - BED_GAP);
+          if (half >= BED_MIN) bed = half;
         }
-        const half = Math.min(BED_HALF, room - 0.25 - BED_GAP);
-        if (half >= BED_MIN) bed = half;
       }
       beds.push({ railIndex: tr.railIndex, s0, ax: A.x, az: A.z, bx: B.x, bz: B.z, ground, bed });
     }
@@ -509,7 +511,7 @@ function layoutTramInfrastructure(network) {
     stop.sign = { ...at(stop.kind === 'island' ? 12 : 9, base + 0.55), y, yaw: Math.atan2(fx, fz) };
     stop.machine = { ...at(2.2, base + width - 0.45), y, yaw: yaw + Math.PI };
     // Curb stops keep their furniture on the sidewalk and off the tracks
-    if (stop.kind === 'curb' && ![stop.shelter, stop.sign, stop.machine].every((p) => onCurb(p.x, p.z))) {
+    if (stop.kind === 'curb' && ![stop.shelter, stop.sign, stop.machine].every((p) => !p || onCurb(p.x, p.z))) {
       if (!onCurb(stop.sign.x, stop.sign.z)) {
         skipped.push({ ...st, why: 'no sign spot' });
         continue;

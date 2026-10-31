@@ -266,17 +266,27 @@ for (const e of osmRail.elements) {
   if (e.type !== 'way' || !e.geometry) continue;
   const closed = CLOSED_TRACK.has(t.railway) && routeWays.has(e.id);
   if (!closed && !['tram', 'rail', 'light_rail'].includes(t.railway)) continue;
-  if (underground(t) && !trackUnderpasses.has(e.id) && !isPst(t)) { droppedRailTunnel++; continue; }
+  const isFranowo = (routeWays.has(e.id) || /Trasa na Franowo|Tunel trasy tramwajowej os\. Lecha/i.test((t.name || '') + ' ' + (t.alt_name || '') + ' ' + (t.wikipedia || ''))) &&
+    e.geometry.some((g) => g.lon > 16.96);
+  if (underground(t) && !trackUnderpasses.has(e.id) && !isPst(t) && !isFranowo) { droppedRailTunnel++; continue; }
   const pts = e.geometry.map((g) => toWorld(g.lon, g.lat));
   if (!touchesBox(pts, PIECE_PAD)) continue;
   // oneway=-1 tracks are turned round so every one-way track runs along its points (85% of the tram ways carry oneway)
-  const oneway = isOneway(t);
+  let oneway = isOneway(t);
+  if ([520965984, 1159708901, 1159708903].includes(e.id)) oneway = 1;
   const nodes = e.nodes.slice();
   if (oneway < 0) { pts.reverse(); nodes.reverse(); }
   if (closed) closedTram++;
   trackWays.push({ id: e.id, kind: t.railway === 'tram' || closed ? 'tram' : 'rail', tracks: parseInt(t.tracks, 10) || 1,
     oneway: oneway ? 1 : 0, bridge: t.bridge && t.bridge !== 'no' ? 1 : 0, tags: t, pts, nodes });
 }
+// Ratajczaka stub at Św. Marcin: connect node 583424815 at [-612.4, 237.6] (way 1159708901 / 929193735) to node 10784788054 at [-601.0, 230.4] (way 1159708903)
+trackWays.push({
+  id: 1159708999, kind: 'tram', tracks: 1, oneway: 1, bridge: 0,
+  tags: { railway: 'tram', surface: 'paving_stones', name: 'Św. Marcin – Ratajczaka', oneway: 'yes' },
+  pts: [[-612.43, 237.59], [-608.0, 237.2], [-604.5, 235.8], [-602.0, 233.5], [-600.95, 230.41]],
+  nodes: [583424815, 999990003, 999990002, 999990001, 10784788054]
+});
 // Track pieces for GEO.rail: every track way cut at the nodes it shares with another track way (switches, crossings),
 // like the road pieces, so a chain end is a real junction and the runtime can join the tram network by end coordinates
 const trackUse = new Map();
@@ -409,8 +419,17 @@ for (const [i, p] of pieces.entries()) {
 const streetGrid = segGrid(pieces.filter((p) => p.cls !== 'service').map((p) => p.pts));
 const onStreet = (pts) => shareAlong(pts, (x, z, dx, dz) => nearParallel(streetGrid, x, z, dx, dz, TRAM_D, TRAM_COS, 8.0)) >= 0.5;
 function isStreetTram(t, tags, pts) {
-  if (isPst(tags)) return false;
+  const isPstTrack = isPst(tags);
+  const isLowerTrench = isPstTrack && (tags.level === '-2' || tags.layer === '-2' || pts.some(([x, z]) => x >= -1800 && x <= -1400 && z >= 0 && z <= 1050));
+  const isOpenCutting = isPstTrack && pts.every(([x, z]) => z < -460);
+  if (isLowerTrench || isOpenCutting) return false;
+  if (isPstTrack) {
+    if (pts.some(([x, z]) => x >= -1420 && x <= -1320 && z >= -400 && z <= -250)) return true;
+    return false;
+  }
   if (tags.bridge && tags.bridge !== 'no') return true;
+  if (pts.some(([x, z]) => x >= -1420 && x <= -1320 && z >= -400 && z <= -250)) return true;
+  if (pts.some(([x, z]) => x >= -1560 && x <= -1200 && z >= 540 && z <= 660)) return true;
   if (tags.embedded_rails === 'tram' || ['asphalt', 'paving_stones', 'sett'].includes(tags.surface)) return true;
   if (pts.some(([x, z]) => x >= -1530 && x <= -1390 && z >= 30 && z <= 150)) return true;
   return onStreet(pts);
@@ -510,6 +529,7 @@ for (const [anchor, ways] of TRAM_ROUTE_EXTENSIONS) {
     }
   }
 }
+for (const r of allTramRoutes) if (r.ways.has(1159708903)) r.ways.add(1159708999);
 log(`tram route extensions: ${extendedRouteWays} missing way memberships completed`);
 
 for (const t of trackWays) t.street = t.kind === 'tram' && isStreetTram(t, t.tags || {}, t.pts) ? 1 : 0;

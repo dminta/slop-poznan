@@ -181,7 +181,8 @@ const LAND_DIST = new Uint8Array(LAND_W * LAND_H);
   // bridge decks: capsules of half-width w/2 + 2 m along each link, extended 15 m past both ends
   for (const br of BRIDGES) {
     for (const l of br.links) {
-      const hw = l.width * 0.5 + 2;
+      let hw = l.width * 0.5 + 2;
+      if (br.name === 'Most Bolesława Chrobrego') hw = Math.max(hw, 15);
       for (let s = 0; s + 1 < l.pts.length; s++) {
         let a = l.pts[s], b = l.pts[s + 1];
         const len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
@@ -565,24 +566,47 @@ const BLOCKS = GEO.blocks.map(([flat, rects, park, parkName, isRect, frames], id
     median: Math.min(maxX - minX, maxZ - minZ) < 9
   };
 });
-// Curb islands and medians crossing tram tracks: cut empty islands/medians to keep tracks clear of 0.22 m slabs.
+// Curb islands and medians crossing tram tracks: cut empty islands/medians and built blocks whose perimeter
+// intersects tram tracks to keep tracks clear of 0.22 m slabs.
 // Share the exact corridor with city-grid's slab subtraction so height queries (rails, pedestrians and the player)
 // cannot stand on an invisible remnant of the old raised surface.
 const TRAM_CUT_HALF = 0.7175 + 0.07 + 1.5; // same 2.2875 m track clearance as the cuts through paved squares
+function segsCross(p1, p2, p3, p4) {
+  const d = (p4.x - p3.x) * (p2.z - p1.z) - (p4.z - p3.z) * (p2.x - p1.x);
+  if (Math.abs(d) < 1e-9) return false;
+  const t = ((p3.x - p1.x) * (p2.z - p1.z) - (p3.z - p1.z) * (p2.x - p1.x)) / d;
+  const u = ((p3.x - p1.x) * (p4.z - p3.z) - (p3.z - p1.z) * (p4.x - p3.x)) / d;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+}
 for (const b of BLOCKS) {
-  if (b.rect || b.rects.length || b.buildings || b.park >= 0.5) continue;
+  if (b.rect || b.park >= 0.5) continue;
   if (pointInPoly(b.poly, -2446, 2204)) continue;
   const segs = [];
+  const emptyIsland = !b.rects.length && !b.buildings;
+  let hasCross = false;
   for (const r of GEO.rail) {
     if (r.kind !== 'tram') continue;
     for (let i = 0; i + 3 < r.pts.length; i += 2) {
       const [ax, az, bx, bz] = r.pts.slice(i, i + 4);
       if (Math.max(ax, bx) + 2 * TRAM_CUT_HALF < b.minX || Math.min(ax, bx) - 2 * TRAM_CUT_HALF > b.maxX ||
         Math.max(az, bz) + 2 * TRAM_CUT_HALF < b.minZ || Math.min(az, bz) - 2 * TRAM_CUT_HALF > b.maxZ) continue;
-      segs.push([ax, az, bx, bz]);
+      if (emptyIsland) {
+        segs.push([ax, az, bx, bz]);
+      } else {
+        const p1 = { x: ax, z: az }, p2 = { x: bx, z: bz };
+        let cross = false;
+        for (let j = 0; j < b.poly.length; j++) {
+          const p3 = b.poly[j], p4 = b.poly[(j + 1) % b.poly.length];
+          if (segsCross(p1, p2, p3, p4)) { cross = true; break; }
+        }
+        if (cross) hasCross = true;
+        if (cross || pointInPoly(b.poly, ax, az) || pointInPoly(b.poly, bx, bz)) {
+          segs.push([ax, az, bx, bz]);
+        }
+      }
     }
   }
-  if (segs.length) b.tramCut = { half: TRAM_CUT_HALF, segs };
+  if (segs.length && (emptyIsland || hasCross)) b.tramCut = { half: TRAM_CUT_HALF, segs };
 }
 
 // The surveyed Hetmańska/Dmowskiego island puts 47.5 m² of curb across the tram track. Cut only this empty
