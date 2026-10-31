@@ -152,11 +152,26 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 - Validation: `node --test tests/` passes **305/305** (34.85 s). See the
   [observation record](observations/park-signals-2026-10-31.md).
 
+## Railway viaducts and underpass sidewalks implemented
+
+- Restored 44 dedicated underpass sidewalk strips (`UNDERPASS_SIDEWALKS`) in `js/city-config.js` and `js/city-grid.js`
+  under railway bridges across all underpass corridors without joining raster blocks into filled rings.
+- Connected pedestrian routes (`js/pedestrian-routes.js`) across underpasses (`anyBlock = true`), restoring continuous
+  foot traffic on streets previously cut by railway corridors (Przepadek, Garbary, Niepodległości, Cicha, Podwale,
+  Nad Wierzbakiem, Sucha, Hetmańska).
+- Modeled 41 railway viaduct spans (`rail.viaducts` in `js/tram-infra.js`) bridging cut tracks over roadways with
+  vertical clearance: 6.0 m over tram corridors (clearing 5.8 m catenary on Hetmańska), 4.8 m over roadways without trams.
+- Viaduct structures feature concrete/steel deck slabs, instanced steel through-plate side girders (`RailViaductGirders`),
+  elevated ballast and continuous rail heads, and concrete abutment portals replacing 1.1 m end walls.
+- Overhead colliders (`minY >= 4.8 m`) allow ground vehicles and pedestrians to pass completely unobstructed underneath
+  while providing solid collision for airborne entities.
+- Validation: `node --test tests/` passes **310/310** (34.33 s). See the
+  [observation record](observations/rail-viaducts-2026-10-31.md).
+
 ## Known gaps and follow-up investigations
 
 | Topic | Remaining work | Original reference |
 |---|---|---|
-| Railway viaducts and underpasses | Restore sidewalks under rail bridges without joining blocks into filled rings; model raised track/viaduct decks bridging cut tracks over roadways. Level-crossing barriers are implemented. | 15.8 |
 | Other missing signal heads | Park bounding box candidates (266 approaches) are restored. Remaining unmatched incoming edges are investigation candidates on curved approaches with `dot` between 0.70 and 0.98 or offset > 45 m. | 15.5 |
 | Park bounding boxes | Signal placement exclusions from park bounding boxes are resolved across all 128 junctions (896 vehicle heads, 1578 pedestrian heads). Remaining follow-up is optional exact polygon checks for non-signal street furniture (lamps/trees/benches). | Follow-up |
 | Sparse OSM blocks | Check the nine large blocks with under 5% mapped building coverage against BDOT10k; supplement only confirmed omissions. The original audit covered 0.69 km² and needs rechecking against the current enlarged box. Verify source terms before adding data. | 14.3 |

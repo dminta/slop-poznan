@@ -626,6 +626,7 @@ function layoutRailInfrastructure(network) {
   const ends = [];
   const dropped = { offLand: 0, water: 0, road: 0, tram: 0 };
   const level = []; // [{ railIndex, ax, az, bx, bz, ground }] flush pieces over level crossings
+  const viaducts = []; // [{ railIndex, ax, az, bx, bz, pieces, spanLen, mx, mz, hasTram, yClearance, deckY }]
   const keptAt = new Map(); // railIndex -> Uint8Array: 1 for every kept piece
   const trackGeo = new Map(); // railIndex -> { geo: [{ s0, A, B }] per piece, kept }
   for (const tr of tracks) {
@@ -671,6 +672,30 @@ function layoutRailInfrastructure(network) {
           level.push({ railIndex: tr.railIndex, ax: A.x, az: A.z, bx: B.x, bz: B.z,
             ground: blockAt((A.x + B.x) / 2, (A.z + B.z) / 2) ? SW_TOP : 0 });
         }
+      } else if (i > 0 && j < count) {
+        // Railway viaduct over a roadway: bridge cut tracks overhead across the underpass
+        const mx = (geo[i - 1].B.x + geo[j].A.x) / 2;
+        const mz = (geo[i - 1].B.z + geo[j].A.z) / 2;
+        const isRoadOverpass = BRIDGES.some((br) => !br.footbridge && br.links && br.links.some((l) => l.pts && l.pts.some((p) => Math.hypot(p.x - mx, p.z - mz) < 25)));
+        const d = Math.hypot(geo[j].A.x - geo[i - 1].B.x, geo[j].A.z - geo[i - 1].B.z);
+        if (!isRoadOverpass && d < 120) {
+          const spanPieces = [];
+          for (let k = i; k < j; k++) spanPieces.push({ ax: geo[k].A.x, az: geo[k].A.z, bx: geo[k].B.x, bz: geo[k].B.z, s0: geo[k].s0 });
+          const hasTram = spanPieces.some((p) => tramDist((p.ax + p.bx) / 2, (p.az + p.bz) / 2, 5) < 4.5);
+          const yClearance = hasTram ? 6.0 : 4.8;
+          const deckY = yClearance + 0.35;
+          viaducts.push({
+            railIndex: tr.railIndex,
+            ax: geo[i - 1].B.x, az: geo[i - 1].B.z,
+            bx: geo[j].A.x, bz: geo[j].A.z,
+            pieces: spanPieces,
+            spanLen: d,
+            mx, mz,
+            hasTram,
+            yClearance,
+            deckY
+          });
+        }
       }
       i = j;
     }
@@ -682,8 +707,16 @@ function layoutRailInfrastructure(network) {
       const dx = (B.x - A.x) / len;
       const dz = (B.z - A.z) / len;
       const ground = blockAt((A.x + B.x) / 2, (A.z + B.z) / 2) ? SW_TOP : 0;
-      if (i > 0 && why[i - 1] && why[i - 1] !== 'offLand' && why[i - 1] !== 'level') ends.push({ x: A.x, z: A.z, dx: -dx, dz: -dz, ground, s: geo[i].s0, inward: 1, tr });
-      if (i + 1 < count && why[i + 1] && why[i + 1] !== 'offLand' && why[i + 1] !== 'level') ends.push({ x: B.x, z: B.z, dx, dz, ground, s: geo[i + 1].s0, inward: -1, tr });
+      if (i > 0 && why[i - 1] && why[i - 1] !== 'offLand' && why[i - 1] !== 'level') {
+        const viaduct = viaducts.find((v) => v.railIndex === tr.railIndex && Math.hypot(v.bx - A.x, v.bz - A.z) < 0.1);
+        ends.push({ x: A.x, z: A.z, dx: -dx, dz: -dz, ground, s: geo[i].s0, inward: 1, tr, viaduct: !!viaduct,
+          deckY: viaduct ? viaduct.deckY : null, yClearance: viaduct ? viaduct.yClearance : null });
+      }
+      if (i + 1 < count && why[i + 1] && why[i + 1] !== 'offLand' && why[i + 1] !== 'level') {
+        const viaduct = viaducts.find((v) => v.railIndex === tr.railIndex && Math.hypot(v.ax - B.x, v.az - B.z) < 0.1);
+        ends.push({ x: B.x, z: B.z, dx, dz, ground, s: geo[i + 1].s0, inward: -1, tr, viaduct: !!viaduct,
+          deckY: viaduct ? viaduct.deckY : null, yClearance: viaduct ? viaduct.yClearance : null });
+      }
     }
     keptAt.set(tr.railIndex, kept);
     trackGeo.set(tr.railIndex, { geo, kept });
@@ -1154,7 +1187,7 @@ function layoutRailInfrastructure(network) {
     }
   }
   return { tracks, pieces, dropped, level, ends, runs, corridor, masts, arms, portals, droppers, footprints, laneDist, roadDist,
-    tramDist, railDist, crossings, barriers, signals };
+    tramDist, railDist, crossings, barriers, signals, viaducts };
 }
 
 // --- Rendering ---------------------------------------------------------------------------------------------------------
@@ -1423,15 +1456,68 @@ function buildTramInfrastructure(scene, network) {
     const cx = e.x + e.dx * 0.25;
     const cz = e.z + e.dz * 0.25;
     const w = 2 * (RAIL_FENCE_O + 0.15); // reaching the corridor boundary on both sides
-    dummy.position.set(cx, (e.ground + RAIL_END_H - 0.1) / 2, cz);
+    const h = e.viaduct ? e.deckY : e.ground + RAIL_END_H;
+    dummy.position.set(cx, (h - 0.1) / 2, cz);
     dummy.rotation.set(0, Math.atan2(-e.dz, e.dx), 0);
-    dummy.scale.set(0.5, e.ground + RAIL_END_H + 0.1, w);
+    dummy.scale.set(0.5, h + 0.1, w);
     endWallM.push(M());
     // buildingContact's frame: lx = dx·cs - dz·sn along the track, lz across it
     const ex = Math.abs(e.dx) * 0.25 + Math.abs(e.dz) * w / 2;
     const ez = Math.abs(e.dz) * 0.25 + Math.abs(e.dx) * w / 2;
-    colliders.push({ minX: cx - ex, maxX: cx + ex, minZ: cz - ez, maxZ: cz + ez, maxY: e.ground + RAIL_END_H,
+    colliders.push({ minX: cx - ex, maxX: cx + ex, minZ: cz - ez, maxZ: cz + ez, maxY: h,
       obb: { cx, cz, hx: 0.25, hz: w / 2, cs: e.dx, sn: -e.dz } });
+  }
+  // Viaduct spans: raised steel plate girders, deck slab and tracks bridging cut tracks over roadways
+  const viaductGirderM = [];
+  for (const v of rail.viaducts || []) {
+    for (const p of v.pieces) {
+      const len = Math.hypot(p.bx - p.ax, p.bz - p.az);
+      if (len < 0.01) continue;
+      const dx = (p.bx - p.ax) / len;
+      const dz = (p.bz - p.az) / len;
+      const mx = (p.ax + p.bx) / 2;
+      const mz = (p.az + p.bz) / 2;
+      const rotY = Math.atan2(-dz, dx);
+
+      // Deck slab (concrete/steel deck carrying ballast)
+      dummy.rotation.set(0, rotY, 0);
+      dummy.position.set(mx, v.yClearance + 0.175, mz);
+      dummy.scale.set(len + 0.05, 0.35, RAIL_BED_W);
+      endWallM.push(M());
+
+      // Side plate girders (through-plate girders flanking the track on both sides)
+      for (const sg of [1, -1]) {
+        const o = sg * (RAIL_BED_W / 2 + 0.1);
+        dummy.position.set(mx - dz * o, v.yClearance + 0.6, mz + dx * o);
+        dummy.scale.set(len + 0.05, 1.2, 0.22);
+        viaductGirderM.push(M());
+      }
+
+      // Ballast and rails across the deck
+      dummy.position.set(mx, v.deckY + 0.075, mz);
+      dummy.scale.set(len + 0.05, 0.15, RAIL_BED_TOP_W);
+      endWallM.push(M());
+
+      // Two steel rails
+      const topRail = v.deckY + 0.15 + 0.05;
+      for (const sg of [1, -1]) {
+        const o = sg * (GAUGE / 2 + HEAD_W / 2);
+        dummy.position.set(mx - dz * o, topRail - 0.025, mz + dx * o);
+        dummy.scale.set(len + 0.05, 0.05, HEAD_W);
+        railM.push(M());
+      }
+
+      // Overhead collider for the bridge span: clearance under it for cars/pedestrians, solid deck overhead
+      const hx = len / 2;
+      const hz = RAIL_BED_W / 2 + 0.2;
+      const ex = Math.abs(dx) * hx + Math.abs(dz) * hz;
+      const ez = Math.abs(dz) * hx + Math.abs(dx) * hz;
+      colliders.push({
+        minX: mx - ex, maxX: mx + ex, minZ: mz - ez, maxZ: mz + ez,
+        minY: v.yClearance, maxY: v.yClearance + 2.5,
+        obb: { cx: mx, cz: mz, hx, hz, cs: dx, sn: -dz }
+      });
+    }
   }
   // Corridor boundary: per segment a concrete plinth (or the solid wall) in the end walls' mesh and a masked fence plane
   // on top; one oriented collider per segment up to the fence top
@@ -1550,7 +1636,8 @@ function buildTramInfrastructure(scene, network) {
   for (const mesh of [
     instanced('RailBallast', railBedGeo, railBallastMat, railBedM, { tie: { size: 2, data: railTies } }, false),
     instanced('RailEndWalls', unitBox, endWallMat, endWallM),
-    instanced('RailFence', new THREE.PlaneGeometry(1, 1), fenceMat, fenceM, { fence: { size: 2, data: fenceAttr } }, false)
+    instanced('RailFence', new THREE.PlaneGeometry(1, 1), fenceMat, fenceM, { fence: { size: 2, data: fenceAttr } }, false),
+    instanced('RailViaductGirders', unitBox, steelMat, viaductGirderM)
   ]) if (mesh) group.add(mesh);
 
   // --- 2c. Level crossings (barriers & warning signals) -------------------------------------------------------------

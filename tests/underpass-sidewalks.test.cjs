@@ -25,6 +25,7 @@ let GEO;
 let net;
 let pedRoutes;
 let railInfra;
+let tramInfraMod;
 
 test.before(async () => {
   config = await import('../js/city-config.js');
@@ -51,12 +52,12 @@ test.before(async () => {
     'three/webgpu': inert(), 'three/tsl': inert(),
     'three/addons/utils/BufferGeometryUtils.js': inert(), './tsl-materials.js': inert()
   };
-  const tramInfraModule = loadModule(tiSource, {
+  tramInfraMod = loadModule(tiSource, {
     imports: { ...rendering, './city-config.js': config, './geodata.js': { GEO } },
-    globals: { console: { info() {}, warn() {}, log() {} } },
+    globals: { Math, Object, Array, Set, Map, Number, Float32Array, Float64Array, console: { info() {}, warn() {}, log() {} }, document: inert() },
     filename: 'tram-infra.js'
   });
-  railInfra = tramInfraModule.layoutRailInfrastructure(net);
+  railInfra = tramInfraMod.layoutRailInfrastructure(net);
 });
 
 test('UNDERPASS_SIDEWALKS exports 44 continuous sidewalk strips under railway bridges', () => {
@@ -99,4 +100,53 @@ test('pedestrian routes cross through rail underpass corridors', () => {
     assert.ok(pathForward && pathForward.length > 0, `edge ${id} connects forward across underpass`);
     assert.ok(pathBackward && pathBackward.length > 0, `edge ${id} connects backward across underpass`);
   }
+});
+
+test('railway viaducts bridge cut tracks over roadways with vertical clearance', () => {
+  assert.ok(Array.isArray(railInfra.viaducts), 'viaducts array is exported from rail layout');
+  assert.ok(railInfra.viaducts.length >= 40, `${railInfra.viaducts.length} viaduct spans (expected >= 40)`);
+
+  for (const v of railInfra.viaducts) {
+    assert.ok(v.spanLen >= 10 && v.spanLen <= 120, `valid viaduct span length ${v.spanLen.toFixed(1)} m`);
+    assert.ok(v.yClearance >= 4.8, `clearance ${v.yClearance} m >= 4.8 m`);
+    assert.ok(v.deckY >= 5.14, `deck height ${v.deckY} m >= 5.14 m`);
+    assert.ok(v.pieces.length >= 1, `viaduct has ${v.pieces.length} track pieces`);
+    if (v.hasTram) {
+      assert.ok(v.yClearance >= 6.0, `viaduct over tram has ${v.yClearance} m >= 6.0 m clearance`);
+    }
+  }
+
+  // Hetmańska Górczyn line underpass
+  const HX = -1855, HZ = 2482;
+  const hetViaducts = railInfra.viaducts.filter((v) => Math.hypot(v.mx - HX, v.mz - HZ) < 60);
+  assert.ok(hetViaducts.length >= 4, `Hetmańska has ${hetViaducts.length} viaduct spans across the underpass`);
+  for (const hv of hetViaducts) {
+    assert.equal(hv.hasTram, true, 'Hetmańska viaduct spans detect tram corridor');
+    assert.equal(hv.yClearance, 6.0, 'Hetmańska viaduct vertical clearance is 6.0 m for tram catenary');
+  }
+});
+
+test('railway viaduct decks generate overhead colliders leaving ground roadways unobstructed', () => {
+  const infra = tramInfraMod.buildTramInfrastructure(inert(), net);
+  assert.ok(infra.colliders.length > 0, 'colliders generated');
+
+  const overheadColliders = infra.colliders.filter((c) => (c.minY ?? 0) >= 4.8);
+  assert.ok(overheadColliders.length >= 100, `${overheadColliders.length} overhead viaduct colliders (expected >= 100)`);
+
+  // Verify that ground-level entities (y <= 2.0 m) have 0 collisions with viaduct deck spans
+  const HX = -1855, HZ = 2482;
+  const hetOverhead = overheadColliders.filter((c) => Math.hypot((c.minX + c.maxX) / 2 - HX, (c.minZ + c.maxZ) / 2 - HZ) < 50);
+  assert.ok(hetOverhead.length >= 10, `${hetOverhead.length} overhead colliders at Hetmańska`);
+
+  for (const c of hetOverhead) {
+    assert.ok(c.minY >= 6.0, `Hetmańska deck collider bottom is at ${c.minY} m >= 6.0 m`);
+    // A car or pedestrian at ground level (y in [0, 2.0]) must never collide
+    const groundEntityTop = 2.0;
+    assert.ok(groundEntityTop <= c.minY, 'ground entity passes completely underneath the viaduct deck');
+  }
+
+  // Verify abutment end walls have protective height up to deck level
+  const hetAbutments = infra.colliders.filter((c) => (c.minY ?? 0) === 0 && c.maxY >= 5.15 &&
+    Math.hypot((c.minX + c.maxX) / 2 - HX, (c.minZ + c.maxZ) / 2 - HZ) < 50);
+  assert.ok(hetAbutments.length >= 4, `${hetAbutments.length} abutment colliders at Hetmańska`);
 });
