@@ -108,13 +108,17 @@ function createBridgeMaterials() {
   const lamp = new THREE.MeshStandardNodeMaterial({ roughness: 0.4, metalness: 0.0 });
   lamp.colorNode = srgb(0.62, 0.61, 0.58);
   lamp.emissiveNode = vec3(1.0, 0.88, 0.66).mul(nightFactorNode().mul(9.0));
+  const glass = new THREE.MeshStandardNodeMaterial({ roughness: 0.1, metalness: 0.5 });
+  glass.colorNode = srgb(0.18, 0.28, 0.32);
   return {
     lamp,
     deck: createLandmarkMaterial([0.58, 0.57, 0.54], { roughness: 0.9, noise: 0.14 }),
     pier: createLandmarkMaterial([0.62, 0.61, 0.58], { roughness: 0.92, noise: 0.16, flood: 0.05, courses: 1.2 }),
     girder: createLandmarkMaterial([0.52, 0.53, 0.52], { roughness: 0.85, noise: 0.12 }),
     arch: createLandmarkMaterial([0.86, 0.86, 0.84], { roughness: 0.5, metalness: 0.05, noise: 0.08, flood: 0.12 }),
+    redArch: createLandmarkMaterial([0.62, 0.16, 0.16], { roughness: 0.45, metalness: 0.1, noise: 0.08, flood: 0.12 }),
     railing: createLandmarkMaterial([0.22, 0.25, 0.24], { roughness: 0.55, metalness: 0.3, noise: 0.08 }),
+    glass,
     road: createRoadSurfaceMaterial(),
     sidewalk: createSidewalkMaterial(),
     curb: createCurbMaterial()
@@ -311,6 +315,9 @@ const DECK_REACH = 15;
 // Kinds by name (the real structures); unnamed or unlisted links pick by what they cross
 const KIND_BY_NAME = {
   'Most Bolesława Chrobrego': 'arch',
+  'Most Biskupa Jordana': 'arch',
+  'Kładka Bramy Poznania': 'covered',
+  'Mosty Berdychowskie': 'girder',
   'Most Świętego Rocha': 'girder',
   'Most Królowej Jadwigi': 'girder',
   'Most Mieszka I': 'girder',
@@ -393,7 +400,17 @@ function bridgeStructures() {
       }
       const water = runs.length ? { w0: runs[0].t0, w1: runs[runs.length - 1].t1, runs } : null;
       const kind = KIND_BY_NAME[br.name] || (water ? 'girder' : 'overpass');
-      out.push({ name: br.name || 'Bridge', kind, a, b, L, width: W, tram: group.some((l) => l.tram), water });
+      out.push({
+        name: br.name || 'Bridge',
+        kind,
+        a,
+        b,
+        L,
+        width: W,
+        tram: group.some((l) => l.tram),
+        water,
+        footbridge: !!(br.footbridge || group.some((l) => l.footbridge))
+      });
     }
   }
   return out;
@@ -484,24 +501,32 @@ function buildParapetPiece(B, f, mats, colliders, t0, t1, y0, sg, s) {
 function buildDeck(B, parts, f, spec, mats, t0, t1, s0, s1) {
   const { at, dir, L } = f;
   const W = spec.width;
-  const Wd = W + 2 * SIDEWALK_W;
+  const Wd = spec.footbridge ? W : W + 2 * SIDEWALK_W;
   const ta = t0 / L;
   const tb = t1 / L;
-  parts.flat(mats.road, [at(ta, -W * 0.5, DECK_Y), at(tb, -W * 0.5, DECK_Y), at(tb, W * 0.5, DECK_Y), at(ta, W * 0.5, DECK_Y)]);
-  // Sidewalks only over [s0, s1] (beyond, the bridge's own deck lies under city-grid's land and its sidewalks)
   const sa = s0 / L;
   const sb = s1 / L;
-  for (const sg of [-1, 1]) {
-    const i = sg * W * 0.5;
-    const o = sg * Wd * 0.5;
-    parts.flat(mats.sidewalk, [at(sa, i, SIDEWALK_TOP), at(sb, i, SIDEWALK_TOP), at(sb, o, SIDEWALK_TOP), at(sa, o, SIDEWALK_TOP)]);
-    // Curb face and the sidewalk slab under it, out to the ends of [s0, s1]
-    B.block(mats.curb, at((sa + sb) * 0.5, sg * (W * 0.5 + 0.1), (SIDEWALK_TOP + DECK_Y) * 0.5 - 0.01), dir, s1 - s0, SIDEWALK_TOP - DECK_Y - 0.02, 0.2);
-    B.block(mats.deck, at((sa + sb) * 0.5, sg * (W + Wd) * 0.25, (SIDEWALK_TOP + DECK_Y) * 0.5 - 0.015), dir, s1 - s0, SIDEWALK_TOP - DECK_Y - 0.03, SIDEWALK_W - 0.2);
+  if (spec.footbridge) {
+    const hW = W * 0.5;
+    parts.flat(mats.sidewalk, [at(sa, -hW, SIDEWALK_TOP), at(sb, -hW, SIDEWALK_TOP), at(sb, hW, SIDEWALK_TOP), at(sa, hW, SIDEWALK_TOP)]);
+    B.block(mats.deck, at((ta + tb) * 0.5, 0, (SIDEWALK_TOP + DECK_Y) * 0.5 - 0.015), dir, t1 - t0, SIDEWALK_TOP - DECK_Y, W);
+    B.block(mats.deck, at((ta + tb) * 0.5, 0, DECK_Y - 0.33), dir, t1 - t0, 0.6, W + 0.6);
+    for (const sg of [-1, 1]) B.block(mats.deck, at((ta + tb) * 0.5, sg * (W * 0.5 + 0.35), -0.45), dir, t1 - t0, 1.0, 0.3);
+  } else {
+    parts.flat(mats.road, [at(ta, -W * 0.5, DECK_Y), at(tb, -W * 0.5, DECK_Y), at(tb, W * 0.5, DECK_Y), at(ta, W * 0.5, DECK_Y)]);
+    // Sidewalks only over [s0, s1] (beyond, the bridge's own deck lies under city-grid's land and its sidewalks)
+    for (const sg of [-1, 1]) {
+      const i = sg * W * 0.5;
+      const o = sg * Wd * 0.5;
+      parts.flat(mats.sidewalk, [at(sa, i, SIDEWALK_TOP), at(sb, i, SIDEWALK_TOP), at(sb, o, SIDEWALK_TOP), at(sa, o, SIDEWALK_TOP)]);
+      // Curb face and the sidewalk slab under it, out to the ends of [s0, s1]
+      B.block(mats.curb, at((sa + sb) * 0.5, sg * (W * 0.5 + 0.1), (SIDEWALK_TOP + DECK_Y) * 0.5 - 0.01), dir, s1 - s0, SIDEWALK_TOP - DECK_Y - 0.02, 0.2);
+      B.block(mats.deck, at((sa + sb) * 0.5, sg * (W + Wd) * 0.25, (SIDEWALK_TOP + DECK_Y) * 0.5 - 0.015), dir, s1 - s0, SIDEWALK_TOP - DECK_Y - 0.03, SIDEWALK_W - 0.2);
+    }
+    // Slab, with a fascia beam along both edges
+    B.block(mats.deck, at((ta + tb) * 0.5, 0, DECK_Y - 0.33), dir, t1 - t0, 0.6, Wd + 0.6);
+    for (const sg of [-1, 1]) B.block(mats.deck, at((ta + tb) * 0.5, sg * (Wd * 0.5 + 0.35), -0.45), dir, t1 - t0, 1.0, 0.3);
   }
-  // Slab, with a fascia beam along both edges
-  B.block(mats.deck, at((ta + tb) * 0.5, 0, DECK_Y - 0.33), dir, t1 - t0, 0.6, Wd + 0.6);
-  for (const sg of [-1, 1]) B.block(mats.deck, at((ta + tb) * 0.5, sg * (Wd * 0.5 + 0.35), -0.45), dir, t1 - t0, 1.0, 0.3);
 }
 
 // Concrete wall pier across the deck, standing from below the river bed up to yTop under the girder at t (metres
@@ -565,7 +590,7 @@ function buildGirderBridge(group, spec, mats, colliders) {
   const B = createBeamSet();
   const parts = createPartCollector();
   const f = bridgeFrame(spec);
-  const Wd = spec.width + 2 * SIDEWALK_W;
+  const Wd = spec.footbridge ? spec.width : spec.width + 2 * SIDEWALK_W;
   const { w0, w1 } = spec.water;
   const d0 = Math.max(0, w0 - DECK_REACH);
   const d1 = Math.min(f.L, w1 + DECK_REACH);
@@ -585,7 +610,8 @@ function buildArchBridge(group, spec, mats, colliders) {
   const parts = createPartCollector();
   const f = bridgeFrame(spec);
   const { at, dir, L } = f;
-  const Wd = spec.width + 2 * SIDEWALK_W;
+  const Wd = spec.footbridge ? spec.width : spec.width + 2 * SIDEWALK_W;
+  const archMat = spec.name === 'Most Biskupa Jordana' && mats.redArch ? mats.redArch : mats.arch;
   const { w0, w1, runs } = spec.water;
   const main = runs.reduce((m, r) => (r.t1 - r.t0 > m.t1 - m.t0 ? r : m), runs[0]);
   const a0 = Math.max(w0 - 1.5, main.t0 - 2);
@@ -610,23 +636,82 @@ function buildArchBridge(group, spec, mats, colliders) {
   const n = Math.max(12, Math.ceil(span / 4));
   for (const sg of [-1, 1]) {
     const s = sg * sA;
-    B.beam(mats.arch, at(a0 / L, s, -0.45), at(a1 / L, s, -0.45), 1.9, 0.9);
+    B.beam(archMat, at(a0 / L, s, -0.45), at(a1 / L, s, -0.45), 1.9, 0.9);
     for (let i = 0; i < n; i++) {
       const ta = a0 + (span * i) / n;
       const tb = a0 + (span * (i + 1)) / n;
-      B.beam(mats.arch, at(ta / L, s, ribY(ta)), at(tb / L, s, ribY(tb)), 1.3, 1.0);
+      B.beam(archMat, at(ta / L, s, ribY(ta)), at(tb / L, s, ribY(tb)), 1.3, 1.0);
     }
     for (let t = a0 + 5; t < a1 - 2.5; t += 5) {
-      if (ribY(t) - yS > 1.5) B.beam(mats.arch, at(t / L, s, yS), at(t / L, s, ribY(t) - 0.6), 0.12, 0.12);
+      if (ribY(t) - yS > 1.5) B.beam(archMat, at(t / L, s, yS), at(t / L, s, ribY(t) - 0.6), 0.12, 0.12);
     }
   }
   for (let i = 1; i < n; i++) {
     const t = a0 + (span * i) / n;
     if (ribY(t) < 7.2 || i % 3) continue;
-    B.beam(mats.arch, at(t / L, -sA, ribY(t) - 0.2), at(t / L, sA, ribY(t) - 0.2), 0.7, 0.7, dir);
+    B.beam(archMat, at(t / L, -sA, ribY(t) - 0.2), at(t / L, sA, ribY(t) - 0.2), 0.7, 0.7, dir);
   }
   buildParapets(B, f, mats, colliders, Math.max(0, w0 - 2), Math.min(L, w1 + 2), SIDEWALK_TOP, Wd * 0.5 - 0.12);
-  B.build(group, spec.name, new Set([mats.deck, mats.pier, mats.girder, mats.arch]));
+  B.build(group, spec.name, new Set([mats.deck, mats.pier, mats.girder, archMat]));
+  parts.build(group, spec.name, { castShadow: true });
+}
+
+/**
+ * Covered glass footbridge (Kładka Bramy Poznania): enclosed pedestrian bridge gallery across the Cybina river.
+ * Features a full sidewalk deck, bottom girders with central pier, continuous glass walls, structural steel frame,
+ * roof slab, and edge colliders so the player cannot fall into the river.
+ */
+function buildCoveredFootbridge(group, spec, mats, colliders) {
+  const B = createBeamSet();
+  const parts = createPartCollector();
+  const f = bridgeFrame(spec);
+  const { at, dir, L } = f;
+  const W = spec.width;
+  const { w0, w1 } = spec.water;
+  const d0 = Math.max(0, w0 - DECK_REACH);
+  const d1 = Math.min(L, w1 + DECK_REACH);
+  const t0 = Math.max(0, w0 - 2);
+  const t1 = Math.min(L, w1 + 2);
+  const len = t1 - t0;
+
+  buildDeck(B, parts, f, spec, mats, d0, d1, t0, t1);
+  buildGirders(B, f, mats, spanSupports(w0, w1, 30), W);
+
+  const yFloor = SIDEWALK_TOP;
+  const galleryH = 3.2;
+  const yRoof = yFloor + galleryH;
+  const halfW = W * 0.5;
+
+  B.block(mats.deck, at(((t0 + t1) * 0.5) / L, 0, yRoof + 0.1), dir, len, 0.22, W + 0.2);
+
+  for (const sg of [-1, 1]) {
+    const s = sg * (halfW - 0.06);
+    B.beam(mats.girder, at(t0 / L, s, yRoof), at(t1 / L, s, yRoof), 0.18, 0.18);
+    B.beam(mats.girder, at(t0 / L, s, yFloor + 0.15), at(t1 / L, s, yFloor + 0.15), 0.3, 0.18);
+    B.beam(mats.girder, at(t0 / L, s, yFloor + 1.1), at(t1 / L, s, yFloor + 1.1), 0.08, 0.08);
+
+    B.block(mats.glass, at(((t0 + t1) * 0.5) / L, s, yFloor + galleryH * 0.5), dir, len, galleryH - 0.1, 0.06);
+
+    const mid = at(((t0 + t1) * 0.5) / L, s, 0);
+    addBridgeCollider(colliders, mid, dir, len, 0.45, yRoof + 0.2);
+  }
+
+  const n = Math.max(2, Math.round(len / 3));
+  for (let k = 0; k <= n; k++) {
+    const t = (t0 + (len * k) / n) / L;
+    for (const sg of [-1, 1]) {
+      const s = sg * (halfW - 0.06);
+      B.beam(mats.girder, at(t, s, yFloor), at(t, s, yRoof), 0.12, 0.12);
+    }
+  }
+
+  const nl = Math.max(1, Math.round(len / 15));
+  for (let k = 0; k < nl; k++) {
+    const t = (t0 + (len * (k + 0.5)) / nl) / L;
+    B.block(mats.lamp, at(t, 0, yRoof - 0.08), dir, 0.8, 0.15, 0.3);
+  }
+
+  B.build(group, spec.name, new Set([mats.deck, mats.pier, mats.girder, mats.glass]));
   parts.build(group, spec.name, { castShadow: true });
 }
 
@@ -697,19 +782,20 @@ function buildBridges(scene, { sidewalks = [] } = {}) {
   const colliders = [];
   const mats = createBridgeMaterials();
   const structures = bridgeStructures();
-  const counts = { arch: 0, girder: 0, overpass: 0 };
+  const counts = { arch: 0, girder: 0, overpass: 0, covered: 0 };
   const panelGeo = createBalustradePanel();
   for (const spec of structures) {
     // A river kind without water under it (a name on an approach piece) is an overpass on its land
     const kind = spec.water ? spec.kind : 'overpass';
     if (kind === 'arch') buildArchBridge(group, spec, mats, colliders);
+    else if (kind === 'covered') buildCoveredFootbridge(group, spec, mats, colliders);
     else if (kind === 'girder') buildGirderBridge(group, spec, mats, colliders);
     else buildOverpass(group, spec, mats, colliders, panelGeo);
-    counts[kind]++;
+    counts[kind] = (counts[kind] || 0) + 1;
   }
   scene.add(group);
   console.info(`[bridges] ${structures.length} structures ${JSON.stringify(counts)}, ${colliders.length} colliders, built in ${(performance.now() - t0).toFixed(0)} ms`);
   return { group, colliders };
 }
 
-export { buildBridges };
+export { buildBridges, bridgeStructures };

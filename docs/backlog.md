@@ -109,6 +109,22 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
   These are geometry checks, not a continuous tram/traffic interaction trace. See the
   [observation record](observations/hetmanska-clearance-2026-10-31.md).
 
+## Footbridges added and katedra scenic view established
+
+- Added three pedestrian and bicycle river crossings to `city-config.js` (`FOOTBRIDGES` merged into `BRIDGES`):
+  * **Most Biskupa Jordana**: red tied steel arch bridge across Cybina, span 64.1 m, width 14 m, fully paved with
+    sidewalk stone without asphalt roadway.
+  * **Kładka Bramy Poznania**: covered glass-walled footbridge gallery across Cybina connecting ICHOT to Śluza Katedralna.
+  * **Mosty Berdychowskie**: modern haunched girder footbridge across the Warta and Cybina with tip connector on Zagórze.
+- The land raster (`LAND_CODE = 2`) now automatically rasterizes these corridors, making `isLand = true` and `isWater = false`
+  across the crossings, enabling walking and cycling across the rivers without player `clampToLand` rejection.
+- Vehicular traffic network (`GEO.roadGraph`) remains unmodified (8,756 edges, 11,650 lanes); no cars route onto footbridges.
+- Parapet colliders (201 total bridge colliders) along both edges protect players from falling into the river.
+- The `katedra` scenic camera preset (`1148, 8, -336`) now stands on Most Jordana (`isLand = true`) with an unobstructed
+  westward line of sight to Archikatedra across Cybina.
+- Validation: `node --test tests/` passes **301/301** (33.38 s). See the
+  [observation record](observations/footbridges-2026-10-31.md).
+
 ## Known gaps and follow-up investigations
 
 | Topic | Remaining work | Original reference |
@@ -117,7 +133,6 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 | Other missing signal heads | The full-scene audit leaves incoming edges without a nearby matching plan/facing head; these are investigation candidates, not confirmed missing heads (many approach on curves with `dot` between 0.70 and 0.98, or border parks whose bounding boxes exclude sidewalks). Find safe placements without losing lanes. | 15.5 |
 | Park bounding boxes | Audit the remaining signal/furniture exclusions and traffic footprints that use bounds of irregular park islands. The Krucza correction is deliberately limited to one surveyed approach; broader placement changes need lane-preservation checks. | Follow-up |
 | Sparse OSM blocks | Check the nine large blocks with under 5% mapped building coverage against BDOT10k; supplement only confirmed omissions. The original audit covered 0.69 km² and needs rechecking against the current enlarged box. Verify source terms before adding data. | 14.3 |
-| Footbridges and camera | Add Most Jordana, the Brama Poznania footbridge and the Berdychowskie crossings to the data/models. Revisit the `katedra` camera, currently above the Cybina, and test landmark lines of sight. | 4, 7, 12.3 |
 | Building accuracy | Replace estimated landmark heights and massing where supported by measurements; real building footprints/roof heights remain optional. Candidates include Ratusz, Fara, Zamek Królewski, Teatr Wielki, Brama Poznania, tower placements, Iglica and AND2. | 4.4, 7 |
 | Tram route quality | Re-measure global off-route samples after the Zawady/Ogrody/Starołęka membership correction. The loops have coordinate regressions; the former off-route percentages are historical. | 15.10 |
 

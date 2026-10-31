@@ -57,7 +57,66 @@ const DISTRICTS = GEO.districts.map((d) => {
 // ---------------------------------------------------------------------------------------------------------------------
 // Bridges: the road-graph links flagged as bridges (GEO.roadGraph flags bit 0), chained per name. Decks sit at street
 // level (y = 0) and are drivable and walkable; the river runs CITY_BOUNDS.waterLevel below (docs/poznan-plan.md D7).
+// Footbridges: pedestrian and bicycle river crossings not present in the drivable road centreline graph (Most Biskupa
+// Jordana, Kładka Bramy Poznania, Mosty Berdychowskie).
 // ---------------------------------------------------------------------------------------------------------------------
+const FOOTBRIDGES = [
+  {
+    name: 'Most Biskupa Jordana',
+    footbridge: true,
+    links: [{
+      pts: [{ x: 1116.1, z: -340.9 }, { x: 1179.4, z: -330.6 }],
+      width: 14,
+      lanes: 0,
+      dir: 0,
+      tram: false,
+      footbridge: true
+    }]
+  },
+  {
+    name: 'Kładka Bramy Poznania',
+    footbridge: true,
+    links: [{
+      pts: [{ x: 1117.0, z: -429.2 }, { x: 1179.5, z: -424.5 }],
+      width: 4.3,
+      lanes: 0,
+      dir: 0,
+      tram: false,
+      footbridge: true
+    }]
+  },
+  {
+    name: 'Mosty Berdychowskie',
+    footbridge: true,
+    links: [
+      {
+        pts: [{ x: 756.9, z: 330.0 }, { x: 922.2, z: 323.6 }],
+        width: 6,
+        lanes: 0,
+        dir: 0,
+        tram: false,
+        footbridge: true
+      },
+      {
+        pts: [{ x: 922.2, z: 323.6 }, { x: 959.3, z: 322.5 }],
+        width: 6,
+        lanes: 0,
+        dir: 0,
+        tram: false,
+        footbridge: true
+      },
+      {
+        pts: [{ x: 959.3, z: 322.5 }, { x: 1048.7, z: 398.2 }],
+        width: 6,
+        lanes: 0,
+        dir: 0,
+        tram: false,
+        footbridge: true
+      }
+    ]
+  }
+];
+
 const BRIDGES = (() => {
   const g = GEO.roadGraph;
   const node = (i) => ({ x: g.nodes[i * 2], z: g.nodes[i * 2 + 1] });
@@ -69,7 +128,15 @@ const BRIDGES = (() => {
     if (!byName.has(name)) byName.set(name, []);
     byName.get(name).push({ pts, width: w, lanes, dir, tram: !!(flags & 2) });
   }
-  return [...byName].map(([name, links]) => ({ name, links }));
+  for (const fb of FOOTBRIDGES) {
+    if (!byName.has(fb.name)) byName.set(fb.name, []);
+    byName.get(fb.name).push(...fb.links);
+  }
+  return [...byName].map(([name, links]) => ({
+    name,
+    links,
+    footbridge: links.some((l) => l.footbridge)
+  }));
 })();
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -990,6 +1057,7 @@ export {
   RAIL,
   PLAZAS,
   DISTRICTS,
+  FOOTBRIDGES,
   BRIDGES,
   CITY_BOUNDS,
   isLand,
