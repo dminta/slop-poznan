@@ -498,6 +498,26 @@ const BLOCKS = GEO.blocks.map(([flat, rects, park, parkName, isRect, frames], id
     median: Math.min(maxX - minX, maxZ - minZ) < 9
   };
 });
+// The surveyed Hetmańska/Dmowskiego island puts 47.5 m² of curb across the tram track. Cut only this empty
+// island, keeping generated geodata intact. Share the exact corridor with city-grid's slab subtraction so height
+// queries (rails, pedestrians and the player) cannot stand on an invisible remnant of the old raised surface.
+const HETMANSKA_CURB = BLOCKS.find((b) => !b.rect && !b.rects.length && pointInPoly(b.poly, -2446, 2204));
+if (HETMANSKA_CURB) {
+  const b = HETMANSKA_CURB;
+  const half = 0.7175 + 0.07 + 1.5; // same 2.2875 m track clearance as the cuts through paved squares
+  const segs = [];
+  for (const r of GEO.rail) {
+    if (r.kind !== 'tram') continue;
+    for (let i = 0; i + 3 < r.pts.length; i += 2) {
+      const [ax, az, bx, bz] = r.pts.slice(i, i + 4);
+      if (Math.max(ax, bx) + 2 * half < b.minX || Math.min(ax, bx) - 2 * half > b.maxX ||
+        Math.max(az, bz) + 2 * half < b.minZ || Math.min(az, bz) - 2 * half > b.maxZ) continue;
+      segs.push([ax, az, bx, bz]);
+    }
+  }
+  b.tramCut = { half, segs };
+}
+
 // Spatial index of the blocks (64 m cells)
 const BLOCK_CELL = 64;
 const BLOCK_GRID = new Map();
@@ -516,6 +536,21 @@ function blockAt(x, z) {
   if (!list) return null;
   for (const b of list) {
     if (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ) continue;
+    if (b.tramCut) {
+      let cut = false;
+      for (const [ax, az, bx, bz] of b.tramCut.segs) {
+        const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
+        if (len < 1e-6) continue;
+        const along = ((x - ax) * dx + (z - az) * dz) / len;
+        const across = ((z - az) * dx - (x - ax) * dz) / len;
+        // cutSlab extends the corridor by `half` at both ends, closing the gaps at track bends.
+        if (along >= -b.tramCut.half && along <= len + b.tramCut.half && Math.abs(across) <= b.tramCut.half) {
+          cut = true;
+          break;
+        }
+      }
+      if (cut) continue;
+    }
     if (b.rect || pointInPoly(b.poly, x, z)) return b;
   }
   return null;

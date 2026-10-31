@@ -85,11 +85,27 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
   heads/poles **1304 → 1305**; all furnished-network lanes, crossings and other furniture remain unchanged.
 - **Hetmańska:** the examined three-lane runs keep their outer lane centres 1.3 m inside the 9.8 m carriageway.
   The historical 0.5 m excess describes a nominal 3.6 m lane envelope, not a centreline outside the roadway;
-  no lane-placement change was justified. The Dmowskiego curb/rail conflict is confirmed and remains below.
+  no lane-placement change was justified. The Dmowskiego curb/rail conflict was confirmed here and fixed in the
+  follow-up below.
 - Validation: **292/292** tests pass (39.89 s). Full Edge WebGPU and forced WebGL2 scenes rendered at least 60
   frames without captured console warnings/errors on the final runs. The restored head was viewed on both
   backends; WebGPU spot checks observed red and green. Hetmańska received WebGPU geometry spot checks.
   See the [observation record](observations/krucza-hetmanska-2026-10-31.md) for measurements and limits.
+
+## Hetmańska/Dmowskiego curb conflict fixed
+
+- The surveyed 47.5 m² empty curb island near `−2446, 2204` lay entirely inside the standard 2.2875 m
+  clearance corridors of the two tram tracks. Cutting both corridors removes the whole island; neighbouring
+  sidewalks remain. The same exclusion in `blockAt` keeps rail, pedestrian and player ground queries consistent
+  with the emitted geometry. Generated geodata is unchanged.
+- Raised rail length **7.992 → 0 m**, conflicting curb area **47.5 → 0 m²**. Regressions record actual curb/slab
+  extrusion and replay the pre-fix configuration: furnished-network lanes, crossing endpoints and furniture
+  footprints remain unchanged. Both new symptom checks failed before the fix.
+- Validation: `node --test tests/` passes **296/296** (38.63 s), including unchanged traffic-flow regressions.
+- Full Chrome WebGPU and forced WebGL2 scenes rendered at least 60 frames without captured console warnings or
+  errors. Midday spot checks from above and street level show exposed, continuous rails without the raised slab.
+  These are geometry checks, not a continuous tram/traffic interaction trace. See the
+  [observation record](observations/hetmanska-clearance-2026-10-31.md).
 
 ## Known gaps and follow-up investigations
 
@@ -98,7 +114,6 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 | Railway crossings | Restore sidewalks under rail bridges without joining blocks into filled rings; model raised track/viaduct decks and add level-crossing barriers. Current roadways are clear, while the railway remains flat. | 15.8 |
 | Other missing signal heads | The full-scene audit leaves 271 incoming edges without a nearby matching plan/facing head; these are investigation candidates, not 271 confirmed missing heads. The eastern Krucza approach at `699.25, 2750.75` remains one local candidate. Find safe placements without losing lanes. | 15.5 |
 | Park bounding boxes | Audit the remaining signal/furniture exclusions and traffic footprints that use bounds of irregular park islands. The Krucza correction is deliberately limited to one surveyed approach; broader placement changes need lane-preservation checks. | Follow-up |
-| Hetmańska geometry | Confirmed near Dmowskiego at `−2446, 2204`: a 47.5 m² curb island lifts 7.992 m of rail by 0.22 m. Cut the conflicting slab/corridor before lowering rails; lowering rails alone would bury them. The three-lane centreline report did not reproduce; the 80 m road gap under the Górczyn railway bridge was already fixed. | 15.8 |
 | Sparse OSM blocks | Check the nine large blocks with under 5% mapped building coverage against BDOT10k; supplement only confirmed omissions. The original audit covered 0.69 km² and needs rechecking against the current enlarged box. Verify source terms before adding data. | 14.3 |
 | Footbridges and camera | Add Most Jordana, the Brama Poznania footbridge and the Berdychowskie crossings to the data/models. Revisit the `katedra` camera, currently above the Cybina, and test landmark lines of sight. | 4, 7, 12.3 |
 | Building accuracy | Replace estimated landmark heights and massing where supported by measurements; real building footprints/roof heights remain optional. Candidates include Ratusz, Fara, Zamek Królewski, Teatr Wielki, Brama Poznania, tower placements, Iglica and AND2. | 4.4, 7 |

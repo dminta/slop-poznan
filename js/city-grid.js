@@ -649,10 +649,19 @@ function buildCityGrid(scene) {
     } else {
       // curb (granite) ring under a sidewalk slab inset by 0.25 m, like the instanced pair below
       const ponds = pondsIn(b.poly);
-      const curb = createExtrudedPolygonMesh(b.poly, 0.0, 0.18, curbMat, true, false, ponds).geometry;
-      curbGeos.push(curb);
+      const curbs = b.tramCut ? cutSlab(b.poly, b.tramCut.segs, b.tramCut.half) : [b.poly];
+      for (const piece of curbs) {
+        curbGeos.push(createExtrudedPolygonMesh(piece, 0.0, 0.18, curbMat, true, false, ponds).geometry);
+      }
       const inner = offsetPolygonInward(b.poly, 0.25);
-      if (inner) slabGeos.push(createExtrudedPolygonMesh(inner, 0.03, SW_TOP - 0.03, sidewalkMat, true, false, ponds.filter((h) => ringInside(inner, h))).geometry);
+      if (inner) {
+        // Keep the 0.25 m granite rim along the newly cut track corridor too.
+        const tops = b.tramCut ? cutSlab(inner, b.tramCut.segs, b.tramCut.half + 0.25) : [inner];
+        for (const piece of tops) {
+          slabGeos.push(createExtrudedPolygonMesh(piece, 0.03, SW_TOP - 0.03, sidewalkMat, true, false,
+            ponds.filter((h) => ringInside(piece, h))).geometry);
+        }
+      }
       // rect cover for the consumers that work on rectangles: the lot rects grown back out to the curb. The road
       // network gets the lot rects as they are: on a turned block a rect grown 4.4 m along the world axes reaches into
       // the roadway, and the largest strongly connected set fell from ~3150 to ~1660 edges with them
