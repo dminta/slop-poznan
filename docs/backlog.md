@@ -1,6 +1,6 @@
 # Poznań backlog
 
-Updated 2026-10-30. The port and documentation cleanup are implemented; the remaining work is below.
+Updated 2026-10-31. The port and documentation cleanup are implemented; the remaining work is below.
 Implementation details live in the [topic docs](../AGENTS.md#docs). Original phase numbers refer to the
 [archived port plan](archive/poznan-plan.md), which retains historical measurements and decisions.
 
@@ -39,7 +39,7 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
   bypass cached modules; WebGPU boot and console checks pass. Walked the route in both directions through the
   clear hedge corridor; observed red and green on the new head from the southern landing, and checked visibility
   of the existing head from the refuge. The later traffic observations above cover yielding and controlled bus
-  rear clearance; WebGL2 remains a separate open item.
+  rear clearance; the Dworzec route and traffic interaction still need a targeted WebGL2 check.
 
 ## Bus pool availability fixed
 
@@ -112,12 +112,35 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 
 ## Browser checks still outstanding
 
-The existing WebGPU smoke check confirms boot, shader compilation and a clean console for the signal work.
+Full-scene smoke checks on 2026-10-30 confirmed boot and 60 rendered frames on both WebGPU and WebGL2, with
+no console warnings or errors; the WebGL2 check also recorded no GL errors. The two-frame pedestrian probes
+verified pose updates on both LODs. These checks do not establish detailed appearance, traffic correctness or
+performance; see the [WebGL2 observation record](observations/webgl2-2026-10-30.md).
 The static measurements refreshed on 2026-10-29 use the documented headless variants in [world.md](world.md)
 and [actors.md](actors.md); they do not validate the full rendered scene or sound.
 
-- Observe signals and traffic at Kaponiera, Most Teatralny and Głogowska/Hetmańska; test pedestrian requests,
-  the Św. Marcin green wave and crossing ticks against the displayed heads.
+Partial signal/traffic observations on 2026-10-30 covered the full Chrome/WebGPU scene at Kaponiera (150.01 s),
+Most Teatralny (150.01 s) and Głogowska/Hetmańska (194.76 s), in simulation time. Nearby shared signal states
+recorded the vehicle phase pairs and steady green, flashing green and red pedestrian display states. The trace
+also recorded pedestrian waiting/release and tram movement transitions, with rendered spot checks. Only two
+ordinary uncommitted car entries were captured across the three locations, both on green; previously committed
+and emergency entries were counted separately. This is limited traffic coverage, not a general compliance verdict.
+Shared state does not prove visible head orientation/colour, and sampled tram views do not prove full-body rear
+clearance.
+
+A 2026-10-31 follow-up on the same commit (`369c21b`), Chrome/WebGPU, observed demand node `2422` at
+`415.5, 523` for 145.0001 simulation seconds. Natural NPC requests produced three complete pedestrian service
+cycles, with 20 s road-green intervals between them; all five recorded waiting-to-release transitions occurred
+on WALK. Rendered spot checks showed NPCs on the zebra. This covers one demand crossing, not all demand plans
+or visible-head correspondence. Remote cached-phase observations of Św. Marcin nodes `1671` and `1673` recorded
+65 s periods and green0 starts 1.775–1.776 s apart, against 1.777175 s expected for 19.7464 m at 40 km/h.
+This checks the shared phase offset of one pair; it does not establish full rendered corridor progression.
+Broader demand coverage, the full Św. Marcin green wave, audio and WebGL2 junction behaviour remain open.
+See the [signal observation record](observations/signals-2026-10-30.md) for setup, results and limits.
+
+- Continue targeted signal and traffic checks at Kaponiera, Most Teatralny and Głogowska/Hetmańska, including
+  visible head correspondence and WebGL2; extend NPC demand-request coverage beyond node `2422`, test the full
+  rendered Św. Marcin green-wave corridor and crossing ticks against the displayed heads.
 - Watch whole trams clear switches, crossings and occupied stops; observe Zawady/Ogrody loop boarding and
   return destinations and the Starołęka boundary routes.
 - Inspect landmark placement, scenic-camera sightlines, roof normals/ridges on rotated blocks, panel-material
