@@ -61,24 +61,44 @@ test.before(async () => {
   world = { createPedestrianRoutes, network, config, GEO, road, gridModule, grid, street, heads, baseline, facings };
 });
 
-test('the live Krucza approach has a correctly facing head without changing the furnished road network', () => {
+test('the live Krucza approaches have correctly facing heads without changing the furnished road network', () => {
   const { network, heads, facings, config, gridModule, street, baseline, grid, road, createPedestrianRoutes } = world;
   const node = network.nodes.find((n) => Math.hypot(n.x - 699.25, n.z - 2750.75) < 1);
-  const edge = node.in.find((e) => e.inArm.ux < -0.9 && e.inArm.uz < -0.2);
-  assert.ok(edge, 'the actual western Krucza approach remains drivable');
-  const head = heads.find((h) => h.site.timing === node.signalTiming &&
-    h.a.ux * edge.inArm.ux + h.a.uz * edge.inArm.uz > 0.98);
-  assert.ok(head, 'the actual western Krucza approach has a vehicle head');
-  const rendered = facings.find((f) => f.y === 3.55 &&
-    Math.hypot(f.x - head.p.x - head.a.ux * 0.18, f.z - head.p.z - head.a.uz * 0.18) < 0.001);
-  assert.ok(rendered && rendered.fx * edge.inArm.ux + rendered.fz * edge.inArm.uz > 0.98,
-    'the actual rendered lens faces the approaching lane');
-  assert.equal(head.group0, edge.axisIndex === 0, 'lens uses the incoming lane signal group');
-  assert.ok(gridModule.railClearance(head.p.x, head.p.z, 20) >= 2.22, 'pole keeps 2 m beyond its rail footprint');
-  assert.ok(config.roadClearance(head.p.x, head.p.z) >= 0.8, 'pole stays clear of the roadway');
-  const pole = street.footprints.find((r) => r.kind === 'signal' &&
-    Math.hypot((r.minX + r.maxX) / 2 - head.p.x, (r.minZ + r.maxZ) / 2 - head.p.z) < 0.01);
-  assert.ok(pole, 'the pole participates in physical collision and network building');
+
+  // Western approach
+  const westEdge = node.in.find((e) => e.inArm.ux < -0.9 && e.inArm.uz < -0.2);
+  assert.ok(westEdge, 'the actual western Krucza approach remains drivable');
+  const westHead = heads.find((h) => h.site.timing === node.signalTiming &&
+    h.a.ux * westEdge.inArm.ux + h.a.uz * westEdge.inArm.uz > 0.98);
+  assert.ok(westHead, 'the actual western Krucza approach has a vehicle head');
+  const renderedWest = facings.find((f) => f.y === 3.55 &&
+    Math.hypot(f.x - westHead.p.x - westHead.a.ux * 0.18, f.z - westHead.p.z - westHead.a.uz * 0.18) < 0.001);
+  assert.ok(renderedWest && renderedWest.fx * westEdge.inArm.ux + renderedWest.fz * westEdge.inArm.uz > 0.98,
+    'the actual rendered western lens faces the approaching lane');
+  assert.equal(westHead.group0, westEdge.axisIndex === 0, 'western lens uses the incoming lane signal group');
+  assert.ok(gridModule.railClearance(westHead.p.x, westHead.p.z, 20) >= 2.22, 'western pole keeps 2 m beyond its rail footprint');
+  assert.ok(config.roadClearance(westHead.p.x, westHead.p.z) >= 0.8, 'western pole stays clear of the roadway');
+  const westPole = street.footprints.find((r) => r.kind === 'signal' &&
+    Math.hypot((r.minX + r.maxX) / 2 - westHead.p.x, (r.minZ + r.maxZ) / 2 - westHead.p.z) < 0.01);
+  assert.ok(westPole, 'the western pole participates in physical collision and network building');
+
+  // Eastern approach
+  const eastEdge = node.in.find((e) => e.inArm.ux > 0.9);
+  assert.ok(eastEdge, 'the actual eastern Krucza approach remains drivable');
+  const eastHead = heads.find((h) => h.site.timing === node.signalTiming &&
+    h.a.ux * eastEdge.inArm.ux + h.a.uz * eastEdge.inArm.uz > 0.98);
+  assert.ok(eastHead, 'the actual eastern Krucza approach has a vehicle head');
+  const renderedEast = facings.find((f) => f.y === 3.55 &&
+    Math.hypot(f.x - eastHead.p.x - eastHead.a.ux * 0.18, f.z - eastHead.p.z - eastHead.a.uz * 0.18) < 0.001);
+  assert.ok(renderedEast && renderedEast.fx * eastEdge.inArm.ux + renderedEast.fz * eastEdge.inArm.uz > 0.98,
+    'the actual rendered eastern lens faces the approaching lane');
+  assert.equal(eastHead.group0, eastEdge.axisIndex === 0, 'eastern lens uses the incoming lane signal group');
+  assert.ok(gridModule.railClearance(eastHead.p.x, eastHead.p.z, 20) >= 2.22, 'eastern pole keeps 2 m beyond its rail footprint');
+  assert.ok(config.roadClearance(eastHead.p.x, eastHead.p.z) >= 0.8, 'eastern pole stays clear of the roadway');
+  const eastPole = street.footprints.find((r) => r.kind === 'signal' &&
+    Math.hypot((r.minX + r.maxX) / 2 - eastHead.p.x, (r.minZ + r.maxZ) / 2 - eastHead.p.z) < 0.01);
+  assert.ok(eastPole, 'the eastern pole participates in physical collision and network building');
+
   const localPoles = street.footprints.filter((r) => r.kind === 'signal' &&
     Math.hypot((r.minX + r.maxX) / 2 - 675, (r.minZ + r.maxZ) / 2 - 2738) < 45);
   const without = road.buildRoadNetwork(grid.sidewalks, [...grid.footprints, ...baseline.footprints]);
@@ -87,13 +107,13 @@ test('the live Krucza approach has a correctly facing head without changing the 
   const crossings = (net) => Array.from(createPedestrianRoutes(net, config.blockAt, gridModule.railClearance).crosswalks,
     (c) => [c.ax, c.az, c.bx, c.bz]);
   assert.deepEqual(crossings(network), crossings(without), 'every actual pedestrian crossing remains usable');
-  assert.equal(localPoles.length, 1, 'the scoped restoration adds one pole');
+  assert.equal(localPoles.length, 2, 'the scoped restoration adds two poles');
 });
 
-test('restoring the head leaves other furniture unchanged and retains the park exclusion elsewhere', () => {
+test('restoring the heads leaves other furniture unchanged and retains the park exclusion elsewhere', () => {
   const { street, baseline } = world;
-  assert.equal(street.vehicleHeads, baseline.vehicleHeads + 1);
-  assert.equal(street.audioSignals.length, baseline.audioSignals.length + 1);
+  assert.equal(street.vehicleHeads, baseline.vehicleHeads + 2);
+  assert.equal(street.audioSignals.length, baseline.audioSignals.length + 2);
   const nonSignals = (details) => JSON.stringify(details.footprints.filter((r) => r.kind !== 'signal'));
   assert.equal(nonSignals(street), nonSignals(baseline), 'all non-signal footprints retain their locations');
 });

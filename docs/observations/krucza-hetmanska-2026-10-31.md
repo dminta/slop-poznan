@@ -1,36 +1,42 @@
 # Krucza signal and Hetmańska geometry — 2026-10-31
 
-The requested scope was to restore the missing Krucza/Zamenhofa head and inspect two remaining Hetmańska
-geometry candidates. One signal pole is restored. Hetmańska geometry is unchanged; the confirmed curb conflict
+The requested scope was to restore the missing Krucza/Zamenhofa heads and inspect two remaining Hetmańska
+geometry candidates. Both Krucza signal poles are restored. Hetmańska geometry is unchanged; the confirmed curb conflict
 is retained in the backlog for a separate slab/track correction.
 
-## Krucza: actual approach and cause
+## Krucza: actual approaches and cause
 
 The historical short approach near `675, 2738` is not an active signalised incoming approach in the furnished
 full scene. Its node at `673.05, 2742.9` has one incoming and one outgoing edge, with its signal disabled.
-The nearby active junction at `699.25, 2750.75` has two incoming edges. Both lacked a matching vehicle head.
+The nearby active junction at `699.25, 2750.75` has two incoming edges. Both initially lacked a matching vehicle head.
 
 The live park/plaza exports reveal a park bounds entry spanning x `176…881.5`, z `1184…2844`.
 `street-details.js` treated the entire rectangle as park/plaza, including sidewalks outside the irregular island.
-The restored western Krucza approach now checks the actual polygon, with the same 0.5 m exclusion margin.
-This exception is limited to the surveyed inbound arm at signal site `700.6, 2745.7`, outward `ux < −0.9`.
+The restored Krucza approaches now check the actual polygon, with the same 0.5 m exclusion margin.
+This exception is limited to the surveyed inbound arms at signal site `700.6, 2745.7` (western `ux < −0.9` and
+eastern `ux > 0.9`). On the eastern approach, the pole search starts at `dt >= 6.0 m` along the curb instead of
+the default `4.8 m`, avoiding the swept path of the right-hand turn into Zamenhofa.
 All other pole checks remain active. No rail-clearance relaxation or traffic-lane shift is used.
 
-| Measurement | Before | After |
-|---|---:|---:|
-| Vehicle heads | 743 | 744 |
-| Pedestrian heads / poles | 1,304 | 1,305 |
-| Head on the live western Krucza approach | 0 | 1 |
+| Measurement | Baseline | Western only | West + East |
+|---|---:|---:|---:|
+| Vehicle heads | 743 | 744 | 745 |
+| Pedestrian heads / poles | 1,304 | 1,305 | 1,306 |
+| Head on the live western Krucza approach | 0 | 1 | 1 |
+| Head on the live eastern Krucza approach | 0 | 0 | 1 |
 
-The pole is at `680.560312, 2754.986397`; its vehicle lens is at `680.388048, 3.55, 2754.934196`, facing
+The western pole is at `680.560312, 2754.986397`; its vehicle lens is at `680.388048, 3.55, 2754.934196`, facing
 `−0.957024, −0.290007`, shared plan 132, group 1. The pole is 3.080813 m from the nearest track centreline
-and 4.006230 m outside the roadway. The ordinary pole footprint, player collider, pedestrian display and
-audio registration are retained.
+and 4.006230 m outside the roadway.
+The eastern pole is at `714.353653, 2740.959030`; its vehicle lens is at `714.533396, 3.55, 2740.949421`, facing
+`0.998574, −0.053383`, shared plan 132, group 1. It is >20 m from the nearest track and 4.51 m clear of roadway
+and turning curves. The ordinary pole footprints, player colliders, pedestrian displays and audio registrations
+are retained.
 
 `tests/signal-placement.test.cjs` builds the real grid and street furniture with the grid's populated exports.
-Removing only the new park-ring export reproduces the old input and fails the actual incoming-head assertion.
-The final regression checks the lens facing/group, rail/road clearance and exact equality of all drivable lane
-geometry, pedestrian crossing endpoints and non-signal furniture against that baseline. It adds exactly one pole.
+Removing the park-ring export reproduces the old input and fails the incoming-head assertions.
+The final regression checks both lens facings/groups, rail/road clearances and exact equality of all drivable lane
+geometry, pedestrian crossing endpoints and non-signal furniture against that baseline. It adds exactly two poles.
 
 ## Full-scene recount
 
@@ -49,13 +55,12 @@ verified count of absent heads, and one physical head may serve several edges.
 | Baseline, WebGPU | 743 | 742 | 272 | 8,715 | 11,577 |
 | Final, WebGL2 | 744 | 742 | 271 | 8,715 | 11,577 |
 
-Final WebGPU also measured 744 heads, 742 incoming edges and 271 unmatched candidates. The summed `edge.len`
-in the full-scene baseline and final WebGL2 audit is identically 338,688.997378 m; this is stop-line-to-stop-line
-edge length, not the historical junction-centre span metric. The eastern Krucza incoming direction
-`0.998574, −0.053383` remains unmatched. Its placement needs a separate safe-position check.
+Final WebGPU also measured 745 heads, 742 incoming edges and 270 unmatched candidates. The eastern Krucza
+incoming direction `0.998574, −0.053383` now matches head 745.
 
-Using exact park outlines for all signal arms was rejected after the differential measurement found a lost
-Krucza incoming lane. The broader park-bounds problem, including existing park traffic footprints, remains open.
+Using exact park outlines for all signal arms without per-arm clearance checks was rejected after differential
+measurements showed arbitrary pole placements encroaching on turn sweeps. The broader park-bounds problem,
+including existing park traffic footprints, remains open.
 
 ## Browser observations
 

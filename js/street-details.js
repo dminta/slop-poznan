@@ -579,12 +579,16 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
       // its turning curves from stop line to stop line and they cut the corners, so a pole 1-4 m past the corner stood
       // within a curve's 0.8 m clearance at 58 corners and cost 4.2 km of the network; further back along the curb only
       // the lanes pass it
-      // The western Krucza approach lies inside a park's bounds but outside its actual island. Restore only this
-      // surveyed live approach: applying exact outlines to every arm needs a separate furnished-network audit.
-      const exactPark = Math.hypot(site.x - 700.6, site.z - 2745.7) < 1 && a.inbound && a.ux < -0.9;
+      // The western and eastern Krucza approaches lie inside a park's bounds but outside its actual island.
+      // The eastern approach requires dt >= 6.0 m to clear the right-turn curve into Zamenhofa (which at 4.8 m
+      // blocked the turn and dropped the incoming edge).
+      const isKruczaWest = Math.hypot(site.x - 700.6, site.z - 2745.7) < 1 && a.inbound && a.ux < -0.9;
+      const isKruczaEast = Math.hypot(site.x - 700.6, site.z - 2745.7) < 1 && a.inbound && a.ux > 0.9;
+      const exactPark = isKruczaWest || isKruczaEast;
       const spot = (side) => {
         for (const back of [0.75, 1.0, 1.3]) {
-          for (let dt = CROSSWALK + 0.5; dt < 16; dt += 1.2) {
+          const minDt = isKruczaEast ? 6.0 : (CROSSWALK + 0.5);
+          for (let dt = minDt; dt < 16; dt += 1.2) {
             const t = corner + dt;
             const x = a.x + a.ux * t + rx * (half + back) * side;
             const z = a.z + a.uz * t + rz * (half + back) * side;

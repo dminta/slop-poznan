@@ -76,19 +76,21 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 - Validation: `node --test tests/` passes 290/290 (36.60 s). See the
   [observation record](observations/zebra-visibility-2026-10-30.md) for scope and limits.
 
-## Krucza signal restored and Hetmańska inspected
+## Krucza signals restored and Hetmańska inspected
 
-- **Krucza/Zamenhofa:** restored the vehicle head on the live western Krucza approach. The historical short
-  approach near `675, 2738` is removed/disabled by the furnished network; the active junction is at `699.25, 2750.75`.
-  A large park bounding box incorrectly excluded its sidewalk. The surveyed approach now checks the actual park
-  outline, retaining the normal road, rail and crossing clearances. Vehicle heads **743 → 744**, pedestrian
-  heads/poles **1304 → 1305**; all furnished-network lanes, crossings and other furniture remain unchanged.
+- **Krucza/Zamenhofa:** restored vehicle heads on both live Krucza approaches at junction `699.25, 2750.75`.
+  The historical short approach near `675, 2738` is removed/disabled by the furnished network.
+  A large park bounding box incorrectly excluded the sidewalks. The surveyed approaches now check the actual park
+  outline, retaining the normal road, rail and crossing clearances. The eastern approach starts pole search at
+  `dt >= 6.0 m` along the curb, preserving 4.51 m clearance to the right-turn swept path into Zamenhofa.
+  Vehicle heads **743 → 745**, pedestrian heads/poles **1304 → 1306**; all furnished-network lanes, crossings
+  and other furniture remain unchanged.
 - **Hetmańska:** the examined three-lane runs keep their outer lane centres 1.3 m inside the 9.8 m carriageway.
   The historical 0.5 m excess describes a nominal 3.6 m lane envelope, not a centreline outside the roadway;
   no lane-placement change was justified. The Dmowskiego curb/rail conflict was confirmed here and fixed in the
   follow-up below.
-- Validation: **292/292** tests pass (39.89 s). Full Edge WebGPU and forced WebGL2 scenes rendered at least 60
-  frames without captured console warnings/errors on the final runs. The restored head was viewed on both
+- Validation: **296/296** tests pass (33.33 s). Full Edge WebGPU and forced WebGL2 scenes rendered at least 60
+  frames without captured console warnings/errors on the final runs. The restored heads were viewed on both
   backends; WebGPU spot checks observed red and green. Hetmańska received WebGPU geometry spot checks.
   See the [observation record](observations/krucza-hetmanska-2026-10-31.md) for measurements and limits.
 
@@ -112,7 +114,7 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 | Topic | Remaining work | Original reference |
 |---|---|---|
 | Railway crossings | Restore sidewalks under rail bridges without joining blocks into filled rings; model raised track/viaduct decks and add level-crossing barriers. Current roadways are clear, while the railway remains flat. | 15.8 |
-| Other missing signal heads | The full-scene audit leaves 271 incoming edges without a nearby matching plan/facing head; these are investigation candidates, not 271 confirmed missing heads. The eastern Krucza approach at `699.25, 2750.75` remains one local candidate. Find safe placements without losing lanes. | 15.5 |
+| Other missing signal heads | The full-scene audit leaves incoming edges without a nearby matching plan/facing head; these are investigation candidates, not confirmed missing heads (many approach on curves with `dot` between 0.70 and 0.98, or border parks whose bounding boxes exclude sidewalks). Find safe placements without losing lanes. | 15.5 |
 | Park bounding boxes | Audit the remaining signal/furniture exclusions and traffic footprints that use bounds of irregular park islands. The Krucza correction is deliberately limited to one surveyed approach; broader placement changes need lane-preservation checks. | Follow-up |
 | Sparse OSM blocks | Check the nine large blocks with under 5% mapped building coverage against BDOT10k; supplement only confirmed omissions. The original audit covered 0.69 km² and needs rechecking against the current enlarged box. Verify source terms before adding data. | 14.3 |
 | Footbridges and camera | Add Most Jordana, the Brama Poznania footbridge and the Berdychowskie crossings to the data/models. Revisit the `katedra` camera, currently above the Cybina, and test landmark lines of sight. | 4, 7, 12.3 |
