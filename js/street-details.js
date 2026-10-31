@@ -499,7 +499,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   // outside the nearest roadway (0.35 m left a few poles in lanes)
   const signalPoleSpot = (x, z, exactPark = false) => {
     const b = blockAt(x, z);
-    if (!b || inPlaza(x, z, 0.5, exactPark) || !isClearOfPoles(x, z, 1.4) || !clearOfRoads(x, z, 0.5) ||
+    if (!b || b.underpass || inPlaza(x, z, 0.5, exactPark) || !isClearOfPoles(x, z, 1.4) || !clearOfRoads(x, z, 0.5) ||
       !clearOfCrosswalks(x, z, 0.15) || !clearOfRails(x, z, 0.22)) return false;
     const pad = b.median ? 0.9 : 0.4;
     for (const [ox, oz] of [[pad, 0], [-pad, 0], [0, pad], [0, -pad]]) {

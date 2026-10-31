@@ -15,13 +15,14 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable, configureCro
       len, node: null, side: 0, sides: null, group: 0, line: 0, ...extra };
   };
 
-  function clear(a, b, block = null) {
+  function clear(a, b, block = null, anyBlock = false) {
     const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z)));
     let x = a.x, z = a.z;
     for (let i = 0; i <= steps; i++) {
       const nx = a.x + (b.x - a.x) * i / steps, nz = a.z + (b.z - a.z) * i / steps;
       if (!walkable(Math.min(x, nx) - 0.4, Math.max(x, nx) + 0.4, Math.min(z, nz) - 0.4, Math.max(z, nz) + 0.4)) return false;
       if (block && blockAt(nx, nz) !== block) return false;
+      if (anyBlock && !blockAt(nx, nz)) return false;
       x = nx; z = nz;
     }
     return true;
@@ -37,9 +38,17 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable, configureCro
         const off = sign * (e.half + inset);
         const a = { x: e.sx + e.rx * off, z: e.sz + e.rz * off };
         const b = { x: a.x + e.dx * e.len, z: a.z + e.dz * e.len };
-        const block = blockAt(a.x, a.z);
-        if (!block || blockAt(b.x, b.z) !== block || !clear(a, b, block)) continue;
-        result.push(segment(a, b, { edge: e, from: e.from, to: e.to, block }));
+        const blkA = blockAt(a.x, a.z);
+        const blkB = blockAt(b.x, b.z);
+        if (!blkA || !blkB) continue;
+        if (blkA === blkB) {
+          if (!clear(a, b, blkA)) continue;
+          result.push(segment(a, b, { edge: e, from: e.from, to: e.to, block: blkA }));
+        } else {
+          // Continuous sidewalk bridging across two blocks under a railway underpass
+          if (!clear(a, b, null, true)) continue;
+          result.push(segment(a, b, { edge: e, from: e.from, to: e.to, block: blkA, blockTo: blkB, underpass: true }));
+        }
       }
     }
     return result;

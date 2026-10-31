@@ -597,30 +597,143 @@ for (const b of BLOCKS) {
     }
   }
 }
-/** The block (curb island) under (x, z), or null on the roadway / in the water */
-function blockAt(x, z) {
-  const list = BLOCK_GRID.get(Math.floor(x / BLOCK_CELL) * 100000 + Math.floor(z / BLOCK_CELL));
+
+// Sidewalk corridors along roadways passing under railway bridges without joining blocks into filled rings.
+// Extruded on each side as a 2.8 m sidewalk strip connecting the curb islands across the railway land.
+const UNDERPASS_CORRIDORS = [
+  // Hetmańska
+  { sx: -1879.4, sz: 2484.3, dx: 0.9815, dz: 0.1917, len: 79.92, half: 8.15 },
+  { sx: -1839.93, sz: 2468, dx: -0.9818, dz: -0.1897, len: 36.45, half: 4.9 },
+  { sx: -1796.28, sz: 2477.29, dx: -0.978, dz: -0.2086, len: 15.44, half: 4.9 },
+  // Przepadek
+  { sx: -532.22, sz: -1034.61, dx: 0.7545, dz: 0.6563, len: 77.48, half: 4.9 },
+  { sx: -473.75, sz: -983.76, dx: -0.7545, dz: -0.6563, len: 77.48, half: 4.9 },
+  // Kazimierza Pułaskiego
+  { sx: -1240.44, sz: -575.64, dx: -0.974, dz: 0.2264, len: 9.91, half: 8.15 },
+  { sx: -1246.54, sz: -550.76, dx: 0.8113, dz: -0.5847, len: 10, half: 3.25 },
+  { sx: -1267.47, sz: -569.37, dx: -0.8259, dz: 0.5638, len: 10, half: 3.25 },
+  // Cicha
+  { sx: -781.29, sz: -884.41, dx: -0.5875, dz: -0.8092, len: 26.42, half: 1.65 },
+  // Podwale
+  { sx: 1543.2, sz: -622.09, dx: 0.1015, dz: 0.9948, len: 23.61, half: 6.5 },
+  { sx: 1562.71, sz: -605.7, dx: -0.092, dz: -0.9958, len: 19.34, half: 8.15 },
+  // Karola Libelta
+  { sx: -1240.48, sz: -540.12, dx: 0.9022, dz: 0.4314, len: 10, half: 4.9 },
+  { sx: -1231.46, sz: -535.8, dx: -0.9022, dz: -0.4314, len: 10, half: 4.9 },
+  { sx: -1199.66, sz: -518.8, dx: 0.8679, dz: 0.4967, len: 23.91, half: 4.9 },
+  { sx: -1178.91, sz: -506.93, dx: -0.8679, dz: -0.4967, len: 23.91, half: 4.9 },
+  // Nad Wierzbakiem
+  { sx: -1804.66, sz: -1077.33, dx: -0.2619, dz: 0.9651, len: 12.66, half: 1.65 },
+  { sx: -1807.98, sz: -1065.12, dx: 0.2619, dz: -0.9651, len: 12.66, half: 1.65 },
+  // Aleja Niepodległości
+  { sx: -274.22, sz: -983.13, dx: 0.6792, dz: -0.7339, len: 29.07, half: 3.25 },
+  { sx: -254.48, sz: -1004.47, dx: -0.6792, dz: 0.7339, len: 29.07, half: 3.25 },
+  // Niestachowska
+  { sx: -2713.52, sz: -1295.46, dx: 0.2814, dz: -0.9596, len: 139.1, half: 4.9 },
+  // Garbary
+  { sx: 368.81, sz: -802.29, dx: 0.1072, dz: -0.9942, len: 69.32, half: 4.9 },
+  // Feliksa Nowowiejskiego
+  { sx: -994.55, sz: -748.57, dx: -0.4974, dz: -0.8675, len: 28.78, half: 3.25 },
+  { sx: -1008.87, sz: -773.53, dx: 0.4974, dz: 0.8675, len: 28.78, half: 3.25 },
+  { sx: -1025.55, sz: -800.58, dx: -0.3163, dz: -0.9487, len: 10, half: 6.5 },
+  { sx: -1035.09, sz: -805.15, dx: 0.7556, dz: 0.6551, len: 10, half: 1.65 },
+  // Sucha
+  { sx: 3183.32, sz: -1819.31, dx: -0.9812, dz: 0.1928, len: 43.09, half: 3.75 },
+  { sx: 3141.04, sz: -1811, dx: 0.9812, dz: -0.1928, len: 43.09, half: 3.75 },
+  // Libelta / Poznańska connectors
+  { sx: -1273.71, sz: -554.77, dx: 0.9224, dz: 0.3861, len: 10, half: 4.9 },
+  { sx: -1264.49, sz: -550.91, dx: -0.9224, dz: -0.3861, len: 10, half: 4.9 },
+  { sx: -1274.05, sz: -574.7, dx: -0.9998, dz: -0.0215, len: 17.56, half: 1.65 }
+];
+
+const UNDERPASS_SIDEWALKS = (() => {
+  const strips = [];
+  let sid = 200000;
+  for (const e of UNDERPASS_CORRIDORS) {
+    for (const sign of [-1, 1]) {
+      const rx = e.dz, rz = -e.dx;
+      const inner = sign * e.half;
+      const outer = sign * (e.half + 2.8);
+      const t0 = -2.0, t1 = e.len + 2.0;
+      const p0 = { x: +(e.sx + e.dx * t0 + rx * inner).toFixed(2), z: +(e.sz + e.dz * t0 + rz * inner).toFixed(2) };
+      const p1 = { x: +(e.sx + e.dx * t1 + rx * inner).toFixed(2), z: +(e.sz + e.dz * t1 + rz * inner).toFixed(2) };
+      const p2 = { x: +(e.sx + e.dx * t1 + rx * outer).toFixed(2), z: +(e.sz + e.dz * t1 + rz * outer).toFixed(2) };
+      const p3 = { x: +(e.sx + e.dx * t0 + rx * outer).toFixed(2), z: +(e.sz + e.dz * t0 + rz * outer).toFixed(2) };
+      const cx = (p0.x + p1.x + p2.x + p3.x) / 4;
+      const cz = (p0.z + p1.z + p2.z + p3.z) / 4;
+      if (!strips.some((s) => Math.hypot(s.cx - cx, s.cz - cz) < 2.0)) {
+        const poly = [p0, p1, p2, p3];
+        const minX = Math.min(p0.x, p1.x, p2.x, p3.x);
+        const maxX = Math.max(p0.x, p1.x, p2.x, p3.x);
+        const minZ = Math.min(p0.z, p1.z, p2.z, p3.z);
+        const maxZ = Math.max(p0.z, p1.z, p2.z, p3.z);
+        strips.push({
+          id: sid++,
+          cx, cz,
+          poly,
+          minX, maxX, minZ, maxZ,
+          underpass: true,
+          isUnderpass: true,
+          median: false,
+          rect: false,
+          rects: [],
+          park: 0,
+          area: (t1 - t0) * 2.8
+        });
+      }
+    }
+  }
+  return strips;
+})();
+
+const UNDERPASS_CELL = 64;
+const UNDERPASS_GRID = new Map();
+for (const s of UNDERPASS_SIDEWALKS) {
+  const ix0 = Math.floor(s.minX / UNDERPASS_CELL), ix1 = Math.floor(s.maxX / UNDERPASS_CELL);
+  const iz0 = Math.floor(s.minZ / UNDERPASS_CELL), iz1 = Math.floor(s.maxZ / UNDERPASS_CELL);
+  for (let ix = ix0; ix <= ix1; ix++) {
+    for (let iz = iz0; iz <= iz1; iz++) {
+      const k = ix * 100000 + iz;
+      if (!UNDERPASS_GRID.has(k)) UNDERPASS_GRID.set(k, []);
+      UNDERPASS_GRID.get(k).push(s);
+    }
+  }
+}
+function underpassBlockAt(x, z) {
+  const list = UNDERPASS_GRID.get(Math.floor(x / UNDERPASS_CELL) * 100000 + Math.floor(z / UNDERPASS_CELL));
   if (!list) return null;
   for (const b of list) {
     if (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ) continue;
-    if (b.tramCut) {
-      let cut = false;
-      for (const [ax, az, bx, bz] of b.tramCut.segs) {
-        const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
-        if (len < 1e-6) continue;
-        const along = ((x - ax) * dx + (z - az) * dz) / len;
-        const across = ((z - az) * dx - (x - ax) * dz) / len;
-        // cutSlab extends the corridor by `half` at both ends, closing the gaps at track bends.
-        if (along >= -b.tramCut.half && along <= len + b.tramCut.half && Math.abs(across) <= b.tramCut.half) {
-          cut = true;
-          break;
-        }
-      }
-      if (cut) continue;
-    }
-    if (b.rect || pointInPoly(b.poly, x, z)) return b;
+    if (pointInPoly(b.poly, x, z)) return b;
   }
   return null;
+}
+
+/** The block (curb island) under (x, z), or null on the roadway / in the water */
+function blockAt(x, z) {
+  const list = BLOCK_GRID.get(Math.floor(x / BLOCK_CELL) * 100000 + Math.floor(z / BLOCK_CELL));
+  if (list) {
+    for (const b of list) {
+      if (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ) continue;
+      if (b.tramCut) {
+        let cut = false;
+        for (const [ax, az, bx, bz] of b.tramCut.segs) {
+          const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
+          if (len < 1e-6) continue;
+          const along = ((x - ax) * dx + (z - az) * dz) / len;
+          const across = ((z - az) * dx - (x - ax) * dz) / len;
+          // cutSlab extends the corridor by `half` at both ends, closing the gaps at track bends.
+          if (along >= -b.tramCut.half && along <= len + b.tramCut.half && Math.abs(across) <= b.tramCut.half) {
+            cut = true;
+            break;
+          }
+        }
+        if (cut) continue;
+      }
+      if (b.rect || pointInPoly(b.poly, x, z)) return b;
+    }
+  }
+  return underpassBlockAt(x, z);
 }
 /** Blocks whose bounds overlap a rectangle */
 function blocksInRect(minX, maxX, minZ, maxZ) {
@@ -1072,6 +1185,7 @@ export {
   LABEL_ALIAS,
   nearestRoads,
   BLOCKS,
+  UNDERPASS_SIDEWALKS,
   blockAt,
   blocksInRect,
   districtAt,

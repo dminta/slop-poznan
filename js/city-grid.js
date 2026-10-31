@@ -7,6 +7,7 @@ import {
   PLAZAS,
   ROADS,
   BLOCKS,
+  UNDERPASS_SIDEWALKS,
   distToWater
 } from './city-config.js';
 import { GEO } from './geodata.js';
@@ -685,6 +686,17 @@ function buildCityGrid(scene) {
       }
     }
   }
+
+  // Extrude sidewalk strips under railway viaducts to bridge curb islands across the railway land
+  for (const s of UNDERPASS_SIDEWALKS || []) {
+    curbGeos.push(createExtrudedPolygonMesh(s.poly, 0.0, 0.18, curbMat, true, false).geometry);
+    const inner = offsetPolygonInward(s.poly, 0.25);
+    if (inner) {
+      slabGeos.push(createExtrudedPolygonMesh(inner, 0.03, SW_TOP - 0.03, sidewalkMat, true, false).geometry);
+    }
+    roadSidewalks.push({ minX: s.minX, maxX: s.maxX, minZ: s.minZ, maxZ: s.maxZ });
+  }
+
   const mergeInto = (geos, mat, cast = false) => {
     for (let i = 0; i < geos.length; i += 400) {
       const m = new THREE.Mesh(mergeGeometries(geos.slice(i, i + 400), false), mat);
