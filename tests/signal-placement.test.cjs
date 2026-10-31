@@ -107,13 +107,25 @@ test('the live Krucza approaches have correctly facing heads without changing th
   const crossings = (net) => Array.from(createPedestrianRoutes(net, config.blockAt, gridModule.railClearance).crosswalks,
     (c) => [c.ax, c.az, c.bx, c.bz]);
   assert.deepEqual(crossings(network), crossings(without), 'every actual pedestrian crossing remains usable');
-  assert.equal(localPoles.length, 2, 'the scoped restoration adds two poles');
+  assert.equal(localPoles.length, 7, 'the Krucza/Zamenhofa junction has all 7 poles on unblocked park sidewalks');
 });
 
-test('restoring the heads leaves other furniture unchanged and retains the park exclusion elsewhere', () => {
-  const { street, baseline } = world;
-  assert.equal(street.vehicleHeads, baseline.vehicleHeads + 2);
-  assert.equal(street.audioSignals.length, baseline.audioSignals.length + 2);
+test('restoring park-bordering signal heads leaves other furniture unchanged across the city', () => {
+  const { street, baseline, config, gridModule } = world;
+  assert.equal(street.vehicleHeads, baseline.vehicleHeads + 153, 'restores 153 vehicle heads across 128 junctions');
+  assert.equal(street.audioSignals.length, baseline.audioSignals.length + 274, 'restores 274 pedestrian heads');
   const nonSignals = (details) => JSON.stringify(details.footprints.filter((r) => r.kind !== 'signal'));
   assert.equal(nonSignals(street), nonSignals(baseline), 'all non-signal footprints retain their locations');
+
+  // Verify clearances for all restored signal poles
+  const basePoles = new Set(baseline.footprints.filter((r) => r.kind === 'signal')
+    .map((r) => `${((r.minX + r.maxX) / 2).toFixed(2)},${((r.minZ + r.maxZ) / 2).toFixed(2)}`));
+  const newPoles = street.footprints.filter((r) => r.kind === 'signal' &&
+    !basePoles.has(`${((r.minX + r.maxX) / 2).toFixed(2)},${((r.minZ + r.maxZ) / 2).toFixed(2)}`));
+  assert.equal(newPoles.length, 274, 'adds exactly 274 restored signal poles');
+  for (const p of newPoles) {
+    const cx = (p.minX + p.maxX) / 2, cz = (p.minZ + p.maxZ) / 2;
+    assert.ok(config.roadClearance(cx, cz) >= 0.8, `pole at ${cx}, ${cz} keeps >= 0.8 m road clearance`);
+    assert.ok(gridModule.railClearance(cx, cz, 20) >= 2.22, `pole at ${cx}, ${cz} keeps >= 2.22 m rail clearance`);
+  }
 });

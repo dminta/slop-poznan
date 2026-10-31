@@ -138,13 +138,27 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 - Validation: `node --test tests/` passes **305/305** (33.45 s). See the
   [observation record](observations/rail-crossings-2026-10-31.md).
 
+## Park bounding box signal restoration implemented
+
+- Extended exact park polygon outlines (`exactPark`) across all park-bordering sidewalks in `js/street-details.js`,
+  recovering candidate approaches previously suppressed by the 13.26 km² excess AABB bounding boxes of irregular parks.
+- Preserved 100% of drivable network lanes by starting candidate pole search at `dt >= 6.0 m` along the curb for unblocked
+  approaches, avoiding turning curve swept paths (`pathClear` 0.8 m); adapted Szelągowska to `dt >= 8.4 m` and Miliana
+  to `dt >= 7.2 m` to clear adjacent lane envelopes, while dropping candidate side 1 on Baraniaka.
+- Vehicle heads **745 → 896** (+151), pedestrian heads / audio signals **1306 → 1578** (+272), adding 274 signal poles across
+  128 junctions and 77 streets (e.g. Garbary, Szelągowska, Al. Armii Poznań, Sołacz, Malta, Rataje, Warszawska, Winogrady).
+- Physical clearances strictly verified: 100% of restored poles satisfy `roadClearance >= 0.8 m` and `railClearance >= 2.22 m`.
+- Roadway network (8,715 edges, 11,577 lanes), pedestrian crossings, and non-signal street furniture remain 100% unchanged.
+- Validation: `node --test tests/` passes **305/305** (34.85 s). See the
+  [observation record](observations/park-signals-2026-10-31.md).
+
 ## Known gaps and follow-up investigations
 
 | Topic | Remaining work | Original reference |
 |---|---|---|
 | Railway viaducts and underpasses | Restore sidewalks under rail bridges without joining blocks into filled rings; model raised track/viaduct decks bridging cut tracks over roadways. Level-crossing barriers are implemented. | 15.8 |
-| Other missing signal heads | The full-scene audit leaves incoming edges without a nearby matching plan/facing head; these are investigation candidates, not confirmed missing heads (many approach on curves with `dot` between 0.70 and 0.98, or border parks whose bounding boxes exclude sidewalks). Find safe placements without losing lanes. | 15.5 |
-| Park bounding boxes | Audit the remaining signal/furniture exclusions and traffic footprints that use bounds of irregular park islands. The Krucza correction is deliberately limited to one surveyed approach; broader placement changes need lane-preservation checks. | Follow-up |
+| Other missing signal heads | Park bounding box candidates (266 approaches) are restored. Remaining unmatched incoming edges are investigation candidates on curved approaches with `dot` between 0.70 and 0.98 or offset > 45 m. | 15.5 |
+| Park bounding boxes | Signal placement exclusions from park bounding boxes are resolved across all 128 junctions (896 vehicle heads, 1578 pedestrian heads). Remaining follow-up is optional exact polygon checks for non-signal street furniture (lamps/trees/benches). | Follow-up |
 | Sparse OSM blocks | Check the nine large blocks with under 5% mapped building coverage against BDOT10k; supplement only confirmed omissions. The original audit covered 0.69 km² and needs rechecking against the current enlarged box. Verify source terms before adding data. | 14.3 |
 | Building accuracy | Replace estimated landmark heights and massing where supported by measurements; real building footprints/roof heights remain optional. Candidates include Ratusz, Fara, Zamek Królewski, Teatr Wielki, Brama Poznania, tower placements, Iglica and AND2. | 4.4, 7 |
 | Tram route quality | Re-measure global off-route samples after the Zawady/Ogrody/Starołęka membership correction. The loops have coordinate regressions; the former off-route percentages are historical. | 15.10 |

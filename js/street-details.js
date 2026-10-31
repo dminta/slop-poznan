@@ -582,17 +582,32 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
       // The western and eastern Krucza approaches lie inside a park's bounds but outside its actual island.
       // The eastern approach requires dt >= 6.0 m to clear the right-turn curve into Zamenhofa (which at 4.8 m
       // blocked the turn and dropped the incoming edge).
+      // Extending exact polygon outlines restores missing heads on sidewalks bordering parks across the city.
+      // Unblocked approaches search from dt >= 6.0 m to clear turning curves (pathClear 0.8 m); Szelągowska requires
+      // dt >= 8.4 m and Miliana dt >= 7.2 m to clear adjacent lanes, while Baraniaka drops side 1 to keep lane clearance.
       const isKruczaWest = Math.hypot(site.x - 700.6, site.z - 2745.7) < 1 && a.inbound && a.ux < -0.9;
       const isKruczaEast = Math.hypot(site.x - 700.6, site.z - 2745.7) < 1 && a.inbound && a.ux > 0.9;
-      const exactPark = isKruczaWest || isKruczaEast;
+      const isSzelagowska = Math.hypot(site.x - 397.0, site.z + 961.9) < 2 && a.name === 'Szelągowska';
+      const isBaraniaka = Math.hypot(site.x - 3312.5, site.z - 1386.2) < 2 && a.name === 'Arcybiskupa Antoniego Baraniaka';
+      const isMiliana = Math.hypot(site.x - 1378.6, site.z - 964.1) < 2 && a.name === 'Jerzego Miliana';
       const spot = (side) => {
+        if (isBaraniaka && side === 1) return null;
         for (const back of [0.75, 1.0, 1.3]) {
           const minDt = isKruczaEast ? 6.0 : (CROSSWALK + 0.5);
           for (let dt = minDt; dt < 16; dt += 1.2) {
             const t = corner + dt;
             const x = a.x + a.ux * t + rx * (half + back) * side;
             const z = a.z + a.uz * t + rz * (half + back) * side;
-            if (signalPoleSpot(x, z, exactPark)) return { x, z };
+            if (signalPoleSpot(x, z, isKruczaWest || isKruczaEast)) return { x, z };
+          }
+        }
+        const exactMinDt = (isSzelagowska && side === 1) ? 8.4 : ((isMiliana && side === -1) ? 7.2 : 6.0);
+        for (const back of [0.75, 1.0, 1.3]) {
+          for (let dt = exactMinDt; dt < 16; dt += 1.2) {
+            const t = corner + dt;
+            const x = a.x + a.ux * t + rx * (half + back) * side;
+            const z = a.z + a.uz * t + rz * (half + back) * side;
+            if (signalPoleSpot(x, z, true)) return { x, z };
           }
         }
         return null;
