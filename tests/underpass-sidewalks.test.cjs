@@ -150,3 +150,38 @@ test('railway viaduct decks generate overhead colliders leaving ground roadways 
     Math.hypot((c.minX + c.maxX) / 2 - HX, (c.minZ + c.maxZ) / 2 - HZ) < 50);
   assert.ok(hetAbutments.length >= 4, `${hetAbutments.length} abutment colliders at Hetmańska`);
 });
+
+test('railway track approach ramps transition smoothly into viaduct decks without vertical step', () => {
+  let transitionsChecked = 0;
+  for (const v of railInfra.viaducts) {
+    const entry = railInfra.pieces.find((p) => p.railIndex === v.railIndex && Math.hypot(p.bx - v.ax, p.bz - v.az) < 0.1);
+    const exit = railInfra.pieces.find((p) => p.railIndex === v.railIndex && Math.hypot(p.ax - v.bx, p.az - v.bz) < 0.1);
+    if (entry) {
+      assert.ok(Math.abs(entry.yB - v.deckY) < 0.001,
+        `entry piece yB (${entry.yB.toFixed(3)}) matches deckY (${v.deckY.toFixed(3)}) on track ${v.railIndex}`);
+      transitionsChecked++;
+    }
+    if (exit) {
+      assert.ok(Math.abs(exit.yA - v.deckY) < 0.001,
+        `exit piece yA (${exit.yA.toFixed(3)}) matches deckY (${v.deckY.toFixed(3)}) on track ${v.railIndex}`);
+      transitionsChecked++;
+    }
+  }
+  assert.ok(transitionsChecked >= 70, `checked ${transitionsChecked} abutment track transitions (expected >= 70)`);
+});
+
+test('railway ramp slope does not exceed the allowed limit of 6%', () => {
+  let elevatedCount = 0;
+  let maxSlope = 0;
+  for (const pc of railInfra.pieces) {
+    const len = Math.hypot(pc.bx - pc.ax, pc.bz - pc.az);
+    if (len < 0.01) continue;
+    const slope = Math.abs(pc.yB - pc.yA) / len;
+    if (slope > maxSlope) maxSlope = slope;
+    assert.ok(slope < 0.06, `piece on track ${pc.railIndex} has slope ${(slope * 100).toFixed(2)}% < 6%`);
+    if (pc.yA > pc.ground + 0.05 || pc.yB > pc.ground + 0.05) elevatedCount++;
+  }
+  assert.ok(elevatedCount > 1000, `at least 1000 track pieces are elevated on approach ramps (found ${elevatedCount})`);
+  assert.ok(maxSlope < 0.06, `maximum ramp slope ${(maxSlope * 100).toFixed(2)}% < 6.0%`);
+});
+

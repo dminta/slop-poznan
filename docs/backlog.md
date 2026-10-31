@@ -161,11 +161,13 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
   Nad Wierzbakiem, Sucha, Hetmańska).
 - Modeled 41 railway viaduct spans (`rail.viaducts` in `js/tram-infra.js`) bridging cut tracks over roadways with
   vertical clearance: 6.0 m over tram corridors (clearing 5.8 m catenary on Hetmańska), 4.8 m over roadways without trams.
+- Modeled smooth railway embankment approach ramps over 160 m (`RAMP_LEN`, max slope < 6.0%, 0.000 m step at bridge joints),
+  elevating ballast, pitching rails and rising catenary wires seamlessly onto viaduct decks, with retaining abutment walls beneath.
 - Viaduct structures feature concrete/steel deck slabs, instanced steel through-plate side girders (`RailViaductGirders`),
   elevated ballast and continuous rail heads, and concrete abutment portals replacing 1.1 m end walls.
 - Overhead colliders (`minY >= 4.8 m`) allow ground vehicles and pedestrians to pass completely unobstructed underneath
   while providing solid collision for airborne entities.
-- Validation: `node --test tests/` passes **310/310** (34.33 s). See the
+- Validation: `node --test tests/` passes **312/312** (34.8 s). See the
   [observation record](observations/rail-viaducts-2026-10-31.md).
 
 ## Known gaps and follow-up investigations

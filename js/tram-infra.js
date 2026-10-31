@@ -721,6 +721,86 @@ function layoutRailInfrastructure(network) {
     keptAt.set(tr.railIndex, kept);
     trackGeo.set(tr.railIndex, { geo, kept });
   }
+
+  // --- Approach ramps (railway embankments) before and after viaducts ----------------------------------------------
+  // Smoothly elevate tracks to viaduct deck height (deckY) over RAMP_LEN (max slope < 6%), preventing 90-degree cliffs
+  const RAMP_LEN = 160;
+  const viaductsByTrack = new Map();
+  for (const v of viaducts) {
+    if (!viaductsByTrack.has(v.railIndex)) viaductsByTrack.set(v.railIndex, []);
+    viaductsByTrack.get(v.railIndex).push(v);
+  }
+
+  const elevationAt = (x, z) => {
+    let maxElev = 0;
+    for (const v of viaducts) {
+      const dist = Math.min(Math.hypot(x - v.ax, z - v.az), Math.hypot(x - v.bx, z - v.bz));
+      if (dist < RAMP_LEN) {
+        const u = 1 - dist / RAMP_LEN;
+        const s = u * u * (3 - 2 * u);
+        const elev = v.deckY * s;
+        if (elev > maxElev) maxElev = elev;
+      }
+    }
+    return maxElev;
+  };
+
+  for (const pc of pieces) {
+    const len = Math.hypot(pc.bx - pc.ax, pc.bz - pc.az) || 1;
+    const dx = (pc.bx - pc.ax) / len;
+    const dz = (pc.bz - pc.az) / len;
+    const mx = (pc.ax + pc.bx) / 2;
+    const mz = (pc.az + pc.bz) / 2;
+
+    const candidates = [];
+    const myV = viaductsByTrack.get(pc.railIndex);
+    if (myV) {
+      for (const v of myV) {
+        const dA = Math.hypot(mx - v.ax, mz - v.az);
+        const dB = Math.hypot(mx - v.bx, mz - v.bz);
+        if (Math.min(dA, dB) < RAMP_LEN) candidates.push({ v, weight: 1.0 });
+      }
+    }
+    for (const v of viaducts) {
+      if (myV && myV.includes(v)) continue;
+      const dA = Math.hypot(mx - v.ax, mz - v.az);
+      const dB = Math.hypot(mx - v.bx, mz - v.bz);
+      const d = Math.min(dA, dB);
+      if (d < RAMP_LEN) {
+        const vlen = Math.hypot(v.bx - v.ax, v.bz - v.az) || 1;
+        const vdx = (v.bx - v.ax) / vlen;
+        const vdz = (v.bz - v.az) / vlen;
+        const dot = Math.abs(dx * vdx + dz * vdz);
+        if (dot >= 0.7) {
+          const refP = dA < dB ? { x: v.ax, z: v.az } : { x: v.bx, z: v.bz };
+          const latDist = Math.abs((mx - refP.x) * (-vdz) + (mz - refP.z) * vdx);
+          if (latDist <= 25) {
+            const sLat = 1 - (latDist / 25) * (latDist / 25);
+            const sDot = (dot - 0.7) / 0.3;
+            candidates.push({ v, weight: sLat * sDot });
+          }
+        }
+      }
+    }
+
+    const elevAt = (x, z) => {
+      let maxElev = 0;
+      for (const { v, weight } of candidates) {
+        const dist = Math.min(Math.hypot(x - v.ax, z - v.az), Math.hypot(x - v.bx, z - v.bz));
+        if (dist < RAMP_LEN) {
+          const u = 1 - dist / RAMP_LEN;
+          const s = u * u * (3 - 2 * u);
+          const elev = (v.deckY - pc.ground) * s * weight;
+          if (elev > maxElev) maxElev = elev;
+        }
+      }
+      return pc.ground + maxElev;
+    };
+
+    pc.yA = elevAt(pc.ax, pc.az);
+    pc.yB = elevAt(pc.bx, pc.bz);
+    pc.yMid = (pc.yA + pc.yB) / 2;
+  }
   const keptOn = (tr, s) => {
     const kept = keptAt.get(tr.railIndex);
     return !!kept[Math.min(kept.length - 1, Math.max(0, Math.floor((s / tr.len) * kept.length)))];
@@ -1187,7 +1267,7 @@ function layoutRailInfrastructure(network) {
     }
   }
   return { tracks, pieces, dropped, level, ends, runs, corridor, masts, arms, portals, droppers, footprints, laneDist, roadDist,
-    tramDist, railDist, crossings, barriers, signals, viaducts };
+    tramDist, railDist, crossings, barriers, signals, viaducts, elevationAt };
 }
 
 // --- Rendering ---------------------------------------------------------------------------------------------------------
@@ -1263,11 +1343,11 @@ function buildTramInfrastructure(scene, network) {
     return dummy.matrix.clone();
   };
   // Unit box along local x from a to b, w wide (z) and h tall (y), its centre at height y
-  const beam = (ax, ay, az, bx, by, bz, w, h) => {
+  const beam = (ax, ay, az, bx, by, bz, w, h, ext = 0) => {
     const dx = bx - ax;
     const dy = by - ay;
     const dz = bz - az;
-    const L = Math.hypot(dx, dy, dz);
+    const L = Math.hypot(dx, dy, dz) + ext;
     dummy.position.set((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2);
     dummy.rotation.set(0, Math.atan2(-dz, dx), Math.atan2(dy, Math.hypot(dx, dz)), 'YZX');
     dummy.scale.set(L, h, w);
@@ -1415,18 +1495,27 @@ function buildTramInfrastructure(scene, network) {
     const dz = (pc.bz - pc.az) / len;
     const mx = (pc.ax + pc.bx) / 2;
     const mz = (pc.az + pc.bz) / 2;
-    dummy.rotation.set(0, Math.atan2(-dz, dx), 0);
+    const dy = pc.yB - pc.yA;
+    const len3D = Math.hypot(len, dy);
+    const pitch = Math.atan2(dy, len);
+    dummy.rotation.set(0, Math.atan2(-dz, dx), pitch, 'YZX');
     // Beds of neighbouring tracks overlap at switches: a few mm per track keeps their tops from z-fighting
-    const bedTop = pc.ground + RAIL_BED_TOP + (pc.railIndex % 5) * 0.004;
-    dummy.position.set(mx, (pc.ground - 0.06 + bedTop) / 2, mz);
-    dummy.scale.set(len + 0.02, bedTop - pc.ground + 0.06, RAIL_BED_W);
+    const bedTop = pc.yMid + RAIL_BED_TOP + (pc.railIndex % 5) * 0.004;
+    const bedBottom = pc.ground - 0.06;
+    const bedH = bedTop - bedBottom;
+    dummy.position.set(mx, (bedBottom + bedTop) / 2, mz);
+    dummy.scale.set(len3D + 0.02, bedH, RAIL_BED_W);
     railBedM.push(M());
-    railTies.push(len, pc.s0);
+    railTies.push(len3D, pc.s0);
+    const topA = pc.yA + RAIL_BED_TOP + (pc.railIndex % 5) * 0.004;
+    const topB = pc.yB + RAIL_BED_TOP + (pc.railIndex % 5) * 0.004;
     for (const sg of [1, -1]) {
       const o = sg * (GAUGE / 2 + HEAD_W / 2);
-      dummy.position.set(mx - dz * o, bedTop + RAIL_HEAD_H / 2, mz + dx * o);
-      dummy.scale.set(len + 0.03, RAIL_HEAD_H, HEAD_W);
-      railM.push(M());
+      const ax = pc.ax - dz * o;
+      const az = pc.az + dx * o;
+      const bx = pc.bx - dz * o;
+      const bz = pc.bz + dx * o;
+      railM.push(beam(ax, topA + RAIL_HEAD_H / 2, az, bx, topB + RAIL_HEAD_H / 2, bz, HEAD_W, RAIL_HEAD_H, 0.02));
     }
   }
   // Level crossings: the heads flush with the road (or the sidewalk) and a flangeway groove inside each, as on the
@@ -1450,13 +1539,14 @@ function buildTramInfrastructure(scene, network) {
       grooveM.push(M());
     }
   }
-  // End walls: a 0.5 m concrete wall across the corridor (bed and boundary) at each cut, standing just into the gap, so the cut
-  // reads as a bridge abutment or the edge of an underpass
+  // End walls: a 0.5 m concrete wall across the corridor (bed and boundary) at each cut, standing just into the gap.
+  // At viaducts the abutment wall stands under the deck (from ground to yClearance), acting as the retaining wall
+  // of the ramp embankment, while overhead the tracks and trains run unobstructed across the underpass
   for (const e of rail.ends) {
     const cx = e.x + e.dx * 0.25;
     const cz = e.z + e.dz * 0.25;
     const w = 2 * (RAIL_FENCE_O + 0.15); // reaching the corridor boundary on both sides
-    const h = e.viaduct ? e.deckY : e.ground + RAIL_END_H;
+    const h = e.viaduct ? e.yClearance : e.ground + RAIL_END_H;
     dummy.position.set(cx, (h - 0.1) / 2, cz);
     dummy.rotation.set(0, Math.atan2(-e.dz, e.dx), 0);
     dummy.scale.set(0.5, h + 0.1, w);
@@ -1493,17 +1583,19 @@ function buildTramInfrastructure(scene, network) {
         viaductGirderM.push(M());
       }
 
-      // Ballast and rails across the deck
-      dummy.position.set(mx, v.deckY + 0.075, mz);
-      dummy.scale.set(len + 0.05, 0.15, RAIL_BED_TOP_W);
-      endWallM.push(M());
+      // Ballast and rails across the deck, matching approach ramp top height
+      const topBallast = v.deckY + RAIL_BED_TOP;
+      dummy.position.set(mx, (v.deckY + topBallast) / 2, mz);
+      dummy.scale.set(len + 0.05, RAIL_BED_TOP, RAIL_BED_TOP_W);
+      railBedM.push(M());
+      railTies.push(len, p.s0 ?? 0);
 
       // Two steel rails
-      const topRail = v.deckY + 0.15 + 0.05;
+      const topRail = topBallast;
       for (const sg of [1, -1]) {
         const o = sg * (GAUGE / 2 + HEAD_W / 2);
-        dummy.position.set(mx - dz * o, topRail - 0.025, mz + dx * o);
-        dummy.scale.set(len + 0.05, 0.05, HEAD_W);
+        dummy.position.set(mx - dz * o, topRail + RAIL_HEAD_H / 2, mz + dx * o);
+        dummy.scale.set(len + 0.05, RAIL_HEAD_H, HEAD_W);
         railM.push(M());
       }
 
@@ -1586,24 +1678,35 @@ function buildTramInfrastructure(scene, network) {
       Math.hypot(rail.pieces[j + 1].ax - rail.pieces[j].bx, rail.pieces[j + 1].az - rail.pieces[j].bz) < 0.05) j++;
     const a = rail.pieces[i];
     const b = rail.pieces[j];
-    for (const y of [RAIL_WIRE_Y, RAIL_MESSENGER_Y]) wireM.push(beam(a.ax, a.ground + y, a.az, b.bx, b.ground + y, b.bz, 0.02, 0.02));
+    for (const y of [RAIL_WIRE_Y, RAIL_MESSENGER_Y]) wireM.push(beam(a.ax, a.yA + y, a.az, b.bx, b.yB + y, b.bz, 0.02, 0.02));
     i = j + 1;
+  }
+  // Catenary wires across viaduct spans
+  for (const v of rail.viaducts || []) {
+    for (const p of v.pieces) {
+      for (const y of [RAIL_WIRE_Y, RAIL_MESSENGER_Y]) {
+        wireM.push(beam(p.ax, v.deckY + y, p.az, p.bx, v.deckY + y, p.bz, 0.02, 0.02));
+      }
+    }
   }
   // Masts: 0.3 m steel box sections (0.45 m under portals), joining the tram arms' mesh
   for (const q of rail.masts) {
+    const yElev = rail.elevationAt ? rail.elevationAt(q.x, q.z) : 0;
+    const h = q.h + yElev;
     const w = q.h > 9 ? 0.45 : 0.3;
-    dummy.position.set(q.x, q.h / 2, q.z);
+    dummy.position.set(q.x, h / 2, q.z);
     dummy.rotation.set(0, 0, 0);
-    dummy.scale.set(w, q.h, w);
+    dummy.scale.set(w, h, w);
     armM.push(M());
-    colliders.push({ minX: q.x - w / 2, maxX: q.x + w / 2, minZ: q.z - w / 2, maxZ: q.z + w / 2, maxY: q.h });
+    colliders.push({ minX: q.x - w / 2, maxX: q.x + w / 2, minZ: q.z - w / 2, maxZ: q.z + w / 2, maxY: h });
   }
   for (const a of rail.arms) {
     // a sloping tube from high on the mast to the messenger over the track, a registration arm to the contact wire
     // below it, and a dropper between the two wires
-    armM.push(beam(a.ax, RAIL_MESSENGER_Y + 0.6, a.az, a.bx, RAIL_MESSENGER_Y, a.bz, 0.06, 0.06));
-    armM.push(beam(a.ax, RAIL_WIRE_Y - 0.3, a.az, a.bx, RAIL_WIRE_Y, a.bz, 0.05, 0.05));
-    wireM.push(beam(a.bx, RAIL_WIRE_Y, a.bz, a.bx, RAIL_MESSENGER_Y, a.bz + 0.0001, 0.012, 0.012));
+    const yElev = rail.elevationAt ? rail.elevationAt(a.bx, a.bz) : 0;
+    armM.push(beam(a.ax, yElev + RAIL_MESSENGER_Y + 0.6, a.az, a.bx, yElev + RAIL_MESSENGER_Y, a.bz, 0.06, 0.06));
+    armM.push(beam(a.ax, yElev + RAIL_WIRE_Y - 0.3, a.az, a.bx, yElev + RAIL_WIRE_Y, a.bz, 0.05, 0.05));
+    wireM.push(beam(a.bx, yElev + RAIL_WIRE_Y, a.bz, a.bx, yElev + RAIL_MESSENGER_Y, a.bz + 0.0001, 0.012, 0.012));
   }
   for (const p of rail.portals) {
     armM.push(beam(p.ax, 8.9, p.az, p.bx, 8.9, p.bz, 0.35, 0.5));
