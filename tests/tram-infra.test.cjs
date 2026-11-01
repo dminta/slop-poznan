@@ -70,18 +70,7 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
   const { footprints } = buildStreetDetails(inert());
   const network = buildRoadNetwork([], footprints);
   const layout = layoutTramInfrastructure(network);
-  const { stops, poles, spans, arms, laneDist, tracks, portals } = layout;
-
-  assert.equal(portals.length, 5, '5 tram tunnel portals citywide');
-  assert.ok(portals.some((p) => p.id === 'pst_teatralny' && p.x < -1270 && p.z < -460), 'PST Teatralny portal');
-  assert.ok(portals.some((p) => p.id === 'pst_dworcowy' && p.x < -1465 && p.z > 240), 'PST Dworcowy portal');
-  assert.ok(portals.some((p) => p.id === 'franowo_east' && p.x > 3700 && p.z > 2700), 'Franowo East portal');
-  assert.ok(portals.some((p) => p.id === 'franowo_west_north' && p.x > 3040 && p.z < 2160), 'Franowo West North portal');
-  assert.ok(portals.some((p) => p.id === 'franowo_west_south' && p.x > 3020 && p.z > 2210), 'Franowo West South portal');
-  for (const p of portals) {
-    assert.ok(p.clearW >= 9.0, `${p.id} width ${p.clearW} >= 9.0 m`);
-    assert.ok(p.clearH >= 6.0, `${p.id} height ${p.clearH} >= 6.0 m clears 5.8 m catenary`);
-  }
+  const { stops, poles, spans, arms, laneDist, tracks } = layout;
 
   assert.ok(stops.length >= 100, `${stops.length} stops`);
   assert.ok(stops.filter((s) => s.kind === 'island').length >= 80, 'most stops get a platform island');

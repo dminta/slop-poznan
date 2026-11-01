@@ -313,7 +313,7 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 - **Validation:** `node --test tests/*.cjs` passes **321/321** tests, including dedicated font stack and balcony capacity
   regressions in `tests/vehicle-models.test.cjs` and `tests/buildings-density.test.cjs`.
 
-## Siemens Combino and tram tunnel portals implemented
+## Siemens Combino tram model implemented
 
 - **Siemens Combino model:** added Poznań's third tram model (14 units delivered 2003–2004, fleet numbers 501–514)
   to `TRAM_MODELS` in `js/trams.js`: 5 articulated sections (8.25 m front cab with bogie, 4.4 m suspended link,
@@ -321,16 +321,8 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
   100% low floor. Distinctive rounded cab nose, authentic MPK Poznań green/yellow livery with curved front mask and
   round headlights in TSL material (`js/actor-models.js`). Tram pool updated to reflect real fleet proportions (~12% Combino,
   ~29% Tramino, ~58% Gamma).
-- **Tram tunnel portals (PST Kaponiera and Tunel Franowo):** modeled concrete portal headwalls, flaring retaining wingwalls,
-  darkened recessed interior hoods, and overhead colliders across all 5 underground tram portal transitions:
-  * PST Most Teatralny (North) at `[-1274.74, -468.00]`
-  * PST Most Dworcowy (South) at `[-1472.55, 247.45]`
-  * Tunel Franowo East (Zajezdnia Franowo) at `[3709.33, 2709.14]`
-  * Tunel Franowo West North (Os. Lecha / Trasa Kórnicka) at `[3046.93, 2148.77]`
-  * Tunel Franowo West South (Os. Czecha / Żegrze) at `[3034.60, 2223.10]`
-  All portals provide clear spans >= 9.4 m and vertical clearance 6.2 m clearing 5.8 m catenary, with 0 car lane obstructions.
-- **Validation:** `node --test tests/*.cjs` passes **321/321** tests, including dedicated portal and tram model regressions in
-  `tests/trams.test.cjs` and `tests/tram-infra.test.cjs`.
+- **Validation:** `node --test tests/*.cjs` passes **321/321** tests, including dedicated tram model regressions in
+  `tests/trams.test.cjs`.
 
 ## Known gaps and follow-up investigations
 
@@ -350,8 +342,7 @@ None pending. Both historical open decisions were confirmed by the user on 2026-
 
 ## Optional features and fidelity
 
-- Trams: Kaponiera and Franowo tunnel portals and Siemens Combino are implemented (models are Gamma, Tramino,
-  and Combino; visible white-bar ST tram signals are implemented). Tram control uses the shared local signal plans.
+- Trams: Siemens Combino is implemented (models are Gamma, Tramino, and Combino; visible white-bar ST tram signals are implemented; tunnel portals omitted). Tram control uses the shared local signal plans.
 - Vehicles: an articulated 18 m bus and a PSP truck instead of the current rescue van; registration plate font
   stack on systems without Arial Narrow is implemented. Taxi crests and exact livery/marking fidelity require
   source verification before use.
