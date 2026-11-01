@@ -262,12 +262,31 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 - Unmapped park blocks (100 blocks citywide) remain 100% unbuilt (`gen = 0 m²`).
 - Validation: `tests/buildings-density.test.cjs` passes **5/5** (including new dedicated park block validation).
 
+## Exact park polygon outlines for street furniture and trees implemented
+
+- Extended exact park polygon checks (`exact = true` by default in `inPlaza` in `js/street-details.js`) from signal poles to
+  all street furniture (LED streetlights, gas lamps, hydrants, postboxes, parking meters, bollards, kiosks, advertising
+  columns, flower stands) and street trees.
+- Previously, non-signal street furniture tested against the whole axis-aligned bounding box (AABB) of park blocks,
+  which suppressed trees and curbside amenities across large swaths of sidewalks bordering extensive parks (e.g., Park Rataje
+  covering 0.7 × 1.7 km, Cytadela).
+- Added chord cut clearance guards for 3 turning curve locations on park borders (LED masts at (3191.5, 1609.5), (2522.4, 1006.9),
+  (2115.2, 1908.0)) and curbside furniture on Park Rataje border (2027.8, 1970.1) where turning and dual-carriageway lanes
+  sweep close to the curb.
+- Net results citywide:
+  * Restored **+4,004 street trees** (55,211 vs 51,207).
+  * Restored **+4,639 non-signal street furniture footprints** (22,494 vs 17,855; including +3,376 LED masts, +48 gas lamps,
+    +757 hydrants, +108 postboxes, +60 parking meters, +220 bollards, +34 columns, +23 flower stands, +13 kiosks).
+  * Preserved **100.0% of drivable road network edges (8,512 / 8,512)** and **100% of vehicular travel lanes**.
+  * Zero tram or rail clearance violations (**0 violations** across all 24,066 footprints).
+- Validation: `tests/signal-placement.test.cjs` passes **2/2**; full test suite passes **313/313**.
+
 ## Known gaps and follow-up investigations
 
 | Topic | Remaining work | Original reference |
 |---|---|---|
 | Other missing signal heads | Park bounding box candidates (266 approaches) are restored. Remaining unmatched incoming edges are investigation candidates on curved approaches with `dot` between 0.70 and 0.98 or offset > 45 m. | 15.5 |
-| Park bounding boxes | Signal placement exclusions from park bounding boxes are resolved across all 128 junctions (896 vehicle heads, 1578 pedestrian heads). Remaining follow-up is optional exact polygon checks for non-signal street furniture (lamps/trees/benches). | Follow-up |
+| Park bounding boxes | Resolved citywide. Exact park polygons (`exact = true`) are enabled for all street furniture and trees in `js/street-details.js`, restoring 4,004 street trees and 4,639 non-signal street furniture footprints while preserving 100% of drivable road network edges (8,512/8,512) and 0 rail clearance violations. | Follow-up |
 | Sparse OSM blocks | Check the nine large blocks with under 5% mapped building coverage against BDOT10k; supplement only confirmed omissions. The original audit covered 0.69 km² and needs rechecking against the current enlarged box. Verify source terms before adding data. | 14.3 |
 | Building accuracy | Replace estimated landmark heights and massing where supported by measurements; real building footprints/roof heights remain optional. Candidates include Ratusz, Fara, Zamek Królewski, Teatr Wielki, Brama Poznania, tower placements, Iglica and AND2. | 4.4, 7 |
 | Tram route quality | Track continuity, tunnel preservation (PST, Franowo), the Św. Marcin – Ratajczaka curve, and universal 2.2875 m step elimination across junctions and islands are implemented. Remaining work is re-measuring global off-route samples after the Zawady/Ogrody/Starołęka membership correction. The loops have coordinate regressions; the former off-route percentages are historical. | 15.10 |

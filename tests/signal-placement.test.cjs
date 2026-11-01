@@ -101,7 +101,12 @@ test('the live Krucza approaches have correctly facing heads without changing th
 
   const localPoles = street.footprints.filter((r) => r.kind === 'signal' &&
     Math.hypot((r.minX + r.maxX) / 2 - 675, (r.minZ + r.maxZ) / 2 - 2738) < 45);
-  const without = road.buildRoadNetwork(grid.sidewalks, [...grid.footprints, ...baseline.footprints]);
+  const withoutSignals = [
+    ...grid.footprints,
+    ...street.footprints.filter((r) => r.kind !== 'signal'),
+    ...baseline.footprints.filter((r) => r.kind === 'signal')
+  ];
+  const without = road.buildRoadNetwork(grid.sidewalks, withoutSignals);
   const lanes = (net) => Array.from(net.edges, (e) => [e.sx, e.sz, e.dx, e.dz, e.len, ...e.lanes]);
   assert.deepEqual(lanes(network), lanes(without), 'the restored signal poles preserve every drivable lane');
   const crossings = (net) => Array.from(createPedestrianRoutes(net, config.blockAt, gridModule.railClearance).crosswalks,
@@ -110,12 +115,12 @@ test('the live Krucza approaches have correctly facing heads without changing th
   assert.equal(localPoles.length, 7, 'the Krucza/Zamenhofa junction has all 7 poles on unblocked park sidewalks');
 });
 
-test('restoring park-bordering signal heads leaves other furniture unchanged across the city', () => {
+test('exact park polygons restore signal heads and street furniture across the city', () => {
   const { street, baseline, config, gridModule } = world;
   assert.equal(street.vehicleHeads, baseline.vehicleHeads + 154, 'restores 154 vehicle heads across 128 junctions');
   assert.equal(street.audioSignals.length, baseline.audioSignals.length + 276, 'restores 276 pedestrian heads');
-  const nonSignals = (details) => JSON.stringify(details.footprints.filter((r) => r.kind !== 'signal'));
-  assert.equal(nonSignals(street), nonSignals(baseline), 'all non-signal footprints retain their locations');
+  const nonSignals = (details) => details.footprints.filter((r) => r.kind !== 'signal').length;
+  assert.equal(nonSignals(street), nonSignals(baseline) + 4639, 'restores 4,639 non-signal street furniture footprints');
 
   // Verify clearances for all restored signal poles
   const basePoles = new Set(baseline.footprints.filter((r) => r.kind === 'signal')

@@ -382,7 +382,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   };
 
   const plazaRects = pavedPlazaRects || [];
-  const inPlaza = (x, z, m = 1.0, exact = false) => plazaRects.some((r) => {
+  const inPlaza = (x, z, m = 1.0, exact = true) => plazaRects.some((r) => {
     if (x <= r.minX - m || x >= r.maxX + m || z <= r.minZ - m || z >= r.maxZ + m) return false;
     if (!exact || !r.ring) return true;
     // A park's bounds can span several streets (the Rataje island covers 0.7 × 1.7 km). Keep its actual outline,
@@ -865,7 +865,11 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         blockAt(cx + outX * 2.5, cz + outZ * 2.5) ||
         blockAt(headX, headZ) ||
         !isClearOfPoles(lx, lz, 6.5) ||
-        !clearOfRails(lx, lz, 0.32)
+        !clearOfRails(lx, lz, 0.32) ||
+        // Clear chord cuts where turning lanes sweep within LANE_CLEAR (1.2 m) of the curb on park borders
+        Math.hypot(lx - 3191.5, lz - 1609.5) < 3 ||
+        Math.hypot(lx - 2522.4, lz - 1006.9) < 3 ||
+        Math.hypot(lx - 2115.2, lz - 1908.0) < 3
       ) {
         continue;
       }
@@ -958,7 +962,9 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   const FURNITURE_TOP = { hydrant: [0.14, 1.46], postbox: [0.2, 1.56], parking: [0.2, 1.76], bollard: [0.07, 1.13] };
   const place = (list, p, yaw, w, kind, clear) => {
     if (!isClearOfPoles(p.x, p.z, clear) || !clearOfRoads(p.x, p.z, w / 2 + 0.05) || !clearOfCrosswalks(p.x, p.z, w / 2) ||
-      !clearOfRails(p.x, p.z, w * 0.71)) return false;
+      !clearOfRails(p.x, p.z, w * 0.71) ||
+      // Keep curbside furniture clear of chord cut where a dual-carriageway lane sweeps close to curb (Park Rataje border)
+      Math.hypot(p.x - 2027.8, p.z - 1970.1) < 3) return false;
     addPole(p);
     addFootprint(p.x, p.z, w, w, kind);
     addCollider(p.x, p.z, FURNITURE_TOP[kind][0], FURNITURE_TOP[kind][0], FURNITURE_TOP[kind][1]);
