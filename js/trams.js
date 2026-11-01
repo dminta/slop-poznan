@@ -107,6 +107,19 @@ const TRAM_MODELS = {
       { kind: 'traminoLink', len: 4.3, cab: 0, doors: [0, 99], bogies: [], pantograph: false },
       { kind: 'traminoRear', len: 8.2, cab: -1, doors: [-1.5, 99], bogies: [1.9], pantograph: false }
     ]
+  },
+  combino: {
+    id: 'combino',
+    name: 'Siemens Combino',
+    livery: 2,
+    gap: 0.25,
+    sections: [
+      { kind: 'combinoFront', len: 8.25, cab: 1, doors: [1.6, 99], bogies: [-1.8], pantograph: false },
+      { kind: 'combinoLink', len: 4.4, cab: 0, doors: [0, 99], bogies: [], pantograph: false },
+      { kind: 'combinoMid', len: 5.6, cab: 0, doors: [99, 99], bogies: [0], pantograph: true },
+      { kind: 'combinoLink', len: 4.4, cab: 0, doors: [0, 99], bogies: [], pantograph: false },
+      { kind: 'combinoRear', len: 8.25, cab: -1, doors: [-1.6, 99], bogies: [1.8], pantograph: false }
+    ]
   }
 };
 for (const m of Object.values(TRAM_MODELS)) {
@@ -1023,10 +1036,12 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
   let seed = 1922; // the first electric tram in Poznań (1898 horse tram, 1922 MPK)
   const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 
-  // The pool: a third Tramino (45 of 127 in service), the rest Gamma
+  // The pool: ~12% Combino (14 in service), ~29% Tramino (45 in service), the rest Gamma (80 in service)
   const pool = [];
   for (let i = 0; i < NUM_TRAMS; i++) {
-    const model = i % 3 === 2 ? TRAM_MODELS.tramino : TRAM_MODELS.gamma;
+    const model = (i % 8 === 7) ? TRAM_MODELS.combino
+      : (i % 3 === 2) ? TRAM_MODELS.tramino
+      : TRAM_MODELS.gamma;
     pool.push({
       id: i, model: model.id, spec: model, length: model.length,
       active: false, path: new TramPath(lines),

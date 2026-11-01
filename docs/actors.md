@@ -215,15 +215,15 @@ reads the road network (signal nodes, lanes and junction curves for `mapTramsToR
   and blocks another tram holds or reaches first, the next stop, red signals, curves and a buffer stop. `waitReason`
   names the binding one (`tram`, `room`, `switch`, `block`, `stop`, `signal`, `curve`, `end`,
   `car`, `player`, `pedestrian`, or empty).
-- **Population**: 24 pooled trams (every third is a Tramino), kept within 900 m of the camera focus and respawned
+- **Population**: 24 pooled trams (~12% Combino, ~29% Tramino, ~58% Gamma), kept within 900 m of the camera focus and respawned
   120–800 m away, never within 300 m in view or 70 m from another tram. After a camera jump of more than 140 m they are
   all respawned. A tram waiting at a buffer stop is respawned after 8 s out of view (40 s in view). A tram stopped
   90 s out of view (240 s in view) is respawned too; that also clears rare head-on deadlocks.
-- **Bodies**: `TRAM_MODELS` in `trams.js` (Moderus Gamma, 3 sections; Solaris Tramino, 5; both 31.8 m). Each section
+- **Bodies**: `TRAM_MODELS` in `trams.js` (Moderus Gamma, 3 sections, 31.8 m; Solaris Tramino, 5, 31.8 m; Siemens Combino, 5, 31.9 m). Each section
   lies on the chord between its two ends on the path (`poseSections`), so the joints stay on the track. Section kinds
   map to one `InstancedMesh` each (`buildTramSectionGeometry` in `actor-models.js`), plus the bellows. All of them use
   `createTramMaterial` with the per-vertex `tramInfo` (half length, cab ±1/0, door z) and the per-instance `tramState`
-  (brake, livery 0 Gamma / 1 Tramino, doors open, display row = route + 1). The amber LED display above each cab's windscreen samples that row of `createTramDestinationTexture(GEO.tramRoutes)` (actor-models.js; line number, then the terminus; row 0 blank), mirrored per cab so it reads left to right from outside (not yet checked in a browser). The pantograph head is at `TRAM_PANTOGRAPH_HEAD` (5.5 m).
+  (brake, livery 0 Gamma / 1 Tramino / 2 Combino, doors open, display row = route + 1). The amber LED display above each cab's windscreen samples that row of `createTramDestinationTexture(GEO.tramRoutes)` (actor-models.js; line number, then the terminus; row 0 blank), mirrored per cab so it reads left to right from outside (not yet checked in a browser). The pantograph head is at `TRAM_PANTOGRAPH_HEAD` (5.5 m).
   Culling: the whole tram is tested against the frustum side planes (radius half its length + 6 m) and dropped beyond
   1.5 km. The upload, `hideEmpty` and zero-scale first-frames patterns are the same as for traffic. Per-frame code is
   allocation-free apart from refreshing the `trams` list.
@@ -232,7 +232,7 @@ reads the road network (signal nodes, lanes and junction curves for `mapTramsToR
 
 **Public contract for interactions** (car yielding, pedestrians, player collisions, audio):
 - `tramSystem.trams`: the active trams, refreshed every update (the same objects as `tramSystem.pool`, filtered).
-  Each has `id`, `model` (`'gamma'|'tramino'`), `spec` (its `TRAM_MODELS` entry), `length`, `x, z, heading` (the
+  Each has `id`, `model` (`'gamma'|'tramino'|'combino'`), `spec` (its `TRAM_MODELS` entry), `length`, `x, z, heading` (the
   track point and tangent at mid-length), `frontX, frontZ`, `speed` (m/s), `acc`, `v0`, `atStop`, `stopName`, `dwell`,
   `doorsOpen`, `nextStop`, `waitReason`, `leader`, `gap`, `route` (its `GEO.tramRoutes` index, -1 for none), `line`
   (the line number, e.g. `'17'`) and `destination` (the terminus, e.g. `'Starołęka PKM'`; both `''` without a route),

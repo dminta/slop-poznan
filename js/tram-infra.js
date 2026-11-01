@@ -85,6 +85,84 @@ const RAIL_MAST_TRAM = 3; // ...and this far from every tram track centreline
 const RAIL_ARM_REACH = 7; // a mast this close to the track takes a cantilever, else a portal spans the yard
 const RAIL_PORTAL_REACH = 40; // per side
 
+// --- Underground tram tunnel portals -------------------------------------------------------------------------------
+// Poznań's underground tram sections:
+// 1. PST Kaponiera / Dworzec Zachodni: north portal at Most Teatralny (-1274.74, -468.00), south portal at Most Dworcowy (-1472.55, 247.45)
+// 2. Tunel Franowo (1,067 m under Piaśnicka): east portal at Franowo Depot (3709.33, 2709.14), west north portal at
+//    Os. Lecha / Trasa Kórnicka (3046.93, 2148.77), west south portal at Os. Czecha / Żegrze (3034.60, 2223.10)
+const TRAM_PORTALS = [
+  {
+    id: 'pst_teatralny',
+    name: 'PST Most Teatralny Portal (North)',
+    x: -1274.74, z: -468.00,
+    dirX: -0.286, dirZ: 0.958, // entering tunnel (SSE)
+    clearW: 9.8,
+    clearH: 6.2,
+    pierW: 1.2,
+    wallThick: 1.6,
+    parapetH: 1.2,
+    wingL: 12.0,
+    wingAngle: 0.45,
+    hoodL: 18.0
+  },
+  {
+    id: 'pst_dworcowy',
+    name: 'PST Most Dworcowy Portal (South)',
+    x: -1472.55, z: 247.45,
+    dirX: 0.217, dirZ: -0.976, // entering tunnel (NNW under Most Dworcowy)
+    clearW: 9.4,
+    clearH: 6.2,
+    pierW: 1.2,
+    wallThick: 1.6,
+    parapetH: 1.2,
+    wingL: 12.0,
+    wingAngle: 0.45,
+    hoodL: 18.0
+  },
+  {
+    id: 'franowo_east',
+    name: 'Tunel Franowo — Portal Wschodni (Zajezdnia Franowo)',
+    x: 3709.33, z: 2709.14,
+    dirX: -0.568, dirZ: -0.823, // entering tunnel (WSW under Piaśnicka)
+    clearW: 10.5,
+    clearH: 6.2,
+    pierW: 1.2,
+    wallThick: 1.6,
+    parapetH: 1.2,
+    wingL: 14.0,
+    wingAngle: 0.45,
+    hoodL: 20.0
+  },
+  {
+    id: 'franowo_west_north',
+    name: 'Tunel Franowo — Portal Zachodni Północny (Os. Lecha / Trasa Kórnicka)',
+    x: 3046.93, z: 2148.77,
+    dirX: 0.679, dirZ: 0.734, // entering tunnel (SE)
+    clearW: 9.5,
+    clearH: 6.2,
+    pierW: 1.2,
+    wallThick: 1.5,
+    parapetH: 1.2,
+    wingL: 12.0,
+    wingAngle: 0.45,
+    hoodL: 18.0
+  },
+  {
+    id: 'franowo_west_south',
+    name: 'Tunel Franowo — Portal Zachodni Południowy (Os. Czecha / Żegrze)',
+    x: 3034.60, z: 2223.10,
+    dirX: 0.835, dirZ: -0.550, // entering tunnel (ENE under Chartowo)
+    clearW: 9.8,
+    clearH: 6.2,
+    pierW: 1.2,
+    wallThick: 1.5,
+    parapetH: 1.2,
+    wingL: 12.0,
+    wingAngle: 0.45,
+    hoodL: 18.0
+  }
+];
+
 // --- Track geometry ------------------------------------------------------------------------------------------------
 // Tram tracks of GEO.rail (railIndex = index into GEO.rail), with cumulative arc length per point
 function loadTracks(kind = 'tram') {
@@ -557,7 +635,7 @@ function layoutTramInfrastructure(network) {
     }
   }
 
-  return { tracks, stops, skipped, poles, spans, arms, rosettes, droppers, footprints, laneDist, trackDist, beds, roadwayDist };
+  return { tracks, stops, skipped, poles, spans, arms, rosettes, droppers, footprints, laneDist, trackDist, beds, roadwayDist, portals: TRAM_PORTALS };
 }
 
 /**
@@ -1348,6 +1426,7 @@ function buildTramInfrastructure(scene, network) {
   // Mainline bed: grey granite with the sleepers' 2.6 m on its 4 m top (RAIL_BED_W at the foot), slopes below
   const railBallastMat = createBallastMaterial(RAIL_SLEEPER / 2 / RAIL_BED_W, 0.95, 0x605c57, 0x7a756e, 0xa3a199);
   const endWallMat = new THREE.MeshStandardNodeMaterial({ color: 0x9a958c, roughness: 0.9 }); // concrete end walls
+  const tunnelHoodMat = new THREE.MeshStandardNodeMaterial({ color: 0x0c0e10, roughness: 0.98 }); // dark recessed interior
   const steelMat = new THREE.MeshStandardNodeMaterial({ color: 0x4f5650, roughness: 0.55, metalness: 0.7 });
   const wireMat = new THREE.MeshStandardNodeMaterial({ color: 0x3b3027, roughness: 0.5, metalness: 0.8 });
   const platformMat = createCurbMaterial();
@@ -1735,6 +1814,91 @@ function buildTramInfrastructure(scene, network) {
     instanced('RailViaductGirders', unitBox, steelMat, viaductGirderM)
   ]) if (mesh) group.add(mesh);
 
+  // --- 2b2. Tram Tunnel Portals & Hoods -----------------------------------------------------------------------------
+  const portalM = [];
+  const hoodM = [];
+  for (const p of TRAM_PORTALS) {
+    const norm = Math.hypot(p.dirX, p.dirZ) || 1;
+    const dx = p.dirX / norm;
+    const dz = p.dirZ / norm;
+    const nx = -dz;
+    const nz = dx; // across tracks to the right
+    const halfSpan = p.clearW / 2;
+    const pierHalfW = p.pierW / 2;
+    const headH = p.clearH + p.parapetH;
+
+    // 1. Left and right concrete piers
+    for (const sgn of [-1, 1]) {
+      const px = p.x + nx * sgn * (halfSpan + pierHalfW);
+      const pz = p.z + nz * sgn * (halfSpan + pierHalfW);
+      portalM.push(beam(px - dx * p.wallThick / 2, headH / 2, pz - dz * p.wallThick / 2,
+                        px + dx * p.wallThick / 2, headH / 2, pz + dz * p.wallThick / 2, p.pierW, headH));
+      const c = Math.abs(dx), s = Math.abs(dz);
+      const ex = (p.wallThick * c + p.pierW * s) / 2;
+      const ez = (p.wallThick * s + p.pierW * c) / 2;
+      colliders.push({ minX: px - ex, maxX: px + ex, minZ: pz - ez, maxZ: pz + ez, maxY: headH });
+    }
+
+    // 2. Transverse concrete lintel & parapet
+    const lintelTotalW = p.clearW + 2 * p.pierW;
+    const lintelY = p.clearH + p.parapetH / 2;
+    portalM.push(beam(p.x - dx * p.wallThick / 2, lintelY, p.z - dz * p.wallThick / 2,
+                      p.x + dx * p.wallThick / 2, lintelY, p.z + dz * p.wallThick / 2, lintelTotalW, p.parapetH));
+    {
+      const c = Math.abs(dx), s = Math.abs(dz);
+      const ex = (p.wallThick * c + lintelTotalW * s) / 2;
+      const ez = (p.wallThick * s + lintelTotalW * c) / 2;
+      colliders.push({ minX: p.x - ex, maxX: p.x + ex, minZ: p.z - ez, maxZ: p.z + ez, minY: p.clearH, maxY: headH, overhead: true });
+    }
+
+    // 3. Retaining wingwalls flaring outward
+    for (const sgn of [-1, 1]) {
+      const startX = p.x + nx * sgn * (halfSpan + p.pierW) - dx * p.wallThick / 2;
+      const startZ = p.z + nz * sgn * (halfSpan + p.pierW) - dz * p.wallThick / 2;
+      const cosA = Math.cos(p.wingAngle);
+      const sinA = Math.sin(p.wingAngle);
+      // Wingwall angles back away from tunnel entry (-dx) and outward (sgn * nx)
+      const wdx = -dx * cosA + nx * sgn * sinA;
+      const wdz = -dz * cosA + nz * sgn * sinA;
+      const endX = startX + wdx * p.wingL;
+      const endZ = startZ + wdz * p.wingL;
+      const wingH = (p.clearH + 2.0) / 2;
+      portalM.push(beam(startX, wingH / 2, startZ, endX, wingH / 2, endZ, 0.5, wingH));
+      const wMidX = (startX + endX) / 2;
+      const wMidZ = (startZ + endZ) / 2;
+      const wEx = Math.abs(endX - startX) / 2 + 0.3;
+      const wEz = Math.abs(endZ - startZ) / 2 + 0.3;
+      colliders.push({ minX: wMidX - wEx, maxX: wMidX + wEx, minZ: wMidZ - wEz, maxZ: wMidZ + wEz, maxY: wingH });
+    }
+
+    // 4. Darkened recessed interior hood (roof, side linings, and back wall)
+    const hoodInX = p.x + dx * p.hoodL;
+    const hoodInZ = p.z + dz * p.hoodL;
+
+    // Hood ceiling slab
+    hoodM.push(beam(p.x, p.clearH - 0.1, p.z, hoodInX, p.clearH - 0.1, hoodInZ, p.clearW, 0.2));
+    // Hood side walls
+    for (const sgn of [-1, 1]) {
+      const sx = p.x + nx * sgn * halfSpan;
+      const sz = p.z + nz * sgn * halfSpan;
+      const ex = hoodInX + nx * sgn * halfSpan;
+      const ez = hoodInZ + nz * sgn * halfSpan;
+      hoodM.push(beam(sx, p.clearH / 2, sz, ex, p.clearH / 2, ez, 0.3, p.clearH));
+      const mX = (sx + ex) / 2, mZ = (sz + ez) / 2;
+      const spanEx = Math.abs(ex - sx) / 2 + 0.2;
+      const spanEz = Math.abs(ez - sz) / 2 + 0.2;
+      colliders.push({ minX: mX - spanEx, maxX: mX + spanEx, minZ: mZ - spanEz, maxZ: mZ + spanEz, maxY: p.clearH });
+    }
+    // Hood interior back wall
+    hoodM.push(beam(hoodInX - nx * halfSpan, p.clearH / 2, hoodInZ - nz * halfSpan,
+                    hoodInX + nx * halfSpan, p.clearH / 2, hoodInZ + nz * halfSpan, 0.4, p.clearH));
+    colliders.push({ minX: hoodInX - 5.5, maxX: hoodInX + 5.5, minZ: hoodInZ - 5.5, maxZ: hoodInZ + 5.5, maxY: p.clearH });
+  }
+  for (const mesh of [
+    instanced('TramTunnelPortals', unitBox, endWallMat, portalM),
+    instanced('TramTunnelHoods', unitBox, tunnelHoodMat, hoodM, {}, false)
+  ]) if (mesh) group.add(mesh);
+
   // --- 2c. Level crossings (barriers & warning signals) -------------------------------------------------------------
   const barrierCabinetM = [];
   const barrierBoomM = [];
@@ -1955,4 +2119,4 @@ function buildTramInfrastructure(scene, network) {
   return { group, colliders, stops: publicStops, railCorridor: rail.corridor.has };
 }
 
-export { layoutTramInfrastructure, layoutRailInfrastructure, buildTramInfrastructure };
+export { layoutTramInfrastructure, layoutRailInfrastructure, buildTramInfrastructure, TRAM_PORTALS };

@@ -2589,7 +2589,9 @@ function createTramMaterial(signMap = null, rows = 1) {
   const one = float(1.0);
   const halfLen = info.x;
   const cab = info.y;
-  const tramino = state.y;
+  const isGamma = step(abs(state.y.sub(0.0)), 0.25);
+  const isTramino = step(abs(state.y.sub(1.0)), 0.25);
+  const isCombino = step(abs(state.y.sub(2.0)), 0.25);
   const ax = abs(p.x);
 
   const side = smoothstep(0.55, 0.8, abs(n.x)).mul(isBody);
@@ -2627,10 +2629,14 @@ function createTramMaterial(signMap = null, rows = 1) {
   const skirt = smoothstep(0.46, 0.42, p.y);
   const yellow = color(0xf3c316);
   const gammaCol = mix(mix(color(0x15703a), color(0x1c7d42), lower), yellow, max(max(sill, cornice), cabFace.mul(step(p.y, 1.62))));
-  const frontBand = cabFace.mul(smoothstep(0.62, 0.66, p.y)).mul(smoothstep(0.84, 0.8, p.y));
-  const traminoCol = mix(color(0x2a6a4b), yellow, max(thin, max(door.mul(one.sub(leaf)), frontBand)));
-  let body = mix(gammaCol, traminoCol, tramino);
-  body = mix(body, color(0x1f2327), door.mul(one.sub(leaf)).mul(one.sub(tramino)));
+  const traminoFrontBand = cabFace.mul(smoothstep(0.62, 0.66, p.y)).mul(smoothstep(0.84, 0.8, p.y));
+  const traminoCol = mix(color(0x2a6a4b), yellow, max(thin, max(door.mul(one.sub(leaf)), traminoFrontBand)));
+  const combinoSill = smoothstep(0.94, 0.98, p.y).mul(smoothstep(1.14, 1.10, p.y));
+  const combinoCornice = smoothstep(2.82, 2.85, p.y).mul(smoothstep(2.96, 2.93, p.y));
+  const combinoFrontYellow = cabFace.mul(smoothstep(0.48, 0.55, p.y)).mul(smoothstep(1.65, 1.58, p.y)).mul(step(ax, 0.92));
+  const combinoCol = mix(color(0x18753e), yellow, max(max(combinoSill, combinoCornice), combinoFrontYellow));
+  let body = mix(mix(gammaCol, traminoCol, isTramino), combinoCol, isCombino);
+  body = mix(body, color(0x1f2327), door.mul(one.sub(leaf)).mul(isGamma.add(isCombino)));
   body = mix(body, color(0xd9dcde), roof.mul(one.sub(cabFace)));
   body = mix(body, color(0x1a1d21), skirt);
   body = mix(body, color(0x15191d), band.mul(one.sub(pillar)).mul(one.sub(door)));
@@ -2638,7 +2644,9 @@ function createTramMaterial(signMap = null, rows = 1) {
   body = mix(body, color(0x2b2622), doorway);
 
   // Lamps on the cab faces
-  const headLamp = roundedRect(vec2(ax.sub(0.82), p.y.sub(0.9)), vec2(0.15, 0.055), 0.04).mul(cabFace).mul(isFront);
+  const sharpHead = roundedRect(vec2(ax.sub(0.82), p.y.sub(0.9)), vec2(0.15, 0.055), 0.04).mul(cabFace).mul(isFront);
+  const roundHead = roundedRect(vec2(ax.sub(0.78), p.y.sub(0.82)), vec2(0.12, 0.08), 0.04).mul(cabFace).mul(isFront);
+  const headLamp = mix(sharpHead, roundHead, isCombino);
   const tailLamp = roundedRect(vec2(ax.sub(0.92), p.y.sub(1.0)), vec2(0.06, 0.16), 0.03).mul(cabFace).mul(isRear);
   body = mix(body, color(0xe2eef8), headLamp);
   body = mix(body, color(0x8e0d12), tailLamp);
@@ -2651,8 +2659,8 @@ function createTramMaterial(signMap = null, rows = 1) {
 
   const mat = new THREE.MeshStandardNodeMaterial();
   mat.colorNode = col;
-  const paintRough = mix(float(0.38), float(0.3), tramino);
-  const paintMetal = mix(float(0.12), float(0.5), tramino).mul(one.sub(max(sill, cornice)));
+  const paintRough = mix(mix(float(0.38), float(0.30), isTramino), float(0.36), isCombino);
+  const paintMetal = mix(mix(float(0.12), float(0.50), isTramino), float(0.06), isCombino).mul(one.sub(max(sill, cornice)));
   mat.roughnessNode = mix(mix(mix(paintRough, float(0.12), glass), float(0.7), max(isTrim, isBellows)), float(0.45), max(isPod, isPanto));
   mat.metalnessNode = mix(mix(paintMetal, float(0.6), glass), float(0.05), max(max(isTrim, isBellows), isPod)).add(isPanto.mul(0.5));
 
