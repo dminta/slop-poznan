@@ -298,6 +298,21 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 - **Colliders:** 3.8 m physical colliders for all signal poles keep tram clearances and register in player collision bounds.
 - **Validation:** passes **317/317** tests (`node --test tests/*.cjs`) including dedicated unit and network integration tests.
 
+## Registration plate font stack and balcony pool capacity implemented
+
+- **Registration plate font stack:** added `PLATE_FONT_FAMILY` across `js/actor-models.js` and `js/controllers.js`, providing
+  metric-compatible narrow sans-serif fallbacks for Linux (`"Liberation Sans Narrow"`, `"Nimbus Sans Narrow"`,
+  `"DejaVu Sans Condensed"`), Android (`"Roboto Condensed"`, `sans-serif-condensed`), and Apple (`"DIN Alternate"`,
+  `"Helvetica Neue Condensed"`). Prevents severe horizontal glyph squishing and line width distortion on systems
+  without MS Core Fonts.
+- **Balcony pool capacity audited:** verified citywide balcony stack streaming and LOD bounds across 16,510 stacks
+  and 48,266 landings across 12,877 blocks. Peak streaming demand reaches at most 1,299 stacks within `STREAM_RADIUS = 560 m`
+  (Jeżyce hotspot), leaving a comfortable 1,101-stack margin (45.9% free) below `MAX_STACKS = 2400` with 0 dropped stacks.
+  Verified that high-density hotspots (Wilda, Łazarz, Rataje) saturate `MAX_NEAR_BALCONIES = 256` and gracefully push
+  excess landings to far proxy boxes without buffer overflow.
+- **Validation:** `node --test tests/*.cjs` passes **321/321** tests, including dedicated font stack and balcony capacity
+  regressions in `tests/vehicle-models.test.cjs` and `tests/buildings-density.test.cjs`.
+
 ## Known gaps and follow-up investigations
 
 | Topic | Remaining work | Original reference |

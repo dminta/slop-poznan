@@ -183,3 +183,121 @@ test('the same seed builds the same city', async () => {
   const again = await buildCity();
   assert.equal(sum(again.city), first);
 });
+
+// Balcony pool capacities from js/balconies.js and js/buildings.js
+const MAX_STACKS = 2400;
+const MAX_NEAR_BALCONIES = 256;
+const NEAR_DISTANCE = 90;
+const STREAM_RADIUS = 560;
+
+function evaluateBalconiesAt(city, focusX, focusZ) {
+  const nearby = city.quadtree.queryRange(focusX, focusZ, STREAM_RADIUS);
+  nearby.sort((a, b) => {
+    const da = (a.cx - focusX) * (a.cx - focusX) + (a.cz - focusZ) * (a.cz - focusZ);
+    const db = (b.cx - focusX) * (b.cx - focusX) + (b.cz - focusZ) * (b.cz - focusZ);
+    return da - db;
+  });
+
+  let total = 0;
+  let nearCount = 0;
+  let farCount = 0;
+  let nearDemand = 0;
+  let totalStacksInRange = 0;
+
+  for (const blk of nearby) {
+    if (!blk.balconies) continue;
+    for (const b of blk.balconies) {
+      totalStacksInRange++;
+      if (total >= MAX_STACKS) continue;
+      total++;
+      const dx = b.x - focusX, dz = b.z - focusZ;
+      if (dx * dx + dz * dz < NEAR_DISTANCE * NEAR_DISTANCE) {
+        nearDemand += b.landings;
+        if (nearCount + b.landings <= MAX_NEAR_BALCONIES) {
+          nearCount += b.landings;
+        } else {
+          farCount++;
+        }
+      } else {
+        farCount++;
+      }
+    }
+  }
+  return {
+    total,
+    totalStacksInRange,
+    nearCount,
+    farCount,
+    nearDemand,
+    dropped: totalStacksInRange - total
+  };
+}
+
+test('balcony stacks city-wide count and distribution', async () => {
+  const { city } = await buildCity();
+  let stacks = 0, landings = 0;
+  for (const b of city.allBlocks) {
+    if (!b.balconies) continue;
+    stacks += b.balconies.length;
+    for (const bal of b.balconies) landings += bal.landings;
+  }
+  assert.ok(stacks > 15000 && stacks < 18000, `Expected ~16.5k stacks, got ${stacks}`);
+  assert.ok(landings > 45000 && landings < 52000, `Expected ~48k landings, got ${landings}`);
+});
+
+test('streamed balcony stacks never exceed MAX_STACKS (2400) and keep comfortable margin', async () => {
+  const { config, city } = await buildCity();
+  const hotspots = [
+    { name: 'Jeżyce peak', x: -1819.1, z: -478.4 },
+    { name: 'Łazarz peak', x: -2450.7, z: 1525.0 },
+    { name: 'Stare Miasto peak', x: -172.6, z: 185.4 },
+    { name: 'Wilda peak', x: -1080.7, z: 2144.5 },
+    { name: 'Rataje peak', x: 1294.7, z: 1352.0 },
+    { name: 'Stary Rynek', x: config.TELEPORT_LOCATIONS.rynek.x, z: config.TELEPORT_LOCATIONS.rynek.z },
+    { name: 'Spawn', x: config.SPAWN.x, z: config.SPAWN.z }
+  ];
+
+  let maxStacks = 0;
+  for (const pt of hotspots) {
+    const res = evaluateBalconiesAt(city, pt.x, pt.z);
+    assert.equal(res.dropped, 0, `No balcony stacks should be dropped at ${pt.name}`);
+    assert.ok(res.total <= MAX_STACKS, `Total stacks ${res.total} exceeded cap ${MAX_STACKS} at ${pt.name}`);
+    if (res.total > maxStacks) maxStacks = res.total;
+  }
+
+  // Subsample block centres across the entire city
+  for (let i = 0; i < city.allBlocks.length; i += 4) {
+    const b = city.allBlocks[i];
+    const res = evaluateBalconiesAt(city, b.cx, b.cz);
+    assert.equal(res.dropped, 0, `Stacks dropped at block ${b.id}`);
+    assert.ok(res.total <= MAX_STACKS, `Stacks ${res.total} exceeded cap at block ${b.id}`);
+    if (res.total > maxStacks) maxStacks = res.total;
+  }
+
+  // Peak stacks is ~1300, guaranteeing at least a 1000-stack (~40%) margin below 2400
+  assert.ok(maxStacks <= 1400, `Peak stacks ${maxStacks} higher than expected`);
+  assert.ok(MAX_STACKS - maxStacks >= 1000, `Safety margin under 1000 stacks: ${MAX_STACKS - maxStacks}`);
+});
+
+test('near balcony landings respect MAX_NEAR_BALCONIES (256) buffer with graceful far LOD fallback', async () => {
+  const { config, city } = await buildCity();
+  const testPoints = [
+    { name: 'Wilda dense junction', x: -681.4, z: 1811.2 },
+    { name: 'Łazarz dense junction', x: -2600.7, z: 2325.0 },
+    { name: 'Rataje dense junction', x: 1794.7, z: 1977.0 },
+    { name: 'Jeżyce hotspot', x: -1994.1, z: -728.4 },
+    { name: 'Stare Miasto hotspot', x: 427.4, z: -414.6 },
+    { name: 'Stary Rynek', x: config.TELEPORT_LOCATIONS.rynek.x, z: config.TELEPORT_LOCATIONS.rynek.z }
+  ];
+
+  for (const pt of testPoints) {
+    const res = evaluateBalconiesAt(city, pt.x, pt.z);
+    // Hard invariant: instanced buffer never overflows
+    assert.ok(res.nearCount <= MAX_NEAR_BALCONIES, `nearCount ${res.nearCount} exceeded ${MAX_NEAR_BALCONIES} at ${pt.name}`);
+    // Graceful degradation: points with demand > 256 saturate near pool and push excess to far proxies
+    if (res.nearDemand > MAX_NEAR_BALCONIES) {
+      assert.ok(res.farCount > 0, `Overflowing balconies should degrade to far proxies at ${pt.name}`);
+      assert.ok(res.nearCount >= 240, `High demand point should saturate near pool: ${res.nearCount}`);
+    }
+  }
+});

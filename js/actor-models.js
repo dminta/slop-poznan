@@ -1146,6 +1146,13 @@ const PLATE_LETTERS = 'ACEFGHJKLMNPRSTUVWXY';
 const PLATE_DISTRICTS = [['PO', 0.55], ['PZ', 0.3], ['PY', 0.15]];
 const PLATE_LAYOUTS = ['DDDDD', 'DDDDL', 'DDDLL', 'DLDDD', 'DLLDD', 'LDDDD', 'LLDDD'];
 
+// Cross-platform narrow sans-serif font stack for EU registration plates:
+// Arial Narrow (Win/macOS), Liberation Sans Narrow / Nimbus Sans Narrow / DejaVu Sans Condensed (Linux),
+// Roboto Condensed / sans-serif-condensed (Android), DIN Alternate / Helvetica Neue Condensed (Apple).
+const PLATE_FONT_FAMILY =
+  '"Arial Narrow", "Liberation Sans Narrow", "Roboto Condensed", "Nimbus Sans Narrow", ' +
+  '"DejaVu Sans Condensed", "DIN Alternate", "Helvetica Neue Condensed", sans-serif-condensed, Arial, sans-serif';
+
 // A made-up registration such as 'PO 1AB23' or 'PZ 12345', the same for the same seed (mulberry32)
 function polishRegistration(seed) {
   let t = (seed * 2654435761) >>> 0;
@@ -1189,7 +1196,7 @@ function carPlateGlyphTexture() {
   ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 62px "Arial Narrow", Arial, sans-serif';
+  ctx.font = `bold 62px ${PLATE_FONT_FAMILY}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   for (let k = 0; k < PLATE_GLYPHS.length; k++) fitText(ctx, PLATE_GLYPHS[k], k * 40 + 20, 34, 29);
@@ -2745,6 +2752,7 @@ export {
   CAR_PARTS,
   BODY_SPECS,
   carDimensions,
+  PLATE_FONT_FAMILY,
   polishRegistration,
   encodeRegistration,
   carLayout,

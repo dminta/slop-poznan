@@ -15,6 +15,7 @@ import {
   buildCarSidePatch,
   buildSteerableWheelGeo,
   createLoftedCarMaterial,
+  PLATE_FONT_FAMILY,
   buildHelicopterBodyGeometry,
   buildHelicopterMainRotorGeometry,
   buildHelicopterTailRotorGeometry,
@@ -248,7 +249,7 @@ function createPolishLicensePlateTexture(district, number) {
   ctx.fillText('PL', cx, 96);
   // Bold Arial's caps are 0.72 em, so 110 mm type gives the plate's ~80 mm characters
   ctx.fillStyle = '#16181c';
-  ctx.font = '700 110px "Arial Narrow", Arial, sans-serif';
+  ctx.font = `700 110px ${PLATE_FONT_FAMILY}`;
   ctx.textAlign = 'left';
   const gap = 34;
   const wd = ctx.measureText(district).width;

@@ -21,7 +21,7 @@ function inert() {
   });
 }
 
-const { BODY_SPECS, carDimensions, polishRegistration, encodeRegistration } = loadModule(
+const { BODY_SPECS, carDimensions, PLATE_FONT_FAMILY, polishRegistration, encodeRegistration } = loadModule(
   readFileSync(join(__dirname, '../js/actor-models.js'), 'utf8'),
   {
     imports: {
@@ -69,6 +69,14 @@ test('plateCode packs all seven glyphs exactly and the material decodes them bac
     for (const v of code) assert.ok(Number.isInteger(v) && v < 2 ** 24, 'exact in float32');
     assert.equal(decode(code), reg);
   }
+});
+
+test('registration plates use a narrow font stack with Linux and Android fallbacks', () => {
+  assert.ok(typeof PLATE_FONT_FAMILY === 'string' && PLATE_FONT_FAMILY.length > 0);
+  assert.match(PLATE_FONT_FAMILY, /"Arial Narrow"/);
+  assert.match(PLATE_FONT_FAMILY, /"Liberation Sans Narrow"/, 'Linux metric-compatible fallback');
+  assert.match(PLATE_FONT_FAMILY, /"Roboto Condensed"/, 'Android system fallback');
+  assert.match(PLATE_FONT_FAMILY, /sans-serif-condensed/, 'Android generic keyword');
 });
 
 test('body classes have Polish-market proportions and unique material names', () => {
