@@ -889,3 +889,41 @@ test('straight traffic passes after the rear of an oncoming left turn clears its
   assert.equal(h.mayEnter(h.car, 0), true, 'the left-turn counter alone cannot reserve the disjoint distant exit');
   assert.equal(opposite.lefts, 1, 'the existing turn/exit occupancy remains claimed');
 });
+
+test('a following straight vehicle passes a waiting left-turner once clear of its connector', () => {
+  const h = intersectionHarness();
+  h.state.phase = 'green';
+  h.car.halfWidth = 0.9;
+  h.car.half = 2.25;
+  const line = (x0, z0, x3, z3) => ({ x0, z0, x3, z3, x1: x0 + (x3 - x0) / 3, z1: z0 + (z3 - z0) / 3,
+    x2: x0 + 2 * (x3 - x0) / 3, z2: z0 + 2 * (z3 - z0) / 3,
+    len: 20, curv: 0, lut: Array.from({ length: 17 }, (_, k) => k * 20 / 16) });
+  const straightConn = line(0, -10, 0, 10);
+  const leftConn = line(0, -10, -10, 0);
+  const turner = { edge: h.car.edge, move: { turn: 'L' }, conn: leftConn, cs: 5, half: 2.25, halfWidth: 0.9, yielding: true };
+  h.context.ahead = () => ({ v: turner, s: 100 + turner.cs });
+  h.context.connector = () => straightConn;
+  const roads = readFileSync(join(__dirname, '../js/road-network.js'), 'utf8');
+  h.context.curvePoint = vm.runInNewContext(`(${roads.match(/^function curvePoint\([^]*?\n\}/m)[0]})`);
+  h.context.boxSample = {};
+  h.context.boxSamples = trafficFunction('boxSamples', h.context);
+  h.context.boxConflictEnd = trafficFunction('boxConflictEnd', h.context);
+
+  assert.equal(h.mayEnter(h.car, 0), false, 'straight vehicle waits while turner has not cleared the connector');
+  assert.equal(h.car.held, 'turner');
+
+  turner.cs = 16;
+  assert.equal(h.mayEnter(h.car, 0), true, 'straight vehicle enters once turner has cleared the straight path');
+});
+
+test('a straight vehicle passing a waiting left-turner on the right on a single-lane approach does not brake longitudinally', () => {
+  const matchClears = source.match(/  function clearsTurn\([^]*?\n  \}/)[0];
+  const clearsTurn = vm.runInNewContext(`(${matchClears.trim()})`, {});
+  const edge = { lanes: [1.8], half: 3.75 };
+  const lead = { edge, move: { turn: 'L' }, speed: 0, dl: -0.85, halfWidth: 0.8, conn: null };
+  const follower = { edge, move: { turn: 'S' }, speed: 4, dl: 0.85, halfWidth: 0.8, conn: null };
+  assert.equal(clearsTurn(follower, lead), true, 'laterally separated passing vehicle clears the waiting left-turner');
+
+  follower.dl = 0; // not shifted right yet
+  assert.equal(clearsTurn(follower, lead), false, 'follower directly behind must still brake');
+});

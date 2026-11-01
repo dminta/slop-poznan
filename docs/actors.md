@@ -134,7 +134,7 @@ blocks the conflict. Switch/block contenders retain their ordering. Car-curve re
 tram end at its nose; moving trams keep the approach lookahead. This avoids a 2 m phantom claim beyond a safe gate.
 The benchmark follows both `'tram'` and `'room'` leaders, so a reservation cannot hide a deadlock. The opposite-track
 lane at Rynek Jeżycki is corrected before connectors and road paint are built (see `world.md`). Passing a waiting
-left-turner on a wide single-lane approach remains optional work in the [backlog](backlog.md).
+left-turner on a wide single-lane approach is implemented (see `docs/backlog.md`).
 
 Final Phase 16 benchmark (7 districts × 5 minutes, seed 4242): 15.6 km/h mean, 32.0% stopped, no car held over 120 s,
 no persistent deadlocks and no continuous `switch` wait over 60 s (maximum 39.6 s). Before Phase 16: 11.6 km/h,

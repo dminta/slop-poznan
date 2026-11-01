@@ -846,10 +846,26 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // ...and for a line d metres ahead to stop s0 short of: no time gap to keep to a line
   const stopAt = (v, d, s0 = 1) => brake(v, d, 0, s0, 0);
 
+  // Does u (a vehicle ahead in list) not obstruct v because it is turning left out of the path,
+  // or v is passing it on the right on a wide single-lane approach?
+  function clearsTurn(v, u) {
+    if (!v.move || v.move.turn === 'L' || !u.move || u.move.turn !== 'L') return false;
+    if (u.conn) {
+      if (!u.yielding) return false;
+      const vc = v.conn || (v.move.to && v.move.out[v.lane] >= 0 ? connector(v.edge, v.lane, v.move.to, v.move.out[v.lane]) : null);
+      if (!vc || typeof boxConflictEnd !== 'function') return false;
+      return u.cs - u.half > boxConflictEnd(vc, u.conn, v.halfWidth + u.halfWidth, u.half);
+    }
+    if (v.edge && (!v.edge.lanes || v.edge.lanes.length === 1) && u.speed < 1.5) {
+      return (v.dl - u.dl) >= v.halfWidth + u.halfWidth + 0.05;
+    }
+    return false;
+  }
+
   // Braking for the vehicle ahead of position s in a lane list; remembers the nearest one
   function follow(v, list, s) {
     const o = ahead(list, s, v);
-    if (!o) return 0;
+    if (!o || clearsTurn(v, o.v)) return 0;
     const gap = o.s - o.v.half - s - v.half;
     if (gap > LOOKAHEAD) return 0;
     if (gap < v.gap) {
@@ -936,11 +952,12 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   const corner = { x: 0, z: 0, dx: 0, dz: 1 };
   function yieldPoint(v, c, e) {
     let cs = 0;
+    const threshold = (!e.lanes || e.lanes.length === 1) && e.opposite ? 0 : 0.3;
     for (; cs < c.len; cs += 0.5) {
       curvePoint(c, cs + v.half, corner);
       const x = corner.x + corner.dz * v.halfWidth;
       const z = corner.z - corner.dx * v.halfWidth;
-      if ((x - e.x0) * e.rx + (z - e.z0) * e.rz < 0.3) break;
+      if ((x - e.x0) * e.rx + (z - e.z0) * e.rz < threshold) break;
     }
     return cs - 0.5;
   }
@@ -1127,16 +1144,20 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       }
       return refuse(v, 'lane');
     }
+    const c = connector(e, v.lane, f, j);
     if (!v.isPolice && (phase === 'red' || phase === 'redAmber' || (phase === 'amber' && stoppable))) return refuse(v, 'signal');
     if (boxBusy(n, e.axisIndex, v)) return refuse(v, 'box'); // crossing traffic inside
     if (tramBlocks(v, n, f, j)) return refuse(v, 'tram'); // a tram over its way across, or coming up to it
     const lead = ahead(e.occ[v.lane], v.s, v);
-    if (lead && lead.v.yielding) return refuse(v, 'turner'); // the vehicle ahead waits inside to turn: wait behind the line
+    if (lead && lead.v.yielding) {
+      const clearsStraight = v.move.turn !== 'L' && lead.v.move.turn === 'L' && lead.v.conn &&
+        (typeof boxConflictEnd === 'function' ? lead.v.cs - lead.v.half > boxConflictEnd(c, lead.v.conn, v.halfWidth + lead.v.halfWidth, lead.v.half) : false);
+      if (!clearsStraight) return refuse(v, 'turner'); // the vehicle ahead waits inside to turn: wait behind the line
+    }
     if (v.bus && besideTail(v)) return refuse(v, 'bus'); // its tail would swing out over that bus as it starts to turn
-    // At a signal, the first in line to turn pulls into the intersection to wait there for the people crossing the
+    // At a signal or priority road, the first in line to turn pulls into the intersection to wait there for the people crossing the
     // road it turns into (they walk on the same green): short of their crosswalk or, turning left across oncoming
     // traffic, short of the oncoming lanes until there is a gap. The light changing stops both for it at the latest.
-    const c = connector(e, v.lane, f, j);
     const first = n.signal && (!v.isPolice || phase === 'green') && m.turn !== 'S' && !lead;
     const across = m.turn === 'L' && !!e.opposite;
     const wait = first ? (across ? yieldPoint(v, c, e) : c.len - shortOfZebra(f) - v.half) : -1; // < 0: no room inside to wait
@@ -1291,8 +1312,10 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
         let vt = Math.min(c ? bendSpeed(v, c) : Infinity, desiredOn(v, f));
         const cautious = e.to.signal ? v.isPolice && phaseOf(e) !== 'green' : e.axisIndex !== 0;
         if (cautious) vt = Math.min(vt, 5);
+        if (v.dl > 0.4 && e.lanes.length === 1) vt = Math.min(vt, 20 / 3.6);
         cap = Math.sqrt(vt * vt + 5 * Math.max(0, d));
       }
+      if (v.dl > 0.4 && e.lanes.length === 1) cap = Math.min(cap, 20 / 3.6);
     } else {
       const f = v.move.to;
       const vs = v.cs - v.conn.len;
@@ -1384,9 +1407,23 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     // ease sideways onto the lane centre (after lane changes and knocks), steering the front bumper towards it so the
     // nose doesn't swing on into the next lane, and no faster than the wheels can steer it, though even stopped half
     // way into a lane change a driver edges over
+    let targetDl = 0;
+    if (!v.conn && v.edge && (!v.edge.lanes || v.edge.lanes.length === 1)) {
+      if (v.move && v.move.turn === 'L' && v.edge.opposite && v.edge.len - v.s < 30) {
+        targetDl = -Math.min(0.85, Math.max(0, v.edge.lanes[0] - v.halfWidth - 0.12));
+      } else if (v.move && v.move.turn !== 'L') {
+        const o = ahead(v.edge.occ[0], v.s, v);
+        if (o && o.v.move && o.v.move.turn === 'L' && o.v.speed < 1.5 && (o.v.yielding || o.v.waitReason === 'oncoming' || o.v.held === 'oncoming' || o.v.waitReason === 'turn')) {
+          const roomRight = v.edge.half - (v.edge.lanes[0] + o.v.dl + o.v.halfWidth);
+          if (roomRight >= 2 * v.halfWidth + 0.08) {
+            targetDl = Math.min(v.edge.half - v.halfWidth - 0.12 - v.edge.lanes[0], 0.95);
+          }
+        }
+      }
+    }
     const maxLat = Math.min(1.7, 0.3 + (v.bus ? 0.1 : 0.22) * v.speed);
     const rate = Math.min(1.8, Math.max(v.speed, 1.5) / (v.axle + v.half));
-    const target = clamp(-rate * v.dl, -maxLat, maxLat);
+    const target = clamp(-rate * (v.dl - targetDl), -maxLat, maxLat);
     v.dlv += clamp(target - v.dlv, -2.5 * dt, 2.5 * dt);
     v.dl += v.dlv * dt;
   }

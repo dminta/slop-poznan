@@ -281,6 +281,15 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
   * Zero tram or rail clearance violations (**0 violations** across all 24,066 footprints).
 - Validation: `tests/signal-placement.test.cjs` passes **2/2**; full test suite passes **313/313**.
 
+## Passing waiting left-turners on single-lane approaches implemented
+
+- **Left-turner positioning:** under Polish road rules (art. 22 ust. 2 PoRD), vehicles preparing to turn left on a two-way road now drift laterally towards the carriageway centreline (`targetDl` up to -0.85 m), leaving clearance on the curb side.
+- **Passing on the right:** vehicles following on single-lane approaches (`lanes.length === 1`) intending to proceed straight or right steer towards the outer curb (`targetDl` up to +0.95 m) when sufficient curb clearance exists (`roomRight >= 2 * halfWidth + 0.08 m`).
+- **Longitudinal clearance:** `clearsTurn` permits followers that have achieved lateral separation to continue without IDM braking for the stationary left-turner, capped at a safe passing speed of 20 km/h.
+- **Connector clearance:** in `mayEnter`, straight-going vehicles are no longer refused with `'turner'` once the left-turner's connector clearance (`cs - half`) has passed the swept path of the follower's connector (`boxConflictEnd`).
+- **Yielding threshold:** `yieldPoint` now permits single-lane approaches to pull forward up to the road centerline (`lat < 0`) rather than prematurely aborting on the curb side, eliminating unnecessary stop-line stalls.
+- **Validation:** regression coverage added in `tests/traffic.test.cjs` (2 new tests); `tests/traffic-flow.test.mjs` passes with 0 deadlocks and 0 held over 120 s; full test suite passes **315/315**.
+
 ## Known gaps and follow-up investigations
 
 | Topic | Remaining work | Original reference |
@@ -306,9 +315,7 @@ None pending. Both historical open decisions were confirmed by the user on 2026-
   source verification before use.
 - Street details: conditional S-2 arrows, pedestrian countdowns, P-22 BUS text with actual bus-lane data, a fourth
   tree species and real OSM tree positions.
-- Traffic: passing a waiting left-turner on a wide single-lane approach, such as Łazarz at `−1875, 1299`.
-  This needs lane and swept-path safety work. Kaponiera and Wilda retain substantial queues despite meeting the
-  aggregate flow targets.
+- Traffic: passing a waiting left-turner on a wide single-lane approach is implemented (Łazarz at `−1875, 1299` and citywide). Kaponiera and Wilda retain substantial queues despite meeting the aggregate flow targets.
 - Geodata semantics: road levels and richer road-priority classification; revisit only with a runtime consumer.
   Additional height sources (nDSM/LoD1/LoD2) and GEOPOZ machine-readable data remain research candidates.
 
