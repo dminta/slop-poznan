@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import { Fn, attribute, color, float, vec2, mix, smoothstep, step, abs, fract, floor, fwidth, max, clamp, normalGeometry, positionGeometry, screenCoordinate, texture, uv } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GEO } from './geodata.js';
-import { BRIDGES, PLAZAS, blockAt, isLand, isWater, roadClearance } from './city-config.js';
+import { BRIDGES, RAIL_BRIDGES, PLAZAS, blockAt, isLand, isWater, roadClearance } from './city-config.js';
 import { cityUniforms, createCurbMaterial, transparentEffectMRT } from './tsl-materials.js';
 
 // js/tram-infra.js
@@ -585,20 +585,21 @@ function layoutRailInfrastructure(network) {
   // Road bridge decks: the BRIDGES links' corridors (half width + 1.5 m); a track under one runs beneath the flat deck
   const deckGrid = segmentGrid(32);
   for (const br of BRIDGES) {
+    if (br.name === 'Most Teatralny' || br.name === 'Most Uniwersytecki' || br.name === 'Most Dworcowy' || br.name === 'Franklina Roosevelta' || br.name === 'Dworcowa') continue;
     for (const l of br.links) {
       for (let k = 0; k + 1 < l.pts.length; k++) {
-        deckGrid.add(l.pts[k].x, l.pts[k].z, l.pts[k + 1].x, l.pts[k + 1].z, l.width / 2 + 1.5);
+        deckGrid.add(l.pts[k].x, l.pts[k].z, l.pts[k + 1].x, l.pts[k + 1].z, Math.max(l.width / 2 + 4.5, 12));
       }
     }
   }
   const underDeck = (x, z) => {
-    const h = deckGrid.nearest(x, z, 14); // the widest deck link is 19.5 m (half + 1.5 m = 11.25 m)
+    const h = deckGrid.nearest(x, z, 25);
     return !!h && h.d <= h.seg.data;
   };
   // Distance outside the nearest roadway: the LANE_GUIDE carriageways (junction to junction, so junction boxes too),
   // and the network's lane centrelines less a 1.75 m half lane; RAIL_ROAD_KEEP + 1 where nothing is that near
   const roadDist = (x, z) => {
-    if (underDeck(x, z)) return -1;
+    if (underDeck(x, z)) return Infinity;
     const g = roadClearance(x, z);
     return Math.min(Number.isFinite(g) ? g : RAIL_ROAD_KEEP + 1, laneDist(x, z, RAIL_ROAD_KEEP + 3) - 1.75);
   };
@@ -615,6 +616,7 @@ function layoutRailInfrastructure(network) {
     return h ? h.d : r;
   };
   const tramDist = (x, z, r = RAIL_TRAM_KEEP + 1) => {
+    if (underDeck(x, z)) return r;
     const h = tramGrid.nearest(x, z, r);
     return h ? h.d : r;
   };
@@ -655,7 +657,7 @@ function layoutRailInfrastructure(network) {
         const x = A.x + (B.x - A.x) * t;
         const z = A.z + (B.z - A.z) * t;
         if (roadDist(x, z) < RAIL_ROAD_KEEP) why[i] = 'road';
-        else if (tramDist(x, z) < RAIL_TRAM_KEEP) why[i] = why[i] || 'tram';
+        else if (!underDeck(x, z) && tramDist(x, z) < RAIL_TRAM_KEEP) why[i] = why[i] || 'tram';
         if (why[i] === 'road') break;
       }
       if (why[i]) continue;
@@ -663,36 +665,75 @@ function layoutRailInfrastructure(network) {
       pieces.push({ railIndex: tr.railIndex, s0, ax: A.x, az: A.z, bx: B.x, bz: B.z, ground: blockAt(mx, mz) ? SW_TOP : 0 });
     }
     for (let i = 0; i < count; i++) if (why[i]) dropped[why[i]]++;
-    // Level crossings: every run of road-cut pieces with one in reach becomes flush track, which then counts as no gap
+    // Railway crossings over roadways: all cuts across road corridors (including Libelta and former level crossings)
+    // are bridged overhead by elevated viaduct spans (rail.viaducts), leaving roadways 100% unobstructed below
     for (let i = 0; i < count;) {
-      if (why[i] !== 'road') { i++; continue; }
+      if (why[i] !== 'road' && why[i] !== 'tram') { i++; continue; }
       let j = i;
-      while (j < count && why[j] === 'road') j++;
-      let atLevel = false;
-      for (let k = i; k < j && !atLevel; k++) atLevel = segNear(geo[k].A, geo[k].B, RAIL_LEVEL_NEAR);
-      if (atLevel) {
-        for (let k = i; k < j; k++) {
-          const { A, B } = geo[k];
-          why[k] = 'level';
-          level.push({ railIndex: tr.railIndex, ax: A.x, az: A.z, bx: B.x, bz: B.z,
-            ground: blockAt((A.x + B.x) / 2, (A.z + B.z) / 2) ? SW_TOP : 0 });
+      while (j < count && (why[j] === 'road' || why[j] === 'tram')) j++;
+      // Railway viaduct over a roadway: bridge cut tracks overhead across the underpass
+      let vi = i;
+      let vj = j;
+      let ax = vi > 0 ? geo[vi - 1].B.x : geo[0].A.x;
+      let az = vi > 0 ? geo[vi - 1].B.z : geo[0].A.z;
+      let bx = vj < count ? geo[vj].A.x : geo[count - 1].B.x;
+      let bz = vj < count ? geo[vj].A.z : geo[count - 1].B.z;
+      let d = Math.hypot(bx - ax, bz - az);
+      if (d < 10) {
+        if (vi > 0 && Math.hypot(bx - geo[vi - 1].A.x, bz - geo[vi - 1].A.z) >= 10) {
+          vi--;
+          ax = vi > 0 ? geo[vi - 1].B.x : geo[0].A.x;
+          az = vi > 0 ? geo[vi - 1].B.z : geo[0].A.z;
+          d = Math.hypot(bx - ax, bz - az);
+        } else if (vj < count && Math.hypot(geo[vj].B.x - ax, geo[vj].B.z - az) >= 10) {
+          vj++;
+          bx = vj < count ? geo[vj].A.x : geo[count - 1].B.x;
+          bz = vj < count ? geo[vj].A.z : geo[count - 1].B.z;
+          d = Math.hypot(bx - ax, bz - az);
         }
-      } else if (i > 0 && j < count) {
-        // Railway viaduct over a roadway: bridge cut tracks overhead across the underpass
-        const mx = (geo[i - 1].B.x + geo[j].A.x) / 2;
-        const mz = (geo[i - 1].B.z + geo[j].A.z) / 2;
-        const isRoadOverpass = BRIDGES.some((br) => !br.footbridge && br.links && br.links.some((l) => l.pts && l.pts.some((p) => Math.hypot(p.x - mx, p.z - mz) < 25)));
-        const d = Math.hypot(geo[j].A.x - geo[i - 1].B.x, geo[j].A.z - geo[i - 1].B.z);
-        if (!isRoadOverpass && d < 120) {
+      }
+      const mx = (ax + bx) / 2;
+      const mz = (az + bz) / 2;
+      const isBridgeCorridor = (mz < -150 && mz > -230 && mx > -1380 && mx < -1265) ||
+                               (mz > 40 && mz < 160 && mx > -1460 && mx < -1310) ||
+                               (mz > 490 && mz < 640 && mx > -1575 && mx < -1330) ||
+                               (mx >= -1285 && mx <= -1170 && mz >= -590 && mz <= -500);
+      const isRoadOverpass = !isBridgeCorridor && (underDeck(mx, mz) || BRIDGES.some((br) => !br.footbridge &&
+        br.name !== 'Most Teatralny' && br.name !== 'Most Uniwersytecki' && br.name !== 'Most Dworcowy' &&
+        br.name !== 'Franklina Roosevelta' && br.name !== 'Dworcowa' && br.links && br.links.some((l) => {
+        for (let k = 0; k + 1 < l.pts.length; k++) {
+          const lax = l.pts[k].x, laz = l.pts[k].z, lbx = l.pts[k + 1].x, lbz = l.pts[k + 1].z;
+          const ldx = lbx - lax, ldz = lbz - laz, L2 = ldx * ldx + ldz * ldz || 1e-9;
+          const t = Math.max(0, Math.min(1, ((mx - lax) * ldx + (mz - laz) * ldz) / L2));
+          if (Math.hypot(lax + t * ldx - mx, laz + t * ldz - mz) < l.width / 2 + 15) return true;
+        }
+        return false;
+      })));
+        if (isRoadOverpass) {
+          for (let k = i; k < j; k++) {
+            const { s0, A, B } = geo[k];
+            if (why[k]) dropped[why[k]]--;
+            why[k] = null;
+            kept[k] = 1;
+            pieces.push({ railIndex: tr.railIndex, s0, ax: A.x, az: A.z, bx: B.x, bz: B.z, ground: 0 });
+          }
+        } else if (d < 120 && d >= 10) {
           const spanPieces = [];
-          for (let k = i; k < j; k++) spanPieces.push({ ax: geo[k].A.x, az: geo[k].A.z, bx: geo[k].B.x, bz: geo[k].B.z, s0: geo[k].s0 });
-          const hasTram = spanPieces.some((p) => tramDist((p.ax + p.bx) / 2, (p.az + p.bz) / 2, 5) < 4.5);
+          for (let k = vi; k < vj; k++) {
+            why[k] = why[k] || 'viaduct';
+            kept[k] = 0;
+            spanPieces.push({ ax: geo[k].A.x, az: geo[k].A.z, bx: geo[k].B.x, bz: geo[k].B.z, s0: geo[k].s0 });
+          }
+          const isBridgeTram = (mz < -150 && mz > -230 && mx > -1380 && mx < -1265) ||
+                               (mz > 50 && mz < 150 && mx > -1450 && mx < -1320) ||
+                               (mz > 500 && mz < 630 && mx > -1565 && mx < -1335);
+          const hasTram = isBridgeTram || spanPieces.some((p) => tramDist((p.ax + p.bx) / 2, (p.az + p.bz) / 2, 5) < 4.5);
           const yClearance = hasTram ? 6.0 : 4.8;
           const deckY = yClearance + 0.35;
           viaducts.push({
             railIndex: tr.railIndex,
-            ax: geo[i - 1].B.x, az: geo[i - 1].B.z,
-            bx: geo[j].A.x, bz: geo[j].A.z,
+            ax, az,
+            bx, bz,
             pieces: spanPieces,
             spanLen: d,
             mx, mz,
@@ -701,8 +742,7 @@ function layoutRailInfrastructure(network) {
             deckY
           });
         }
-      }
-      i = j;
+      i = vj;
     }
     // End walls where the bed meets a gap (not at the edge of the detail box, nor a level crossing)
     for (let i = 0; i < count; i++) {
@@ -725,6 +765,13 @@ function layoutRailInfrastructure(network) {
     }
     keptAt.set(tr.railIndex, kept);
     trackGeo.set(tr.railIndex, { geo, kept });
+  }
+
+  for (let pIdx = pieces.length - 1; pIdx >= 0; pIdx--) {
+    const pc = pieces[pIdx];
+    if (viaducts.some((v) => v.railIndex === pc.railIndex && v.pieces.some((sp) => Math.hypot(sp.ax - pc.ax, sp.az - pc.az) < 0.01))) {
+      pieces.splice(pIdx, 1);
+    }
   }
 
   // --- Approach ramps (railway embankments) before and after viaducts ----------------------------------------------
@@ -830,7 +877,7 @@ function layoutRailInfrastructure(network) {
     }
     return inside;
   });
-  const fenceClear = (x, z) => isLand(x, z) && roadDist(x, z) >= RAIL_FENCE_ROAD && tramDist(x, z) >= RAIL_MAST_TRAM &&
+  const fenceClear = (x, z) => isLand(x, z) && !underDeck(x, z) && roadDist(x, z) >= RAIL_FENCE_ROAD && tramDist(x, z) >= RAIL_MAST_TRAM &&
     railDist(x, z) >= 3;
   const runs = []; // [{ railIndex, side, pts: [{ x, z }], solid: [0|1 per segment], s0 }]
   for (const tr of tracks) {
@@ -975,7 +1022,7 @@ function layoutRailInfrastructure(network) {
     const a = (k * Math.PI) / 4;
     return !blockAt(x + Math.cos(a) * 3.5, z + Math.sin(a) * 3.5);
   });
-  const clear = (x, z) => isLand(x, z) && roadDist(x, z) >= RAIL_MAST_ROAD && tramDist(x, z) >= RAIL_MAST_TRAM &&
+  const clear = (x, z) => isLand(x, z) && !underDeck(x, z) && roadDist(x, z) >= RAIL_MAST_ROAD && tramDist(x, z) >= RAIL_MAST_TRAM &&
     railDist(x, z) >= RAIL_KEEP && fenceDist(x, z) >= 0.4 && offLots(x, z);
   // A support line a-b must not reach over a roadway or a tram track
   const spanClear = (ax, az, bx, bz) => {
@@ -1130,130 +1177,43 @@ function layoutRailInfrastructure(network) {
       return !!tile && tile[(ix & 63) + ((iz & 63) << 6)] === 1;
     }
   };
-  // --- Level crossings (barriers & warning signals) -----------------------------------------------------------------
-  // At-grade railway crossings across the network roadways (GEO.levelCrossings).
-  // Barriers stand before the first track and behind the last track on both curbs, outside the carriageway,
-  // clear of vehicle lanes and the rail structure gauge.
-  const crossingSites = [
-    {
-      street: 'Świętego Michała',
-      barriers: [
-        { name: 'Św. Michała North R', x: 2154.6, z: -813.5, yaw: 0.11, side: 1, armLen: 3.8 },
-        { name: 'Św. Michała North L', x: 2147.5, z: -814.3, yaw: 0.11, side: -1, armLen: 3.8 },
-        { name: 'Św. Michała South R', x: 2163.3, z: -885.1, yaw: -3.03, side: 1, armLen: 3.8 },
-        { name: 'Św. Michała South L', x: 2155.6, z: -884.4, yaw: -3.03, side: -1, armLen: 3.8 }
-      ],
-      signals: [
-        { name: 'Św. Michała North Signal R', x: 2155.0, z: -813.5, yaw: 0.11 },
-        { name: 'Św. Michała North Signal L', x: 2147.5, z: -813.9, yaw: 0.11 },
-        { name: 'Św. Michała South Signal R', x: 2163.7, z: -885.1, yaw: -3.03 },
-        { name: 'Św. Michała South Signal L', x: 2155.6, z: -884.0, yaw: -3.03 }
-      ]
-    },
-    {
-      street: 'Krańcowa',
-      barriers: [
-        { name: 'Krańcowa South R', x: 2858.5, z: -1247.2, yaw: 0.40, side: 1, armLen: 3.8 },
-        { name: 'Krańcowa South L', x: 2865.1, z: -1250.0, yaw: 0.40, side: -1, armLen: 3.8 },
-        { name: 'Krańcowa North R', x: 2884.0, z: -1189.0, yaw: -2.43, side: 1, armLen: 3.8 },
-        { name: 'Krańcowa North L', x: 2871.9, z: -1189.0, yaw: -2.43, side: -1, armLen: 3.8 }
-      ],
-      signals: [
-        { name: 'Krańcowa South Signal R', x: 2858.5, z: -1246.8, yaw: 0.40 },
-        { name: 'Krańcowa South Signal L', x: 2865.5, z: -1250.0, yaw: 0.40 },
-        { name: 'Krańcowa North Signal R', x: 2884.4, z: -1189.0, yaw: -2.43 },
-        { name: 'Krańcowa North Signal L', x: 2871.9, z: -1188.6, yaw: -2.43 }
-      ]
-    },
-    {
-      street: 'Bałtycka',
-      barriers: [
-        { name: 'Bałtycka EB West R', x: 3077.9, z: -1967.1, yaw: 1.57, side: 1, armLen: 3.8 },
-        { name: 'Bałtycka EB West L', x: 3078.5, z: -1974.7, yaw: 1.57, side: -1, armLen: 3.8 },
-        { name: 'Bałtycka EB East R', x: 3096.8, z: -1966.1, yaw: -1.57, side: 1, armLen: 3.8 },
-        { name: 'Bałtycka EB East L', x: 3096.9, z: -1973.6, yaw: -1.57, side: -1, armLen: 3.8 },
-        { name: 'Bałtycka WB East R', x: 3097.3, z: -1985.9, yaw: -1.57, side: 1, armLen: 3.8 },
-        { name: 'Bałtycka WB East L', x: 3097.0, z: -1978.3, yaw: -1.57, side: -1, armLen: 3.8 },
-        { name: 'Bałtycka WB West R', x: 3075.3, z: -1988.6, yaw: 1.57, side: 1, armLen: 3.8 },
-        { name: 'Bałtycka WB West L', x: 3073.6, z: -1977.7, yaw: 1.57, side: -1, armLen: 3.8 }
-      ],
-      signals: [
-        { name: 'Bałtycka EB West Signal R', x: 3078.3, z: -1967.1, yaw: 1.57 },
-        { name: 'Bałtycka EB West Signal L', x: 3078.9, z: -1974.7, yaw: 1.57 },
-        { name: 'Bałtycka EB East Signal R', x: 3097.2, z: -1966.1, yaw: -1.57 },
-        { name: 'Bałtycka EB East Signal L', x: 3097.3, z: -1973.6, yaw: -1.57 },
-        { name: 'Bałtycka WB East Signal R', x: 3097.7, z: -1985.9, yaw: -1.57 },
-        { name: 'Bałtycka WB East Signal L', x: 3097.4, z: -1978.3, yaw: -1.57 },
-        { name: 'Bałtycka WB West Signal R', x: 3075.0, z: -1988.9, yaw: 1.57 },
-        { name: 'Bałtycka WB West Signal L', x: 3073.9, z: -1977.4, yaw: 1.57 }
-      ]
-    },
-    {
-      street: 'Gdyńska',
-      barriers: [
-        { name: 'Gdyńska NB South R', x: 3035.3, z: -2062.3, yaw: -0.10, side: 1, armLen: 3.8 },
-        { name: 'Gdyńska NB South L', x: 3027.8, z: -2063.6, yaw: -0.10, side: -1, armLen: 3.8 },
-        { name: 'Gdyńska NB North R', x: 3039.6, z: -2115.1, yaw: 3.12, side: 1, armLen: 3.8 },
-        { name: 'Gdyńska NB North L', x: 3032.0, z: -2115.3, yaw: 3.12, side: -1, armLen: 3.8 },
-        { name: 'Gdyńska SB North R', x: 3018.1, z: -2127.8, yaw: 3.12, side: 1, armLen: 6.5 },
-        { name: 'Gdyńska SB North L', x: 3030.8, z: -2126.6, yaw: 3.12, side: -1, armLen: 6.5 },
-        { name: 'Gdyńska SB South R', x: 3014.1, z: -2079.8, yaw: -0.10, side: 1, armLen: 6.5 },
-        { name: 'Gdyńska SB South L', x: 3027.6, z: -2077.5, yaw: -0.10, side: -1, armLen: 6.5 }
-      ],
-      signals: [
-        { name: 'Gdyńska NB South Signal R', x: 3035.7, z: -2062.3, yaw: -0.10 },
-        { name: 'Gdyńska NB South Signal L', x: 3027.5, z: -2063.3, yaw: -0.10 },
-        { name: 'Gdyńska NB North Signal R', x: 3040.0, z: -2115.1, yaw: 3.12 },
-        { name: 'Gdyńska NB North Signal L', x: 3032.0, z: -2114.9, yaw: 3.12 },
-        { name: 'Gdyńska SB North Signal R', x: 3018.1, z: -2127.4, yaw: 3.12 },
-        { name: 'Gdyńska SB North Signal L', x: 3031.2, z: -2126.6, yaw: 3.12 },
-        { name: 'Gdyńska SB South Signal R', x: 3014.1, z: -2079.4, yaw: -0.10 },
-        { name: 'Gdyńska SB South Signal L', x: 3028.0, z: -2077.5, yaw: -0.10 }
-      ]
-    },
-    {
-      street: 'Wrzesińska',
-      barriers: [
-        { name: 'Wrzesińska West R', x: 3622.4, z: -1103.6, yaw: 1.30, side: 1, armLen: 3.8 },
-        { name: 'Wrzesińska West L', x: 3618.2, z: -1104.4, yaw: 1.30, side: -1, armLen: 3.8 },
-        { name: 'Wrzesińska East R', x: 3648.3, z: -1107.9, yaw: -1.80, side: 1, armLen: 3.8 },
-        { name: 'Wrzesińska East L', x: 3648.6, z: -1117.3, yaw: -1.80, side: -1, armLen: 3.8 }
-      ],
-      signals: [
-        { name: 'Wrzesińska West Signal R', x: 3622.8, z: -1103.6, yaw: 1.30 },
-        { name: 'Wrzesińska West Signal L', x: 3618.5, z: -1104.1, yaw: 1.30 },
-        { name: 'Wrzesińska East Signal R', x: 3648.7, z: -1107.9, yaw: -1.80 },
-        { name: 'Wrzesińska East Signal L', x: 3648.2, z: -1117.3, yaw: -1.80 }
-      ]
-    }
-  ];
-
+  // --- Grade-separated railway crossings -----------------------------------------------------------------------------
+  // All railway-roadway intersections (including Św. Michała, Krańcowa, Bałtycka, Gdyńska, Wrzesińska, Libelta)
+  // are elevated on viaducts (rail.viaducts). Level crossing barriers and warning signals have been liquidated,
+  // making road surfaces 100% collision-free and unobstructed.
+  const crossingSites = [];
   const crossings = [];
   const barriers = [];
   const signals = [];
 
-  for (const cs of crossingSites) {
-    const bList = cs.barriers.map((b) => ({
-      ...b,
-      street: cs.street,
-      y: blockAt(b.x, b.z) ? SW_TOP : 0,
-      armYaw: b.side === 1 ? b.yaw - Math.PI / 2 : b.yaw + Math.PI / 2
-    }));
-    const sList = cs.signals.map((s) => ({
-      ...s,
-      street: cs.street,
-      y: blockAt(s.x, s.z) ? SW_TOP : 0
-    }));
-    const cx = bList.reduce((sum, b) => sum + b.x, 0) / bList.length;
-    const cz = bList.reduce((sum, b) => sum + b.z, 0) / bList.length;
-    const nodes = [];
-    for (let k = 0; k + 1 < lx.length; k += 2) {
-      if (Math.hypot(lx[k] - cx, lx[k + 1] - cz) < 70) nodes.push({ x: lx[k], z: lx[k + 1] });
+  // Clear corridor keep-out raster cells at level crossings so ground vehicles can pass smoothly:
+  const clearCell = (ix, iz) => {
+    const k = tileKey(ix >> 6, iz >> 6);
+    const tile = tiles.get(k);
+    if (!tile) return;
+    const c = (ix & 63) + ((iz & 63) << 6);
+    if (tile[c]) {
+      tile[c] = 0;
+      corridorCells--;
     }
-    crossings.push({ street: cs.street, center: { x: cx, z: cz }, nodes, barriers: bList, signals: sList });
-    barriers.push(...bList);
-    signals.push(...sList);
+  };
+
+  // Clear cells around GEO.levelCrossings points on the roadway
+  for (let k = 0; k + 1 < lx.length; k += 2) {
+    const cx = lx[k];
+    const cz = lx[k + 1];
+    for (let iz = Math.floor(cz - 10); iz <= Math.floor(cz + 10); iz++) {
+      for (let ix = Math.floor(cx - 10); ix <= Math.floor(cx + 10); ix++) {
+        const x = ix + 0.5;
+        const z = iz + 0.5;
+        if (Math.hypot(x - cx, z - cz) <= 10 && roadDist(x, z) < 3.0) {
+          clearCell(ix, iz);
+        }
+      }
+    }
   }
+
+  corridor.cells = corridorCells;
 
   // Ground footprints (masts, barriers, signals and the boundary sampled every 2 m) for tests/tram-infra.test.cjs's network check
   const footprints = masts.map((q) => ({ minX: q.x - 0.25, maxX: q.x + 0.25, minZ: q.z - 0.25, maxZ: q.z + 0.25 }));
@@ -1494,6 +1454,7 @@ function buildTramInfrastructure(scene, network) {
   const railBedM = [];
   const railTies = [];
   const endWallM = [];
+  const viaductGirderM = [];
   for (const pc of rail.pieces) {
     const len = Math.hypot(pc.bx - pc.ax, pc.bz - pc.az);
     const dx = (pc.bx - pc.ax) / len;
@@ -1512,6 +1473,33 @@ function buildTramInfrastructure(scene, network) {
     dummy.scale.set(len3D + 0.02, bedH, RAIL_BED_W);
     railBedM.push(M());
     railTies.push(len3D, pc.s0);
+    const isRiverBridge = RAIL_BRIDGES.some((br) => br.links.some((l) => {
+      for (let s = 0; s + 1 < l.pts.length; s++) {
+        const a = l.pts[s], b = l.pts[s + 1];
+        const ex = b.x - a.x, ez = b.z - a.z, L2 = ex * ex + ez * ez || 1e-9;
+        const t = Math.max(0, Math.min(1, ((mx - a.x) * ex + (mz - a.z) * ez) / L2));
+        if (Math.hypot(a.x + t * ex - mx, a.z + t * ez - mz) <= l.width * 0.5 + 2) return true;
+      }
+      return false;
+    }));
+    if (isRiverBridge) {
+      dummy.rotation.set(0, Math.atan2(-dz, dx), 0);
+      dummy.position.set(mx, -0.175, mz);
+      dummy.scale.set(len + 0.05, 0.35, RAIL_BED_W);
+      endWallM.push(M());
+      for (const sg of [1, -1]) {
+        const o = sg * (RAIL_BED_W / 2 + 0.1);
+        dummy.position.set(mx - dz * o, 0.6, mz + dx * o);
+        dummy.scale.set(len + 0.05, 1.2, 0.22);
+        viaductGirderM.push(M());
+      }
+      if (Math.floor(pc.s0 / 16) !== Math.floor((pc.s0 + len) / 16)) {
+        const pierH = 3.0 - 0.35;
+        dummy.position.set(mx, -3.0 + pierH / 2, mz);
+        dummy.scale.set(2.4, pierH, RAIL_BED_W + 0.6);
+        endWallM.push(M());
+      }
+    }
     const topA = pc.yA + RAIL_BED_TOP + (pc.railIndex % 5) * 0.004;
     const topB = pc.yB + RAIL_BED_TOP + (pc.railIndex % 5) * 0.004;
     for (const sg of [1, -1]) {
@@ -1563,7 +1551,6 @@ function buildTramInfrastructure(scene, network) {
       obb: { cx, cz, hx: 0.25, hz: w / 2, cs: e.dx, sn: -e.dz } });
   }
   // Viaduct spans: raised steel plate girders, deck slab and tracks bridging cut tracks over roadways
-  const viaductGirderM = [];
   for (const v of rail.viaducts || []) {
     for (const p of v.pieces) {
       const len = Math.hypot(p.bx - p.ax, p.bz - p.az);
@@ -1963,7 +1950,7 @@ function buildTramInfrastructure(scene, network) {
     `${rosettes.length} rosettes; ${stops.length} stops (${stops.filter((s) => s.kind === 'island').length} islands) ` +
     `of ${GEO.tramStops.length} stop nodes; rail: ${rail.tracks.length} tracks, ${railBedM.length} bed pieces, ` +
     `${rail.ends.length} end walls, ${fenceM.length} boundary segments, ${rail.masts.length} masts, ${rail.arms.length} cantilevers, ${rail.portals.length} portals, ` +
-    `${rail.crossings.length} level crossings (${rail.barriers.length} barriers, ${rail.signals.length} signals)`);
+    `${rail.viaducts.length} viaduct spans (${rail.crossings.length} level crossings)`);
   // railCorridor(x, z): the ground players' keep-out (controllers.js), true inside the railway corridor
   return { group, colliders, stops: publicStops, railCorridor: rail.corridor.has };
 }

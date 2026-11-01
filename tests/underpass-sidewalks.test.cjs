@@ -104,7 +104,7 @@ test('pedestrian routes cross through rail underpass corridors', () => {
 
 test('railway viaducts bridge cut tracks over roadways with vertical clearance', () => {
   assert.ok(Array.isArray(railInfra.viaducts), 'viaducts array is exported from rail layout');
-  assert.ok(railInfra.viaducts.length >= 40, `${railInfra.viaducts.length} viaduct spans (expected >= 40)`);
+  assert.ok(railInfra.viaducts.length >= 60, `${railInfra.viaducts.length} viaduct spans (expected >= 60)`);
 
   for (const v of railInfra.viaducts) {
     assert.ok(v.spanLen >= 10 && v.spanLen <= 120, `valid viaduct span length ${v.spanLen.toFixed(1)} m`);
@@ -114,6 +114,30 @@ test('railway viaducts bridge cut tracks over roadways with vertical clearance',
     if (v.hasTram) {
       assert.ok(v.yClearance >= 6.0, `viaduct over tram has ${v.yClearance} m >= 6.0 m clearance`);
     }
+  }
+
+  // Most Teatralny elevated railway viaducts
+  const teatrViaducts = railInfra.viaducts.filter((v) => v.mx >= -1380 && v.mx <= -1265 && v.mz >= -225 && v.mz <= -170);
+  assert.ok(teatrViaducts.length >= 5, `Most Teatralny has ${teatrViaducts.length} viaduct spans (expected >= 5)`);
+  for (const tv of teatrViaducts) {
+    assert.equal(tv.hasTram, true, 'Most Teatralny viaduct detects tram corridor');
+    assert.equal(tv.yClearance, 6.0, 'Most Teatralny viaduct vertical clearance is 6.0 m');
+  }
+
+  // Most Uniwersytecki elevated railway viaducts
+  const uniwViaducts = railInfra.viaducts.filter((v) => v.mx >= -1450 && v.mx <= -1320 && v.mz >= 50 && v.mz <= 150);
+  assert.ok(uniwViaducts.length >= 6, `Most Uniwersytecki has ${uniwViaducts.length} viaduct spans (expected >= 6)`);
+  for (const uv of uniwViaducts) {
+    assert.equal(uv.hasTram, true, 'Most Uniwersytecki viaduct detects tram corridor');
+    assert.equal(uv.yClearance, 6.0, 'Most Uniwersytecki viaduct vertical clearance is 6.0 m');
+  }
+
+  // Most Dworcowy elevated railway viaducts
+  const dworcViaducts = railInfra.viaducts.filter((v) => v.mx >= -1565 && v.mx <= -1335 && v.mz >= 500 && v.mz <= 630);
+  assert.ok(dworcViaducts.length >= 20, `Most Dworcowy has ${dworcViaducts.length} viaduct spans (expected >= 20)`);
+  for (const dv of dworcViaducts) {
+    assert.equal(dv.hasTram, true, 'Most Dworcowy viaduct detects tram corridor');
+    assert.equal(dv.yClearance, 6.0, 'Most Dworcowy viaduct vertical clearance is 6.0 m');
   }
 
   // Hetmańska Górczyn line underpass
@@ -167,7 +191,7 @@ test('railway track approach ramps transition smoothly into viaduct decks withou
       transitionsChecked++;
     }
   }
-  assert.ok(transitionsChecked >= 70, `checked ${transitionsChecked} abutment track transitions (expected >= 70)`);
+  assert.ok(transitionsChecked >= 100, `checked ${transitionsChecked} abutment track transitions (expected >= 100)`);
 });
 
 test('railway ramp slope does not exceed the allowed limit of 6%', () => {

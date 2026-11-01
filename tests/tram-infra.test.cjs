@@ -207,19 +207,19 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
   }
   const wallAt = (x, z) => rail.ends.some((e) => Math.hypot(e.x - x, e.z - z) < 0.05);
   const corridor0 = rail.corridor;
-  const levelFrom = (railIndex, x, z) => rail.level.some((p) => p.railIndex === railIndex && Math.hypot(p.ax - x, p.az - z) < 0.05);
+  const viaductFrom = (railIndex, x, z) => (rail.viaducts || []).some((v) => v.railIndex === railIndex &&
+    (Math.hypot(v.ax - x, v.az - z) < 0.1 || Math.hypot(v.bx - x, v.bz - z) < 0.1));
   let cuts = 0;
-  let levelGaps = 0;
+  let viaductGaps = 0;
   for (const tr of rail.tracks) {
     const list = byRail.get(tr.railIndex) || [];
     for (let k = 0; k + 1 < list.length; k++) {
       const a = list[k];
       const b = list[k + 1];
       if (Math.hypot(b.ax - a.bx, b.az - a.bz) < 0.05) continue;
-      if (levelFrom(tr.railIndex, a.bx, a.bz)) {
-        // a level crossing: flush rails across the road, the bed and fence simply end, no abutment
-        levelGaps++;
-        assert.ok(!wallAt(a.bx, a.bz) && !wallAt(b.ax, b.az), `no end walls at the level crossing at ${a.bx}, ${a.bz}`);
+      if (viaductFrom(tr.railIndex, a.bx, a.bz)) {
+        viaductGaps++;
+        assert.ok(wallAt(a.bx, a.bz) && wallAt(b.ax, b.az), `abutment walls at viaduct span at ${a.bx}, ${a.bz}`);
         continue;
       }
       // a gap between two kept pieces: both sides inside the detail box, so both get a wall
@@ -227,29 +227,20 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
       assert.ok(wallAt(a.bx, a.bz) && wallAt(b.ax, b.az), `end walls on both sides of the cut at ${a.bx}, ${a.bz}`);
     }
   }
-  assert.ok(cuts > 20 && rail.ends.length >= 2 * cuts, `${cuts} cuts, ${rail.ends.length} end walls`);
+  assert.ok(cuts + viaductGaps > 20 && rail.ends.length >= 2 * (cuts + viaductGaps), `${cuts} cuts, ${viaductGaps} viaduct gaps, ${rail.ends.length} end walls`);
 
-  // Level crossings (GEO.levelCrossings, the nodes a road shares with a mainline track): every one on a network roadway
-  // has its flush rails, and only there; the rail bridges and underpasses (every other crossing) keep their walled gap
-  assert.ok(levelGaps >= 15 && rail.level.length > 40, `${levelGaps} level crossing gaps, ${rail.level.length} flush pieces`);
+  // Roadway rail crossings: all crossings over network roadways are elevated viaducts, zero flush ground rails
+  assert.ok(rail.viaducts.length >= 80, `${rail.viaducts.length} elevated viaduct spans (expected >= 80)`);
+  assert.equal(rail.level.length, 0, 'zero flush rails at ground level on roadways');
   const lx = GEO.levelCrossings;
   let onRoad = 0;
   for (let k = 0; k < lx.length; k += 2) {
     if (rail.roadDist(lx[k], lx[k + 1]) >= 0) continue;
     onRoad++;
-    assert.ok(rail.level.some((p) => Math.hypot((p.ax + p.bx) / 2 - lx[k], (p.az + p.bz) / 2 - lx[k + 1]) < 6),
-      `flush rails at the level crossing at ${lx[k]}, ${lx[k + 1]}`);
+    // The roadway over former crossings stays completely open
+    assert.ok(!corridor0.has(lx[k], lx[k + 1]), `the road over former level crossing at ${lx[k]}, ${lx[k + 1]} stays open`);
   }
-  assert.ok(onRoad >= 25, `${onRoad} level crossings on a roadway`);
-  for (const p of rail.level) {
-    let best = Infinity;
-    for (let k = 0; k < lx.length; k += 2) best = Math.min(best, Math.hypot((p.ax + p.bx) / 2 - lx[k], (p.az + p.bz) / 2 - lx[k + 1]));
-    assert.ok(best < 40, `flush piece at ${p.ax}, ${p.az} is ${best.toFixed(0)} m from a level crossing`);
-    // (a flush piece's off-road end may lie in a neighbouring track's keep-out, as in the Franowo yard)
-    const mx = (p.ax + p.bx) / 2;
-    const mz = (p.az + p.bz) / 2;
-    if (rail.roadDist(mx, mz) < 0) assert.ok(!corridor0.has(mx, mz), 'the road over a level crossing stays open');
-  }
+  assert.ok(onRoad >= 25, `${onRoad} crossing sites on a roadway`);
 
   // Hetmańska under the Górczyn line (a rail bridge; the street is mapped as an underpass): every mainline track over it
   // is cut with an end wall on both sides, and no bed, wall, fence or keep-out lies on its carriageways
@@ -358,7 +349,7 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
       for (const o of e.lanes) {
         const x = e.x0 + e.dx * d + e.rx * o;
         const z = e.z0 + e.dz * d + e.rz * o;
-        if (!config.isLand(x, z)) continue;
+        if (!config.isLand(x, z) || rail.roadDist(x, z) === Infinity) continue;
         laneSamples++;
         if (corridor.has(x, z)) laneBlocked.push(`${x.toFixed(0)}, ${z.toFixed(0)}`);
       }

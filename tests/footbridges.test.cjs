@@ -120,6 +120,7 @@ test.before(async () => {
         createCurbMaterial: () => ({})
       },
       './city-config.js': cityConfig,
+      './geodata.js': { GEO },
       'three/addons/utils/BufferGeometryUtils.js': { mergeGeometries: () => new BufferGeometry() }
     },
     globals: {

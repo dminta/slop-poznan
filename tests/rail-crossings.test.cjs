@@ -148,83 +148,96 @@ test('level crossings are the nodes streets share with the mainline railway', ()
     [3028, -2090, 'Gdyńska'], [3636, -1108, 'Wrzesińska']]) assert.ok(near(x, z), `level crossing on ${name}`);
 });
 
-test('level crossings have barriers and St. Andrew warning signals on all railway crossings', () => {
-  const { crossings, barriers, signals } = railLayout;
-  assert.ok(crossings.length >= 5, `${crossings.length} crossing sites`);
+test('railway crossings on key streets (Św. Michała, Krańcowa, Bałtycka, Gdyńska, Wrzesińska) are elevated viaducts without level barriers or flush tracks', () => {
+  const { viaducts, barriers, signals, level } = railLayout;
 
-  // Verify all 5 key street crossings have barriers and St. Andrew signals
-  for (const street of ['Świętego Michała', 'Krańcowa', 'Bałtycka', 'Gdyńska', 'Wrzesińska']) {
-    const site = crossings.find((c) => c.street === street);
-    assert.ok(site, `crossing on ${street} present`);
-    assert.ok(site.barriers.length >= 4, `${street} has at least 4 barrier units`);
-    assert.ok(site.signals.length >= 4, `${street} has at least 4 warning signals`);
-  }
+  // Barriers and warning signals have been liquidated, flush ground rail tracks eliminated
+  assert.equal(barriers.length, 0, 'zero level crossing barrier units');
+  assert.equal(signals.length, 0, 'zero level crossing warning signals');
+  assert.equal(level.length, 0, 'zero flush rail pieces on roadways');
 
-  assert.equal(barriers.length, 28, '28 barrier units in total');
-  assert.equal(signals.length, 28, '28 warning signals in total');
+  // Verify all 5 key street crossings have elevated viaduct spans with vertical clearance >= 4.8 m
+  const sites = [
+    { name: 'Świętego Michała', x: 2155, z: -850, minViaducts: 4 },
+    { name: 'Krańcowa', x: 2873, z: -1222, minViaducts: 4 },
+    { name: 'Bałtycka', x: 3088, z: -1976, minViaducts: 2 },
+    { name: 'Gdyńska', x: 3028, z: -2090, minViaducts: 2 },
+    { name: 'Wrzesińska', x: 3636, z: -1108, minViaducts: 2 }
+  ];
 
-  for (const b of barriers) {
-    assert.ok(b.armLen >= 3.5 && b.armLen <= 9.0, `arm length ${b.armLen.toFixed(2)} m`);
-    assert.ok(Number.isFinite(b.armYaw), 'valid boom yaw');
-    assert.ok(Number.isFinite(b.x) && Number.isFinite(b.z) && Number.isFinite(b.y), 'valid barrier coordinate');
-  }
-  for (const s of signals) {
-    assert.ok(Number.isFinite(s.yaw), 'valid signal yaw');
-    assert.ok(Number.isFinite(s.x) && Number.isFinite(s.z) && Number.isFinite(s.y), 'valid signal coordinate');
-  }
-});
-
-test('railway barriers and signals preserve road clearance, rail structure gauge, and tram clearance', () => {
-  const tramTracks = GEO.rail.filter((r) => r.kind === 'tram');
-  const tramDist = (x, z) => {
-    let best = Infinity;
-    for (const r of tramTracks) {
-      for (let k = 0; k + 3 < r.pts.length; k += 2) {
-        const ax = r.pts[k];
-        const az = r.pts[k + 1];
-        const ex = r.pts[k + 2] - ax;
-        const ez = r.pts[k + 3] - az;
-        const t = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez || 1)));
-        best = Math.min(best, Math.hypot(ax + ex * t - x, az + ez * t - z));
-      }
+  for (const s of sites) {
+    const vNear = viaducts.filter((v) => Math.hypot(v.mx - s.x, v.mz - s.z) < 80);
+    assert.ok(vNear.length >= s.minViaducts, `${s.name} has ${vNear.length} elevated viaduct spans (expected >= ${s.minViaducts})`);
+    for (const v of vNear) {
+      assert.ok(v.yClearance >= 4.8, `${s.name} viaduct vertical clearance ${v.yClearance} m >= 4.8 m`);
+      assert.ok(v.deckY >= 5.14, `${s.name} viaduct deck height ${v.deckY} m >= 5.14 m`);
+      assert.ok(v.spanLen >= 10 && v.spanLen <= 120, `${s.name} valid viaduct span length ${v.spanLen.toFixed(1)} m`);
     }
-    return best;
-  };
-
-  for (const b of railLayout.barriers) {
-    assert.ok(railLayout.roadDist(b.x, b.z) >= 0.15, `barrier at (${b.x.toFixed(1)}, ${b.z.toFixed(1)}) stands off asphalt`);
-    assert.ok(railLayout.laneDist(b.x, b.z) >= 1.85, `barrier at (${b.x.toFixed(1)}, ${b.z.toFixed(1)}) keeps clear of car lanes`);
-    assert.ok(railLayout.railDist(b.x, b.z) >= 2.6, `barrier at (${b.x.toFixed(1)}, ${b.z.toFixed(1)}) satisfies rail structure gauge`);
-    assert.ok(tramDist(b.x, b.z) >= 3.0, `barrier at (${b.x.toFixed(1)}, ${b.z.toFixed(1)}) keeps clear of tram tracks`);
-  }
-
-  for (const s of railLayout.signals) {
-    assert.ok(railLayout.roadDist(s.x, s.z) >= 0.15, `signal at (${s.x.toFixed(1)}, ${s.z.toFixed(1)}) stands off asphalt`);
-    assert.ok(railLayout.laneDist(s.x, s.z) >= 1.85, `signal at (${s.x.toFixed(1)}, ${s.z.toFixed(1)}) keeps clear of car lanes`);
-    assert.ok(railLayout.railDist(s.x, s.z) >= 2.6, `signal at (${s.x.toFixed(1)}, ${s.z.toFixed(1)}) satisfies rail structure gauge`);
-    assert.ok(tramDist(s.x, s.z) >= 3.0, `signal at (${s.x.toFixed(1)}, ${s.z.toFixed(1)}) keeps clear of tram tracks`);
   }
 });
 
-test('barrier cabinet and signal mast colliders are generated and keep off vehicle lanes', () => {
+test('viaduct deck structures preserve vertical clearance and keep car lanes unobstructed', () => {
+  const sites = [
+    { name: 'Świętego Michała', x: 2155, z: -850 },
+    { name: 'Krańcowa', x: 2873, z: -1222 },
+    { name: 'Bałtycka', x: 3088, z: -1976 },
+    { name: 'Gdyńska', x: 3028, z: -2090 },
+    { name: 'Wrzesińska', x: 3636, z: -1108 }
+  ];
+
+  for (const s of sites) {
+    const vNear = railLayout.viaducts.filter((v) => Math.hypot(v.mx - s.x, v.mz - s.z) < 80);
+    for (const v of vNear) {
+      assert.ok(v.pieces.some((p) => railLayout.roadDist(p.ax, p.az) <= 4.0 || railLayout.roadDist(p.bx, p.bz) <= 4.0),
+        `viaduct at (${v.mx.toFixed(1)}, ${v.mz.toFixed(1)}) bridges across the roadway cut`);
+    }
+  }
+
+  // Abutment end walls stand at the ramp ends and keep clear of vehicle lanes
+  for (const e of railLayout.ends) {
+    if (e.viaduct) {
+      assert.ok(railLayout.laneDist(e.x, e.z) >= 1.75, `viaduct abutment at (${e.x.toFixed(1)}, ${e.z.toFixed(1)}) keeps clear of car lanes`);
+    }
+  }
+});
+
+test('viaduct colliders are elevated overhead leaving ground roadway lanes 100% clear', () => {
   const { colliders } = infra;
 
-  for (const b of railLayout.barriers) {
-    const c = colliders.find((col) => Math.hypot((col.minX + col.maxX) / 2 - b.x, (col.minZ + col.maxZ) / 2 - b.z) < 0.05);
-    assert.ok(c, `collider found for barrier cabinet at (${b.x.toFixed(1)}, ${b.z.toFixed(1)})`);
-    assert.ok(c.maxY >= b.y + 1.1, 'barrier cabinet collider has protective height');
-    assert.ok(railLayout.laneDist((c.minX + c.maxX) / 2, (c.minZ + c.maxZ) / 2) >= 1.85, 'barrier collider keeps off car lanes');
-  }
+  // Viaduct deck colliders have bottom clearance >= 4.8 m
+  const overhead = colliders.filter((c) => (c.minY ?? 0) >= 4.8);
+  assert.ok(overhead.length >= 80, `at least 80 overhead viaduct colliders (found ${overhead.length})`);
 
-  for (const s of railLayout.signals) {
-    const c = colliders.find((col) => Math.hypot((col.minX + col.maxX) / 2 - s.x, (col.minZ + col.maxZ) / 2 - s.z) < 0.05);
-    assert.ok(c, `collider found for signal mast at (${s.x.toFixed(1)}, ${s.z.toFixed(1)})`);
-    assert.ok(c.maxY >= s.y + 2.5, 'signal mast collider reaches signal head height');
-    assert.ok(railLayout.laneDist((c.minX + c.maxX) / 2, (c.minZ + c.maxZ) / 2) >= 1.85, 'signal collider keeps off car lanes');
+  // Ground lanes across the 5 crossing sites are not blocked by the corridor keep-out raster
+  const sites = [
+    { name: 'Świętego Michała', x: 2155, z: -850 },
+    { name: 'Krańcowa', x: 2873, z: -1222 },
+    { name: 'Bałtycka', x: 3088, z: -1976 },
+    { name: 'Gdyńska', x: 3028, z: -2090 },
+    { name: 'Wrzesińska', x: 3636, z: -1108 }
+  ];
+
+  for (const s of sites) {
+    const nearEdges = network.edges.filter((e) => {
+      const mx = e.x0 + (e.dx * e.span) / 2;
+      const mz = e.z0 + (e.dz * e.span) / 2;
+      return Math.hypot(mx - s.x, mz - s.z) < 60;
+    });
+    let blockedCells = 0;
+    for (const e of nearEdges) {
+      for (const o of e.lanes) {
+        for (let st = 0; st <= e.span; st += 1.0) {
+          const x = e.x0 + e.dx * st + e.rx * o;
+          const z = e.z0 + e.dz * st + e.rz * o;
+          if (railLayout.corridor.has(x, z)) blockedCells++;
+        }
+      }
+    }
+    assert.equal(blockedCells, 0, `${s.name} road lanes have 0 blocked corridor cells`);
   }
 });
 
-test('barrier and signal footprints do not impede vehicular or tram traffic flow', () => {
+test('vehicular traffic flows continuously across all 5 former crossing sites', () => {
   const km = (net) => net.edges.reduce((sum, e) => sum + e.span, 0) / 1000;
   const netWithFootprints = buildRoadNetwork([], [...railLayout.footprints]);
   assert.equal(netWithFootprints.edges.length, network.edges.length, 'edge count preserved with barrier footprints');

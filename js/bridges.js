@@ -20,7 +20,8 @@ import {
   uniform
 } from 'three/tsl';
 import { cityUniforms, createRoadSurfaceMaterial, createSidewalkMaterial, createCurbMaterial } from './tsl-materials.js';
-import { BRIDGES, CITY_BOUNDS, ROADS, waterAt } from './city-config.js';
+import { BRIDGES, CITY_BOUNDS, ROADS, RAIL, waterAt } from './city-config.js';
+import { GEO } from './geodata.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // js/bridges.js
@@ -420,10 +421,58 @@ function bridgeStructures() {
 // 3. BUILDERS
 // =====================================================================================================================
 
+function getTrackSegments(track) {
+  const segs = [];
+  if (!track) return segs;
+  const pts = track.pts || track;
+  if (!Array.isArray(pts) || pts.length < 2) return segs;
+  if (typeof pts[0] === 'number') {
+    for (let i = 0; i + 3 < pts.length; i += 2) {
+      segs.push([{ x: pts[i], z: pts[i + 1] }, { x: pts[i + 2], z: pts[i + 3] }]);
+    }
+  } else if (Array.isArray(pts[0])) {
+    for (let i = 0; i + 1 < pts.length; i++) {
+      segs.push([{ x: pts[i][0], z: pts[i][1] }, { x: pts[i + 1][0], z: pts[i + 1][1] }]);
+    }
+  } else if (typeof pts[0] === 'object' && pts[0] !== null) {
+    for (let i = 0; i + 1 < pts.length; i++) {
+      segs.push([pts[i], pts[i + 1]]);
+    }
+  }
+  return segs;
+}
+
+const defaultTramTracks = () => {
+  const fromRoutes = (GEO?.tramRoutes || []).flatMap((r) => r.tracks || []);
+  if (fromRoutes.length > 0) return fromRoutes;
+  if (Array.isArray(GEO?.rail)) {
+    const trams = GEO.rail.filter((r) => r.kind === 'tram');
+    if (trams.length > 0) return trams;
+  }
+  if (Array.isArray(RAIL)) {
+    const trams = RAIL.filter((r) => r.kind === 'tram');
+    if (trams.length > 0) return trams;
+  }
+  return [];
+};
+
+const defaultRailTracks = () => {
+  if (Array.isArray(GEO?.rail)) {
+    const rails = GEO.rail.filter((r) => r.kind === 'rail' || !r.kind);
+    if (rails.length > 0) return rails;
+  }
+  if (Array.isArray(RAIL)) {
+    const rails = RAIL.filter((r) => r.kind === 'rail' || !r.kind);
+    if (rails.length > 0) return rails;
+  }
+  return [];
+};
+
 // The pieces of a parapet line (lateral offset s, over [t0, t1] in metres from a) left between the streets that cross
 // it: a road joining the bridge from the side (a junction inside the merged structure) gets a gap of its half width
 // plus 3 m on either side. Roads within ~20° of the bridge axis are its own carriageways and never cut it.
-function parapetPieces(f, s, t0, t1) {
+// Tram tracks get a clearance margin of min 2.0 m from track centerline; railway tracks get min 2.4 m.
+function parapetPieces(f, s, t0, t1, { tramTracks = null, railTracks = null } = {}) {
   const p0 = f.at(t0 / f.L, s);
   const p1 = f.at(t1 / f.L, s);
   const dx = p1.x - p0.x;
@@ -455,6 +504,34 @@ function parapetPieces(f, s, t0, t1) {
       cuts.push([t - half, t + half]);
     }
   }
+
+  const cutTracks = (tracks, margin) => {
+    if (!tracks) return;
+    for (const tr of tracks) {
+      const segs = getTrackSegments(tr);
+      for (const [a, b] of segs) {
+        if (Math.max(a.x, b.x) < x0 || Math.min(a.x, b.x) > x1 || Math.max(a.z, b.z) < z0 || Math.min(a.z, b.z) > z1) continue;
+        const ex = b.x - a.x;
+        const ez = b.z - a.z;
+        const el = Math.hypot(ex, ez);
+        if (el < 1e-3) continue;
+        const sinA = Math.abs(ex * f.dir.z - ez * f.dir.x) / el;
+        if (sinA < 0.2) continue;
+        const den = dx * ez - dz * ex;
+        if (Math.abs(den) < 1e-9) continue;
+        const u = ((a.x - p0.x) * ez - (a.z - p0.z) * ex) / den;
+        const v = ((a.x - p0.x) * dz - (a.z - p0.z) * dx) / den;
+        if (u < -0.05 || u > 1.05 || v < 0 || v > 1) continue;
+        const t = t0 + u * (t1 - t0);
+        const half = Math.max(margin, Math.min(8.0, margin / sinA));
+        cuts.push([t - half, t + half]);
+      }
+    }
+  };
+
+  cutTracks(tramTracks || defaultTramTracks(), 2.0);
+  cutTracks(railTracks || defaultRailTracks(), 2.4);
+
   cuts.sort((p, q) => p[0] - q[0]);
   const pieces = [];
   let start = t0;
@@ -468,9 +545,9 @@ function parapetPieces(f, s, t0, t1) {
 
 // Parapet railings (steel posts and rails on a concrete edge kerb) on both sides over [t0, t1] (metres from a), and
 // their colliders; lamps every ~28 m, staggered
-function buildParapets(B, f, mats, colliders, t0, t1, y0, sOut) {
+function buildParapets(B, f, mats, colliders, t0, t1, y0, sOut, options = {}) {
   for (const sg of [-1, 1]) {
-    for (const [pa, pb] of parapetPieces(f, sg * sOut, t0, t1)) buildParapetPiece(B, f, mats, colliders, pa, pb, y0, sg, sg * sOut);
+    for (const [pa, pb] of parapetPieces(f, sg * sOut, t0, t1, options)) buildParapetPiece(B, f, mats, colliders, pa, pb, y0, sg, sg * sOut);
   }
 }
 
@@ -586,7 +663,7 @@ function buildGirders(B, f, mats, supports, Wd, skip = () => false) {
 }
 
 /** Girder / box-beam bridge: deck over the water stretch, haunched girder on arched wall piers, parapets & lamps. */
-function buildGirderBridge(group, spec, mats, colliders) {
+function buildGirderBridge(group, spec, mats, colliders, options = {}) {
   const B = createBeamSet();
   const parts = createPartCollector();
   const f = bridgeFrame(spec);
@@ -596,7 +673,7 @@ function buildGirderBridge(group, spec, mats, colliders) {
   const d1 = Math.min(f.L, w1 + DECK_REACH);
   buildDeck(B, parts, f, spec, mats, d0, d1, Math.max(0, w0 - 2), Math.min(f.L, w1 + 2));
   buildGirders(B, f, mats, spanSupports(w0, w1, spec.name === 'Most Świętego Rocha' || spec.name === 'Most Królowej Jadwigi' ? 70 : 55), Wd);
-  buildParapets(B, f, mats, colliders, Math.max(0, w0 - 2), Math.min(f.L, w1 + 2), SIDEWALK_TOP, Wd * 0.5 - 0.12);
+  buildParapets(B, f, mats, colliders, Math.max(0, w0 - 2), Math.min(f.L, w1 + 2), SIDEWALK_TOP, Wd * 0.5 - 0.12, options);
   B.build(group, spec.name, new Set([mats.deck, mats.pier, mats.girder]));
   parts.build(group, spec.name, { castShadow: true });
 }
@@ -605,7 +682,7 @@ function buildGirderBridge(group, spec, mats, colliders) {
  * Tied steel arch: one rib per side over the longest water run, hung from the tie girders along the deck edges with
  * wind bracing overhead where trams and lorries clear it; girder spans on piers carry the rest of the water stretch.
  */
-function buildArchBridge(group, spec, mats, colliders) {
+function buildArchBridge(group, spec, mats, colliders, options = {}) {
   const B = createBeamSet();
   const parts = createPartCollector();
   const f = bridgeFrame(spec);
@@ -651,7 +728,7 @@ function buildArchBridge(group, spec, mats, colliders) {
     if (ribY(t) < 7.2 || i % 3) continue;
     B.beam(archMat, at(t / L, -sA, ribY(t) - 0.2), at(t / L, sA, ribY(t) - 0.2), 0.7, 0.7, dir);
   }
-  buildParapets(B, f, mats, colliders, Math.max(0, w0 - 2), Math.min(L, w1 + 2), SIDEWALK_TOP, Wd * 0.5 - 0.12);
+  buildParapets(B, f, mats, colliders, Math.max(0, w0 - 2), Math.min(L, w1 + 2), SIDEWALK_TOP, Wd * 0.5 - 0.12, options);
   B.build(group, spec.name, new Set([mats.deck, mats.pier, mats.girder, archMat]));
   parts.build(group, spec.name, { castShadow: true });
 }
@@ -720,7 +797,7 @@ function buildCoveredFootbridge(group, spec, mats, colliders) {
  * shows is the balustrade along both edges of the carriageway corridor (concrete panels pierced by small round arches,
  * under a coping) and its lamps.
  */
-function buildOverpass(group, spec, mats, colliders, panelGeo) {
+function buildOverpass(group, spec, mats, colliders, panelGeo, options = {}) {
   if (spec.L < 15) return;
   const B = createBeamSet();
   const parts = createPartCollector();
@@ -730,7 +807,7 @@ function buildOverpass(group, spec, mats, colliders, panelGeo) {
   const UP = new THREE.Vector3(0, 1, 0);
   const across = new THREE.Vector3().crossVectors(dir, UP);
   for (const sg of [-1, 1]) {
-    for (const [t0, t1] of parapetPieces(f, sg * s, 2, L - 2)) {
+    for (const [t0, t1] of parapetPieces(f, sg * s, 2, L - 2, options)) {
       const n = Math.max(1, Math.round((t1 - t0) / BALUSTRADE_PANEL));
       const scale = (t1 - t0) / (n * BALUSTRADE_PANEL);
       for (let k = 0; k < n; k++) {
@@ -774,7 +851,7 @@ function createBalustradePanel() {
  * (its raised sidewalk rects) is accepted for footing checks but nothing stands on the street yet: piers stand in the
  * river and overpass parapets on the corridor edges. Returns the parapet colliders (oriented boxes, y 0 to ~1.4 m).
  */
-function buildBridges(scene, { sidewalks = [] } = {}) {
+function buildBridges(scene, { sidewalks = [], tramTracks = null, railTracks = null } = {}) {
   void sidewalks;
   const t0 = performance.now();
   const group = new THREE.Group();
@@ -784,13 +861,14 @@ function buildBridges(scene, { sidewalks = [] } = {}) {
   const structures = bridgeStructures();
   const counts = { arch: 0, girder: 0, overpass: 0, covered: 0 };
   const panelGeo = createBalustradePanel();
+  const options = { tramTracks, railTracks };
   for (const spec of structures) {
     // A river kind without water under it (a name on an approach piece) is an overpass on its land
     const kind = spec.water ? spec.kind : 'overpass';
-    if (kind === 'arch') buildArchBridge(group, spec, mats, colliders);
+    if (kind === 'arch') buildArchBridge(group, spec, mats, colliders, options);
     else if (kind === 'covered') buildCoveredFootbridge(group, spec, mats, colliders);
-    else if (kind === 'girder') buildGirderBridge(group, spec, mats, colliders);
-    else buildOverpass(group, spec, mats, colliders, panelGeo);
+    else if (kind === 'girder') buildGirderBridge(group, spec, mats, colliders, options);
+    else buildOverpass(group, spec, mats, colliders, panelGeo, options);
     counts[kind] = (counts[kind] || 0) + 1;
   }
   scene.add(group);
@@ -798,4 +876,4 @@ function buildBridges(scene, { sidewalks = [] } = {}) {
   return { group, colliders };
 }
 
-export { buildBridges, bridgeStructures };
+export { buildBridges, bridgeStructures, parapetPieces };

@@ -117,6 +117,36 @@ const FOOTBRIDGES = [
   }
 ];
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Railway bridges over rivers (Warta, Cybina): PKP mainline tracks crossing water (Linia 3, 356)
+// ---------------------------------------------------------------------------------------------------------------------
+const RAIL_BRIDGES = [
+  {
+    name: 'Most kolejowy Garbary',
+    railbridge: true,
+    links: [{
+      pts: [{ x: 425, z: -825 }, { x: 515, z: -790 }],
+      width: 20,
+      lanes: 0,
+      dir: 0,
+      tram: false,
+      railbridge: true
+    }]
+  },
+  {
+    name: 'Most kolejowy przez Cybinę',
+    railbridge: true,
+    links: [{
+      pts: [{ x: 1160, z: -635 }, { x: 1205, z: -615 }],
+      width: 16,
+      lanes: 0,
+      dir: 0,
+      tram: false,
+      railbridge: true
+    }]
+  }
+];
+
 const BRIDGES = (() => {
   const g = GEO.roadGraph;
   const node = (i) => ({ x: g.nodes[i * 2], z: g.nodes[i * 2 + 1] });
@@ -179,7 +209,7 @@ const LAND_DIST = new Uint8Array(LAND_W * LAND_H);
   for (const r of LAND_RINGS) fill(r, 1);
   for (const h of LAND_HOLES) fill(h.ring, 0);
   // bridge decks: capsules of half-width w/2 + 2 m along each link, extended 15 m past both ends
-  for (const br of BRIDGES) {
+  for (const br of [...BRIDGES, ...RAIL_BRIDGES]) {
     for (const l of br.links) {
       let hw = l.width * 0.5 + 2;
       if (br.name === 'Most Bolesława Chrobrego') hw = Math.max(hw, 15);
@@ -653,8 +683,8 @@ const UNDERPASS_CORRIDORS = [
   { sx: -532.22, sz: -1034.61, dx: 0.7545, dz: 0.6563, len: 77.48, half: 4.9 },
   { sx: -473.75, sz: -983.76, dx: -0.7545, dz: -0.6563, len: 77.48, half: 4.9 },
   // Kazimierza Pułaskiego
-  { sx: -1240.44, sz: -575.64, dx: -0.974, dz: 0.2264, len: 9.91, half: 8.15 },
-  { sx: -1246.54, sz: -550.76, dx: 0.8113, dz: -0.5847, len: 10, half: 3.25 },
+  { sx: -1240.44, sz: -575.64, dx: -0.974, dz: 0.2264, len: 7.0, half: 8.15 },
+  { sx: -1244.54, sz: -552.2, dx: 0.8113, dz: -0.5847, len: 8.0, half: 3.25 },
   { sx: -1267.47, sz: -569.37, dx: -0.8259, dz: 0.5638, len: 10, half: 3.25 },
   // Cicha
   { sx: -781.29, sz: -884.41, dx: -0.5875, dz: -0.8092, len: 26.42, half: 1.65 },
@@ -1215,6 +1245,7 @@ export {
   PLAZAS,
   DISTRICTS,
   FOOTBRIDGES,
+  RAIL_BRIDGES,
   BRIDGES,
   CITY_BOUNDS,
   isLand,

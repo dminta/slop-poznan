@@ -50,8 +50,8 @@ const PLACE_VIEWS = {
   // Bałtyk's 15th-floor terrace (59 m deck, the east end of the south-west staircase), looking east-north-east over
   // Rondo Kaponiera at the Zamek Cesarski and the centre beyond
   baltyk: { eye: onSite('Bałtyk', 15 * 67 / 17 + 1.65, 10, -9.5), look: onSite('Zamek Cesarski', 30), pan: [0, 60, 0.18] },
-  // Most Dworcowy over the tracks, looking south-east at the station hall with Avenida behind it
-  dworzec: { eye: { x: -1518, y: 7, z: 557 }, look: onSite('Poznań Główny', 6), drift: [3, 0, 0.2] }
+  // Elevated view over Most Dworcowy looking south-east at the station hall, plaza and Avenida
+  dworzec: { eye: { x: -1518, y: 26, z: 557 }, look: onSite('Poznań Główny', 6), drift: [3, 0, 0.2] }
 };
 
 // Where a place view's camera is and looks at `elapsed` s
