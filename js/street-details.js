@@ -1425,7 +1425,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   }
 
   scene.add(group);
-  return { group, footprints, colliders, signalClock, audioSignals, vehicleHeads: s1Matrices.length, update };
+  return { group, footprints, colliders, signalClock, signalTexture, audioSignals, vehicleHeads: s1Matrices.length, update };
 }
 
 export { buildStreetDetails, plateLabel };

@@ -290,6 +290,14 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 - **Yielding threshold:** `yieldPoint` now permits single-lane approaches to pull forward up to the road centerline (`lat < 0`) rather than prematurely aborting on the curb side, eliminating unnecessary stop-line stalls.
 - **Validation:** regression coverage added in `tests/traffic.test.cjs` (2 new tests); `tests/traffic-flow.test.mjs` passes with 0 deadlocks and 0 held over 120 s; full test suite passes **315/315**.
 
+## Dedicated slit tram signals (sygnalizacja szczelinowa typ ST) implemented
+
+- **Dedicated Polish ST tram signals:** modeled authentic 2-chamber heads with hoods and contrast backplates at all 189 track stop lines across Poznań (Kaponiera, Most Teatralny, Most Dworcowy, Rynek Jeżycki, Głogowska/Hetmańska, Św. Marcin, etc.).
+- **Authentic visual aspects:** upper horizontal slit bar (`—`) lit white on red and red-amber (stop), lower vertical slit bar (`|`) lit white on green (proceed), lower vertical slit bar flashing white at 1.5 Hz on amber (clearance warning). Dark housing phantom slit display when unlit.
+- **GPU phase synchronization:** wired directly into the city's shared `signalTexture` / `signalClock` via TSL shaders, with per-instance attribute indexing into the local junction timing plan. Group 0 (avenue) and Group 1 (street) signals match road phasing.
+- **Colliders:** 3.8 m physical colliders for all signal poles keep tram clearances and register in player collision bounds.
+- **Validation:** passes **317/317** tests (`node --test tests/*.cjs`) including dedicated unit and network integration tests.
+
 ## Known gaps and follow-up investigations
 
 | Topic | Remaining work | Original reference |
@@ -308,7 +316,7 @@ None pending. Both historical open decisions were confirmed by the user on 2026-
 
 ## Optional features and fidelity
 
-- Trams: Kaponiera and Franowo tunnel portals, Siemens Combino and visible white-bar signal heads (PST and Franowo track geometry are preserved in geodata). The current models
+- Trams: Kaponiera and Franowo tunnel portals, and Siemens Combino (PST and Franowo track geometry are preserved in geodata; visible white-bar ST tram signals are implemented). The current models
   are Gamma and Tramino; tram control uses the shared local signal plans.
 - Vehicles: an articulated 18 m bus and a PSP truck instead of the current rescue van; verify the registration
   atlas appearance on systems without Arial Narrow/Arial. Taxi crests and exact livery/marking fidelity require

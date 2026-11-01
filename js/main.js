@@ -118,7 +118,13 @@ async function initApp() {
   markInit('tramInfra');
   // Trams on the GEO.rail track graph, stopping at tramInfra's platforms and held at the road network's signals. They
   // brake for the cars and the player in their way; the cars yield to them and pedestrians wait (traffic.js setTrams)
-  const tramSystem = createTramSystem(scene, { network: trafficSystem.network, stops: tramInfra.stops, traffic: trafficSystem });
+  const tramSystem = createTramSystem(scene, {
+    network: trafficSystem.network,
+    stops: tramInfra.stops,
+    traffic: trafficSystem,
+    streetDetails
+  });
+  if (tramSystem.colliders) allColliders.push(...tramSystem.colliders);
   trafficSystem.setTrams(tramSystem);
   markInit('trams');
 
