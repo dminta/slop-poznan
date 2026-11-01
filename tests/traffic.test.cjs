@@ -927,3 +927,110 @@ test('a straight vehicle passing a waiting left-turner on the right on a single-
   follower.dl = 0; // not shifted right yet
   assert.equal(clearsTurn(follower, lead), false, 'follower directly behind must still brake');
 });
+
+test('articulated bus pusher trailer follows front section with lag and accurate hitch kinematics', () => {
+  const match = source.match(/  function updateBusTrailer\([^]*?\n  \}/)[0];
+  const updateBusTrailer = vm.runInNewContext(`(${match.trim()})`, {
+    Math,
+    BUS_SPEC: { wheelRadius: 0.48 }
+  });
+
+  const bus = {
+    x: 0,
+    z: 10,
+    yaw: 0,
+    yawOffset: 0,
+    wheelSpin: 0,
+    trailer: null
+  };
+
+  // First call initializes trailer behind front section
+  // Section A half-length is 5.2 m. Hitch point J is at z = 10 - 5.2 = 4.8.
+  // Trailer center is at 4.8 - 3.4 = 1.4. Trailer axle is at 4.8 - 4.3 = 0.5.
+  const trailer = updateBusTrailer(bus, 0);
+  assert.ok(trailer, 'trailer is initialized');
+  assert.equal(trailer.yaw, 0);
+  assert.ok(Math.abs(trailer.x) < 1e-6);
+  assert.ok(Math.abs(trailer.z - 1.4) < 1e-4);
+  assert.ok(Math.abs(trailer.axleZ - 0.5) < 1e-4);
+
+  // Advance bus along a gentle curve for several steps (each step < 16 m^2 jump threshold)
+  for (let step = 0; step < 10; step++) {
+    bus.yaw += 0.04;
+    bus.x += Math.sin(bus.yaw) * 0.8;
+    bus.z += Math.cos(bus.yaw) * 0.8;
+    updateBusTrailer(bus, bus.yaw);
+  }
+
+  // Trailer articulates and follows the turn with lag (yaw is non-zero, trailing the front cab)
+  assert.ok(trailer.yaw > 0 && trailer.yaw < bus.yaw, 'trailer articulates progressively towards hitch with lag');
+});
+
+test('player collides with both front cab and rear trailer of articulated bus', () => {
+  const reports = [];
+  const sparks = [];
+  // Player driving forward at z = -2.2, penetrating rear of trailer (trailer center at z = 1.4, halfL = 3.4)
+  const pe = { type: 'car', position: { x: 0, y: 0, z: -2.2, copy() {} }, heading: 0, speed: 10, vx: 0, vz: 10 };
+  const context = {
+    Math,
+    clamp: (x, lo, hi) => Math.max(lo, Math.min(hi, x)),
+    satHit: { nx: 0, nz: 0, pen: 0, localX: 0, localZ: 0, pSin: 0, pCos: 1 },
+    player: { active: true, entity: pe, halfW: 0.86, halfL: 2.18, push: 0.5 },
+    reportCollision: (...args) => reports.push(args),
+    spawnCollisionSparks: (...args) => sparks.push(args),
+    shove: () => {}
+  };
+  context.overlapWithPlayer = trafficFunction('overlapWithPlayer', context);
+  const matchCollide = source.match(/  function collideWithPlayer\([^]*?\n  \}/)[0];
+  const collideWithPlayer = vm.runInNewContext(`(${matchCollide.trim()})`, context);
+
+  const bus = {
+    x: 0, z: 10, bus: true, articulated: true, speed: 0, vx: 0, vz: 0, tx: 0, tz: 1,
+    trailer: { x: 0, z: 1.4, yaw: 0 }
+  };
+
+  // Player collides with trailer section B (half-length 3.4 m)
+  collideWithPlayer(bus, bus.trailer.yaw, 1.30, 3.4, bus.trailer.x, bus.trailer.z);
+  assert.ok(reports.length > 0, 'collision with trailer section was detected and reported');
+  assert.equal(reports[0][1], bus, 'bus entity was identified as collider');
+});
+
+test('articulated bus places exactly three wheel instances per bus without duplicate front pairs', () => {
+  const matchAxle = source.match(/  function placeAxle\([^]*?\n  \}/)[0];
+  const dummy = {
+    position: { x: 0, y: 0, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; } },
+    rotation: { x: 0, y: 0, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; } },
+    scale: { set() {} },
+    matrix: {},
+    updateMatrix() {}
+  };
+  const leftWrites = [];
+  const rightWrites = [];
+  const leftInst = { setMatrixAt: (slot, m) => leftWrites.push({ slot, pos: { ...dummy.position } }) };
+  const rightInst = { setMatrixAt: (slot, m) => rightWrites.push({ slot, pos: { ...dummy.position } }) };
+
+  const placeAxle = vm.runInNewContext(`(${matchAxle.trim()})`, {
+    Math, dummy
+  });
+
+  const bus = { x: 0, z: 10, wheelSpin: 0, steer: 0.1 };
+  const trailer = { x: 0, z: 4.8, wheelSpin: 0 };
+
+  // Place 3 axles for bus 0 (slots 0, 1, 2)
+  placeAxle(bus, 0, 0, 0, 0.48, 1.22, 2.45, bus.steer, leftInst, rightInst, 0.48, 0);
+  placeAxle(bus, 1, 0, 0, 0.48, 1.22, -3.45, 0, leftInst, rightInst, 0.48, 0.55);
+  placeAxle(trailer, 2, 0, 0, 0.48, 1.22, -0.85, 0, leftInst, rightInst, 0.48, 1.10);
+
+  assert.equal(leftWrites.length, 3, 'exactly 3 axles placed per articulated bus');
+  assert.equal(rightWrites.length, 3);
+  assert.equal(leftWrites[0].slot, 0);
+  assert.equal(leftWrites[1].slot, 1);
+  assert.equal(leftWrites[2].slot, 2);
+
+  // Front axle at z = 10 + 2.45 = 12.45
+  assert.ok(Math.abs(leftWrites[0].pos.z - 12.45) < 1e-4);
+  // Mid axle at z = 10 - 3.45 = 6.55
+  assert.ok(Math.abs(leftWrites[1].pos.z - 6.55) < 1e-4);
+  // Trailer axle at z = 4.8 - 0.85 = 3.95
+  assert.ok(Math.abs(leftWrites[2].pos.z - 3.95) < 1e-4);
+});

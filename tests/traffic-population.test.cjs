@@ -46,13 +46,15 @@ function populationHarness(major = true) {
     },
     buildOccupancy: rebuildOccupancy,
     bodyMeshes: [], lightbarList: [], dirtyPaint: new Set(), dirtyState: new Set(),
-    litVehicleCount: 0, wheelCars: 0, visibleCars: 0, visibleBuses: 0, updates: 3,
-    relateToPlayer() {}, drive() {}, locate() {}, knock() {}, pose() {}, renderBus() {}, renderCar() {},
+    litVehicleCount: 0, wheelCars: 0, visibleCars: 0, visibleBuses: 0, visibleBuses18: 0, updates: 3,
+    relateToPlayer() {}, drive() {}, locate() {}, knock() {}, pose() {}, updateBusTrailer() {}, renderBus() {}, renderCar() {},
     flagRange() {}, updateTrafficLights() {}, walkedNodes: [], meet() {}, gatherCurbs() {},
     pedCrowd: { begin() {}, end() {} }, updateSparks() {}
   };
   for (const name of ['carWheelLeftInst', 'carWheelRightInst', 'carShadowInst', 'busBodyInst',
-    'busHeaderInst', 'busWheelLeftInst', 'busWheelRightInst', 'busShadowInst']) context[name] = emptyInst();
+    'busHeaderInst', 'busWheelLeftInst', 'busWheelRightInst', 'busShadowInst',
+    'bus18FrontInst', 'bus18RearInst', 'bus18BellowsInst', 'bus18SignInst',
+    'bus18WheelLeftInst', 'bus18WheelRightInst', 'bus18ShadowInst']) context[name] = emptyInst();
   const pool = source.match(/  const vehicles = [^]*?;/);
   assert.ok(pool, 'production pool declaration is present');
   const cursors = source.slice(source.indexOf('  let lastFocusX ='), source.indexOf('  function update(dt,'));

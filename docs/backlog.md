@@ -313,6 +313,19 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 - **Validation:** `node --test tests/*.cjs` passes **321/321** tests, including dedicated font stack and balcony capacity
   regressions in `tests/vehicle-models.test.cjs` and `tests/buildings-density.test.cjs`.
 
+## Articulated 18 m bus and PSP fire truck implemented
+
+- **Solaris Urbino 18 articulated bus:** added 18 m city bus (`BUS_18_SPEC` in `js/actor-models.js`, `js/traffic.js`):
+  2 articulated sections (Section A: 10.4 m front cab with 2 axles, 2 double doors; Section B: 6.8 m rear pusher trailer with 1 axle, 2 double doors; 0.85 m bellows; 18.05 m total length).
+  Authentic MPK Poznań green/yellow livery with separate destination sign matrix, 3 spinning wheel pairs (front steering, mid fixed, rear drive), dual contact shadows, and exact pusher trailer kinematics with rear axle tracking and bellows pitch/yaw articulation.
+  Two-section physical SAT collision against the player vehicle, preventing clipping through either cab or trailer.
+  Bus routes 174, 169, 151 run articulated 18 m buses, while route 164 retains rigid 12 m buses.
+- **PSP fire service rescue truck (GCBA):** added authentic heavy rescue pumper (`BODY_SPECS.fireTruck` in `js/actor-models.js`, `js/traffic.js`):
+  8.3 m length, 2.54 m width, 3.25 m height, 4.3 m wheelbase, 0.50 m heavy truck wheels.
+  Features a dual crew cab, enclosed rear equipment body with 3-bay roller shutters (rendered via procedural TSL horizontal slats and compartment dividers), roof equipment boxes, water cannon monitor, roof ladder, front lightbar with dual blue beacons and rear upper corner blue strobe pods.
+  Configured with authentic PSP livery paint, heavy diesel bus engine audio profile (`js/audio-sources.js`), and heavy vehicle mass ratio / collision impulse against player contact.
+- **Validation:** `node --test tests/` passes **334/334** tests (including `tests/vehicle-models.test.cjs` and `tests/traffic.test.cjs` tests for 18 m bus dimensions, 4 doors, 3 axles, PSP truck specs, trailer kinematics with lag, and 2-section SAT collisions).
+
 ## Siemens Combino tram model implemented
 
 - **Siemens Combino model:** added Poznań's third tram model (14 units delivered 2003–2004, fleet numbers 501–514)
@@ -343,8 +356,8 @@ None pending. Both historical open decisions were confirmed by the user on 2026-
 ## Optional features and fidelity
 
 - Trams: Siemens Combino is implemented (models are Gamma, Tramino, and Combino; visible white-bar ST tram signals are implemented; tunnel portals omitted). Tram control uses the shared local signal plans.
-- Vehicles: an articulated 18 m bus and a PSP truck instead of the current rescue van; registration plate font
-  stack on systems without Arial Narrow is implemented. Taxi crests and exact livery/marking fidelity require
+- Vehicles: articulated 18 m bus (Solaris Urbino 18) and PSP fire truck (heavy rescue pumper) are implemented;
+  registration plate font stack on systems without Arial Narrow is implemented. Taxi crests and exact livery/marking fidelity require
   source verification before use.
 - Street details: conditional S-2 arrows, pedestrian countdowns, P-22 BUS text with actual bus-lane data, a fourth
   tree species and real OSM tree positions.

@@ -21,7 +21,7 @@ function inert() {
   });
 }
 
-const { BODY_SPECS, carDimensions, PLATE_FONT_FAMILY, polishRegistration, encodeRegistration } = loadModule(
+const { BODY_SPECS, BUS_SPEC, BUS_18_SPEC, carDimensions, PLATE_FONT_FAMILY, polishRegistration, encodeRegistration } = loadModule(
   readFileSync(join(__dirname, '../js/actor-models.js'), 'utf8'),
   {
     imports: {
@@ -86,7 +86,8 @@ test('body classes have Polish-market proportions and unique material names', ()
     hatch: [4.24, 1.78, 1.47, 2.6],
     estate: [4.68, 1.82, 1.47, 2.69],
     crossover: [4.46, 1.85, 1.66, 2.68],
-    van: [5.6, 2.02, 2.5, 3.44]
+    van: [5.6, 2.02, 2.5, 3.44],
+    fireTruck: [8.3, 2.54, 3.25, 4.3]
   };
   const names = new Set();
   for (const [kind, [len, width, roof, base]] of Object.entries(expected)) {
@@ -96,11 +97,11 @@ test('body classes have Polish-market proportions and unique material names', ()
     assert.ok(Math.abs(d.halfWidth * 2 - width) < 0.02, `${kind} width ${d.halfWidth * 2}`);
     assert.ok(Math.abs(d.roof - roof) < 0.02, `${kind} roof ${d.roof}`);
     assert.ok(Math.abs(spec.wheelZ * 2 - base) < 0.02, `${kind} wheelbase ${spec.wheelZ * 2}`);
-    if (kind !== 'van') assert.ok(d.halfWidth * 2 < 1.896, `${kind} is narrower than the old US sedan`);
+    if (kind !== 'van' && kind !== 'fireTruck') assert.ok(d.halfWidth * 2 < 1.896, `${kind} is narrower than the old US sedan`);
     names.add(spec.name);
   }
   names.add(BODY_SPECS.taxi.name);
-  assert.equal(names.size, 6);
+  assert.equal(names.size, 7);
   assert.equal(BODY_SPECS.taxi.sign, true);
   assert.equal(BODY_SPECS.taxi.zFront, BODY_SPECS.saloon.zFront);
 });
@@ -117,4 +118,37 @@ test('painted plates clear the bumper trims and the lamps', () => {
     assert.ok(spec.plates[0] + PLATE_HH < hlY - hlH, `${kind} front plate below the headlights`);
     assert.ok(spec.plates[1] + PLATE_HH < tlY - tlH, `${kind} rear plate below the tail lamps`);
   }
+});
+
+test('BUS_18_SPEC has Solaris Urbino 18 proportions, 4 passenger doors and 3 axles', () => {
+  const frontLen = BUS_18_SPEC.front.zFront - BUS_18_SPEC.front.zRear;
+  const rearLen = BUS_18_SPEC.rear.zFront - BUS_18_SPEC.rear.zRear;
+  const bellowsLen = 0.85;
+  assert.equal(frontLen, 10.4);
+  assert.equal(rearLen, 6.8);
+  const totalLength = frontLen + rearLen + bellowsLen;
+  assert.ok(Math.abs(totalLength - 18.05) < 0.01, 'total length is ~18.0 m');
+  assert.equal(BUS_18_SPEC.front.halfWidth[0][1] * 2, 2.55);
+  assert.equal(BUS_18_SPEC.rear.halfWidth[0][1] * 2, 2.55);
+
+  // 4 passenger entrance doors across both sections (2 on front, 2 on rear)
+  assert.ok(BUS_18_SPEC.front.door1 && BUS_18_SPEC.front.door2);
+  assert.ok(BUS_18_SPEC.rear.door3 && BUS_18_SPEC.rear.door4);
+
+  // 3 axles: Section A steering front and fixed mid axle, Section B drive rear axle
+  assert.equal(BUS_18_SPEC.front.axles.length, 2);
+  assert.equal(BUS_18_SPEC.front.axles[0], 2.45);
+  assert.equal(BUS_18_SPEC.front.axles[1], -3.45);
+  assert.equal(BUS_18_SPEC.rear.axles.length, 1);
+  assert.equal(BUS_18_SPEC.rear.axles[0], -0.85);
+  assert.ok(typeof BUS_18_SPEC.front.wheelZFront === 'number');
+  assert.ok(typeof BUS_18_SPEC.front.wheelZMid === 'number');
+  assert.ok(typeof BUS_18_SPEC.rear.wheelZRear === 'number');
+});
+
+test('BODY_SPECS.fireTruck specifies heavy rescue pumper equipment and truck wheels', () => {
+  const spec = BODY_SPECS.fireTruck;
+  assert.equal(spec.fireEquipment, true, 'fireEquipment is configured');
+  assert.equal(spec.wheelRadius, 0.50, 'truck size wheels (0.50 m)');
+  assert.equal(spec.panelVan, true, 'closed equipment body');
 });

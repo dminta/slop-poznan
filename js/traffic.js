@@ -7,6 +7,7 @@ import { HEADLIGHTS, createVehicleHeadlight, placeVehicleHeadlight } from './veh
 import {
   BODY_SPECS,
   BUS_SPEC,
+  BUS_18_SPEC,
   carDimensions,
   polishRegistration,
   encodeRegistration,
@@ -18,11 +19,18 @@ import {
   buildLightbarGeometry,
   createLightbarMaterial,
   buildLoftedBusBodyGeometry,
+  buildLoftedBus18FrontGeometry,
+  buildLoftedBus18RearGeometry,
+  buildBus18BellowsGeometry,
   buildBusSignGeometry,
+  buildBus18SignGeometry,
   createBusSignMaterial,
   buildBusWheelGeo,
   createBusWheelMaterial,
-  createLoftedBusMaterial
+  createLoftedBusMaterial,
+  createLoftedBus18FrontMaterial,
+  createLoftedBus18RearMaterial,
+  createBusBellowsMaterial
 } from './actor-models.js';
 import { PersonCrowd, PersonRig } from './pedestrians.js';
 import { railClearance } from './city-grid.js';
@@ -272,7 +280,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // The five lofted body classes common on Polish streets (BODY_SPECS in actor-models.js: the Corolla-class taxi
   // saloon, hatchback, estate, crossover and panel van), with one shared set of separately instanced spinning wheels
   // scaled to each body's wheel radius
-  const CAR_KINDS = ['taxi', 'hatch', 'estate', 'crossover', 'van'];
+  const CAR_KINDS = ['taxi', 'hatch', 'estate', 'crossover', 'van', 'fireTruck'];
   const WHEEL_SPEC = BODY_SPECS.hatch;
   const carWheelLeftGeo = buildSteerableWheelGeo(WHEEL_SPEC, -1);
   const carWheelRightGeo = buildSteerableWheelGeo(WHEEL_SPEC, 1);
@@ -317,11 +325,11 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   const PRIVATE_MIX = [['hatch', 0.38], ['estate', 0.24], ['crossover', 0.28], ['van', 0.1]];
 
   const cars = [];
-  const bodyCounts = { taxi: 0, hatch: 0, estate: 0, crossover: 0, van: 0 };
-  const barCounts = { estate: 0, van: 0 };
+  const bodyCounts = { taxi: 0, hatch: 0, estate: 0, crossover: 0, van: 0, fireTruck: 0 };
+  const barCounts = { estate: 0, van: 0, fireTruck: 0 };
 
   for (let i = 0; i < NUM_CARS; i++) {
-    // 5 Policja, 4 ambulances, 2 fire service vans; the livery wins over the taxi rule (index 168)
+    // 5 Policja, 4 ambulances, 2 fire service trucks; the livery wins over the taxi rule (index 168)
     const livery = (i % 40) === 6 ? 1 : (i % 50) === 18 ? 2 : (i % 100) === 42 ? 3 : 0;
     // Every emergency vehicle uses its siren and the police signal privileges (isPolice: traffic.js signal logic,
     // audio-sources.js siren)
@@ -330,7 +338,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
 
     let bodyType;
     if (livery === 1) bodyType = 'estate';
-    else if (livery > 1) bodyType = 'van';
+    else if (livery === 2) bodyType = 'van';
+    else if (livery === 3) bodyType = 'fireTruck';
     else if (isTaxi) bodyType = 'taxi';
     else {
       let u = (i * 0.7548776662 + 0.31) % 1;
@@ -341,9 +350,9 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     }
     bodyCounts[bodyType]++;
     if (livery) barCounts[bodyType]++;
-    const col = livery ? LIVERY_PAINT[livery] : pick(bodyType === 'van' ? vanPalette : carPalette, i);
+    const col = livery ? LIVERY_PAINT[livery] : pick(bodyType === 'van' || bodyType === 'fireTruck' ? vanPalette : carPalette, i);
     // isSUV: the bigger engine sound (audio-sources.js) and the heavier push against the player
-    const isSUV = bodyType === 'crossover' || bodyType === 'van';
+    const isSUV = bodyType === 'crossover' || bodyType === 'van' || bodyType === 'fireTruck';
 
     const spec = BODY_SPECS[bodyType];
     const dims = carDimensions(spec);
@@ -444,19 +453,17 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // =========================================================================
   // 2. LOFTED MPK POZNAŃ CITY BUSES (12 BUSES)
   // =========================================================================
+  // 2a. Rigid 12 m City Buses (Solaris Urbino 12)
   const busBodyGeo = buildLoftedBusBodyGeometry();
-  // Per-instance state the bus materials read: brake lights, left (+x) & right (-x) turn signals, route (BUS_ROUTES
-  // row) (renderBus). The body and the signs share one attribute: they take the same slots.
   const busStates = new THREE.InstancedBufferAttribute(new Float32Array(NUM_BUSES * 4), 4);
   busBodyGeo.setAttribute('busState', busStates);
-  // Destination signs above the windshield, by the front door & above the rear window
   const busHeaderGeo = buildBusSignGeometry();
   busHeaderGeo.setAttribute('busState', busStates);
 
   const busBodyMat = createLoftedBusMaterial();
   const busDestMat = createBusSignMaterial(createBusDestinationTexture(), BUS_ROUTES.length);
-
   const busWheelMat = createBusWheelMaterial();
+
   const busBodyInst = new THREE.InstancedMesh(busBodyGeo, busBodyMat, NUM_BUSES);
   const busHeaderInst = new THREE.InstancedMesh(busHeaderGeo, busDestMat, NUM_BUSES);
   const busWheelLeftInst = new THREE.InstancedMesh(buildBusWheelGeo(-1), busWheelMat, NUM_BUSES * 2);
@@ -468,12 +475,51 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   busWheelLeftInst.castShadow = busWheelLeftInst.receiveShadow = true;
   busWheelRightInst.castShadow = busWheelRightInst.receiveShadow = true;
 
+  // 2b. Articulated 18 m City Buses (Solaris Urbino 18)
+  const bus18FrontGeo = buildLoftedBus18FrontGeometry();
+  const bus18States = new THREE.InstancedBufferAttribute(new Float32Array(NUM_BUSES * 4), 4);
+  bus18FrontGeo.setAttribute('busState', bus18States);
+  const bus18RearGeo = buildLoftedBus18RearGeometry();
+  bus18RearGeo.setAttribute('busState', bus18States);
+  const bus18BellowsGeo = buildBus18BellowsGeometry();
+  const bus18SignGeo = buildBus18SignGeometry();
+  bus18SignGeo.setAttribute('busState', bus18States);
+
+  const bus18FrontMat = createLoftedBus18FrontMaterial();
+  const bus18RearMat = createLoftedBus18RearMaterial();
+  const bus18BellowsMat = createBusBellowsMaterial();
+
+  const bus18FrontInst = new THREE.InstancedMesh(bus18FrontGeo, bus18FrontMat, NUM_BUSES);
+  const bus18RearInst = new THREE.InstancedMesh(bus18RearGeo, bus18RearMat, NUM_BUSES);
+  const bus18BellowsInst = new THREE.InstancedMesh(bus18BellowsGeo, bus18BellowsMat, NUM_BUSES);
+  const bus18SignInst = new THREE.InstancedMesh(bus18SignGeo, busDestMat, NUM_BUSES);
+  const bus18WheelLeftInst = new THREE.InstancedMesh(buildBusWheelGeo(-1), busWheelMat, NUM_BUSES * 3);
+  const bus18WheelRightInst = new THREE.InstancedMesh(buildBusWheelGeo(1), busWheelMat, NUM_BUSES * 3);
+  const bus18ShadowInst = new THREE.InstancedMesh(unitPlane, contactShadowMat, NUM_BUSES * 2);
+  bus18ShadowInst.renderOrder = 998;
+
+  bus18FrontInst.castShadow = bus18FrontInst.receiveShadow = true;
+  bus18RearInst.castShadow = bus18RearInst.receiveShadow = true;
+  bus18BellowsInst.castShadow = bus18BellowsInst.receiveShadow = true;
+  bus18WheelLeftInst.castShadow = bus18WheelLeftInst.receiveShadow = true;
+  bus18WheelRightInst.castShadow = bus18WheelRightInst.receiveShadow = true;
+
   const buses = [];
   for (let i = 0; i < NUM_BUSES; i++) {
-    buses.push(Object.assign(createVehicle(true, BUS_SPEC.zFront, 1.3, BUS_SPEC.wheelZ, BUS_DRIVER, 0.7 + (i % 3) * 0.05, 50 / 3.6), { route: i % BUS_ROUTES.length }));
+    const route = i % BUS_ROUTES.length;
+    const articulated = (route % 4) !== 2; // lines 174, 169, 151 are articulated Urbino 18; 164 is Urbino 12
+    const halfL = articulated ? 9.0 : BUS_SPEC.zFront;
+    const axleZ = articulated ? 3.8 : BUS_SPEC.wheelZ;
+    buses.push(Object.assign(
+      createVehicle(true, halfL, 1.3, axleZ, BUS_DRIVER, 0.7 + (i % 3) * 0.05, 50 / 3.6),
+      { route, articulated, trailer: null }
+    ));
   }
   const vehicles = [...cars, ...buses];
-  group.add(busBodyInst, busHeaderInst, busWheelLeftInst, busWheelRightInst);
+  group.add(
+    busBodyInst, busHeaderInst, busWheelLeftInst, busWheelRightInst,
+    bus18FrontInst, bus18RearInst, bus18BellowsInst, bus18SignInst, bus18WheelLeftInst, bus18WheelRightInst
+  );
 
   // =========================================================================
   // 3. SKINNED, PROCEDURALLY ANIMATED SIDEWALK PEDESTRIANS (340 PEDESTRIANS, see pedestrians.js)
@@ -566,7 +612,10 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
 
   // Nothing shows until it has been placed
   const carInstances = [...bodyMeshes, carWheelLeftInst, carWheelRightInst, ...lightbarMeshes, carShadowInst];
-  const busInstances = [busBodyInst, busHeaderInst, busWheelLeftInst, busWheelRightInst, busShadowInst];
+  const busInstances = [
+    busBodyInst, busHeaderInst, busWheelLeftInst, busWheelRightInst, busShadowInst,
+    bus18FrontInst, bus18RearInst, bus18BellowsInst, bus18SignInst, bus18WheelLeftInst, bus18WheelRightInst, bus18ShadowInst
+  ];
   for (const inst of [...carInstances, ...busInstances, sparkInst]) {
     inst.frustumCulled = false;
     for (let i = 0; i < inst.count; i++) inst.setMatrixAt(i, zero);
@@ -1602,15 +1651,15 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
 
   // Player contact: push the player and the vehicle apart (a bus hardly moves) and trade momentum, with spin,
   // suspension kicks and sparks
-  function collideWithPlayer(v, rotY, halfW, halfL) {
+  function collideWithPlayer(v, rotY, halfW, halfL, posX = v.x, posZ = v.z) {
     const pe = player.entity;
-    const relX = pe.position.x - v.x;
-    const relZ = pe.position.z - v.z;
+    const relX = pe.position.x - posX;
+    const relZ = pe.position.z - posZ;
     if (Math.abs(relX) > halfL + 3 || Math.abs(relZ) > halfL + 3) return;
     const hit = overlapWithPlayer(relX, relZ, rotY, halfW, halfL, pe.heading || 0, player.halfW, player.halfL);
     if (!hit) return;
     const { nx, nz, pen, localX, localZ, pSin, pCos } = hit;
-    const massRatio = v.bus ? 0.15 : v.isSUV ? 0.58 : 1.0 - player.push;
+    const massRatio = v.bus ? 0.15 : v.bodyType === 'fireTruck' ? 0.22 : v.isSUV ? 0.58 : 1.0 - player.push;
     const pPush = 1.0 - massRatio;
     pe.position.x += nx * pen * pPush;
     pe.position.z += nz * pen * pPush;
@@ -1628,10 +1677,10 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     if (approachSpeed <= 0) return;
 
     const jImpulse = (1.0 + 0.28) * approachSpeed;
-    const cImpulse = v.bus ? approachSpeed * 0.22 : jImpulse * massRatio * 0.92;
+    const cImpulse = v.bus || v.bodyType === 'fireTruck' ? approachSpeed * 0.22 : jImpulse * massRatio * 0.92;
     v.vx -= nx * cImpulse;
     v.vz -= nz * cImpulse;
-    v.speed *= v.bus ? 0.55 : 0.35;
+    v.speed *= v.bus || v.bodyType === 'fireTruck' ? 0.55 : 0.35;
 
     const localNx = nx * cosY - nz * sinY;
     const localNz = nx * sinY + nz * cosY;
@@ -1645,8 +1694,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
 
     const contactLocalX = clamp(localX, -halfW, halfW);
     const contactLocalZ = clamp(localZ, -halfL, halfL);
-    const contactX = v.x + contactLocalX * cosY + contactLocalZ * sinY;
-    const contactZ = v.z - contactLocalX * sinY + contactLocalZ * cosY;
+    const contactX = posX + contactLocalX * cosY + contactLocalZ * sinY;
+    const contactZ = posZ - contactLocalX * sinY + contactLocalZ * cosY;
     if (pe.type !== 'person') reportCollision(pe, v, contactX, v.bus ? 0.65 : 0.58, contactZ, nx, nz, approachSpeed);
 
     if (typeof pe.speed === 'number') {
@@ -1903,6 +1952,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     v.yaw = Math.atan2(v.tx, v.tz);
     v.yawRate = v.steer = 0;
     v.move = chooseMove(v, false);
+    if (v.trailer) v.trailer.placed = false;
     occupy(e.occ[lane], v, s);
   }
 
@@ -1913,6 +1963,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     v.conn = null;
     v.commit = null;
     v.speed = 0;
+    if (v.trailer) v.trailer.placed = false;
     v.x = v.z = v.prevX = v.prevZ = 1e6;
   }
 
@@ -2351,6 +2402,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   let wheelCars = 0;
   let visibleCars = 0;
   let visibleBuses = 0;
+  let visibleBuses18 = 0;
   let updates = 0;
 
   function flagRange(attr, n) {
@@ -2359,24 +2411,28 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     attr.needsUpdate = true;
   }
 
-  // 3D spinning alloy wheels & tires (left & right, front & rear), exact 1:1 ground rolling, steering front wheels.
-  // The wheel geometry is modelled at baseRadius (WHEEL_SPEC's car wheel), scaled to the vehicle's radius
-  function placeWheels(v, i, rotY, roll, radius, halfTrack, halfBase, leftInst, rightInst, baseRadius = 0.35) {
+  // 3D spinning alloy wheels & tires for a single axle at local offset (halfTrack, wz), exact 1:1 ground rolling
+  function placeAxle(v, slot, rotY, roll, radius, halfTrack, wz, steer, leftInst, rightInst, baseRadius = 0.35, phase = 0) {
     const sinY = Math.sin(rotY);
     const cosY = Math.cos(rotY);
     const scale = radius / baseRadius;
     dummy.scale.set(scale, scale, scale);
-    for (let w = 0; w < 2; w++) {
-      const wz = w === 0 ? halfBase : -halfBase;
-      dummy.rotation.set(v.wheelSpin + w * 0.55, rotY + (w === 0 ? v.steer : 0), roll, 'YXZ');
-      dummy.position.set(v.x - halfTrack * cosY + wz * sinY, radius, v.z + halfTrack * sinY + wz * cosY);
-      dummy.updateMatrix();
-      leftInst.setMatrixAt(i * 2 + w, dummy.matrix);
 
-      dummy.position.set(v.x + halfTrack * cosY + wz * sinY, radius, v.z - halfTrack * sinY + wz * cosY);
-      dummy.updateMatrix();
-      rightInst.setMatrixAt(i * 2 + w, dummy.matrix);
-    }
+    dummy.rotation.set(v.wheelSpin + phase, rotY + steer, roll, 'YXZ');
+    dummy.position.set(v.x - halfTrack * cosY + wz * sinY, radius, v.z + halfTrack * sinY + wz * cosY);
+    dummy.updateMatrix();
+    leftInst.setMatrixAt(slot, dummy.matrix);
+
+    dummy.position.set(v.x + halfTrack * cosY + wz * sinY, radius, v.z - halfTrack * sinY + wz * cosY);
+    dummy.updateMatrix();
+    rightInst.setMatrixAt(slot, dummy.matrix);
+  }
+
+  // 3D spinning alloy wheels & tires (left & right, front & rear), exact 1:1 ground rolling, steering front wheels.
+  // The wheel geometry is modelled at baseRadius (WHEEL_SPEC's car wheel), scaled to the vehicle's radius
+  function placeWheels(v, i, rotY, roll, radius, halfTrack, halfBase, leftInst, rightInst, baseRadius = 0.35) {
+    placeAxle(v, i * 2, rotY, roll, radius, halfTrack, halfBase, v.steer || 0, leftInst, rightInst, baseRadius, 0);
+    placeAxle(v, i * 2 + 1, rotY, roll, radius, halfTrack, -halfBase, 0, leftInst, rightInst, baseRadius, 0.55);
   }
 
   // Lamp state for the car & bus materials: brake lights while slowing down or standing, the turn signal on the side
@@ -2474,6 +2530,67 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     }
   }
 
+  // 18 m articulated bus pusher kinematics: trailer axle follows Section A rear hitch point
+  function updateBusTrailer(b, rotY) {
+    const halfA = 5.2;
+    const halfB = 3.4;
+    const L_B = 4.3;
+    const sinY = Math.sin(rotY);
+    const cosY = Math.cos(rotY);
+    const jx = b.x - sinY * halfA;
+    const jz = b.z - cosY * halfA;
+
+    let trailer = b.trailer;
+    if (!trailer) {
+      trailer = b.trailer = {
+        x: jx - sinY * halfB,
+        z: jz - cosY * halfB,
+        prevX: jx - sinY * halfB,
+        prevZ: jz - cosY * halfB,
+        yaw: rotY,
+        axleX: jx - sinY * L_B,
+        axleZ: jz - cosY * L_B,
+        lastJx: jx,
+        lastJz: jz,
+        wheelSpin: b.wheelSpin,
+        placed: true
+      };
+    }
+
+    const jumpDistSq = (jx - trailer.lastJx) * (jx - trailer.lastJx) + (jz - trailer.lastJz) * (jz - trailer.lastJz);
+    if (jumpDistSq > 16.0 || !trailer.placed) {
+      trailer.yaw = rotY;
+      trailer.axleX = jx - sinY * L_B;
+      trailer.axleZ = jz - cosY * L_B;
+      trailer.x = jx - sinY * halfB;
+      trailer.z = jz - cosY * halfB;
+      trailer.placed = true;
+    } else {
+      const dx = jx - trailer.axleX;
+      const dz = jz - trailer.axleZ;
+      const d = Math.hypot(dx, dz);
+      if (d > 1e-4) {
+        trailer.yaw = Math.atan2(dx, dz);
+        const sinB = Math.sin(trailer.yaw);
+        const cosB = Math.cos(trailer.yaw);
+        trailer.axleX = jx - sinB * L_B;
+        trailer.axleZ = jz - cosB * L_B;
+        trailer.x = jx - sinB * halfB;
+        trailer.z = jz - cosB * halfB;
+      }
+    }
+    trailer.lastJx = jx;
+    trailer.lastJz = jz;
+
+    const forwardDistB = (trailer.x - (trailer.prevX ?? trailer.x)) * Math.sin(trailer.yaw) +
+                         (trailer.z - (trailer.prevZ ?? trailer.z)) * Math.cos(trailer.yaw);
+    const rawStepB = forwardDistB / BUS_SPEC.wheelRadius;
+    trailer.wheelSpin = ((trailer.wheelSpin || 0) + Math.sign(rawStepB) * Math.min(Math.abs(rawStepB), 0.48)) % (Math.PI * 2);
+    trailer.prevX = trailer.x;
+    trailer.prevZ = trailer.z;
+    return trailer;
+  }
+
   function renderBus(b) {
     const rotY = b.yaw + b.yawOffset;
     const sinY = Math.sin(rotY);
@@ -2481,24 +2598,84 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     const forwardDist = (b.x - b.prevX) * sinY + (b.z - b.prevZ) * cosY;
     const rawStep = forwardDist / BUS_SPEC.wheelRadius;
     b.wheelSpin = (b.wheelSpin + Math.sign(rawStep) * Math.min(Math.abs(rawStep), 0.48)) % (Math.PI * 2);
-    if (hasView && !visible(b.x, b.z, 22)) return;
 
-    const i = visibleBuses++;
-    dummy.position.set(b.x, 0.018, b.z);
-    dummy.rotation.set(0, rotY, 0, 'YXZ');
-    dummy.scale.set(2.92, 1.0, 12.1);
-    dummy.updateMatrix();
-    busShadowInst.setMatrixAt(i, dummy.matrix);
+    const checkR = b.articulated ? 28 : 22;
+    if (hasView && !visible(b.x, b.z, checkR)) return;
 
-    // Lofted Bus Body is defined in ground-relative Y (0.36m skirt to 3.0m roof crown)
-    dummy.position.set(b.x, 0.0, b.z);
-    dummy.rotation.set(b.pitch, rotY, b.roll, 'YXZ');
-    dummy.scale.set(1, 1, 1);
-    dummy.updateMatrix();
-    busBodyInst.setMatrixAt(i, dummy.matrix);
-    busHeaderInst.setMatrixAt(i, dummy.matrix);
-    writeLampState(b, busStates.array, i * 4);
-    busStates.array[i * 4 + 3] = b.route;
+    if (b.articulated) {
+      const trailer = b.trailer || updateBusTrailer(b, rotY);
+      const halfA = 5.2;
+      const jx = b.x - sinY * halfA;
+      const jz = b.z - cosY * halfA;
+
+      const i18 = visibleBuses18++;
+
+      // Section A shadow
+      dummy.position.set(b.x, 0.018, b.z);
+      dummy.rotation.set(0, rotY, 0, 'YXZ');
+      dummy.scale.set(2.92, 1.0, 10.6);
+      dummy.updateMatrix();
+      bus18ShadowInst.setMatrixAt(i18 * 2, dummy.matrix);
+
+      // Section B shadow
+      dummy.position.set(trailer.x, 0.018, trailer.z);
+      dummy.rotation.set(0, trailer.yaw, 0, 'YXZ');
+      dummy.scale.set(2.92, 1.0, 7.2);
+      dummy.updateMatrix();
+      bus18ShadowInst.setMatrixAt(i18 * 2 + 1, dummy.matrix);
+
+      // Section A body
+      dummy.position.set(b.x, 0.0, b.z);
+      dummy.rotation.set(b.pitch, rotY, b.roll, 'YXZ');
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      bus18FrontInst.setMatrixAt(i18, dummy.matrix);
+      bus18SignInst.setMatrixAt(i18, dummy.matrix);
+
+      // Section B body
+      dummy.position.set(trailer.x, 0.0, trailer.z);
+      dummy.rotation.set(b.pitch, trailer.yaw, b.roll, 'YXZ');
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      bus18RearInst.setMatrixAt(i18, dummy.matrix);
+
+      // Articulation bellows
+      const dh = Math.atan2(Math.sin(trailer.yaw - rotY), Math.cos(trailer.yaw - rotY));
+      const jYaw = rotY + dh * 0.5;
+      dummy.position.set(jx, 0.0, jz);
+      dummy.rotation.set(b.pitch, jYaw, b.roll, 'YXZ');
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      bus18BellowsInst.setMatrixAt(i18, dummy.matrix);
+
+      writeLampState(b, bus18States.array, i18 * 4);
+      bus18States.array[i18 * 4 + 3] = b.route;
+
+      // Wheels: Section A front axle (z = 2.45), Section A mid axle (z = -3.45), Section B rear axle (z = -0.85)
+      placeAxle(b, i18 * 3, rotY, 0, BUS_18_SPEC.front.wheelRadius, BUS_18_SPEC.front.wheelX, BUS_18_SPEC.front.wheelZFront, b.steer || 0, bus18WheelLeftInst, bus18WheelRightInst, BUS_18_SPEC.front.wheelRadius, 0);
+      placeAxle(b, i18 * 3 + 1, rotY, 0, BUS_18_SPEC.front.wheelRadius, BUS_18_SPEC.front.wheelX, BUS_18_SPEC.front.wheelZMid, 0, bus18WheelLeftInst, bus18WheelRightInst, BUS_18_SPEC.front.wheelRadius, 0.55);
+      placeAxle(trailer, i18 * 3 + 2, trailer.yaw, 0, BUS_18_SPEC.rear.wheelRadius, BUS_18_SPEC.rear.wheelX, BUS_18_SPEC.rear.wheelZRear, 0, bus18WheelLeftInst, bus18WheelRightInst, BUS_18_SPEC.rear.wheelRadius, 1.10);
+
+    } else {
+      const i = visibleBuses++;
+      dummy.position.set(b.x, 0.018, b.z);
+      dummy.rotation.set(0, rotY, 0, 'YXZ');
+      dummy.scale.set(2.92, 1.0, 12.1);
+      dummy.updateMatrix();
+      busShadowInst.setMatrixAt(i, dummy.matrix);
+
+      // Lofted Bus Body is defined in ground-relative Y (0.36m skirt to 3.0m roof crown)
+      dummy.position.set(b.x, 0.0, b.z);
+      dummy.rotation.set(b.pitch, rotY, b.roll, 'YXZ');
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      busBodyInst.setMatrixAt(i, dummy.matrix);
+      busHeaderInst.setMatrixAt(i, dummy.matrix);
+      writeLampState(b, busStates.array, i * 4);
+      busStates.array[i * 4 + 3] = b.route;
+
+      placeWheels(b, i, rotY, 0, BUS_SPEC.wheelRadius, BUS_SPEC.wheelX, BUS_SPEC.wheelZ, busWheelLeftInst, busWheelRightInst, BUS_SPEC.wheelRadius);
+    }
 
     const dxCam = b.x - camX;
     const dzCam = b.z - camZ;
@@ -2516,8 +2693,6 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
         litVehicles[litVehicleCount++] = b;
       }
     }
-
-    placeWheels(b, i, rotY, 0, BUS_SPEC.wheelRadius, BUS_SPEC.wheelX, BUS_SPEC.wheelZ, busWheelLeftInst, busWheelRightInst, BUS_SPEC.wheelRadius);
   }
 
   function smoothDistFade(d, start, end) {
@@ -2546,7 +2721,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
         const v = litVehicles[i];
         const fade = smoothDistFade(v._effDist, vehCutoff * 0.62, vehCutoff);
         if (fade <= 0.001) continue;
-        const spec = v.bus ? BUS_SPEC : BODY_SPECS[v.bodyType];
+        const spec = v.bus ? (v.articulated ? BUS_18_SPEC.front : BUS_SPEC) : BODY_SPECS[v.bodyType];
         const fullReach = HEADLIGHTS.distance;
         let maxReach = fullReach;
         if (player.active && v.pAhead > 0 && v.pAhead < 30) {
@@ -2734,6 +2909,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     visibleCars = 0;
     for (const bar of lightbarList) bar.drawn = 0;
     visibleBuses = 0;
+    visibleBuses18 = 0;
     for (let i = 0; i < vehicles.length; i++) {
       const v = vehicles[i];
       if (!v.edge) continue;
@@ -2745,7 +2921,15 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       locate(v);
       knock(v, dt);
       pose(v, dt);
-      if (player.active) collideWithPlayer(v, v.yaw + v.yawOffset, v.bus ? 1.30 : v.hitW, v.bus ? 5.72 : v.hitL);
+      if (v.bus && v.articulated) updateBusTrailer(v, v.yaw + v.yawOffset);
+      if (player.active) {
+        if (v.bus && v.articulated && v.trailer) {
+          collideWithPlayer(v, v.yaw + v.yawOffset, 1.30, 5.2);
+          collideWithPlayer(v, v.trailer.yaw, 1.30, 3.4, v.trailer.x, v.trailer.z);
+        } else {
+          collideWithPlayer(v, v.yaw + v.yawOffset, v.bus ? 1.30 : v.hitW, v.bus ? 5.72 : v.hitL);
+        }
+      }
       if (v.vx * v.vx + v.vz * v.vz > 0.36) knockOn(v);
 
       if (v.bus) renderBus(v);
@@ -2798,6 +2982,14 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     syncInst(busWheelRightInst, visibleBuses * 2);
     syncInst(busShadowInst, visibleBuses);
     if (visibleBuses > 0) flagRange(busStates, visibleBuses);
+    syncInst(bus18FrontInst, visibleBuses18);
+    syncInst(bus18RearInst, visibleBuses18);
+    syncInst(bus18BellowsInst, visibleBuses18);
+    syncInst(bus18SignInst, visibleBuses18);
+    syncInst(bus18WheelLeftInst, visibleBuses18 * 3);
+    syncInst(bus18WheelRightInst, visibleBuses18 * 3);
+    syncInst(bus18ShadowInst, visibleBuses18 * 2);
+    if (visibleBuses18 > 0) flagRange(bus18States, visibleBuses18);
     updateTrafficLights();
 
     // 2. Pedestrians
