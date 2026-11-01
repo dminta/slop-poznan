@@ -146,7 +146,8 @@ freezes. If you rename or remove any of these, update `audio-sources.js` in the 
 - Noon show: on the `midday` preset the Ratusz goats come out at once and every 120 s (`goatShowTime`, the same
   timetable as their animation). The trumpeter plays the hejnał twice from the tower gallery (`hejnal`, 38 m, ref 20,
   range 380), then the goats knock heads 12 times on the east-front ledge (`goats`, at `GOAT_BUTT_TIMES`, ref 3, range
-  120). The hejnał is a generic natural-trumpet bugle call, not a transcription of Poznań's hejnał.
+  120). The hejnał is the authentic bugle call of Poznań (Hejnał miasta Poznania, official Annex to the City Statute)
+  played on the natural notes of a B♭ trumpet (partials 4, 5, 6, 8 sounding the C-E-G-C triad).
 - Joining late: each peal or show event is emitted once per peal/show, when the listener is within range, with an
   `offset` into it; `playEvent` leaves out the strokes, calls or knocks already over and starts one still ringing
   mid-buffer. `reset()` clears the played flags, so after an unmute or a teleport a peal or show still under way
@@ -195,7 +196,7 @@ it. Trigger it from `update()` (using per-source `state()`) or from a public met
 **New simulation source type**: read it in `CityAudioSources` (constructor and `collect`), give it a stable object
 `id`, and pass the owning system through the constructor object built in `main.js`.
 
-Open listening checks and the real hejnał melody are tracked in the [backlog](backlog.md).
+Open listening checks are tracked in the [backlog](backlog.md).
 
 Only the pure parts are tested: the siren control wave (`tests/audio-siren.test.cjs`) and the clock, schedules and baked
 event buffers (`tests/city-clock.test.cjs`). Nothing tests the Web Audio graph, mixing or spatialisation: verify changes in

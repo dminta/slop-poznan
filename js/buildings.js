@@ -2359,7 +2359,7 @@ function buildCityBlocks(scene) {
     return out;
   }
   for (const b of BLOCKS) {
-    if (b.park > 0.6 || b.median) continue;
+    if ((b.park > 0.6 && !b.buildings) || b.median) continue;
     minLot = b.frames ? 12 : 15;
     srcBlock = b;
     srcRects = (b.frames || [[0, 0, 0, b.rects]]).flatMap(([th, px, pz, rects]) => rects.map(([x0, x1, z0, z1]) => (
@@ -2372,7 +2372,7 @@ function buildCityBlocks(scene) {
       for (const r of rects) {
         for (const part of minusReserves(r)) {
           for (const piece of splitDeep(part)) {
-            for (const [x0, x1, z0, z1] of b.park > 0 ? parkFreeCells(...piece) : [piece]) {
+            for (const [x0, x1, z0, z1] of (b.park > 0 && b.park <= 0.6) ? parkFreeCells(...piece) : [piece]) {
               if (x1 - x0 < minLot || z1 - z0 < minLot) continue;
               pieces.push([xf, x0, x1, z0, z1]);
               srcLotArea += (x1 - x0) * (z1 - z0);

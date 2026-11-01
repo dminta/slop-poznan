@@ -103,18 +103,19 @@ const RATUSZ_SOUNDS = {
   goats: { along: 0.515, y: 22.5 }
 };
 
-// The hejnał: a short bugle call on the natural notes of a B♭ trumpet (partials 3, 4, 5, 6, 8 of 116.54 Hz: F4 B♭4 D5
-// F5 B♭5), played twice from the Ratusz tower while the goats come out, finishing before the first butt. It is a
-// generic fanfare, not a transcription of Poznań's hejnał, whose notes could not be verified. Notes are [partial,
+// The hejnał: the authentic bugle call of Poznań (Hejnał miasta Poznania, official Annex to the City Statute) on
+// the natural notes of a B♭ trumpet (partials 4, 5, 6, 8 of 116.54 Hz: B♭4 D5 F5 B♭5, sounding the C-E-G-C triad),
+// played twice from the Ratusz tower while the goats come out, finishing before the first butt. Notes are [partial,
 // beats], partial 0 a rest.
 const HEJNAL = {
   fundamental: 116.54,
-  beat: 0.3,
+  beat: 0.2,
   score: [
-    [3, 0.5], [4, 0.5], [5, 0.5], [6, 1.5], [5, 0.5], [6, 0.5], [8, 2], [0, 1],
-    [6, 0.5], [6, 0.5], [5, 0.5], [4, 0.5], [5, 0.5], [6, 0.5], [5, 1], [4, 3]
+    [4, 1], [5, 1], [6, 2.5], [5, 1], [4, 2.5], [0, 1],
+    [4, 1], [5, 1], [6, 1], [8, 3], [6, 1], [0, 1],
+    [5, 1], [4, 1], [5, 1], [6, 3.5]
   ],
-  plays: [0.4, 5.3], // show seconds at which the trumpeter starts the call (the second time a little softer)
+  plays: [0.4, 5.5], // show seconds at which the trumpeter starts the call (the second time a little softer)
   release: 0.25 // how long the last note dies away after its written length
 };
 

@@ -97,11 +97,11 @@ function generatedByBlock(config, city) {
 }
 
 // Generated vs real (GEO.blockStats) built share of the land of the district's blocks that buildings.js builds on
-// (park blocks, over 0.6 park, are parks everywhere in the city and stay unbuilt)
+// (park blocks with mapped buildings in OSM are built; purely unmapped park blocks stay unbuilt)
 function districtShares(config, gen, district) {
   let land = 0, real = 0, ours = 0;
   for (const b of config.BLOCKS) {
-    if (b.district !== district || b.park > 0.6 || b.median) continue;
+    if (b.district !== district || (b.park > 0.6 && !b.buildings) || b.median) continue;
     land += b.area;
     real += b.built * b.area;
     ours += gen.get(b.id) || 0;
@@ -129,6 +129,18 @@ test('a block with no mapped building stays empty', async () => {
   const naramowice = config.BLOCKS.filter((b) => b.district === 'Naramowice' && !b.buildings && b.area > 100000);
   assert.ok(naramowice.length >= 1);
   for (const b of naramowice) assert.equal(gen.get(b.id) || 0, 0);
+});
+
+test('park blocks with mapped buildings are built while unmapped park blocks stay empty', async () => {
+  const { config, city } = await buildCity();
+  const gen = generatedByBlock(config, city);
+  const parkWithBldgs = config.BLOCKS.filter((b) => b.park > 0.6 && !b.median && b.buildings > 0);
+  const parkWithoutBldgs = config.BLOCKS.filter((b) => b.park > 0.6 && !b.median && !b.buildings);
+  assert.ok(parkWithBldgs.length > 0);
+  assert.ok(parkWithoutBldgs.length > 0);
+  for (const b of parkWithoutBldgs) assert.equal(gen.get(b.id) || 0, 0);
+  const solaczParks = parkWithBldgs.filter((b) => b.district === 'Sołacz');
+  for (const b of solaczParks) assert.ok((gen.get(b.id) || 0) > 0, `Park block ${b.id} should have buildings`);
 });
 
 test('villa blocks are detached houses with gardens between them', async () => {

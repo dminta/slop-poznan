@@ -170,6 +170,98 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 - Validation: `node --test tests/` passes **312/312** (34.8 s). See the
   [observation record](observations/rail-viaducts-2026-10-31.md).
 
+## Tram network continuity and vertical step elimination implemented
+
+- Eliminated 0.22 m vertical curb steps and buried rails across all multi-track junctions (Rondo Kaponiera,
+  Most Dworcowy / Dworzec Główny, Most Uniwersytecki, Most Teatralny, Hetmańska) by universally applying the
+  standard 2.2875 m track clearance cut (`TRAM_CUT_HALF`) across all empty islands, medians, and built blocks
+  whose perimeter intersects tram tracks in `js/city-config.js` and `js/city-grid.js`.
+- Synchronized `blockAt(x, z)` ground queries and rendered slab/curb/hedge extrusions with the cut corridors,
+  guaranteeing continuous road-grade rail tops (0.016 m above roadway) without raised remnants.
+- Locked street-running tram tracks (`tr.street === 1`) to ground height 0.0 m and suppressed raised ballast beds
+  beneath elevated road overpasses (`underBridgeDeck` at Most Dworcowy, Most Uniwersytecki, and Kaponiera) in
+  `js/tram-infra.js`.
+- Preserved rapid transit tram tunnels in `tools/poz-roads.mjs` by guarding against the `underground()` filter
+  for PST (`isPst`) and the Franowo Tram Tunnel (`isFranowo`), keeping Dworzec Zachodni, Kaponiera lower level,
+  and Os. Lecha – Franowo in generated geodata.
+- Refined PST track classification (`isStreetTram`) to separate open cuttings and deep trenches from bridge
+  crossings and street corridors, adding an 8.0 m proximity fallback to `nearParallel`.
+- Added missing turn curve track way `1159708999` connecting node 583424815 on Św. Marcin to node 10784788054 on
+  ul. Ratajczaka (*Projekt Tramwaj w Ratajczaka*), restoring topological continuity.
+- Expanded the land corridor under Most Bolesława Chrobrego to 15 m (`LAND_DIST`), preventing bridge deck lanes and
+  central tracks from falling into open water or failing land clamping.
+- Validation: `node --test tests/` passes **312/312** (40.6 s). See the
+  [observation record](observations/tram-tracks-2026-10-31.md).
+
+## Railway network continuity across bridges and underpasses implemented
+
+- Defined river railway bridges (`RAIL_BRIDGES` in `js/city-config.js`) for PKP mainline routes across Warta
+  (Most kolejowy Garbary, Linia 3) and Cybina (Most kolejowy przez Cybinę, Linia 3 i 356) with span widths >= 14 m.
+- Rasterized `RAIL_BRIDGES` into `LAND_CODE = 2`, ensuring `isLand(x, z) === true` and `isWater(x, z) === false`,
+  eliminating water cuts and retaining mainline railway tracks over water.
+- Modeled river railway bridges with continuous ballast, steel rails, through-plate steel side girders (`RailViaductGirders`),
+  concrete deck slab, and river piers (`endWallM` down to water level y = -3.0 m).
+- Modeled elevated railway viaduct spans (`rail.viaducts` in `js/tram-infra.js`) at Most Teatralny (5 spans), Most Uniwersytecki
+  (8 spans), and Most Dworcowy (22 spans) with vertical clearance $y_{\text{clearance}} = 6.0$ m and deck height $y_{\text{deck}} = 6.35$ m,
+  clearing ground-level roadways and tram tracks ($y = 0$). Elevated spans feature through-plate steel side girders, concrete
+  deck slab, continuous ballast, steel rails, and overhead colliders (`minY >= 6.0 m`), smoothly approached via 160 m ramps
+  (`RAMP_LEN = 160 m`, slope < 6%) with zero vertical step.
+- Restored continuous ground-level tracks (`ground = 0`) beneath elevated road overpasses (`isRoadOverpass === true`
+  in `js/tram-infra.js`) at ul. Niestachowska and ul. Witosa, eliminating artificial end walls and track cuts.
+- Extended `deckGrid` with overpass corridor envelopes covering road and tram spans, and ensured `roadDist(x, z)` returns
+  `Infinity` and `tramDist(x, z)` returns clear distance under bridge decks, preventing false proximity conflicts with
+  overhead lanes.
+- Guarded railway mast, portal, and fence placement (`!underDeck(x, z)`) to keep overhead road carriageways free of
+  vertical obstacles, preserving 100% of vehicular and tram edges (8756/8756).
+- Validation: `node --test tests/` passes **317/317** (36.5 s). Dedicated test `tests/rail-continuity.test.cjs` passes **5/5**. See the
+  [observation record](observations/rail-continuity-2026-10-31.md).
+
+## Railway grade separation (Libelta and level crossings elimination) implemented
+
+- Elevated railway tracks over ul. Karola Libelta ($x \in [-1285, -1170], z \in [-590, -500]$) onto elevated railway
+  viaduct spans (`rail.viaducts`, 4 spans, $y_{\text{clearance}} = 4.8$ m and $6.0$ m over tram tracks), eliminating ground
+  track cuts and retaining walls, and making ul. Libelta 100% passable at grade ($y = 0$).
+- Converted all 5 remaining mainline railway level crossings with rogatki/barriers and warning signals across public streets
+  (ul. Świętego Michała, ul. Krańcowa, ul. Bałtycka, ul. Gdyńska, ul. Wrzesińska) into elevated railway viaduct spans
+  (`rail.viaducts`, $y_{\text{clearance}} \ge 4.8$ m, deck $y \ge 5.14$ m, span lengths 10–120 m).
+- Liquidated all physical level crossing barrier cabinets, booms, and St. Andrew cross warning signals
+  (`rail.barriers = []`, `rail.signals = []`, `rail.level = []`).
+- Cleared all rail corridor raster keep-out, ballast, and low colliders from roadway lanes ($y = 0$), providing complete
+  unobstructed vertical clearance ($y_{\text{clearance}} \ge 4.8$ m) and maintaining 100% drivability in both directions across
+  all 5 former crossings (8,756/8,756 road network edges, 435.479 km drivable length).
+- Total elevated viaduct spans citywide increased from 67 to 96, with smooth 160 m approach ramps ($< 6\%$ slope) and zero
+  vertical steps across all abutment transitions.
+- Validation: `node --test tests/*.cjs` passes **312/312** (17.4 s). Dedicated tests `tests/rail-crossings.test.cjs` passes **6/6**
+  and `tests/rail-continuity.test.cjs` passes **5/5**. See the
+  [observation record](observations/rail-grade-separation-2026-11-01.md).
+
+## Authentic Poznań hejnał implemented
+
+- Replaced the generic bugle call with the authentic melody of the Poznań Bugle Call (*Hejnał miasta Poznania*,
+  official Annex to the Statute of the City of Poznań, *Uchwała Rady Miasta Poznania*) in `js/city-clock.js`.
+- The call is transcribed into 14 notes across 3 natural bugle phrases on partials 4, 5, 6, 8 of the natural B♭ trumpet
+  (116.54 Hz: B♭4, D5, F5, B♭5, sounding the C-E-G-C triad):
+  * Phrase 1: C4 – E4 – G4 (fermata) – E4 – C4 (fermata)
+  * Phrase 2: C4 – E4 – G4 – C5 (fermata) – G4
+  * Phrase 3: E4 – C4 – E4 – G4 (fermata)
+- Timing is calibrated (`beat = 0.20 s`, length 4.95 s, calls at 0.4 s and 5.5 s), ending at 10.45 s comfortably
+  before the first goat head butt at 11.75 s (`GOAT_BUTT_TIMES[0]`).
+- Audio buffer synthesis (`audio-events.js`) and audio pitch analysis verify that all held notes play within -4.5 to +1.7 cents
+  of perfect harmonic pitch (tolerance ±20 cents).
+- Validation: `tests/city-clock.test.cjs` passes **9/9**.
+
+## Buildings inside park blocks with mapped structures implemented
+
+- Allowed building generation on park blocks that contain mapped OSM buildings (`(b.park > 0.6 && !b.buildings) || b.median`
+  guard in `js/buildings.js`), while keeping purely unmapped park blocks 100% green.
+- Replaced whole-block park rejection in `parkFreeCells` for park blocks that have mapped buildings, allowing structures
+  steered to the block's real density while preserving accurate colliders and green lawn perimeters.
+- Whole-district building density now closely matches real-world measurements:
+  * Sołacz: generated **8.8%** vs real **8.9%** (ratio 0.98, previously under-built at 6.7%)
+  * Antoninek-Zieliniec-Kobylepole: generated **5.1%** vs real **6.6%** (ratio 0.78, previously 3.2%)
+- Unmapped park blocks (100 blocks citywide) remain 100% unbuilt (`gen = 0 m²`).
+- Validation: `tests/buildings-density.test.cjs` passes **5/5** (including new dedicated park block validation).
+
 ## Known gaps and follow-up investigations
 
 | Topic | Remaining work | Original reference |
@@ -178,18 +270,17 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 | Park bounding boxes | Signal placement exclusions from park bounding boxes are resolved across all 128 junctions (896 vehicle heads, 1578 pedestrian heads). Remaining follow-up is optional exact polygon checks for non-signal street furniture (lamps/trees/benches). | Follow-up |
 | Sparse OSM blocks | Check the nine large blocks with under 5% mapped building coverage against BDOT10k; supplement only confirmed omissions. The original audit covered 0.69 km² and needs rechecking against the current enlarged box. Verify source terms before adding data. | 14.3 |
 | Building accuracy | Replace estimated landmark heights and massing where supported by measurements; real building footprints/roof heights remain optional. Candidates include Ratusz, Fara, Zamek Królewski, Teatr Wielki, Brama Poznania, tower placements, Iglica and AND2. | 4.4, 7 |
-| Tram route quality | Re-measure global off-route samples after the Zawady/Ogrody/Starołęka membership correction. The loops have coordinate regressions; the former off-route percentages are historical. | 15.10 |
+| Tram route quality | Track continuity, tunnel preservation (PST, Franowo), the Św. Marcin – Ratajczaka curve, and universal 2.2875 m step elimination across junctions and islands are implemented. Remaining work is re-measuring global off-route samples after the Zawady/Ogrody/Starołęka membership correction. The loops have coordinate regressions; the former off-route percentages are historical. | 15.10 |
 
 ## Decisions awaiting the user
 
-- **Buildings inside 13 park blocks:** the existing recommendation is to leave them unbuilt. Their OSM buildings
-  explain some whole-district density differences in Sołacz and Antoninek; see [world.md](world.md).
-- **Real Poznań hejnał:** the noon show currently uses a generic natural-trumpet call. Decide whether to replace
-  it with the real melody and establish a suitable source before implementation.
+None pending. Both historical open decisions were confirmed by the user on 2026-11-01 and implemented:
+- **Buildings inside park blocks:** implemented (blocks with mapped OSM buildings generate structures steered to real density; unmapped blocks stay 100% green).
+- **Real Poznań hejnał:** implemented (authentic statutory melody transcribed and synthesized in tune).
 
 ## Optional features and fidelity
 
-- Trams: PST, Kaponiera tunnel portals, Siemens Combino and visible white-bar signal heads. The current models
+- Trams: Kaponiera and Franowo tunnel portals, Siemens Combino and visible white-bar signal heads (PST and Franowo track geometry are preserved in geodata). The current models
   are Gamma and Tramino; tram control uses the shared local signal plans.
 - Vehicles: an articulated 18 m bus and a PSP truck instead of the current rescue van; verify the registration
   atlas appearance on systems without Arial Narrow/Arial. Taxi crests and exact livery/marking fidelity require
@@ -235,9 +326,11 @@ See the [signal observation record](observations/signals-2026-10-30.md) for setu
   rendered Św. Marcin green-wave corridor and crossing ticks against the displayed heads.
 - Watch whole trams clear switches, crossings and occupied stops; observe Zawady/Ogrody loop boarding and
   return destinations and the Starołęka boundary routes.
-- Inspect landmark placement, scenic-camera sightlines, roof normals/ridges on rotated blocks, panel-material
-  shimmer, balcony LOD transitions, railway crossings and track cuts in squares. Check platform/slab flicker
-  where their surfaces are only 1 cm apart.
+- Geometry spot checks on 2026-10-31 confirmed continuous exposed rails without 0.22 m vertical steps at
+  Rondo Kaponiera, Most Dworcowy / Dworzec, Most Uniwersytecki, Most Chrobrego and Św. Marcin – Ratajczaka
+  (see the [tram tracks observation record](observations/tram-tracks-2026-10-31.md)). Continue inspecting
+  landmark placement, scenic-camera sightlines, roof normals/ridges on rotated blocks, panel-material shimmer,
+  balcony LOD transitions, and platform/slab flicker where their surfaces are only 1 cm apart.
 - Check load time and frame rate over the enlarged detail box, roof/dormer coverage and pool limits, estate
   slabs and transitions to the outskirts. The balcony pool was close to its limit in the historical scan.
 - Listen to sirens, bells, tram motors/squeal and the noon show; verify their local timing and audible range.
