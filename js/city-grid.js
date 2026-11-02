@@ -192,6 +192,58 @@ function offsetPolygonInward(pts, d) {
   return a2 * area > 0 && Math.abs(a2) < Math.abs(area) ? out : null;
 }
 
+// Trim the narrow end of Park Maciejewski's island before insetting its bed. The 5 m inset otherwise
+// folds across itself where the island tapers to less than 10 m at Św. Marcin.
+function parkBedOutline(b) {
+  // Shorten the tapered corner near Pułaskiego/Cicha before insetting; otherwise the bed folds over the road.
+  if (b.minX === -892 && b.maxX === -503 && b.minZ === -1206 && b.maxZ === -904.5) {
+    const cutX = -880;
+    const out = [];
+    for (let i = 0; i < b.poly.length; i++) {
+      const a = b.poly[i], c = b.poly[(i + 1) % b.poly.length];
+      if (a.x >= cutX) out.push(a);
+      if ((a.x >= cutX) !== (c.x >= cutX)) {
+        const t = (cutX - a.x) / (c.x - a.x);
+        out.push({ x: cutX, z: a.z + (c.z - a.z) * t });
+      }
+    }
+    return out;
+  }
+  if (b.parkName !== 'Park Romana Maciejewskiego') return b.poly;
+  const cutZ = 200;
+  const out = [];
+  for (let i = 0; i < b.poly.length; i++) {
+    const a = b.poly[i];
+    const c = b.poly[(i + 1) % b.poly.length];
+    if (a.z >= cutZ) out.push(a);
+    if ((a.z >= cutZ) !== (c.z >= cutZ)) {
+      const t = (cutZ - a.z) / (c.z - a.z);
+      out.push({ x: a.x + (c.x - a.x) * t, z: cutZ });
+    }
+  }
+  return out;
+}
+
+// The usual five-metre inset folds these narrow park outlines across themselves. The measured smaller
+// insets keep both the coping and its 0.3 m lawn inset simple and within the original park outline.
+function parkBedInset(b, roadCuts) {
+  if (b.minX === -2384 && b.maxX === -2242 && b.minZ === -2323.5 && b.maxZ === -2174) return 0.2;
+  if (b.minX === -2342 && b.maxX === -2214.5 && b.minZ === -2325 && b.maxZ === -2160.5) return 0.2;
+  if (b.minX === -2359 && b.maxX === -1917 && b.minZ === -2830 && b.maxZ === -2170) return 0.2;
+  if (b.minX === -766.5 && b.maxX === -556 && b.minZ === -1221 && b.maxZ === -1054.5) return 0.2;
+  if (b.minX === -1347.5 && b.maxX === -1271.5 && b.minZ === -526 && b.maxZ === -369) return 0.5;
+  if (b.minX === -892 && b.maxX === -503 && b.minZ === -1206 && b.maxZ === -904.5) return 1;
+  if (b.parkName === 'Park Stanisława Moniuszki') return 0.8;
+  if (b.parkName === 'Skwer Sybiraków') return 1;
+  if (b.minX === -1804.5 && b.maxX === -1742.5 && b.minZ === -1317 && b.maxZ === -1111) return 0.8;
+  if (b.minX === 842.5 && b.maxX === 1049 && b.minZ === -2604 && b.maxZ === -2528.5) return 2;
+  if (b.minX === -811.5 && b.maxX === -770.5 && b.minZ === 2667 && b.maxZ === 2759) return 0.1;
+  if ((b.minX === 1610 && b.maxX === 2181 && b.minZ === 1687 && b.maxZ === 2106.5) ||
+    (b.minX === 2468.5 && b.maxX === 2647 && b.minZ === 2468 && b.maxZ === 2611) ||
+    (b.minX === 2492.5 && b.maxX === 2684.5 && b.minZ === 2693.5 && b.maxZ === 2821)) return 0.5;
+  return roadCuts ? 0.8 : Math.min(5, Math.min(b.maxX - b.minX, b.maxZ - b.minZ) * 0.2);
+}
+
 function polygonCentroidArea(pts) {
   let a = 0;
   for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) a += pts[j].x * pts[i].z - pts[i].x * pts[j].z;
@@ -410,10 +462,10 @@ function clipHalfPlane(poly, a, b, left) {
 function cutSlab(ring, segs, half) {
   let pieces = triangulateRing(ring);
   const area = (p) => polygonCentroidArea(p);
-  for (const [ax, az, bx, bz] of segs) {
+  for (const [ax, az, bx, bz, segmentHalf = half] of segs) {
     const len = Math.hypot(bx - ax, bz - az);
     if (len < 1e-6) continue;
-    const ux = ((bx - ax) / len) * half, uz = ((bz - az) / len) * half;
+    const ux = ((bx - ax) / len) * segmentHalf, uz = ((bz - az) / len) * segmentHalf;
     // left-turning: along u, then across to the left (-uz, ux) side
     const quad = [
       { x: ax - ux + uz, z: az - uz - ux }, { x: bx + ux + uz, z: bz + uz - ux },
@@ -439,6 +491,55 @@ function cutSlab(ring, segs, half) {
     pieces = next;
   }
   return pieces;
+}
+
+// Both rings must be simple. Triangulating them first lets convex half-plane clipping retain disconnected
+// intersections as separate pieces, rather than folding a projected boundary across itself.
+function intersectSimpleRings(ring, boundary) {
+  const inside = triangulateRing(ring);
+  const border = triangulateRing(boundary);
+  const pieces = [];
+  for (const a of inside) {
+    const ax0 = Math.min(...a.map((p) => p.x)), ax1 = Math.max(...a.map((p) => p.x));
+    const az0 = Math.min(...a.map((p) => p.z)), az1 = Math.max(...a.map((p) => p.z));
+    for (const b of border) {
+      if (b.every((p) => p.x < ax0) || b.every((p) => p.x > ax1) || b.every((p) => p.z < az0) ||
+        b.every((p) => p.z > az1)) continue;
+      let p = a;
+      for (let i = 0; i < 3 && p.length >= 3; i++) p = clipHalfPlane(p, b[i], b[(i + 1) % 3], true);
+      if (p.length >= 3 && polygonCentroidArea(p) > 0.01) pieces.push(p);
+    }
+  }
+  return pieces;
+}
+
+// The narrow park island at Armii Poznań folds across itself with the normal 5 m inset. Its smaller inset stays
+// simple; use the same corridors as the island's raised-ground query.
+function armiiParkRoadCuts(b) {
+  if (b.minX !== -1003.5 || b.maxX !== -727.5 || b.minZ !== -2060 || b.maxZ !== -1224) return null;
+  return b.roadCut;
+}
+
+// These partial-park rings overlap mapped service roads. Identify the affected rings and road chains by
+// coordinates so unrelated service roads and neighbouring park polygons keep their existing appearance.
+function partialParkServiceCuts(b, ring) {
+  const sites = [
+    [433, 888.5, 483, -1933.7, [[549.6, -1982.5]]],
+    [-1719, -1003, -1124.5, -1480.2, [[-1133.9, -1459.1]]],
+    [512, 1410, 907.3, -785.5, [[1061.9, -708.8], [1028.2, -700]]],
+    [2816.5, 4490, 3920.8, -335.3, [[4093.2, -224.1], [4100, -234.9], [4122.9, -277.5], [4110.1, -224.8], [3887, -241.6]]],
+    [322, 822, 739.2, 220, [[700, 220.7]]],
+    [1360, 3315.5, 2632.1, 1439.4, [[2491, 1765.7]]]
+  ];
+  const site = sites.find(([minX, maxX, x, z]) => b.minX === minX && b.maxX === maxX && ring[0].x === x && ring[0].z === z);
+  if (!site) return [];
+  const segs = [];
+  for (const road of GEO.roads) {
+    const p = road[5];
+    if (road[0] || !site[4].some(([x, z]) => p[0] === x && p[1] === z)) continue;
+    for (let i = 0; i + 3 < p.length; i += 2) segs.push([p[i], p[i + 1], p[i + 2], p[i + 3], road[1] * 0.5]);
+  }
+  return segs;
 }
 
 /**
@@ -887,22 +988,40 @@ function buildCityGrid(scene) {
     if (!isParkBlock(b)) continue;
     const ponds = pondsIn(b.poly);
     const slab = offsetPolygonInward(b.poly, 0.1) || b.poly;
-    group.add(createExtrudedPolygonMesh(b.poly, 0.0, PARK_Y - 0.04, curbMat, true, false, ponds));
-    const top = createExtrudedPolygonMesh(slab, 0.0, PARK_Y, pavingMat, true, false, ponds.filter((h) => ringInside(slab, h)));
-    setPavingStyle(top.geometry, 0);
-    group.add(top);
+    const curbPieces = b.roadCut ? cutSlab(b.poly, b.roadCut, 0) : [b.poly];
+    const slabPieces = b.roadCut ? cutSlab(slab, b.roadCut, 0) : [slab];
+    for (const piece of curbPieces) {
+      group.add(createExtrudedPolygonMesh(piece, 0.0, PARK_Y - 0.04, curbMat, true, false,
+        ponds.filter((h) => ringInside(piece, h))));
+    }
+    for (const piece of slabPieces) {
+      const top = createExtrudedPolygonMesh(piece, 0.0, PARK_Y, pavingMat, true, false,
+        ponds.filter((h) => ringInside(piece, h)));
+      setPavingStyle(top.geometry, 0);
+      group.add(top);
+    }
     pavedRects.push({ minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ, ring: b.poly });
     addFootprint((b.minX + b.maxX) * 0.5, (b.minZ + b.maxZ) * 0.5, b.maxX - b.minX, b.maxZ - b.minZ);
-    const bed = offsetPolygonInward(b.poly, Math.min(5, Math.min(b.maxX - b.minX, b.maxZ - b.minZ) * 0.2));
+    const armiiCuts = armiiParkRoadCuts(b);
+    const roadCuts = armiiCuts || b.roadCut;
+    const bed = offsetPolygonInward(parkBedOutline(b), parkBedInset(b, roadCuts));
     if (!bed) continue;
     // the lawn keeps a 2 m paved path round each pond (or meets the water where the pond comes too close to the walk)
     const bedHoles = ponds.map((h) => {
       const path = offsetPolygon(h, -2.0);
       return path && ringInside(bed, path) ? path : h;
     }).filter((h) => ringInside(bed, h));
-    group.add(createExtrudedPolygonMesh(bed, 0.2, BED_Y - 0.21, graniteMat, true, false, bedHoles));
+    const beds = roadCuts ? cutSlab(bed, roadCuts, 0) : [bed];
+    for (const piece of beds) {
+      group.add(createExtrudedPolygonMesh(piece, 0.2, BED_Y - 0.21, graniteMat, true, false,
+        bedHoles.filter((h) => ringInside(piece, h))));
+    }
     const lawnTop = offsetPolygonInward(bed, 0.3);
-    if (lawnTop) parkLawnGeos.push(createExtrudedPolygonMesh(lawnTop, 0.3, BED_Y - 0.3, lawnMat, true, false, bedHoles.filter((h) => ringInside(lawnTop, h))).geometry);
+    const lawns = lawnTop ? (roadCuts ? cutSlab(lawnTop, roadCuts, 0) : [lawnTop]) : [];
+    for (const piece of lawns) {
+      parkLawnGeos.push(createExtrudedPolygonMesh(piece, 0.3, BED_Y - 0.3, lawnMat, true, false,
+        bedHoles.filter((h) => ringInside(piece, h))).geometry);
+    }
     // trees on a jittered grid inside the bed, sparser in the big parks (the Cytadela alone is ~1 km²), never within
     // 4 m of a pond
     const SP = b.area > 20000 ? 14 : 11;
@@ -912,7 +1031,8 @@ function buildCityGrid(scene) {
         const tx = gx + (prand(gx, gz) - 0.5) * SP * 0.7;
         const tz = gz + (prand(gz, gx, 1) - 0.5) * SP * 0.7;
         if (prand(tx, tz, 9) < 0.3) continue; // glades
-        if (!pointInPolygonXZ(inner, tx, tz) || distToWater(tx, tz) < 4) continue;
+        if (!pointInPolygonXZ(inner, tx, tz) || (roadCuts && !lawns.some((p) => pointInPolygonXZ(p, tx, tz))) ||
+          distToWater(tx, tz) < 4) continue;
         const r = prand(tx, tz, 2);
         treeSites.push({ x: tx, y: BED_Y, z: tz, scale: 0.9 + prand(tx, tz, 3) * 0.4, species: r < 0.55 ? 0 : (r < 0.75 ? 1 : 2) });
       }
@@ -925,7 +1045,7 @@ function buildCityGrid(scene) {
       for (let t = 17; t < len - 8; t += 34) {
         const px = a.x + ((c.x - a.x) * t) / len;
         const pz = a.z + ((c.z - a.z) * t) / len;
-        addLamp(px, PARK_Y, pz);
+        if (!b.roadCut || slabPieces.some((p) => pointInPolygonXZ(p, px, pz))) addLamp(px, PARK_Y, pz);
       }
     }
   }
@@ -950,8 +1070,33 @@ function buildCityGrid(scene) {
       if (inside >= ring.length * 0.8) {
         const edge = inside < ring.length ? offsetPolygonInward(b.poly, 1) : null;
         const pts = edge ? ring.map((p) => (pointInPolygonXZ(edge, p.x, p.z) ? p : nearestOnRing(edge, p.x, p.z))) : ring;
-        const lawn = offsetPolygonInward(pts, 0.5);
-        if (lawn) parkLawnGeos.push(createExtrudedPolygonMesh(lawn, SW_TOP - 0.02, 0.06, lawnMat).geometry);
+        // Projecting this narrow mapped strip onto its block pulls one end across Milczańska. Its original
+        // ring is simple, so preserve that outline and cut the road corridor from it below.
+        const milczanska = b.minX === 1350 && b.maxX === 3048.5 && ring.length === 72 &&
+          ring[0].x === 2253.3 && ring[0].z === 1622.1;
+        // At these two sites the projected ring or its usual 0.5 m inset folds across itself.
+        const tysiac = b.minX === 1360 && b.maxX === 3315.5 && ring[0].x === 2632.1 && ring[0].z === 1439.4;
+        const riverside = b.minX === 512 && b.maxX === 1410 && ring[0].x === 907.3 && ring[0].z === -785.5;
+        const lawn = milczanska || tysiac ? ring : offsetPolygonInward(pts, riverside ? 0.2 : 0.5);
+        if (lawn) {
+          // These mapped park rings extend across streets or service roads even after the usual inset.
+          // Cut the measured road widths while retaining their other surfaces.
+          let roadName = null;
+          if (milczanska) roadName = 'Milczańska';
+          if (b.minX === 2101 && b.maxX === 2995.5 && pointInPolygonXZ(lawn, 2705.93, -1895.80)) roadName = 'Skromna';
+          if (b.minX === -1145 && b.maxX === -722 && pointInPolygonXZ(lawn, -856.19, 2443)) roadName = 'Zmartwychwstańców';
+          const segs = partialParkServiceCuts(b, ring);
+          if (roadName) {
+            for (const road of GEO.roads) {
+              if (road[0] !== roadName) continue;
+              const p = road[5];
+              for (let i = 0; i + 3 < p.length; i += 2) segs.push([p[i], p[i + 1], p[i + 2], p[i + 3], road[1] * 0.5]);
+            }
+          }
+          const bounded = milczanska || tysiac ? intersectSimpleRings(lawn, b.poly) : [lawn];
+          const pieces = segs.length ? bounded.flatMap((piece) => cutSlab(piece, segs, 0)) : bounded;
+          for (const piece of pieces) parkLawnGeos.push(createExtrudedPolygonMesh(piece, SW_TOP - 0.02, 0.06, lawnMat).geometry);
+        }
       }
       let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
       for (const p of ring) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }

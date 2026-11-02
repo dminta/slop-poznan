@@ -1,8 +1,21 @@
 # Poznań backlog
 
-Updated 2026-10-31. The port and documentation cleanup are implemented; the remaining work is below.
+Updated 2026-11-02. The port and documentation cleanup are implemented; the remaining work is below.
 Implementation details live in the [topic docs](../AGENTS.md#docs). Original phase numbers refer to the
 [archived port plan](archive/poznan-plan.md), which retains historical measurements and decisions.
+
+## Park surfaces and road clearance: further review
+
+- A city-wide scan of emitted lawn triangles against mapped road corridors found further candidates. Grudzieniec
+  through Park Sołacki, around `−2671…−2590, −1389…−1361`, intersects the modelled corridor over about 80 m;
+  the user reported that it looks OK in the game. Treat it as unconfirmed rather than cut it on that measurement
+  alone. The park has three pond holes, which the existing `cutSlab` path cannot preserve across triangulation.
+- Other candidates include Chartowo near `2490, 2478` and Wioślarska in Park Nad Wartą. Wioślarska is a mapped
+  unpaved service road rather than an active traffic lane; verify its intended appearance before cutting greenery.
+  The scan sums per-road-segment intersections, so its areas are not union areas; bridge levels need separate checks.
+- Witosa / Niestachowska, the Armii Poznań / Pułaskiego island, Przepadek and Roosevelt have local cuts and
+  regression tests. The user confirmed the first Witosa lawn fix, then reported the opposite sidewalk; its later
+  correction and the other cuts need visual review, including WebGL2. Some planting margins are now narrow.
 
 ## Dworzec crossings: connected route implemented
 

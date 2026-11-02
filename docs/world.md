@@ -4,6 +4,24 @@ Frame: x = east, z = south (north = −z), y up, 1 unit = 1 m, origin at the Rat
 
 **Land and water** go through the `city-config.js` land raster (2 m cells over the detail box, 11.6 M of them, built at boot in ~160 ms): `isLand(x, z, margin)` counts bridge decks as land (deck cells are pinned 255 m from water, so a shore margin never narrows a bridge), `isWater` (open water; false on a deck), `distToWater`, `waterAt` (the `WATER` entry under a point; use it to tell a deck over the river from one over land), and `clampToLand(x, z, margin)`, which returns the nearest qualifying point in 2-D as `{x, z}` (always a point; callers needing the margin re-check `isLand`). Outside the detail box is neither land nor water. Also `CITY_BOUNDS` (the detail box, `sidewalkHeight` 0.22, `waterLevel` −3), `RAISED_GROUND` (raised rects the controllers stand on; empty until landmarks push theirs), `districtAt` (osiedle name or null) and `SPAWN` (`{x, z, heading}`: the westbound Św. Marcin carriageway by CK Zamek, facing west).
 
+## Park and road clearance follow-up (2026-11-02)
+
+Several narrow park insets folded across themselves and produced lawn or coping triangles over roadways. Surveyed
+local outlines and inset distances in `city-grid.js` correct those sites, including Park Maciejewski, Park Moniuszki,
+Skwer Sybiraków, Nad Wierzbakiem and islands near Witosa, Przepadek and Roosevelt. Some margins around the lawn are
+now as narrow as 0.1–1 m. Where a mapped island itself crosses a road, `city-config.js` attaches road corridors to
+the block: `city-grid.js` cuts its raised layers and `blockAt` uses the same corridors for ground-height queries.
+The selected corrections include Małe Garbary, Witosa / Niestachowska, Cicha / Pułaskiego, Dolna Wilda and a service
+road near Krzywoustego. Road-network footprints retain their existing bounds. Partial-park lawn cuts cover Milczańska,
+Skromna, Zmartwychwstańców and selected service roads; the Milczańska and Tysiąclecia outlines are also intersected
+with their blocks. The local regressions record generated surfaces and check the corresponding road corridors.
+
+The tram-corridor intersection fix also restores cuts where track segments cross block edges, including Kaponiera;
+`tests/kaponiera-clearance.test.cjs` checks two affected points. Chrome/WebGPU spot checks covered the vicinity of
+Chopina, Milczańska and Cicha / Pułaskiego; they are not whole-road or WebGL2 checks. The user confirmed the first
+Witosa lawn correction and reported a separate opposite-side sidewalk, subsequently corrected in geometry and tests.
+The remaining audit candidates and visual checks are in [the backlog](backlog.md#park-surfaces-and-road-clearance-further-review).
+
 ## Measurement snapshot (2026-10-29)
 
 Current counts below use the committed geodata over the 8.2 × 5.7 km detail box. The headless measurement loads the

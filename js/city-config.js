@@ -604,8 +604,8 @@ const TRAM_CUT_HALF = 0.7175 + 0.07 + 1.5; // same 2.2875 m track clearance as t
 function segsCross(p1, p2, p3, p4) {
   const d = (p4.x - p3.x) * (p2.z - p1.z) - (p4.z - p3.z) * (p2.x - p1.x);
   if (Math.abs(d) < 1e-9) return false;
-  const t = ((p3.x - p1.x) * (p2.z - p1.z) - (p3.z - p1.z) * (p2.x - p1.x)) / d;
-  const u = ((p3.x - p1.x) * (p4.z - p3.z) - (p3.z - p1.z) * (p4.x - p3.x)) / d;
+  const t = ((p3.z - p1.z) * (p2.x - p1.x) - (p3.x - p1.x) * (p2.z - p1.z)) / d;
+  const u = ((p3.z - p1.z) * (p4.x - p3.x) - (p3.x - p1.x) * (p4.z - p3.z)) / d;
   return t >= 0 && t <= 1 && u >= 0 && u <= 1;
 }
 for (const b of BLOCKS) {
@@ -637,6 +637,135 @@ for (const b of BLOCKS) {
     }
   }
   if (segs.length && (emptyIsland || hasCross)) b.tramCut = { half: TRAM_CUT_HALF, segs };
+}
+
+// The long island between Armii Poznań and Księcia Mieszka also overlaps the Pułaskiego carriageway
+// at its southern tip. Keep all three road corridors clear in the slabs and in height queries.
+const ARMII_PARK_ISLAND = BLOCKS.find((b) => b.minX === -1003.5 && b.maxX === -727.5 && b.minZ === -2060 && b.maxZ === -1224);
+if (ARMII_PARK_ISLAND) {
+  const b = ARMII_PARK_ISLAND;
+  const segs = [];
+  for (const road of GEO.roads) {
+    if (road[0] !== 'Aleja Armii Poznań' && road[0] !== 'Księcia Mieszka I' && road[0] !== 'Kazimierza Pułaskiego') continue;
+    const p = road[5];
+    for (let i = 0; i + 3 < p.length; i += 2) {
+      if (Math.max(p[i], p[i + 2]) < b.minX - 15 || Math.min(p[i], p[i + 2]) > b.maxX + 15 ||
+        Math.max(p[i + 1], p[i + 3]) < b.minZ - 15 || Math.min(p[i + 1], p[i + 3]) > b.maxZ + 15) continue;
+      segs.push([p[i], p[i + 1], p[i + 2], p[i + 3], road[1] * 0.5 + 0.5]);
+    }
+  }
+  b.roadCut = segs;
+}
+
+// The long Małe Garbary island overlaps both mapped carriageways near Garbary. Use the same road
+// corridors for the rendered surfaces and ground-height queries.
+const MALE_GARBARY_ISLAND = BLOCKS.find((b) => b.minX === -60 && b.maxX === 284 && b.minZ === -317.5 && b.maxZ === -255);
+if (MALE_GARBARY_ISLAND) {
+  const segs = [];
+  for (const r of GEO.roads) {
+    if (r[0] !== 'Małe Garbary') continue;
+    for (let i = 0; i + 3 < r[5].length; i += 2) {
+      segs.push([r[5][i], r[5][i + 1], r[5][i + 2], r[5][i + 3], r[1] / 2]);
+    }
+  }
+  MALE_GARBARY_ISLAND.roadCut = segs;
+}
+
+// Both tapered park islands at Witosa / Niestachowska overlap the mapped carriageways.
+const WITOSA_PARKS = BLOCKS.filter((b) =>
+  (b.minX === -2384 && b.maxX === -2242 && b.minZ === -2323.5 && b.maxZ === -2174) ||
+  (b.minX === -2342 && b.maxX === -2214.5 && b.minZ === -2325 && b.maxZ === -2160.5) ||
+  (b.minX === -2359 && b.maxX === -1917 && b.minZ === -2830 && b.maxZ === -2170));
+for (const b of WITOSA_PARKS) {
+  const segs = [];
+  for (const road of GEO.roads) {
+    if (road[0] !== 'Wincentego Witosa' && road[0] !== 'Niestachowska') continue;
+    const p = road[5];
+    for (let i = 0; i + 3 < p.length; i += 2) {
+      if (Math.max(p[i], p[i + 2]) < b.minX - 15 || Math.min(p[i], p[i + 2]) > b.maxX + 15 ||
+        Math.max(p[i + 1], p[i + 3]) < b.minZ - 15 || Math.min(p[i + 1], p[i + 3]) > b.maxZ + 15) continue;
+      segs.push([p[i], p[i + 1], p[i + 2], p[i + 3], road[1] * 0.5]);
+    }
+  }
+  b.roadCut = segs;
+}
+
+// The narrow park by Przepadek overlaps the street along its mapped edge.
+const PRZEPADEK_PARK = BLOCKS.find((b) => b.minX === -766.5 && b.maxX === -556 && b.minZ === -1221 && b.maxZ === -1054.5);
+if (PRZEPADEK_PARK) {
+  const b = PRZEPADEK_PARK;
+  const segs = [];
+  for (const road of GEO.roads) {
+    if (road[0] !== 'Przepadek') continue;
+    const p = road[5];
+    for (let i = 0; i + 3 < p.length; i += 2) {
+      if (Math.max(p[i], p[i + 2]) < b.minX - 15 || Math.min(p[i], p[i + 2]) > b.maxX + 15 ||
+        Math.max(p[i + 1], p[i + 3]) < b.minZ - 15 || Math.min(p[i + 1], p[i + 3]) > b.maxZ + 15) continue;
+      segs.push([p[i], p[i + 1], p[i + 2], p[i + 3], road[1] * 0.5]);
+    }
+  }
+  b.roadCut = segs;
+}
+
+// The small park at Roosevelt also intrudes into its adjoining carriageway.
+const ROOSEVELT_PARK = BLOCKS.find((b) => b.minX === -1347.5 && b.maxX === -1271.5 && b.minZ === -526 && b.maxZ === -369);
+if (ROOSEVELT_PARK) {
+  const b = ROOSEVELT_PARK;
+  const segs = [];
+  for (const road of GEO.roads) {
+    if (road[0] !== 'Franklina Roosevelta') continue;
+    const p = road[5];
+    for (let i = 0; i + 3 < p.length; i += 2) {
+      if (Math.max(p[i], p[i + 2]) < b.minX - 15 || Math.min(p[i], p[i + 2]) > b.maxX + 15 ||
+        Math.max(p[i + 1], p[i + 3]) < b.minZ - 15 || Math.min(p[i + 1], p[i + 3]) > b.maxZ + 15) continue;
+      segs.push([p[i], p[i + 1], p[i + 2], p[i + 3], road[1] * 0.5]);
+    }
+  }
+  b.roadCut = segs;
+}
+
+// The park at Cicha meets Pułaskiego in a narrow point; its mapped curb overlaps both road corridors.
+const PULASKI_CICHA_PARK = BLOCKS.find((b) => b.minX === -892 && b.maxX === -503 && b.minZ === -1206 && b.maxZ === -904.5);
+if (PULASKI_CICHA_PARK) {
+  const segs = [];
+  for (const road of GEO.roads) {
+    if (road[0] !== 'Cicha' && road[0] !== 'Kazimierza Pułaskiego') continue;
+    const p = road[5];
+    for (let i = 0; i + 3 < p.length; i += 2) {
+      if (Math.max(p[i], p[i + 2]) < -907 || Math.min(p[i], p[i + 2]) > -488 ||
+        Math.max(p[i + 1], p[i + 3]) < -1221 || Math.min(p[i + 1], p[i + 3]) > -889.5) continue;
+      segs.push([p[i], p[i + 1], p[i + 2], p[i + 3], road[1] * 0.5]);
+    }
+  }
+  PULASKI_CICHA_PARK.roadCut = segs;
+}
+
+const DOLNA_WILDA_PARK = BLOCKS.find((b) => b.minX === -811.5 && b.maxX === -770.5 && b.minZ === 2667 && b.maxZ === 2759);
+if (DOLNA_WILDA_PARK) {
+  const r = GEO.roads.find((road) => road[0] === 'Dolna Wilda' && road[5][0] === -772.5 && road[5][1] === 2762.8);
+  if (r) {
+    const segs = [];
+    for (let i = 0; i + 3 < r[5].length; i += 2) {
+      segs.push([r[5][i], r[5][i + 1], r[5][i + 2], r[5][i + 3], r[1] / 2 + 0.5]);
+    }
+    DOLNA_WILDA_PARK.roadCut = segs;
+  }
+}
+
+// A service road at the north end of this park island overlaps its mapped curb. Cut its actual
+// corridor from every raised surface and from height queries, as for the Małe Garbary island.
+const KRZYWOUSTEGO_PARK = BLOCKS.find((b) => b.minX === 1610 && b.maxX === 2181 && b.minZ === 1687 && b.maxZ === 2106.5);
+if (KRZYWOUSTEGO_PARK) {
+  const r = GEO.roads.find((road) => !road[0] && road[5][0] === 1602.2 && road[5][1] === 1677.8 &&
+    road[5][road[5].length - 2] === 1731.1 && road[5][road[5].length - 1] === 1756.3);
+  if (r) {
+    const segs = [];
+    for (let i = 0; i + 3 < r[5].length; i += 2) {
+      // The road-network lanes here sit up to 4.4 m from this OSM centreline.
+      segs.push([r[5][i], r[5][i + 1], r[5][i + 2], r[5][i + 3], r[1] / 2 + 1.5]);
+    }
+    KRZYWOUSTEGO_PARK.roadCut = segs;
+  }
 }
 
 // The surveyed Hetmańska/Dmowskiego island puts 47.5 m² of curb across the tram track. Cut only this empty
@@ -789,6 +918,13 @@ function blockAt(x, z) {
   if (list) {
     for (const b of list) {
       if (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ) continue;
+      if (b.roadCut && b.roadCut.some(([ax, az, bx, bz, half]) => {
+        const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
+        if (len < 1e-6) return false;
+        const along = ((x - ax) * dx + (z - az) * dz) / len;
+        const across = ((z - az) * dx - (x - ax) * dz) / len;
+        return along >= -half && along <= len + half && Math.abs(across) <= half;
+      })) continue;
       if (b.tramCut) {
         let cut = false;
         for (const [ax, az, bx, bz] of b.tramCut.segs) {
