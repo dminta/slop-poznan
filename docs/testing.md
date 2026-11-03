@@ -149,9 +149,10 @@ numbered line. `other` means the edge has routes, but none with the tram's line 
 dividing for the global share. Both benchmarks share `tools/bench-world.mjs` for the headless world setup.
 
 The setup uses the same headless world and omissions as the traffic benchmark above. It does not check the rendered
-scene or full tram body. Route selection can change ahead of the front as the path is extended. The historical
-six-location run's exact coordinates, sampling point, seed, frame rate and setup were not recorded; this is a reproducible
-reconstruction, not a controlled replay. On 2026-11-03 it sampled 84,235 tram-seconds: 0 on another numbered line's
-track and 0 on track without any route. Separately, 355 samples of line 5 showed its return direction up to about 200 m
-before the Zawady loop while the front was still on its outbound direction's track. Historical pre-15.10 figures were
-0.44% total and 0.06% on other routes' track, using the older direction-membership classification.
+scene or full tram body. Route selection can change ahead of the front as the path is extended; the displayed route
+follows the front edge. The historical six-location run's exact coordinates, sampling point, seed, frame rate and setup
+were not recorded; this is a reproducible reconstruction, not a controlled replay. On 2026-11-03 it sampled 84,235
+tram-seconds: 0 on another numbered line's track and 0 on track without any route. Before the display timing fix, 355
+samples of line 5 showed its return direction before the front entered that route; afterwards the same benchmark found
+0 such samples. Historical pre-15.10 figures were 0.44% total and 0.06% on other routes' track, using the older
+direction-membership classification.

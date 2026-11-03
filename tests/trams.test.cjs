@@ -453,6 +453,45 @@ test('a tram path follows its line route at switches, rejoins it across a gap an
   assert.equal(turn.route, 2, 'line 5 now runs to Górczyn PKM');
 });
 
+test('line 5 keeps its Zawady destination until its front reaches the return route', async () => {
+  const { GEO } = await import('../js/geodata.js');
+  const { createTramSystem, nearestOnEdge } = load(() => 'green', true);
+  const sys = createTramSystem(inert(), { network: { nodes: [], edges: [] }, rail: GEO.rail, stops: [], routes: GEO.tramRoutes });
+  const outbound = GEO.tramRoutes.findIndex((r) => r.ref === '5' && r.to === 'Zawady');
+  const inbound = GEO.tramRoutes.findIndex((r) => r.ref === '5' && r.to === 'Górczyn PKM');
+  assert.equal(outbound, 7);
+  assert.equal(inbound, 6);
+  const near = {};
+  let distance = Infinity;
+  const edge = sys.graph.edges.reduce((closest, e) => {
+    if (!e.routes.includes(outbound)) return closest;
+    const d = nearestOnEdge(e, 1650.1, -561.4, near).d;
+    if (d >= distance) return closest;
+    distance = d;
+    return e;
+  }, null);
+  assert.ok(edge, 'outbound track near Zawady');
+  const t = sys.pool[0];
+  t.path.route = outbound;
+  t.path.reset(edge, 0, t.length + 8, () => 0);
+  t.path.extend(2000, () => 0);
+  const transition = t.path.edges.findIndex((e, i) => i < t.path.n && e.routes.includes(inbound) && !e.routes.includes(outbound));
+  assert.ok(transition > 0, 'path reaches the return direction');
+  t.route = outbound;
+  t.line = '5';
+  t.destination = 'Zawady';
+  t.speed = 0;
+  t.acc = 0;
+  t.path.u = t.path.start[transition] - 0.01;
+  sys.advance(t, 0);
+  assert.equal(t.route, outbound, 'display remains route 7 before the return edge');
+  assert.equal(t.destination, 'Zawady');
+  t.path.u = t.path.start[t.path.indexAt(t.path.u) + 1];
+  sys.advance(t, 0);
+  assert.equal(t.route, inbound, 'display changes to route 6 on the return edge');
+  assert.equal(t.destination, 'Górczyn PKM');
+});
+
 test('a tram whose route stops for good takes the route of the track it runs on, not a siding no line uses', () => {
   const { buildTrackGraph, TramPath } = load();
   const routed = (pts, routes) => Object.assign(tram(pts), { routes });

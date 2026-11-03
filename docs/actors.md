@@ -183,8 +183,9 @@ reads the road network (signal nodes, lanes and junction curves for `mapTramsToR
   relations leave out), else one some line runs on (not a siding or loop stub no route uses), else any. A longer
   lookahead (3 or 4 switches) rejoins nothing more. Laying out the track behind a new tram keeps to the route the same way. Where the
   route ends in the box (after a terminus loop), `turnRoute` switches to the same line's route on
-  the next edge (usually the other direction) and the tram's display changes; where the route stops for good on track
-  other lines use (a relation gap no rejoin spans: line 10 at (-850, 768), lines 7 and 8 at (-845, 9)), it takes the
+  the next edge (usually the other direction). Each path edge stores the route selected when it was laid out; the display,
+  line and destination change only when the front enters that edge. Routing still looks ahead as before. Where the
+  route stops for good on track other lines use (a relation gap no rejoin spans: line 10 at (-850, 768), lines 7 and 8 at (-845, 9)), it takes the
   route of that track, as a diverted tram would. Historically, before the Phase 15.10 route correction, 98.6% of paths
   laid out from every route edge stayed on the route. A headless run (10 minutes at each of Ostrów Tumski, Stare Miasto, Dworzec, Półwiejska,
   Rataje and Jeżyce on the 8.2 × 5.7 km network, 84k tram samples) had 1.15% of samples off their route, 0.77% of them
@@ -196,11 +197,10 @@ reads the road network (signal nodes, lanes and junction curves for `mapTramsToR
   records stay unchanged. Exact-coordinate tests cover both loops at two branch choices, return destinations and
   both boundary directions. On 2026-11-03, a seeded headless re-measurement at those six locations (10 minutes each,
   15 fps, one sample per active tram per second, 84,235 samples) found **0 off-route samples**: none on track used only
-  by other numbered lines and none on track assigned to no route. Separately, 355 samples of line 5 showed the return
-  destination Górczyn PKM while the front was still on the Zawady-bound direction, on three edges from (1565.6, -187.1)
-  to (1650.1, -561.4). `TramPath.extend` switches the display while looking ahead, up to about 200 m before the loop;
-  these samples are on the same line and are not off-route. The historical script, seed, exact camera positions and
-  sampling details were not retained, so the historical 0.44% and the new 0% are not a controlled before/after comparison.
+  by other numbered lines and none on track assigned to no route. Before the display fix, 355 samples of line 5 showed
+  Górczyn PKM while the front was still on the Zawady-bound direction; afterwards the same benchmark has 0 such samples.
+  The historical script, seed, exact camera positions and sampling details were not retained, so the historical 0.44%
+  and the new 0% are not a controlled before/after comparison.
   See `tools/bench-tram-routes.mjs` and [testing.md](testing.md#tram-route-membership-benchmark) for method and limits.
   Lines run the real sequence of tracks only roughly: no timetable, any number of trams per line.
 - **Stops**: `tram-infra.js` stops (`railIndex`, `s`, `dir`) are attached to the edge running that way

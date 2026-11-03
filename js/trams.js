@@ -735,8 +735,8 @@ function pickBranch(list, route, rand, ahead = ROUTE_REJOIN) {
 }
 
 // At the end of its route (a terminus loop in the box: the relation stops at the last stop), a tram takes the same
-// line's route that uses the edge it continues on, usually the other direction, and changes its display. Where its
-// route stops for good on track other lines run on (a relation that leaves the box, or ends at a gap no rejoin
+// line's route that uses the edge it continues on, usually the other direction; the display follows once the front
+// reaches that edge (edgeRoutes). Where its route stops for good on track other lines run on (a relation that leaves the box, or ends at a gap no rejoin
 // spans: line 10 at (-850, 768), 7 and 8 at (-845, 9)), it takes the route of that track, as a diverted
 // tram would, rather than run on under the old number until respawned
 function turnRoute(e, route, lines) {
@@ -750,6 +750,7 @@ class TramPath {
     this.lines = lines; // GEO.tramRoutes, for turnRoute
     this.edges = new Array(PATH_CAP).fill(null);
     this.start = new Float64Array(PATH_CAP);
+    this.edgeRoutes = new Int32Array(PATH_CAP); // planned route at each edge, for the front display
     this.n = 0;
     this.u = 0; // the tram's front
     this.end = Infinity; // path coordinate of a dead end once the path has reached one
@@ -772,6 +773,7 @@ class TramPath {
     this.n = 0;
     for (let i = k - 1; i >= 0; i--) {
       this.edges[this.n] = _back[i];
+      this.edgeRoutes[this.n] = this.route;
       this.start[this.n] = acc;
       acc += _back[i].len;
       this.n++;
@@ -795,6 +797,7 @@ class TramPath {
       const next = pickBranch(last.next, this.route, rand);
       if (this.route >= 0 && this.lines && !routeAhead(next, this.route, ROUTE_REJOIN)) this.route = turnRoute(next, this.route, this.lines);
       this.edges[this.n] = next;
+      this.edgeRoutes[this.n] = this.route;
       this.start[this.n] = lastEnd;
       this.n++;
     }
@@ -806,6 +809,7 @@ class TramPath {
       const d = this.start[1];
       for (let i = 0; i + 1 < this.n; i++) {
         this.edges[i] = this.edges[i + 1];
+        this.edgeRoutes[i] = this.edgeRoutes[i + 1];
         this.start[i] = this.start[i + 1] - d;
       }
       this.n--;
@@ -1181,7 +1185,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     }
     if (traffic && !trackClear(path, t.length)) return false;
     t.active = true;
-    setLine(t, path.route);
+    setLine(t, path.edgeRoutes[path.indexAt(path.u)]);
     t.speed = Math.min(8, path.edges[path.indexAt(path.u)].street ? STREET_SPEED : TRACK_SPEED) * (0.4 + 0.6 * rand());
     t.acc = 0;
     t.atStop = false;
@@ -1805,7 +1809,8 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     }
     path.trim(t.length + 8);
     path.extend(LOOKAHEAD + 20, rand);
-    if (path.route !== t.route) setLine(t, path.route);
+    const frontRoute = path.edgeRoutes[path.indexAt(path.u)];
+    if (frontRoute !== t.route) setLine(t, frontRoute);
   }
 
   // Instance writes

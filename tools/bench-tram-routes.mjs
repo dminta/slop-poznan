@@ -14,7 +14,7 @@ if (!Number.isInteger(SEED) || SEED <= 0 || SEED >= 2147483647 || !Number.isInte
     !Number.isInteger(MINUTES) || MINUTES <= 0) throw new Error('Invalid seed, minutes or fps');
 
 // A sample is the front edge of each active tram once per simulated second, including the initial population.
-// A route is the displayed direction, which may change while the path is extended ahead of the front.
+// A route is the displayed direction, updated when the front reaches the selected route.
 const locations = [
   { name: 'Ostrów Tumski', x: 907.1, z: -246.5 },
   { name: 'Stare Miasto', x: 0, z: 0 },
