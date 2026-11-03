@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const test = require('node:test');
+const vm = require('node:vm');
 const { loadModule } = require('./helpers/module.cjs');
 
 // Absorbs every three.js / TSL call actor-models.js makes at load time (as in trams.test.cjs)
@@ -77,6 +78,54 @@ test('registration plates use a narrow font stack with Linux and Android fallbac
   assert.match(PLATE_FONT_FAMILY, /"Liberation Sans Narrow"/, 'Linux metric-compatible fallback');
   assert.match(PLATE_FONT_FAMILY, /"Roboto Condensed"/, 'Android system fallback');
   assert.match(PLATE_FONT_FAMILY, /sans-serif-condensed/, 'Android generic keyword');
+});
+
+test('NPC plate atlas uses the player font and preserves glyph proportions', () => {
+  const source = readFileSync(join(__dirname, '../js/actor-models.js'), 'utf8');
+  const player = readFileSync(join(__dirname, '../js/controllers.js'), 'utf8');
+  function context() {
+    const calls = [], stack = [];
+    let transform = { x: 0, y: 0, sx: 1, sy: 1 };
+    const ctx = {
+      measureText: (text) => ({ width: [...text].reduce((w, c) => w + (c === 'W' ? 100 : 60), 0) }),
+      fillRect() {}, beginPath() {}, arc() {}, fill() {}, stroke() {},
+      save() { stack.push({ ...transform }); },
+      restore() { transform = stack.pop(); },
+      translate(x, y) { transform.x += x * transform.sx; transform.y += y * transform.sy; },
+      scale(x, y) { transform.sx *= x; transform.sy *= y; },
+      fillText(text, x, y) { calls.push({ text, x: transform.x + x * transform.sx, y: transform.y + y * transform.sy,
+        sx: transform.sx, sy: transform.sy, font: this.font, baseline: this.textBaseline }); }
+    };
+    const canvas = { getContext: () => ctx };
+    return { calls, canvas };
+  }
+  const npc = context(), own = context();
+  const THREE = { CanvasTexture: class { constructor(image) { this.image = image; } } };
+  const draw = source.slice(source.indexOf('function carPlateGlyphTexture()'), source.indexOf('// Livery lettering'));
+  const makeTexture = vm.runInNewContext(`let _carPlateTexture; ${draw}; carPlateGlyphTexture`, {
+    document: { createElement: () => npc.canvas }, THREE, PLATE_FONT_FAMILY, PLATE_GLYPHS: GLYPHS
+  });
+  assert.equal(makeTexture(), makeTexture(), 'atlas is shared');
+  const playerDraw = player.slice(player.indexOf('const PLATE_W ='), player.indexOf('class ThirdPersonControllerManager'));
+  vm.runInNewContext(`${playerDraw}; createPolishLicensePlateTexture('PO', '4K217')`, {
+    document: { createElement: () => own.canvas }, THREE, PLATE_FONT_FAMILY
+  });
+  const district = own.calls.find((call) => call.text === 'PO');
+  const number = own.calls.find((call) => call.text === '4K217');
+  const glyph = npc.calls.find((call) => call.text === '0');
+  assert.equal(glyph.font, district.font);
+  assert.equal(glyph.baseline, district.baseline);
+  assert.ok(Math.abs(glyph.sy / npc.canvas.height - district.sy / own.canvas.height) < 0.001, 'same relative glyph height');
+  assert.ok(Math.abs(glyph.y / npc.canvas.height - district.y / own.canvas.height) < 0.001, 'same baseline');
+  assert.ok(glyph.sx > 0.85, 'ordinary glyphs are not excessively squeezed');
+  const wide = npc.calls.find((call) => call.text === 'W');
+  assert.ok(wide.sx < glyph.sx && wide.sy === glyph.sy, 'only wide glyphs are fitted horizontally');
+  const shader = source.slice(source.indexOf('function plateColor('), source.indexOf('/**\n * Creates the TSL material'));
+  const [, start, width] = shader.match(/plateU\.sub\(([\d.]+)\)\.div\(([\d.]+)\)/);
+  const npcExtent = Number(width) * 8;
+  const playerExtent = (number.x + 300 * number.sx - district.x) / own.canvas.width;
+  assert.ok(Math.abs(npcExtent - playerExtent) < 0.15, 'registration occupies a comparable plate width');
+  assert.ok(Number(start) + npcExtent <= 1, 'registration fits on the plate');
 });
 
 test('body classes have Polish-market proportions and unique material names', () => {

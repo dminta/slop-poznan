@@ -1280,20 +1280,26 @@ function encodeRegistration(text, out = new Float32Array(4)) {
   return out;
 }
 
-// One row of 32 glyph cells (40 x 64 px) in a narrow bold face, white on black (the material uses it as a mask)
+// One row of glyph cells, white on black (the material uses it as a mask).
 function carPlateGlyphTexture() {
   if (_carPlateTexture) return _carPlateTexture;
   const canvas = document.createElement('canvas');
-  canvas.width = 40 * PLATE_GLYPHS.length;
-  canvas.height = 64;
   const ctx = canvas.getContext('2d');
+  const font = `700 110px ${PLATE_FONT_FAMILY}`;
+  // At plate scale, a shader cell is 56.16 mm wide and the plate is 114 mm high.
+  // Use the player's 110 mm type and baseline, fitting only glyphs wider than a cell.
+  const cellWidth = 56;
+  canvas.width = cellWidth * PLATE_GLYPHS.length;
+  canvas.height = 114;
   ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = '#ffffff';
-  ctx.font = `bold 62px ${PLATE_FONT_FAMILY}`;
+  ctx.font = font;
   ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  for (let k = 0; k < PLATE_GLYPHS.length; k++) fitText(ctx, PLATE_GLYPHS[k], k * 40 + 20, 34, 29);
+  ctx.textBaseline = 'alphabetic';
+  for (let k = 0; k < PLATE_GLYPHS.length; k++) {
+    fitText(ctx, PLATE_GLYPHS[k], (k + 0.5) * cellWidth, canvas.height / 2 + 39, cellWidth - 2);
+  }
   _carPlateTexture = new THREE.CanvasTexture(canvas);
   _carPlateTexture.anisotropy = 4;
   return _carPlateTexture;
