@@ -78,7 +78,7 @@ mix -> DynamicsCompressor -> master(gain, ramps to 0.65) -> destination
   golden-ratio offset so identical loops do not phase-lock.
 - Per-source distance fade: emitter gain uses a smoothstep over the last 30 % of `source.range`. `emit()` drops
   an event outright if it is beyond its kind's range (crash range scales with severity).
-- Emergency vehicles (`isPolice`: Policja, ambulances, fire service) get two records: a normal motor and a `siren`
+- The six emergency vehicles (`isPolice`: 3 Policja, 2 ambulances, 1 fire truck) get two records: a normal motor and a `siren`
   (in `sources.sirens`, its own pool and range). The `siren` voice is the Polish two-tone hi-lo (435 / 580 Hz, 0.55 s
   each, a stepped square control wave through `resources.sirenTwoTone`) with a fast wail (650–1450 Hz, 2 sweeps a
   second) for 6 s in every 30 s, offset per vehicle (`SIREN`, `sirenWailing`; `tests/audio-siren.test.cjs`).

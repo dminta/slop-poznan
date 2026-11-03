@@ -137,3 +137,24 @@ test('buses recover after blocked placements without increasing density or the p
   assert.equal(h.active().length, h.target());
   assert.ok(h.buses.some((v) => v.edge), 'buses receive places after the obstruction clears at the same focus');
 });
+
+test('emergency liveries are distinct and freed slots follow the ordinary mix', () => {
+  const start = source.indexOf('    const livery =', source.indexOf('  for (let i = 0; i < NUM_CARS; i++)'));
+  const end = source.indexOf('    bodyCounts[bodyType]++;', start);
+  assert.ok(start >= 0 && end > start, 'vehicle mix is present');
+  const mix = source.slice(start, end);
+  const classify = vm.runInNewContext(`(i) => { ${mix} return { livery, isTaxi, bodyType }; }`, {
+    PRIVATE_MIX: [['hatch', 0.38], ['estate', 0.24], ['crossover', 0.28], ['van', 0.1]]
+  });
+  const cars = Array.from({ length: 200 }, (_, i) => classify(i));
+  for (const [livery, indices, body] of [[1, [6, 86, 166], 'estate'], [2, [18, 118], 'van'],
+    [3, [42], 'fireTruck']]) {
+    assert.deepEqual(cars.flatMap((car, i) => car.livery === livery ? [i] : []), indices);
+    assert.ok(indices.every((i) => cars[i].bodyType === body && !cars[i].isTaxi));
+  }
+  for (const i of [46, 126, 68, 168, 142]) {
+    assert.equal(cars[i].livery, 0);
+    assert.equal(cars[i].isTaxi, i % 8 === 0);
+    assert.equal(cars[i].bodyType === 'taxi', i % 8 === 0);
+  }
+});

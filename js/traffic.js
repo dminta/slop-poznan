@@ -329,8 +329,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   const barCounts = { estate: 0, van: 0, fireTruck: 0 };
 
   for (let i = 0; i < NUM_CARS; i++) {
-    // 5 Policja, 4 ambulances, 2 fire service trucks; the livery wins over the taxi rule (index 168)
-    const livery = (i % 40) === 6 ? 1 : (i % 50) === 18 ? 2 : (i % 100) === 42 ? 3 : 0;
+    // 3 Policja, 2 ambulances, 1 fire service truck; emergency liveries take precedence over the taxi rule
+    const livery = (i % 80) === 6 ? 1 : (i % 100) === 18 ? 2 : (i % 200) === 42 ? 3 : 0;
     // Every emergency vehicle uses its siren and the police signal privileges (isPolice: traffic.js signal logic,
     // audio-sources.js siren)
     const isPolice = livery > 0;
@@ -425,8 +425,9 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     }
   }
 
-  // Blue emergency roof light bars, one mesh per body that carries them (the estate's Policja, the van's PRM and PSP;
-  // the liveries are painted by the body materials from the instance's carState). `drawn` counts the slots per frame.
+  // Blue emergency roof light bars, one mesh per body that carries them (the estate's Policja, the van's PRM and the fire
+  // truck's PSP; the liveries are painted by the body materials from the instance's carState). `drawn` counts the slots
+  // per frame.
   const lightbars = {};
   for (const kind of Object.keys(barCounts)) {
     const inst = new THREE.InstancedMesh(buildLightbarGeometry(BODY_SPECS[kind]), createLightbarMaterial(), Math.max(1, barCounts[kind]));
