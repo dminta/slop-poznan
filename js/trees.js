@@ -516,6 +516,9 @@ function coverageMips(level0, width, height, tilesX, tilesY, cutoff = 128) {
 //    droop: down, growing toward the tips), leaf cards per twig (scale, droop) and the per-tree foliage tints (sRGB).
 //    Scale 1 is a mature park tree; street trees are planted smaller.
 // =====================================================================================================================
+// Mature scale 1 horizontal crown radius per species (0: lime, 1: maple, 2: chestnut, 3: robinia)
+const SPECIES_CROWN_R = [4.53, 4.74, 6.07, 4.55];
+
 const SPECIES = [
   { // 0: Lime (lipa): straight trunk and leader with many slim ascending limbs, a dense egg-shaped dome of small
     //    leaves whose outer twigs hang a little; Poznań's commonest street and park tree
@@ -1183,4 +1186,12 @@ function createTreeField(scene, sites) {
   return { group, material, atlas, update, meshes: instanced, stats };
 }
 
-export { createTreeField, createLeafAtlas, buildTreeGeometries, coverageMips, treeSpecies, SPECIES as TREE_SPECIES };
+export {
+  createTreeField,
+  createLeafAtlas,
+  buildTreeGeometries,
+  coverageMips,
+  treeSpecies,
+  SPECIES as TREE_SPECIES,
+  SPECIES_CROWN_R
+};

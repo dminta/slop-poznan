@@ -596,6 +596,109 @@ const BLOCKS = GEO.blocks.map(([flat, rects, park, parkName, isRect, frames], id
     median: Math.min(maxX - minX, maxZ - minZ) < 9
   };
 });
+
+// Park outlines (GEO.parks rings, flat [x, z, ...]) with bounding boxes, shared across city-grid and buildings
+const PARK_RINGS = (GEO.parks || []).flatMap((p) => p.rings || []).map((r) => {
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (let i = 0; i + 1 < r.length; i += 2) {
+    x0 = Math.min(x0, r[i]); x1 = Math.max(x1, r[i]);
+    z0 = Math.min(z0, r[i + 1]); z1 = Math.max(z1, r[i + 1]);
+  }
+  return { x0, x1, z0, z1, r };
+});
+
+function inParkRing(r, x, z) {
+  let ins = false;
+  for (let i = 0, j = r.length - 2; i < r.length; j = i, i += 2) {
+    const xi = r[i], zi = r[i + 1], xj = r[j], zj = r[j + 1];
+    if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) ins = !ins;
+  }
+  return ins;
+}
+
+const PARK_CELL = 20;
+
+function pointInPark(x, z) {
+  return PARK_RINGS.some((p) => x > p.x0 && x < p.x1 && z > p.z0 && z < p.z1 && inParkRing(p.r, x, z));
+}
+
+function pieceInPark(x0, x1, z0, z1, xf = null) {
+  const toWorld = (x, z) => (xf
+    ? [xf.px + (x - xf.px) * xf.cs + (z - xf.pz) * xf.sn, xf.pz - (x - xf.px) * xf.sn + (z - xf.pz) * xf.cs]
+    : [x, z]);
+  if (pointInPark(...toWorld((x0 + x1) * 0.5, (z0 + z1) * 0.5))) return true;
+  const corners = [[x0 + 2, z0 + 2], [x1 - 2, z0 + 2], [x1 - 2, z1 - 2], [x0 + 2, z1 - 2]];
+  return corners.filter(([x, z]) => pointInPark(...toWorld(x, z))).length >= 2;
+}
+
+function parkFreeCells(x0, x1, z0, z1, xf = null) {
+  if (!pieceInPark(x0, x1, z0, z1, xf)) return [[x0, x1, z0, z1]];
+  const nx = Math.ceil((x1 - x0) / PARK_CELL);
+  const nz = Math.ceil((z1 - z0) / PARK_CELL);
+  const out = [];
+  for (let i = 0; i < nx; i++) {
+    for (let j = 0; j < nz; j++) {
+      const c = [
+        x0 + ((x1 - x0) * i) / nx,
+        x0 + ((x1 - x0) * (i + 1)) / nx,
+        z0 + ((z1 - z0) * j) / nz,
+        z0 + ((z1 - z0) * (j + 1)) / nz
+      ];
+      if (!pieceInPark(...c, xf)) out.push(c);
+    }
+  }
+  return out;
+}
+
+const DEEP_LOT = 95;
+function splitDeep(r) {
+  const [x0, x1, z0, z1] = r;
+  const d = z1 - z0;
+  if (d <= DEEP_LOT) return [r];
+  const gap = 9;
+  const n = Math.max(2, Math.round((d + gap) / (64 + gap)));
+  const s = (d - gap * (n - 1)) / n;
+  const out = [];
+  for (let k = 0; k < n; k++) out.push([x0, x1, z0 + k * (s + gap), z0 + k * (s + gap) + s]);
+  return out;
+}
+
+function blockLots(b) {
+  if (!b.buildings || b.median) return [];
+  const minLot = b.frames ? 12 : 15;
+  const lots = [];
+  for (const [th, px, pz, rects] of b.frames || [[0, 0, 0, b.rects]]) {
+    const xf = th ? { th, cs: Math.cos(th), sn: Math.sin(th), px, pz } : null;
+    const toWorld = (x, z) => (xf
+      ? [xf.px + (x - xf.px) * xf.cs + (z - xf.pz) * xf.sn, xf.pz - (x - xf.px) * xf.sn + (z - xf.pz) * xf.cs]
+      : [x, z]);
+    for (const r of rects) {
+      for (const piece of splitDeep(r)) {
+        for (const [x0, x1, z0, z1] of (b.park > 0 ? parkFreeCells(...piece, xf) : [piece])) {
+          if (x1 - x0 < minLot || z1 - z0 < minLot) continue;
+          const [cx, cz] = toWorld((x0 + x1) * 0.5, (z0 + z1) * 0.5);
+          const hx = (x1 - x0) * 0.5, hz = (z1 - z0) * 0.5;
+          lots.push({ xf, x0, x1, z0, z1, cx, cz, hx, hz, cs: xf ? xf.cs : 1, sn: xf ? xf.sn : 0 });
+        }
+      }
+    }
+  }
+  return lots;
+}
+
+function distToLots(tx, tz, lots) {
+  let minDist = Infinity;
+  for (const lot of lots) {
+    const { cx, cz, hx, hz, cs, sn } = lot;
+    const ox = tx - cx, oz = tz - cz;
+    const lx = ox * cs - oz * sn, lz = ox * sn + oz * cs;
+    const ax = Math.abs(lx), az = Math.abs(lz);
+    if (ax <= hx && az <= hz) return 0;
+    const d = Math.hypot(Math.max(0, ax - hx), Math.max(0, az - hz));
+    if (d < minDist) minDist = d;
+  }
+  return minDist;
+}
 // Curb islands and medians crossing tram tracks: cut empty islands/medians and built blocks whose perimeter
 // intersects tram tracks to keep tracks clear of 0.22 m slabs.
 // Share the exact corridor with city-grid's slab subtraction so height queries (rails, pedestrians and the player)
@@ -1421,5 +1524,11 @@ export {
   requestWalkSignal,
   configurePedestrianSignal,
   signalPhase,
-  walkSignal
+  walkSignal,
+  PARK_RINGS,
+  pointInPark,
+  parkFreeCells,
+  splitDeep,
+  blockLots,
+  distToLots
 };

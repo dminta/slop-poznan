@@ -21,7 +21,19 @@ import {
   mx_noise_float,
   mx_worley_noise_float
 } from 'three/tsl';
-import { CITY_BOUNDS, BLOCKS, BRIDGES, LANDMARK_SITES, PLAZAS, SPAWN, SRODKA_MURAL, blockAt } from './city-config.js';
+import {
+  CITY_BOUNDS,
+  BLOCKS,
+  BRIDGES,
+  LANDMARK_SITES,
+  PLAZAS,
+  SPAWN,
+  SRODKA_MURAL,
+  blockAt,
+  pointInPark,
+  parkFreeCells,
+  splitDeep
+} from './city-config.js';
 import {
   createPreWarBuildingMaterial,
   createCurtainWallMaterial,
@@ -261,6 +273,7 @@ function buildCityBlocks(scene) {
   let srcBlock = null; // the BLOCKS entry being populated (its curb outline gives the lot rects' frontages)
   let srcRects = []; // its lot rects { x0, x1, z0, z1 } in their frames { cs, sn, px, pz } (see frontages)
   let srcLotArea = 0; // the area of the lot pieces it builds on (m², see steerProfile)
+  let fullLotArea = 0; // lot area before park carve-out (m², see steerProfile)
   const toWorld = (x, z) => (xf
     ? [xf.px + (x - xf.px) * xf.cs + (z - xf.pz) * xf.sn, xf.pz - (x - xf.px) * xf.sn + (z - xf.pz) * xf.cs]
     : [x, z]);
@@ -1834,7 +1847,9 @@ function buildCityBlocks(scene) {
     // building:levels), and the 37 ha of such blocks over 0.8 ha are meadows, allotments and building sites (the
     // Naramowice bank of the Warta, 17 ha). Built at half the profile's share they added 5 ha that is not there
     if (!b.buildings && !(b.built > 0.01)) return { ...cfg, skipP: 1 };
-    const T = b.built;
+    const T = (b.park > 0.6 && cfg.kind !== 'villas' && srcLotArea > 0 && fullLotArea > 0)
+      ? (b.built * fullLotArea) / srcLotArea
+      : b.built;
     if (cfg.kind === 'villas') {
       // Villas stand 1-3 storeys: 1-2 on blocks of bungalows and garages, 2 on a 2-storey median, 2-3 above it
       const lv = Math.round(b.levels);
@@ -2290,28 +2305,11 @@ function buildCityBlocks(scene) {
     }
     return parts;
   }
-  // Park outlines (GEO.parks rings, flat [x, z, ...]) with their bounds, for the leftover-slab test below
-  const PARK_RINGS = (GEO.parks || []).flatMap((p) => p.rings || []).map((r) => {
-    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
-    for (let i = 0; i + 1 < r.length; i += 2) {
-      x0 = Math.min(x0, r[i]); x1 = Math.max(x1, r[i]);
-      z0 = Math.min(z0, r[i + 1]); z1 = Math.max(z1, r[i + 1]);
-    }
-    return { r, x0, x1, z0, z1 };
-  });
-  function inRing(r, x, z) {
-    let inside = false;
-    for (let i = 0, j = r.length - 2; i < r.length; j = i, i += 2) {
-      const xi = r[i], zi = r[i + 1], xj = r[j], zj = r[j + 1];
-      if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
-    }
-    return inside;
-  }
   // A world rect on a landmark reserve or inside a park (its centre or a corner in a park outline)
   function overlapsParkOrLandmark(minX, maxX, minZ, maxZ) {
     if (LANDMARK_RESERVE.some((h) => hitR(h, minX, maxX, minZ, maxZ))) return true;
     const probes = [[(minX + maxX) * 0.5, (minZ + maxZ) * 0.5], [minX, minZ], [maxX, minZ], [maxX, maxZ], [minX, maxZ]];
-    return PARK_RINGS.some((p) => p.x0 < maxX && p.x1 > minX && p.z0 < maxZ && p.z1 > minZ && probes.some(([x, z]) => inRing(p.r, x, z)));
+    return probes.some(([x, z]) => pointInPark(x, z));
   }
 
   // ============================================================================
@@ -2319,45 +2317,8 @@ function buildCityBlocks(scene) {
   //    osiedle. Rectangular blocks are lot rects in the world frame; irregular ones come with frontage frames: lot
   //    rects laid out along each street they front, filled in the frame and turned into place.
   // ============================================================================
-  // Superblocks (estates, campuses, rail-side yards) are cut into strips about a street block deep with a ~9 m passage between them, so no lot (and no building) runs 100+ m deep
-  const DEEP_LOT = 95;
-  function splitDeep(r) {
-    const [x0, x1, z0, z1] = r;
-    const d = z1 - z0;
-    if (d <= DEEP_LOT) return [r];
-    const gap = 9;
-    const n = Math.max(2, Math.round((d + gap) / (64 + gap)));
-    const s = (d - gap * (n - 1)) / n;
-    const out = [];
-    for (let k = 0; k < n; k++) out.push([x0, x1, z0 + k * (s + gap), z0 + k * (s + gap) + s]);
-    return out;
-  }
-  // Blocks that are partly park (up to 60%; the rest are park blocks, city-grid.js lays them out as parks): the lot
-  // rects ignore the park outline, so a piece touching a park is cut into cells of about PARK_CELL and only the cells
-  // clear of every park ring are built. Without it 0.42 km² of buildings stood in parks (Park Mazowieckiego, the
-  // osiedle parks of Rataje)
-  // A cell counts as park when its centre or two of its four corner probes (2 m in) are: with any one probe, 40 m
-  // cells threw away 42.6 k m² of non-park land round Królowej Jadwigi alone
-  const PARK_CELL = 20;
-  function pieceInPark(x0, x1, z0, z1) {
-    const inPark = ([x, z]) => PARK_RINGS.some((p) => x > p.x0 && x < p.x1 && z > p.z0 && z < p.z1 && inRing(p.r, x, z));
-    if (inPark(toWorld((x0 + x1) * 0.5, (z0 + z1) * 0.5))) return true;
-    const corners = [[x0 + 2, z0 + 2], [x1 - 2, z0 + 2], [x1 - 2, z1 - 2], [x0 + 2, z1 - 2]];
-    return corners.filter(([x, z]) => inPark(toWorld(x, z))).length >= 2;
-  }
-  function parkFreeCells(x0, x1, z0, z1) {
-    if (!pieceInPark(x0, x1, z0, z1)) return [[x0, x1, z0, z1]];
-    const nx = Math.ceil((x1 - x0) / PARK_CELL);
-    const nz = Math.ceil((z1 - z0) / PARK_CELL);
-    const out = [];
-    for (let i = 0; i < nx; i++) {
-      for (let j = 0; j < nz; j++) {
-        const c = [x0 + (x1 - x0) * i / nx, x0 + (x1 - x0) * (i + 1) / nx, z0 + (z1 - z0) * j / nz, z0 + (z1 - z0) * (j + 1) / nz];
-        if (!pieceInPark(...c)) out.push(c);
-      }
-    }
-    return out;
-  }
+  // Superblocks (estates, campuses, rail-side yards) are cut into strips about a street block deep
+  // with a ~9 m passage between them, so no lot (and no building) runs 100+ m deep (splitDeep in city-config)
   for (const b of BLOCKS) {
     if ((b.park > 0.6 && !b.buildings) || b.median) continue;
     minLot = b.frames ? 12 : 15;
@@ -2367,12 +2328,16 @@ function buildCityBlocks(scene) {
     // The block's pieces first: their area is the lot area the villa layouts steer by (srcLotArea)
     const pieces = [];
     srcLotArea = 0;
+    fullLotArea = 0;
     for (const [th, px, pz, rects] of b.frames || [[0, 0, 0, b.rects]]) {
       xf = th ? { th, cs: Math.cos(th), sn: Math.sin(th), px, pz } : null;
       for (const r of rects) {
         for (const part of minusReserves(r)) {
           for (const piece of splitDeep(part)) {
-            for (const [x0, x1, z0, z1] of (b.park > 0 && b.park <= 0.6) ? parkFreeCells(...piece) : [piece]) {
+            if (piece[1] - piece[0] >= minLot && piece[3] - piece[2] >= minLot) {
+              fullLotArea += (piece[1] - piece[0]) * (piece[3] - piece[2]);
+            }
+            for (const [x0, x1, z0, z1] of (b.park > 0) ? parkFreeCells(...piece, xf) : [piece]) {
               if (x1 - x0 < minLot || z1 - z0 < minLot) continue;
               pieces.push([xf, x0, x1, z0, z1]);
               srcLotArea += (x1 - x0) * (z1 - z0);
@@ -2391,6 +2356,7 @@ function buildCityBlocks(scene) {
   srcBlock = null;
   srcRects = [];
   srcLotArea = 0;
+  fullLotArea = 0;
 
   // B6. Narrow leftover slabs no building fits on (8-26 m wide: wedges between converging streets, slivers by the
   //     bridge approaches) become sitting areas: a row or two of street trees in tree pits (planted by

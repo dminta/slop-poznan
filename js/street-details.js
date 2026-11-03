@@ -4,7 +4,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { SIGNAL_SITES, SIGNAL_PLANS, updateSignal, JUNCTIONS, blockAt, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES } from './city-config.js';
 import { CROSSWALK, CROSSWALK_REACH, STOP_SETBACK } from './road-network.js';
 import { cityUniforms, createTreeGrateMaterial } from './tsl-materials.js';
-import { createTreeField } from './trees.js';
+import { createTreeField, SPECIES_CROWN_R } from './trees.js';
 import { pavedPlazaRects, parkTreeSites, parkLampSites, clearOfRails } from './city-grid.js';
 
 // js/street-details.js
@@ -214,7 +214,8 @@ function createWalkSignalMaterial(clock, isAvenue, figureTex, stateTexture) {
   return mat;
 }
 
-function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
+function buildStreetDetails(scene, opts = {}) {
+  const { buildingColliders = [], grid, propColliders = grid?.propColliders } = opts;
   const group = new THREE.Group();
   group.name = 'StreetDetails';
 
@@ -1307,11 +1308,73 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   // 4. TREES: PARKS, SQUARES & PLAZAS, AND STREET TREES ALONG THE CURBS
   //    (one unified trunk + crown instanced mesh per species & band, js/trees.js)
   // =========================================================================
+  const TREE_WALL_CELL = 32;
+  const treeWallGrid = new Map();
+  for (const c of buildingColliders) {
+    const ix0 = Math.floor(c.minX / TREE_WALL_CELL), ix1 = Math.floor(c.maxX / TREE_WALL_CELL);
+    const iz0 = Math.floor(c.minZ / TREE_WALL_CELL), iz1 = Math.floor(c.maxZ / TREE_WALL_CELL);
+    for (let ix = ix0; ix <= ix1; ix++) {
+      for (let iz = iz0; iz <= iz1; iz++) {
+        const k = ix * 100000 + iz;
+        const list = treeWallGrid.get(k);
+        if (list) list.push(c);
+        else treeWallGrid.set(k, [c]);
+      }
+    }
+  }
+
+  function isClearOfWalls(x, z, scale, species, squeezeTowardWall = 1, treeY = 0.22, tier = 1) {
+    if (!treeWallGrid.size) return true;
+    const baseR = (SPECIES_CROWN_R && SPECIES_CROWN_R[species]) || 4.6;
+    const crownR = baseR * scale * squeezeTowardWall;
+    const floor = tier === 2 ? 0.5 : 1.2;
+    const req = Math.max(crownR, floor);
+    const radCells = Math.ceil((req + 0.5) / TREE_WALL_CELL);
+    const cix = Math.floor(x / TREE_WALL_CELL), ciz = Math.floor(z / TREE_WALL_CELL);
+    const topY = treeY + 13.0 * scale;
+    const seen = new Set();
+    for (let dx = -radCells; dx <= radCells; dx++) {
+      for (let dz = -radCells; dz <= radCells; dz++) {
+        const list = treeWallGrid.get((cix + dx) * 100000 + (ciz + dz));
+        if (!list) continue;
+        for (const c of list) {
+          if (seen.has(c)) continue;
+          seen.add(c);
+          if ((c.maxY !== undefined && c.maxY < treeY) || (c.minY !== undefined && c.minY > topY)) continue;
+          let d;
+          if (c.obb) {
+            const { cx, cz, hx, hz, cs, sn } = c.obb;
+            const ox = x - cx, oz = z - cz;
+            const lx = ox * cs - oz * sn, lz = ox * sn + oz * cs;
+            const ax = Math.abs(lx), az = Math.abs(lz);
+            if (ax <= hx && az <= hz) return false;
+            d = Math.hypot(Math.max(0, ax - hx), Math.max(0, az - hz));
+          } else {
+            const cx = (c.minX + c.maxX) * 0.5, cz = (c.minZ + c.maxZ) * 0.5;
+            const hx = (c.maxX - c.minX) * 0.5, hz = (c.maxZ - c.minZ) * 0.5;
+            const ax = Math.abs(x - cx), az = Math.abs(z - cz);
+            if (ax <= hx && az <= hz) return false;
+            d = Math.hypot(Math.max(0, ax - hx), Math.max(0, az - hz));
+          }
+          if (d < req) return false;
+        }
+      }
+    }
+    return true;
+  }
+
   const treePositions = []; // { x, y, z, scale, species (0 lime, 1 Norway maple, 2 horse chestnut; trees.js can reassign 3 black locust) }
   const mixSpecies = (r, lime, maple) => (r < lime ? 0 : (r < lime + maple ? 1 : 2));
 
   // A. The parks, squares & plazas (sites laid out by city-grid.js, plus buildings.js's leftover slabs)
-  for (const s of parkTreeSites || []) treePositions.push(s);
+  for (const s of parkTreeSites || []) {
+    if (isClearOfWalls(s.x, s.z, s.scale, s.species, 1.0, s.y || 0.41, s.tier || 1)) {
+      treePositions.push(s);
+    } else if (s.collider && propColliders) {
+      const idx = propColliders.indexOf(s.collider);
+      if (idx !== -1) propColliders.splice(idx, 1);
+    }
+  }
 
   // B. Street trees on the raised sidewalks of every real block, along each curb edge: small trees close to the curb
   //    on the narrow streets (a block across within ~14 m), limes, maples & chestnuts on the wider ones (trees.js also selects black locust), with random
@@ -1346,13 +1409,39 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
     const t0 = (len - (n - 1) * TREE_SP) * 0.5;
     for (let i = 0; i < n; i++) {
       const u = (t0 + i * TREE_SP + (hashPos(i, p0.z, p0.x) - 0.5) * 1.6) / len;
-      const x = p0.x + dx * u + inx * inset;
-      const z = p0.z + dz * u + inz * inset;
+      let x = p0.x + dx * u + inx * inset;
+      let z = p0.z + dz * u + inz * inset;
       const r = hashPos(x, 6.1, z);
       if (r < thin) continue;
       const species = narrow ? 1 : mixSpecies(hashPos(z, 2.9, x), 0.4, 0.35);
       const scale = narrow ? 0.54 + r * 0.1 : 0.6 + r * 0.24;
-      addStreetTree(x, z, scale, species, acrossX, { tier: narrow ? 2 : 1, pitRot, grate: !narrow, pitS: narrow ? 0.7 : 1, squeeze: narrow ? 0.7 : 0.82 });
+      const tier = narrow ? 2 : 1;
+      const squeeze = narrow ? 0.7 : 0.82;
+
+      if (!onSidewalk(x, z) || inPlaza(x, z, 1.5) || !isClearOfPoles(x, z, 2.2) ||
+          !clearOfRails(x, z, 0.4 * scale)) continue;
+
+      if (!isClearOfWalls(x, z, scale, species, squeeze, SIDEWALK_Y, tier)) {
+        let placed = false;
+        for (const s of [-0.4, 0.4, -0.8, 0.8, -1.2, 1.2, -1.6, 1.6]) {
+          const su = u + s / len;
+          if (su < 0.02 || su > 0.98) continue;
+          const sx = p0.x + dx * su + inx * inset;
+          const sz = p0.z + dz * su + inz * inset;
+          if (!onSidewalk(sx, sz) || inPlaza(sx, sz, 1.5) || !isClearOfPoles(sx, sz, 2.2) ||
+              !clearOfRails(sx, sz, 0.4 * scale)) continue;
+          if (!isClearOfWalls(sx, sz, scale, species, squeeze, SIDEWALK_Y, tier)) continue;
+          x = sx;
+          z = sz;
+          placed = true;
+          break;
+        }
+        if (!placed) continue;
+      }
+
+      addStreetTree(x, z, scale, species, acrossX, {
+        tier, pitRot, grate: !narrow, pitS: narrow ? 0.7 : 1, squeeze
+      });
     }
   }
   console.info(`[streetDetails] ${treePositions.length} trees (${sidewalkTreePositions.length} street trees)`);

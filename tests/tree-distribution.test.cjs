@@ -35,22 +35,22 @@ test('seeded species assignment preserves the full built city tree sites and col
   });
   const grid = gridModule.buildCityGrid(stub);
   const liveGrid = { ...gridModule, ...gridModule.snapshot() };
-  loadModule(source('buildings'), { imports: { ...rendering, './balconies.js': stub, './roofs.js': stub,
+  const bld = loadModule(source('buildings'), { imports: { ...rendering, './balconies.js': stub, './roofs.js': stub,
     './city-config.js': config, './geodata.js': { GEO }, './city-grid.js': liveGrid }, globals }).buildCityBlocks(stub);
   let sites;
   const details = loadModule(source('street-details'), { imports: { ...rendering, './city-config.js': config,
     './road-network.js': { CROSSWALK: 4.3, CROSSWALK_REACH: 3, STOP_SETBACK: 1.5 }, './city-grid.js': liveGrid,
     './trees.js': { createTreeField: (_scene, trees) => { sites = trees; return { group: stub }; } } }, globals
-  }).buildStreetDetails(stub);
+  }).buildStreetDetails(stub, { buildingColliders: bld.colliders, grid });
   const { treeSpecies } = loadModule(source('trees'), { imports: { 'three/webgpu': stub, './tsl-materials.js': stub }, globals });
   const before = [0, 0, 0, 0], after = [0, 0, 0, 0];
   const siteHash = digest(sites);
   for (const site of sites) { before[site.species || 0]++; after[treeSpecies(site)]++; }
   assert.equal(digest(sites), siteHash, 'assignment must not mutate sites');
-  assert.deepEqual(before, [21647, 23712, 10022, 0]);
-  assert.deepEqual(after, [20759, 22767, 9606, 2249]);
-  assert.equal(siteHash, '84ec6b05e44ea7136281b6d415de7c112eeef5afda27f7cdaa899e23f68d4326');
-  assert.equal(digest(grid.propColliders), '0d55e73c6f333753106cff2358b9e442a8af926225de32df674983d56eeb9340');
+  assert.deepEqual(before, [18692, 22657, 8743, 0]);
+  assert.deepEqual(after, [17926, 21752, 8385, 2029]);
+  assert.equal(siteHash, '82498dfed1b4ed043d9a818c01fae8ff52bd861644094d532ce97ce8361ec136');
+  assert.equal(digest(grid.propColliders), '595aa79cda8176bb4669e628f78decf25c5d6893f0ee33835d18970cae412d01');
   assert.equal(digest(details.colliders), 'bc1e52a7c361ba5d6d5b66f0728bd71edfb75ccad06df4506020fa86f5c741dc');
   const meshCount = (pick) => {
     const types = new Set();
@@ -63,8 +63,8 @@ test('seeded species assignment preserves the full built city tree sites and col
     }
     return types.size;
   };
-  assert.equal(meshCount((t) => t.species || 0), 14155);
-  assert.equal(meshCount(treeSpecies), 17283);
+  assert.equal(meshCount((t) => t.species || 0), 13850);
+  assert.equal(meshCount(treeSpecies), 16793);
 });
 
 // Exercise the real field's transform, allocation and regrouping with cheap stand-ins for the generated geometries.

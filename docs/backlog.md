@@ -1,8 +1,20 @@
 # Poznań backlog
 
-Updated 2026-11-02. The port and documentation cleanup are implemented; the remaining work is below.
+Updated 2026-11-03. The port and documentation cleanup are implemented; the remaining work is below.
 Implementation details live in the [topic docs](../AGENTS.md#docs). Original phase numbers refer to the
 [archived port plan](archive/poznan-plan.md), which retains historical measurements and decisions.
+
+## Tree-building clearance implemented
+
+The user reported buildings overlapping trees. 41 park blocks with buildings were built over completely on top of
+their park trees and paving, and street trees never checked building colliders. Park blocks with buildings now build
+only on cells clear of their parks (`parkFreeCells`), and every tree keeps its trunk at least its crown radius from
+any building, landmark or bridge wall, with BS 5837:2012 Table A.1 floors of 1.2 m (large) and 0.5 m (narrow-street
+trees); street trees that fail slide along the curb before being dropped. Headless: 55,381 → 50,019 trees, trunks
+inside walls 1,721 → 0, crowns overlapping walls 4,062 → 0, no orphan trunk colliders. The 41 blocks build 3.46% of
+their area against 4.39% real (6.64% before). Park paving is still drawn under their buildings; three planter boxes
+lost their trees and stand empty. Browser checks remain. Details:
+[observation record](observations/tree-building-clearance-2026-11-03.md).
 
 ## Park surfaces and road clearance: further review
 
@@ -452,8 +464,8 @@ plaza strips and six street-details poles on narrow wedges and tram cuts also mo
 face to the pole surface is a design choice, not a statutory figure.
 
 Headless measurement against the drawn curb (`tools/audit-lamp-curb.mjs`, pole surface clearance): park lamps
-2,281 → 2,331, under 0.5 m 2,250 → 0 (worst −0.16 → 0.53 m), 129 of them on the lawn; Za Cytadelą park side 22 lamps
-at 0.87–0.90 m; square lamps 642, under 0.5 m 5 → 0; street-details 15,645 (2,059 main, 12,512 side, 1,074 gas),
-under 0.5 m 5 → 0. Park and square lamps are player colliders only; the strongly connected network is unchanged at
-8,509 edges / 424.641 km. `tests/streetlight-curb-clearance.test.cjs` covers all lamp types. Browser appearance remains
-unverified.
+2,281 → 2,332 (with the tree clearance change), under 0.5 m 2,250 → 0 (worst −0.16 → 0.53 m), about 130 on the
+lawn; Za Cytadelą park side 22 lamps at 0.87–0.90 m; square lamps 642, under 0.5 m 5 → 0; street-details 15,645
+(2,059 main, 12,512 side, 1,074 gas), under 0.5 m 5 → 0. Park and square lamps are player colliders only; the strongly
+connected network is unchanged at 8,509 edges / 424.641 km. `tests/streetlight-curb-clearance.test.cjs` covers all
+lamp types. Browser appearance remains unverified.

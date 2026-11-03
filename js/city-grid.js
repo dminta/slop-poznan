@@ -9,7 +9,9 @@ import {
   BLOCKS,
   UNDERPASS_SIDEWALKS,
   blockAt,
-  distToWater
+  distToWater,
+  blockLots,
+  distToLots
 } from './city-config.js';
 import { GEO } from './geodata.js';
 import {
@@ -870,14 +872,17 @@ function buildCityGrid(scene) {
   const propColliders = [];
   function addPropCollider(x, z, hx, hz, maxY, rotY = 0) {
     if (!rotY) {
-      propColliders.push({ minX: x - hx, maxX: x + hx, minZ: z - hz, maxZ: z + hz, maxY });
-      return;
+      const c = { minX: x - hx, maxX: x + hx, minZ: z - hz, maxZ: z + hz, maxY };
+      propColliders.push(c);
+      return c;
     }
     // local x maps to world (cos, -sin) under a three.js y rotation, local z to (sin, cos): the controllers' obb frame
     const cs = Math.cos(rotY), sn = Math.sin(rotY);
     const ex = Math.abs(cs) * hx + Math.abs(sn) * hz;
     const ez = Math.abs(sn) * hx + Math.abs(cs) * hz;
-    propColliders.push({ minX: x - ex, maxX: x + ex, minZ: z - ez, maxZ: z + ez, maxY, obb: { cx: x, cz: z, hx, hz, cs, sn } });
+    const c = { minX: x - ex, maxX: x + ex, minZ: z - ez, maxZ: z + ez, maxY, obb: { cx: x, cz: z, hx, hz, cs, sn } };
+    propColliders.push(c);
+    return c;
   }
   const prand = (x, z, k = 0) => {
     const s = Math.sin(x * 12.9898 + z * 78.233 + k * 37.719) * 43758.5453;
@@ -1066,6 +1071,7 @@ function buildCityGrid(scene) {
     const SP = b.area > 20000 ? 14 : 11;
     const parkTree0 = treeSites.length;
     const inner = lawnTop || bed;
+    const bLots = b.buildings > 0 ? blockLots(b) : [];
     for (let gx = b.minX + SP * 0.5; gx < b.maxX; gx += SP) {
       for (let gz = b.minZ + SP * 0.5; gz < b.maxZ; gz += SP) {
         const tx = gx + (prand(gx, gz) - 0.5) * SP * 0.7;
@@ -1073,8 +1079,10 @@ function buildCityGrid(scene) {
         if (prand(tx, tz, 9) < 0.3) continue; // glades
         if (!pointInPolygonXZ(inner, tx, tz) || (roadCuts && !lawns.some((p) => pointInPolygonXZ(p, tx, tz))) ||
           distToWater(tx, tz) < 4) continue;
+        const scale = 0.9 + prand(tx, tz, 3) * 0.4;
+        if (bLots.length > 0 && distToLots(tx, tz, bLots) < Math.max(1.2, 6.07 * scale)) continue;
         const r = prand(tx, tz, 2);
-        treeSites.push({ x: tx, y: BED_Y, z: tz, scale: 0.9 + prand(tx, tz, 3) * 0.4, species: r < 0.55 ? 0 : (r < 0.75 ? 1 : 2) });
+        treeSites.push({ x: tx, y: BED_Y, z: tz, scale, species: r < 0.55 ? 0 : (r < 0.75 ? 1 : 2) });
       }
     }
     // lampposts every ~34 m along the walk, inset ~1.0 m from curb. Where the walk is narrower than that (bed insets
@@ -1177,6 +1185,7 @@ function buildCityGrid(scene) {
       for (const p of ring) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
       const SP = 12;
       const E = PARK_TREE_EDGE;
+      const bLots = b.buildings > 0 ? blockLots(b) : [];
       for (let gx = Math.max(x0, b.minX) + SP * 0.5; gx < Math.min(x1, b.maxX); gx += SP) {
         for (let gz = Math.max(z0, b.minZ) + SP * 0.5; gz < Math.min(z1, b.maxZ); gz += SP) {
           const tx = gx + (prand(gx, gz) - 0.5) * SP * 0.7;
@@ -1184,8 +1193,10 @@ function buildCityGrid(scene) {
           if (prand(tx, tz, 9) < 0.3) continue; // glades
           if (!pointInPolygonXZ(b.poly, tx, tz) || distToWater(tx, tz) < 4) continue;
           if (![[0, 0], [E, 0], [-E, 0], [0, E], [0, -E]].every(([dx, dz]) => pointInPolygonXZ(ring, tx + dx, tz + dz))) continue;
+          const scale = 0.9 + prand(tx, tz, 3) * 0.4;
+          if (bLots.length > 0 && distToLots(tx, tz, bLots) < Math.max(1.2, 6.07 * scale)) continue;
           const r = prand(tx, tz, 2);
-          treeSites.push({ x: tx, y: SW_TOP, z: tz, scale: 0.9 + prand(tx, tz, 3) * 0.4, species: r < 0.55 ? 0 : (r < 0.75 ? 1 : 2) });
+          treeSites.push({ x: tx, y: SW_TOP, z: tz, scale, species: r < 0.55 ? 0 : (r < 0.75 ? 1 : 2) });
         }
       }
     }
@@ -1255,7 +1266,11 @@ function buildCityGrid(scene) {
   let kept = 0;
   for (const s of treeSites) if (railClear(s.x, s.z, 0.4 * s.scale)) treeSites[kept++] = s;
   treeSites.length = kept;
-  for (const s of treeSites) addPropCollider(s.x, s.z, 0.28 * s.scale, 0.28 * s.scale, s.y + 3.0);
+  for (const s of treeSites) {
+    const c = addPropCollider(s.x, s.z, 0.28 * s.scale, 0.28 * s.scale, s.y + 3.0);
+    c.isTrunk = true;
+    s.collider = c;
+  }
 
   // Park & plaza tree and lamp sites, read by street-details.js after the city grid is built
   parkTreeSites = treeSites;
