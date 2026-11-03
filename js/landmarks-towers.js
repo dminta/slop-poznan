@@ -383,14 +383,15 @@ function buildTowerLandmarks({ group, colliders, M }) {
   }
 
   // ---------------------------------------------------------------------------------------------------------------
-  // Delta (Towarowa 35, 1970s): true to its name a triangle in plan, ~66 m along its NNW face, 11 storeys of concrete
-  // ribbon windows (OSM building:part ways 1095436555–6), 37.4 m with the roof plant at 3.4 m a storey, two stair
-  // towers proud of the NNW face; a 5-storey wing runs off its west corner. Local +x faces NE, +z SE.
+  // Delta (Towarowa 35, 2004, Pracownia Architektoniczna Ewy i Stanisława Sipińskich, Ataner): a triangle in plan,
+  // ~66 m along its NNW face, 11 storeys in the high part (10 office ribbon levels + roof plant, dominanta 43.5 m)
+  // and 6 storeys in the lower wing (OSM ways 1095436555–6), with two stair towers proud of the NNW face.
+  // Local +x faces NE, +z SE.
   // ---------------------------------------------------------------------------------------------------------------
   {
     const c0 = colliders.length;
     const obj = new THREE.Group();
-    const F = 3.4;
+    const F = 3.95;
     const TRI = [[-1, 4.3], [-17.8, -13.9], [-18.5, -14.8], [-12.9, -14.7], [-9.1, -14.8], [48.5, -14.7], [47.8, -14.1],
       [12, 18.7], [2.9, 8.8]];
     const WING = [[-17.8, -13.9], [-30.9, -13.4], [-43.7, -18.7], [-48.5, -8.3], [-7.5, 10.2], [-1, 4.3]];
@@ -401,7 +402,7 @@ function buildTowerLandmarks({ group, colliders, M }) {
       for (let f = 1; f <= floors; f++) prism(obj, proud, 1.3, M.concrete, 0, f * F - 0.4, 0);
     };
     ribbons(TRI, 10);
-    ribbons(WING, 5);
+    ribbons(WING, 6);
     // The stair towers in bare concrete, and the plant storey on the roof
     prism(obj, [[9, -14.7], [12.8, -17.9], [15.8, -14.6]], 10 * F + 1.6, M.concrete, 0, 0, 0);
     prism(obj, [[17.9, -14.6], [22.2, -18.7], [26, -14.7]], 10 * F + 1.6, M.concrete, 0, 0, 0);
@@ -409,8 +410,8 @@ function buildTowerLandmarks({ group, colliders, M }) {
     group.add(obj);
     collider(colliders, -15, 40, -15, -5, 10 * F + 1);
     collider(colliders, 0, 25, -5, 8, 10 * F + 1);
-    collider(colliders, -46, -10, -15, 0, 5 * F + 1);
-    fitToSite([obj], site('Delta'), colliders, c0, { height: 37.4, horizontal: 1, offset: frameOffset(obj) });
+    collider(colliders, -46, -10, -15, 0, 6 * F + 1);
+    fitToSite([obj], site('Delta'), colliders, c0, { height: 43.5, horizontal: 1, offset: frameOffset(obj) });
   }
 }
 

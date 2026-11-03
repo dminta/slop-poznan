@@ -248,10 +248,11 @@ function buildDworzecLandmarks({ group, colliders, M }) {
   }
 
   // ---------------------------------------------------------------------------------------------------------------
-  // Iglica (1955, Bolesław Szmidt): the 64 m openwork steel spire, the symbol of the Międzynarodowe Targi Poznańskie,
-  // rising from Pawilon 11, the round two-storey hall built on the ground floor of Poelzig's 1911 Upper Silesian water
-  // tower. Pavilion ≈ 11 m with a set-back drum; the spire a square steel lattice tapering with a concave profile from
-  // ~9 m across at the roof to a mast and a five-pointed star at 64 m (height per the MTP / pl.wikipedia figure).
+  // Iglica (1955, Bolesław Szmidt): the 70 m openwork steel spire, symbol of the Międzynarodowe Targi Poznańskie
+  // (Grupa MTP architectural record: "Licząca 70 m wysokości iglica", measurement point unspecified; reconstructed
+  // 1954–1955 on Poelzig's 1911 water tower base), rising from Pawilon 11, the round two-storey hall. Pavilion ≈ 11 m
+  // with a set-back drum; the spire a square steel lattice tapering with a concave profile from ~9 m across at the roof
+  // to a mast and star at 70 m.
   // ---------------------------------------------------------------------------------------------------------------
   {
     const c0 = colliders.length;
@@ -272,9 +273,9 @@ function buildDworzecLandmarks({ group, colliders, M }) {
       box(obj, 11, 0.4, 4.4, M.plasterWhite, sx * (R - 2.2), 5.6, sz * (R - 2.2), a);
     }
     // The spire: four corner legs, a ring of horizontals and X bracing every panel; half-width follows a concave
-    // curve from 4.5 m at the roof (y 13) to 0.35 m at y 58, where the mast takes over
+    // curve from 4.5 m at the roof (y 13) to 0.35 m at y 64, where the mast takes over
     const Y0 = 13;
-    const Y1 = 58;
+    const Y1 = 64;
     const PANELS = 14;
     const half = (y) => 0.35 + 4.15 * Math.pow((Y1 - y) / (Y1 - Y0), 1.7);
     const corners = (y) => {
@@ -309,7 +310,7 @@ function buildDworzecLandmarks({ group, colliders, M }) {
     collider(colliders, -R * 0.92, R * 0.92, -R * 0.38, R * 0.38, 10.4);
     collider(colliders, -R * 0.38, R * 0.38, -R * 0.92, R * 0.92, 10.4);
     collider(colliders, -R * 0.75, R * 0.75, -R * 0.75, R * 0.75, 10.4);
-    fitToSite([obj], site('Iglica'), colliders, c0, { height: 64 });
+    fitToSite([obj], site('Iglica'), colliders, c0, { height: 70 });
   }
 }
 

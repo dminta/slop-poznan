@@ -220,14 +220,14 @@ function buildFara(group, colliders, M) {
 // Zamek Królewski on Wzgórze Przemysła, rebuilt 2010–2016 to Witold Milewski's design: a long plastered block with a
 // steep tiled roof and buttresses, a lower older wing, and the square tower (11 × 11 m, on the medieval tower's plan)
 // at the south-west end with its two viewing terraces (opened 26 June 2016). The outline's +u faces bearing 133°, so
-// +z (local) is south-west, where the outline narrows to the tower. No source found for the heights: ≈ 43 m for the
-// tower and a 28 m main ridge are estimates from photographs (the tower about 1.5× the main roof ridge).
+// +z (local) is south-west, where the outline narrows to the tower. Sourced measurements (Muzeum Narodowe w Poznaniu /
+// poznan.pl): tower apex 43.0 m, covered lower viewing terrace 30.0 m. Main ridge 28 m and wing 21 m remain estimates.
 const ZAMEK = {
   mainWall: 16,
   mainRidge: 28,
   wingWall: 13,
   wingRidge: 21,
-  towerShaft: 33,
+  towerShaft: 30,
   towerTop: 43
 };
 
@@ -290,10 +290,10 @@ function buildZamek(group, colliders, M) {
 }
 
 // Brama Poznania ICHOT (Ad Artis Architects, 2014): a minimalist architectural-concrete block cut through by a glazed
-// diagonal viewing slit that points at the cathedral, its two halves linked by glass walkways on every level
-// (pl.wikipedia). No published height: four tall exhibition levels make it ≈ 18 m (OSM's 5 m is wrong). The outline's
-// notch at +x, -z marks where the slit opens.
-const BRAMA_H = 18;
+// diagonal viewing slit pointing at the cathedral, its two halves linked by glass walkways on every level. The largest
+// external monolithic wall is 32.9 × 16.3 m (AD Artis Architects technical record in Architektura Murator; Murator
+// also notes height ≈ half the base side). The outline's notch at +x, -z marks where the slit opens.
+const BRAMA_H = 16.3;
 
 function buildBrama(group, colliders, M) {
   const c0 = colliders.length;
