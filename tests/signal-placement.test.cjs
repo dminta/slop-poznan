@@ -316,6 +316,7 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
     assert.ok(Math.hypot(h.p.x - x, h.p.z - z) <= 30 && along >= -15 - 1e-6 && along <= road.STOP_SETBACK + 1e-6,
       `setback ${along}`);
     assert.ok(lateral >= e.half + 0.6 && lateral <= e.half + 6.01, `curb offset ${lateral - e.half}`);
+    if (h.existing) assert.ok(lateral <= e.half + 2.6 + 1e-6, `reused pole lateral ${lateral}`);
     assert.ok(-h.a.ux * e.dx - h.a.uz * e.dz > 0.9999);
     assert.equal(h.group0, e.axisIndex === 0);
     assert.ok(config.roadClearance(h.p.x, h.p.z) >= 0.8);

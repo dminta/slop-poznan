@@ -30,7 +30,8 @@ test('the furnished audit classifies historical approaches before and after runt
     assert.ok(before.rows.some((r) => Math.hypot(r.node[0] - x, r.node[1] - z) < 0.01 && r.class === 'B'));
     assert.ok(after.rows.some((r) => Math.hypot(r.node[0] - x, r.node[1] - z) < 0.01 && r.class === 'A'));
   }
-  assert.ok(after.rows.filter((row) => row.class === 'A').every((row) => row.along <= 2));
+  assert.ok(after.rows.filter((row) => row.class === 'A').every((row) =>
+    row.along <= 2 && Math.abs(row.lateral) <= 15));
   assert.ok(before.rows.filter((row) => row.class === 'C').every((row) =>
     row.sampleCount === 300 && row.decisive.length && Object.keys(row.reasonCounts).length));
 });

@@ -1532,9 +1532,45 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         }
         for (const track of pedRoutes.segmentsNear(node.x, node.z, reach, node)) addWalk(walks, track);
         let closest = null, sampleCount = 0;
+        const failures = (px, pz, stopEarly) => {
+          const fail = [];
+          const b = blockAt(px, pz);
+          const pad = b && b.median ? 0.9 : 0.4;
+          const curb = b && !b.underpass && !inPlaza(px, pz, 0.5, true) &&
+            [[pad, 0], [-pad, 0], [0, pad], [0, -pad]].every(([ox, oz]) => {
+              const q = blockAt(px + ox, pz + oz);
+              return q && !!q.median === !!b.median;
+            });
+          if (!curb) { fail.push('curb'); if (stopEarly) return fail; }
+          if (!clearOfRails(px, pz, 0.22)) { fail.push('rail'); if (stopEarly) return fail; }
+          const crossing = lookup(crossings, px, pz).some((c) => {
+            const dx = c.bx - c.ax, dz = c.bz - c.az, len = Math.hypot(dx, dz);
+            const along = ((px - c.ax) * dx + (pz - c.az) * dz) / len;
+            const across = Math.abs((px - c.ax) * dz - (pz - c.az) * dx) / len;
+            return along > -2.75 && along < len + 2.75 && across < c.h + 0.4;
+          });
+          if (!clearOfCrosswalks(px, pz, 0.15) || crossing) { fail.push('crosswalk'); if (stopEarly) return fail; }
+          if (roadClearance(px, pz) < 0.8) { fail.push('road'); if (stopEarly) return fail; }
+          if (!isClearOfPoles(px, pz, 1.4)) { fail.push('furniture'); if (stopEarly) return fail; }
+          if (lookup(curves, px, pz).some((p) => Math.abs(p.x - px) < 0.95 && Math.abs(p.z - pz) < 0.95)) {
+            fail.push('curve'); if (stopEarly) return fail;
+          }
+          if (lookup(lanes, px, pz).some((s) => intersects(s, px, pz))) {
+            fail.push('lane'); if (stopEarly) return fail;
+          }
+          if (lookup(walks, px, pz).some((s) => intersects(s, px, pz))) {
+            fail.push('pedestrian route'); if (stopEarly) return fail;
+          }
+          if (lookup(buildings, px, pz).some((c) => px >= c.minX - 0.15 && px <= c.maxX + 0.15 &&
+            pz >= c.minZ - 0.15 && pz <= c.maxZ + 0.15)) {
+            fail.push('building'); if (stopEarly) return fail;
+          }
+          return fail;
+        };
         // The first clear sample is placed, so the order is the preference: near, narrow sites first, then wider offsets,
-        // then further back, where the head is harder to see from the stop line.
-        for (const [backs, start, end] of [[[0.75, 1, 1.3], CROSSWALK + 0.5, 16],
+        // then further back, where the head is harder to see from the stop line. Placing stops at the first failed
+        // rule and the first clear site; the audit (place false) still tallies every rule at every sample.
+        sampleLoop: for (const [backs, start, end] of [[[0.75, 1, 1.3], CROSSWALK + 0.5, 16],
           [[1.6, 2, 2.5, 3, 4, 5, 6], CROSSWALK + 0.5, 16],
           [[0.75, 1, 1.3, 1.6, 2, 2.5, 3, 4, 5, 6], 16, 21.1]]) {
           for (const side of [1, -1]) for (const back of backs) for (let dt = start; dt < end; dt += 1.2) {
@@ -1543,30 +1579,12 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
             if (Math.hypot(px - x, pz - z) > headReach ||
               (px - x) * edge.dx + (pz - z) * edge.dz < -15) continue;
             sampleCount++;
-            const fail = [];
-            const b = blockAt(px, pz);
-            const pad = b && b.median ? 0.9 : 0.4;
-            const curb = b && !b.underpass && !inPlaza(px, pz, 0.5, true) &&
-              [[pad, 0], [-pad, 0], [0, pad], [0, -pad]].every(([ox, oz]) => {
-                const q = blockAt(px + ox, pz + oz);
-                return q && !!q.median === !!b.median;
-              });
-            if (!curb) fail.push('curb');
-            if (!clearOfRails(px, pz, 0.22)) fail.push('rail');
-            const crossing = lookup(crossings, px, pz).some((c) => {
-              const dx = c.bx - c.ax, dz = c.bz - c.az, len = Math.hypot(dx, dz);
-              const along = ((px - c.ax) * dx + (pz - c.az) * dz) / len;
-              const across = Math.abs((px - c.ax) * dz - (pz - c.az) * dx) / len;
-              return along > -2.75 && along < len + 2.75 && across < c.h + 0.4;
-            });
-            if (!clearOfCrosswalks(px, pz, 0.15) || crossing) fail.push('crosswalk');
-            if (roadClearance(px, pz) < 0.8) fail.push('road');
-            if (!isClearOfPoles(px, pz, 1.4)) fail.push('furniture');
-            if (lookup(curves, px, pz).some((p) => Math.abs(p.x - px) < 0.95 && Math.abs(p.z - pz) < 0.95)) fail.push('curve');
-            if (lookup(lanes, px, pz).some((s) => intersects(s, px, pz))) fail.push('lane');
-            if (lookup(walks, px, pz).some((s) => intersects(s, px, pz))) fail.push('pedestrian route');
-            if (lookup(buildings, px, pz).some((c) => px >= c.minX - 0.15 && px <= c.maxX + 0.15 &&
-              pz >= c.minZ - 0.15 && pz <= c.maxZ + 0.15)) fail.push('building');
+            const fail = failures(px, pz, place);
+            if (place) {
+              if (fail.length) continue;
+              candidates.push({ x: px, z: pz, side });
+              break sampleLoop;
+            }
             for (const reason of fail) reasons[reason] = (reasons[reason] || 0) + 1;
             if (!closest || fail.length < closest.fail.length) closest = { x: px, z: pz, side, fail };
             if (!fail.length) candidates.push({ x: px, z: pz, side });

@@ -161,9 +161,11 @@ direction-membership classification.
 
 `node tools/audit-signal-heads.mjs` prints JSON lines for the 167 historical strict-unmatched runtime edges and
 A/B/C/D totals; `--before` stops after the earlier existing-pole additions. A includes head along/lateral offsets
-from the stop line; C reports the failure counts over 60 sampled sites and the least-blocked sample. The audit and
-runtime use the same search, including actual lanes, turn samples, crossing landings and locally materialised sidewalk, corner and refuge segments. The headless fixture uses live park/plaza data but omits building, landmark and bridge
-colliders. The browser includes them, so candidate sites and counts can differ. The audit checks geometry, not visual
-occlusion, and C does not rule out unsampled sites. `tests/signal-audit.test.cjs` checks before and after counts;
-`signal-placement.test.cjs` rebuilds the network with the new footprints and compares lanes, crossings and pedestrian
-segments and their route connections near the new poles, as well as phase, facing, setbacks, colliders and audio registrations.
+from the stop line; C reports the failure counts over up to 300 sampled sites and the least-blocked sample. The audit
+and runtime use the same search, including actual lanes, turn samples, crossing landings and locally materialised
+sidewalk, corner and refuge segments. The headless fixture uses live park/plaza data but omits building, landmark and
+bridge colliders. The browser includes them, so candidate sites and counts can differ. The audit checks geometry, not
+visual occlusion, and C does not rule out unsampled sites. `tests/signal-audit.test.cjs` checks before and after counts
+(91/0/66/10, hash `be49d567...`); `signal-placement.test.cjs` rebuilds the network with the new footprints and compares
+lanes, crossings and pedestrian segments and their route connections near the new poles, as well as phase, facing,
+setbacks, reused pole curbside bounds (`lateral <= half + 2.6 m`), colliders and audio registrations.
