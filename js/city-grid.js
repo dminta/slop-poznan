@@ -8,6 +8,7 @@ import {
   ROADS,
   BLOCKS,
   UNDERPASS_SIDEWALKS,
+  blockAt,
   distToWater
 } from './city-config.js';
 import { GEO } from './geodata.js';
@@ -242,6 +243,19 @@ function parkBedInset(b, roadCuts) {
     (b.minX === 2468.5 && b.maxX === 2647 && b.minZ === 2468 && b.maxZ === 2611) ||
     (b.minX === 2492.5 && b.maxX === 2684.5 && b.minZ === 2693.5 && b.maxZ === 2821)) return 0.5;
   return roadCuts ? 0.8 : Math.min(5, Math.min(b.maxX - b.minX, b.maxZ - b.minZ) * 0.2);
+}
+
+// Distance from (x, z) to the nearest edge of a closed ring
+function ringDist(ring, x, z) {
+  let best = Infinity;
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i];
+    const c = ring[(i + 1) % ring.length];
+    const dx = c.x - a.x, dz = c.z - a.z, l2 = dx * dx + dz * dz;
+    const t = l2 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / l2)) : 0;
+    best = Math.min(best, Math.hypot(x - a.x - t * dx, z - a.z - t * dz));
+  }
+  return best;
 }
 
 function polygonCentroidArea(pts) {
@@ -953,8 +967,33 @@ function buildCityGrid(scene) {
       const nx = (-s * (c.z - a.z)) / len, nz = (s * (c.x - a.x)) / len; // inward
       const tx = (c.x - a.x) / len, tz = (c.z - a.z) / len;
       for (let t = 6 + ((len - 12) % 30) * 0.5; t < len - 5; t += 30, k++) {
-        const px = a.x + tx * t, pz = a.z + tz * t;
+        let px = a.x + tx * t, pz = a.z + tz * t;
         if (!clear(px, pz) || !pointInPolygonXZ(pl.ring, px, pz)) continue;
+        // ensure clearance >= 0.5 m (pole radius 0.2 m -> distance to pl.ring >= 0.70 m)
+        let minD = 1e9, closeEdge = -1;
+        for (let ri = 0; ri < pl.ring.length; ri++) {
+          const ra = pl.ring[ri], rb = pl.ring[(ri + 1) % pl.ring.length];
+          const rdx = rb.x - ra.x, rdz = rb.z - ra.z, rl2 = rdx * rdx + rdz * rdz;
+          const rt = rl2 ? Math.max(0, Math.min(1, ((px - ra.x) * rdx + (pz - ra.z) * rdz) / rl2)) : 0;
+          const rd = Math.hypot(px - ra.x - rt * rdx, pz - ra.z - rt * rdz);
+          if (rd < minD) { minD = rd; closeEdge = ri; }
+        }
+        if (minD < 0.70) {
+          const ra = pl.ring[closeEdge], rb = pl.ring[(closeEdge + 1) % pl.ring.length];
+          const rdx = rb.x - ra.x, rdz = rb.z - ra.z, rlen = Math.hypot(rdx, rdz);
+          const shift = 0.75 - minD;
+          let shifted = false;
+          for (const sign of [1, -1]) {
+            const snx = (-sign * rdz) / rlen, snz = (sign * rdx) / rlen;
+            const sx = px + snx * shift, sz = pz + snz * shift;
+            if (pointInPolygonXZ(pl.ring, sx, sz)) {
+              if (ringDist(pl.ring, sx, sz) >= 0.70 && clear(sx, sz)) {
+                px = sx; pz = sz; shifted = true; break;
+              }
+            }
+          }
+          if (!shifted) continue;
+        }
         if (!addLamp(px, PLAZA_Y, pz)) continue;
         // the bench 2.4 m along the edge from the lamp, its back to the edge
         const bx = px + nx * 1.0 + tx * 2.4, bz = pz + nz * 1.0 + tz * 2.4;
@@ -1025,6 +1064,7 @@ function buildCityGrid(scene) {
     // trees on a jittered grid inside the bed, sparser in the big parks (the Cytadela alone is ~1 km²), never within
     // 4 m of a pond
     const SP = b.area > 20000 ? 14 : 11;
+    const parkTree0 = treeSites.length;
     const inner = lawnTop || bed;
     for (let gx = b.minX + SP * 0.5; gx < b.maxX; gx += SP) {
       for (let gz = b.minZ + SP * 0.5; gz < b.maxZ; gz += SP) {
@@ -1037,15 +1077,50 @@ function buildCityGrid(scene) {
         treeSites.push({ x: tx, y: BED_Y, z: tz, scale: 0.9 + prand(tx, tz, 3) * 0.4, species: r < 0.55 ? 0 : (r < 0.75 ? 1 : 2) });
       }
     }
-    // lampposts every ~34 m along the walk
-    for (let i = 0; i < slab.length; i++) {
-      const a = slab[i];
-      const c = slab[(i + 1) % slab.length];
-      const len = Math.hypot(c.x - a.x, c.z - a.z);
-      for (let t = 17; t < len - 8; t += 34) {
-        const px = a.x + ((c.x - a.x) * t) / len;
-        const pz = a.z + ((c.z - a.z) * t) / len;
-        if (!b.roadCut || slabPieces.some((p) => pointInPolygonXZ(p, px, pz))) addLamp(px, PARK_Y, pz);
+    // lampposts every ~34 m along the walk, inset ~1.0 m from curb. Where the walk is narrower than that (bed insets
+    // of 0.1–0.8 m), the lamp steps up to 2.5 m inward onto the lawn, 0.5 m past the inner edge of the 0.3 m coping
+    // and 2.5 m clear of this park's trees; dropping them instead left 15 parks without a single lamp. Offsetting these
+    // special-cased bed outlines again can fold them, so the lawn test measures distances to the drawn rings; the bed
+    // outline can also reach past the block, hence blockAt.
+    const lampLine = offsetPolygonInward(b.poly, 1.05);
+    const clearOf = (rings, x, z) => rings.every((h) => !pointInPolygonXZ(h, x, z) && ringDist(h, x, z) >= 1);
+    const onLawn = (x, z) => blockAt(x, z) === b && ringDist(b.poly, x, z) >= 0.95 &&
+      lawns.some((p) => pointInPolygonXZ(p, x, z) && ringDist(p, x, z) >= 0.7) &&
+      beds.every((p) => ringDist(p, x, z) >= 1) && clearOf(bedHoles, x, z) && clearOf(ponds, x, z) &&
+      distToWater(x, z) >= 2;
+    const clearOfParkTrees = (x, z) => {
+      for (let k = parkTree0; k < treeSites.length; k++) {
+        if (Math.hypot(treeSites[k].x - x, treeSites[k].z - z) < 2.5) return false;
+      }
+      return true;
+    };
+    if (lampLine) {
+      for (let i = 0; i < lampLine.length; i++) {
+        const a = lampLine[i];
+        const c = lampLine[(i + 1) % lampLine.length];
+        const len = Math.hypot(c.x - a.x, c.z - a.z);
+        if (len < 1e-6) continue;
+        let nx = -(c.z - a.z) / len, nz = (c.x - a.x) / len; // flipped below to point into the park
+        for (let t = 17; t < len - 8; t += 34) {
+          let px = a.x + ((c.x - a.x) * t) / len;
+          let pz = a.z + ((c.z - a.z) * t) / len;
+          let y = PARK_Y;
+          if (beds.some((p) => pointInPolygonXZ(p, px, pz))) {
+            // 1.3 m outward from the 1.05 m line is past the curb, inward it is still in the park
+            if (!pointInPolygonXZ(b.poly, px + nx * 1.3, pz + nz * 1.3)) { nx = -nx; nz = -nz; }
+            let moved = false;
+            for (let d = 0.25; d <= 2.5 && !moved; d += 0.25) {
+              const qx = px + nx * d, qz = pz + nz * d;
+              if (onLawn(qx, qz) && clearOfParkTrees(qx, qz)) {
+                px = qx; pz = qz; y = BED_Y; moved = true;
+              }
+            }
+            if (!moved) continue;
+          } else if (b.roadCut && !slabPieces.some((p) => pointInPolygonXZ(p, px, pz))) {
+            continue;
+          }
+          addLamp(px, y, pz);
+        }
       }
     }
   }

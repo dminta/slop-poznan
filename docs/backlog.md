@@ -440,3 +440,20 @@ Black locust joins lime, Norway maple and horse chestnut using a deterministic 4
 street-details build, counts are lime 21,647 → 20,759, maple 23,712 → 22,767, chestnut 10,022 → 9,606 and
 locust 0 → 2,249 (55,381 total). Site and collider snapshots are unchanged. Browser checks of the new foliage,
 bark, LOD and wind remain outstanding.
+
+## Streetlight curb clearance fixed (2026-11-03)
+
+The user reported lamps standing on the curb along ulica Za Cytadelą. These were city-grid.js park lampposts, placed
+on the vertices of the park walk slab inset only 0.1 m from the curb, so their 0.2 m cast bases overhung it: 2,242 of
+2,281 park lamps citywide, 23 of them along the Za Cytadelą park side. Park lamps now stand on a line 1.05 m inside the
+curb; where narrow walks (bed insets 0.1–0.8 m) put that line in the lawn bed, the lamp steps up to 2.5 m inward onto
+the lawn, 0.5 m past the coping and 2.5 m from park trees, so no park loses all its lamps. Five square lamps in narrow
+plaza strips and six street-details poles on narrow wedges and tram cuts also moved. The 0.5 m minimum from the curb
+face to the pole surface is a design choice, not a statutory figure.
+
+Headless measurement against the drawn curb (`tools/audit-lamp-curb.mjs`, pole surface clearance): park lamps
+2,281 → 2,331, under 0.5 m 2,250 → 0 (worst −0.16 → 0.53 m), 129 of them on the lawn; Za Cytadelą park side 22 lamps
+at 0.87–0.90 m; square lamps 642, under 0.5 m 5 → 0; street-details 15,645 (2,059 main, 12,512 side, 1,074 gas),
+under 0.5 m 5 → 0. Park and square lamps are player colliders only; the strongly connected network is unchanged at
+8,509 edges / 424.641 km. `tests/streetlight-curb-clearance.test.cjs` covers all lamp types. Browser appearance remains
+unverified.

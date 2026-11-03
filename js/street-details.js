@@ -825,23 +825,88 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
     }
   }
 
+  const distPointToSeg = (px, pz, ax, az, bx, bz) => {
+    const dx = bx - ax, dz = bz - az, len2 = dx * dx + dz * dz;
+    if (len2 < 1e-12) return Math.hypot(px - ax, pz - az);
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / len2));
+    return Math.hypot(px - (ax + t * dx), pz - (az + t * dz));
+  };
+  const blockCurbDist = (px, pz, b) => {
+    let best = Infinity;
+    for (let i = 0; i < b.poly.length; i++) {
+      const p1 = b.poly[i], p2 = b.poly[(i + 1) % b.poly.length];
+      const d = distPointToSeg(px, pz, p1.x, p1.z, p2.x, p2.z);
+      if (d < best) best = d;
+    }
+    if (b.tramCut) {
+      for (const [ax, az, bx, bz] of b.tramCut.segs) {
+        const len = Math.hypot(bx - ax, bz - az);
+        if (len < 1e-6) continue;
+        const half = b.tramCut.half;
+        const ux = ((bx - ax) / len) * half, uz = ((bz - az) / len) * half;
+        const quad = [
+          { x: ax - ux + uz, z: az - uz - ux },
+          { x: bx + ux + uz, z: bz + uz - ux },
+          { x: bx + ux - uz, z: bz + uz + ux },
+          { x: ax - ux - uz, z: az - uz + ux }
+        ];
+        for (let i = 0; i < 4; i++) {
+          const q1 = quad[i], q2 = quad[(i + 1) % 4];
+          const d = distPointToSeg(px, pz, q1.x, q1.z, q2.x, q2.z);
+          if (d < best) best = d;
+        }
+      }
+    }
+    return best;
+  };
+  // Design choice: minimum clearance from curb face to pole surface: >= 0.50 m (reflecting Polish urban road practice)
+  const CURB_CLEARANCE = 0.50;
+
   const LAMP_CLASS = { main: { scale: 1, sp: 34 }, side: { scale: 0.7, sp: 30 } };
   const GAS_SP = 22;
   const mastMatrices = [];
   const ledHeadMatrices = [];
   const gasPostMatrices = [];
   const lampCount = { main: 0, side: 0, old: 0 };
-  for (const { p0, dx, dz, len, inx, inz, outX, outZ, cls } of curbEdges) {
+  for (const { b, p0, dx, dz, len, inx, inz, outX, outZ, cls } of curbEdges) {
     if (cls === 'old') {
+      const poleRadius = 0.20;
+      const reqDist = poleRadius + CURB_CLEARANCE;
       const m = Math.max(1, Math.floor(len / GAS_SP));
       for (let j = 0; j < m; j++) {
-        const f = (j + 0.5) / m;
-        const cx = p0.x + dx * f;
-        const cz = p0.z + dz * f;
-        const px = cx + inx * 0.9;
-        const pz = cz + inz * 0.9;
-        if (!isOnSidewalk(px, pz, 0.5) || blockAt(cx + outX * 2.2, cz + outZ * 2.2) || !isClearOfPoles(px, pz, 5.2) ||
-          !clearOfRoads(px, pz, 0.25) || !clearOfCrosswalks(px, pz, 0.2) || !clearOfRails(px, pz, 0.29)) continue;
+        const nomF = (j + 0.5) / m;
+        const checkCandidate = (f, inDist) => {
+          const cx = p0.x + dx * f;
+          const cz = p0.z + dz * f;
+          const px = cx + inx * inDist;
+          const pz = cz + inz * inDist;
+          if (!isOnSidewalk(px, pz, 0.5) || blockAt(cx + outX * 2.2, cz + outZ * 2.2) || !isClearOfPoles(px, pz, 5.2) ||
+            !clearOfRoads(px, pz, 0.25) || !clearOfCrosswalks(px, pz, 0.2) || !clearOfRails(px, pz, 0.29)) return null;
+          return { px, pz, cx, cz, f, inDist };
+        };
+        const nom = checkCandidate(nomF, 0.9);
+        if (!nom) continue;
+        let placed = nom;
+        if (blockCurbDist(nom.px, nom.pz, b) < reqDist) {
+          placed = null;
+          for (let s = 0.5; s <= 8.0; s += 0.5) {
+            for (const dir of [1, -1]) {
+              const f = nomF + (dir * s) / len;
+              if (f < 0.05 || f > 0.95) continue;
+              const cand = checkCandidate(f, 0.9);
+              if (cand && blockCurbDist(cand.px, cand.pz, b) >= reqDist) { placed = cand; break; }
+            }
+            if (placed) break;
+          }
+          if (!placed) {
+            for (const delta of [0.05, -0.05, 0.10, -0.10, 0.15, -0.15, 0.20, -0.20]) {
+              const cand = checkCandidate(nomF, 0.9 + delta);
+              if (cand && blockCurbDist(cand.px, cand.pz, b) >= reqDist) { placed = cand; break; }
+            }
+          }
+        }
+        if (!placed) continue;
+        const { px, pz } = placed;
         addPole({ x: px, z: pz });
         addFootprint(px, pz, 0.4, 0.4, 'gas');
         addCollider(px, pz, 0.18, 0.18, 4.36);
@@ -857,30 +922,82 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
     }
     const { scale, sp } = LAMP_CLASS[cls];
     const armYaw = Math.atan2(-outZ, outX);
+    const poleRadius = 0.14 * scale;
+    const reqDist = poleRadius + CURB_CLEARANCE;
     const n = Math.max(1, Math.floor(len / sp));
     for (let i = 0; i < n; i++) {
-      const f = (i + 0.5) / n;
-      const cx = p0.x + dx * f;
-      const cz = p0.z + dz * f;
-      const lx = cx + inx * 1.08;
-      const lz = cz + inz * 1.08;
-      const headX = lx + outX * LED_REACH * scale;
-      const headZ = lz + outZ * LED_REACH * scale;
-      if (
-        !isOnSidewalk(lx, lz, 0.55) ||
-        !clearOfRoads(lx, lz, 0.3) ||
-        !clearOfCrosswalks(lx, lz, 0.225) ||
-        blockAt(cx + outX * 2.5, cz + outZ * 2.5) ||
-        blockAt(headX, headZ) ||
-        !isClearOfPoles(lx, lz, 6.5) ||
-        !clearOfRails(lx, lz, 0.32) ||
-        // Clear chord cuts where turning lanes sweep within LANE_CLEAR (1.2 m) of the curb on park borders
-        Math.hypot(lx - 3191.5, lz - 1609.5) < 3 ||
-        Math.hypot(lx - 2522.4, lz - 1006.9) < 3 ||
-        Math.hypot(lx - 2115.2, lz - 1908.0) < 3
-      ) {
-        continue;
+      const nomF = (i + 0.5) / n;
+      const checkCandidate = (f, inDist) => {
+        const cx = p0.x + dx * f;
+        const cz = p0.z + dz * f;
+        const lx = cx + inx * inDist;
+        const lz = cz + inz * inDist;
+        const headX = lx + outX * LED_REACH * scale;
+        const headZ = lz + outZ * LED_REACH * scale;
+        if (
+          !isOnSidewalk(lx, lz, 0.55) ||
+          !clearOfRoads(lx, lz, 0.3) ||
+          !clearOfCrosswalks(lx, lz, 0.225) ||
+          blockAt(cx + outX * 2.5, cz + outZ * 2.5) ||
+          blockAt(headX, headZ) ||
+          !isClearOfPoles(lx, lz, 6.5) ||
+          !clearOfRails(lx, lz, 0.32) ||
+          Math.hypot(lx - 3191.5, lz - 1609.5) < 3 ||
+          Math.hypot(lx - 2522.4, lz - 1006.9) < 3 ||
+          Math.hypot(lx - 2115.2, lz - 1908.0) < 3
+        ) {
+          return null;
+        }
+        return { lx, lz, headX, headZ, cx, cz, f, inDist };
+      };
+
+      const nom = checkCandidate(nomF, 1.08);
+      if (!nom) continue;
+
+      let placed = nom;
+      if (blockCurbDist(nom.lx, nom.lz, b) < reqDist) {
+        placed = null;
+        // 1. Prefer moving pole further onto the sidewalk (or centering on narrow island)
+        for (const delta of [0.05, 0.10, 0.15, 0.20, 0.25, -0.05, -0.10, -0.15, -0.20]) {
+          const cand = checkCandidate(nomF, 1.08 + delta);
+          if (cand && blockCurbDist(cand.lx, cand.lz, b) >= reqDist) {
+            placed = cand; break;
+          }
+        }
+        // 2. Try sliding along the curb edge
+        if (!placed) {
+          for (let s = 0.5; s <= 12.0; s += 0.5) {
+            for (const dir of [1, -1]) {
+              const f = nomF + (dir * s) / len;
+              if (f < 0.05 || f > 0.95) continue;
+              const cand = checkCandidate(f, 1.08);
+              if (cand && blockCurbDist(cand.lx, cand.lz, b) >= reqDist) {
+                placed = cand; break;
+              }
+            }
+            if (placed) break;
+          }
+        }
+        // 3. Try combining normal offset and sliding
+        if (!placed) {
+          for (let s = 0.5; s <= 8.0; s += 0.5) {
+            for (const dir of [1, -1]) {
+              const f = nomF + (dir * s) / len;
+              if (f < 0.05 || f > 0.95) continue;
+              for (const delta of [0.10, 0.20, -0.10, 0.30, -0.20]) {
+                const cand = checkCandidate(f, 1.08 + delta);
+                if (cand && blockCurbDist(cand.lx, cand.lz, b) >= reqDist) {
+                  placed = cand; break;
+                }
+              }
+              if (placed) break;
+            }
+            if (placed) break;
+          }
+        }
       }
+      if (!placed) continue;
+      const { lx, lz, headX, headZ } = placed;
       addPole({ x: lx, z: lz });
       addFootprint(lx, lz, 0.45, 0.45, 'led');
       addCollider(lx, lz, 0.14, 0.14, 0.1 + 8.6 * scale);
