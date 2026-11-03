@@ -3,11 +3,12 @@ import { createTreeMaterial } from './tsl-materials.js';
 
 // js/trees.js
 // Procedural Poznań street & park trees, planted by street-details.js (section 4):
-// - Lime (lipa), Norway maple (klon) & horse chestnut (kasztanowiec) grown from seeded per-species rules: a flared
+// - Lime, Norway maple, horse chestnut & black locust grown from seeded per-species rules: a flared
 //   trunk / leader carrying scaffold limbs, branches and twigs as tapered, curving bark tubes (uv in metres for the
 //   bark shader)
 // - Leaf sprays on alpha-tested cards hung from the twigs, cut from a generated leaf atlas (heart-shaped lime leaves
-//   with the odd flower bract, five-lobed maple leaves, seven-fingered chestnut leaves and a dense far-canopy clump)
+//   with the odd flower bract, five-lobed maple leaves, seven-fingered chestnut leaves, pinnate locust leaves and a
+//   dense far-canopy clump)
 //   whose mipmaps keep their coverage, so distant crowns don't thin out
 // - Crown-shell normals, interior occlusion & sway weights baked per vertex (attributes: createTreeMaterial in
 //   tsl-materials.js)
@@ -35,15 +36,18 @@ const smooth = (e0, e1, x) => {
 };
 
 // =====================================================================================================================
-// 1. LEAF ATLAS: 2x2 tiles of leaf sprays drawn in metres and fitted to their tile (tileMeters = the card's world size)
-//    0 lime · 1 Norway maple · 2 horse chestnut · 3 dense far-canopy clump (whole-crown cards of the far level)
+// 1. LEAF ATLAS: 4x2 tiles of leaf sprays drawn in metres and fitted to their tile (tileMeters = the card's world size)
+//    0 lime · 1 Norway maple · 2 horse chestnut · 3 far-canopy clump · 4 black locust
 //    Texels: r = leaf brightness, g = per-leaf hue jitter, b = twig / stalk mask, a = coverage
 // =====================================================================================================================
-const ATLAS_SIZE = 1024;
-const TILE = ATLAS_SIZE / 2;
+const ATLAS_WIDTH = 2048;
+const ATLAS_HEIGHT = 1024;
+const ATLAS_TILES_X = 4;
+const ATLAS_TILES_Y = 2;
+const TILE = ATLAS_WIDTH / ATLAS_TILES_X;
 const GUTTER = 8; // px kept clear round every tile, so mip levels don't bleed between tiles
 const TILE_FAR = 3;
-const tileOrigin = (k) => [(k % 2) * TILE, (k >> 1) * TILE];
+const tileOrigin = (k) => [(k % ATLAS_TILES_X) * TILE, Math.floor(k / ATLAS_TILES_X) * TILE];
 
 // Spray primitives in metres (x right, y up from the card's attachment point): twigs (polylines) & leaves
 function buildSprays(rng) {
@@ -168,6 +172,30 @@ function buildSprays(rng) {
     }
     sprays.push(prims);
   }
+  // 4. Black locust: airy pinnate leaves, each with paired, rounded leaflets and a terminal leaflet.
+  {
+    const prims = [];
+    for (let i = 0; i < 5; i++) {
+      const f = (i + 0.5) / 5 - 0.5;
+      const pts = twig(f * 0.07, 0, f * 1.5 + R(-0.1, 0.1), R(0.5, 0.65), f * 0.5);
+      prims.push({ type: 'twig', pts, w0: 0.012, w1: 0.004 });
+      for (let t = 0.2; t < 0.9; t += 0.19) {
+        const { p, a } = at(pts, t);
+        for (const side of [-1, 1]) {
+          const la = a + side * 0.85;
+          const rachis = twig(p[0], p[1], la, R(0.18, 0.25), 0, 5);
+          prims.push({ type: 'stalk', pts: rachis, w: 0.003 });
+          for (let u = 0.25; u < 0.9; u += 0.2) {
+            const leaf = at(rachis, u);
+            for (const sd of [-1, 1]) prims.push({ type: 'oval', p: leaf.p, a: leaf.a + sd * 1.1, len: R(0.035, 0.05), wid: 0.58, t });
+          }
+          const tip = at(rachis, 1);
+          prims.push({ type: 'oval', p: tip.p, a: tip.a, len: 0.045, wid: 0.58, t });
+        }
+      }
+    }
+    sprays.push(prims);
+  }
   return sprays;
 }
 
@@ -200,14 +228,15 @@ function sprayBounds(prims) {
 function createLeafAtlas() {
   const ctx2d = () => {
     const c = document.createElement('canvas');
-    c.width = c.height = ATLAS_SIZE;
+    c.width = ATLAS_WIDTH;
+    c.height = ATLAS_HEIGHT;
     return c.getContext('2d', { willReadFrequently: true });
   };
   const col = ctx2d(); // r leaf brightness, g hue jitter, b twig mask
   const cov = ctx2d(); // coverage
   // Mean leaf value under the empty texels, so filtering never pulls black (or twig brown) into the leaf edges
   col.fillStyle = 'rgb(170, 128, 0)';
-  col.fillRect(0, 0, ATLAS_SIZE, ATLAS_SIZE);
+  col.fillRect(0, 0, ATLAS_WIDTH, ATLAS_HEIGHT);
   for (const c of [col, cov]) {
     c.lineCap = 'round';
     c.lineJoin = 'round';
@@ -386,17 +415,17 @@ function createLeafAtlas() {
   });
 
   // Colour data + coverage -> level 0, then a mip chain whose alpha keeps each tile's coverage
-  const data = col.getImageData(0, 0, ATLAS_SIZE, ATLAS_SIZE).data;
-  const mask = cov.getImageData(0, 0, ATLAS_SIZE, ATLAS_SIZE).data;
-  const level0 = new Uint8Array(ATLAS_SIZE * ATLAS_SIZE * 4);
+  const data = col.getImageData(0, 0, ATLAS_WIDTH, ATLAS_HEIGHT).data;
+  const mask = cov.getImageData(0, 0, ATLAS_WIDTH, ATLAS_HEIGHT).data;
+  const level0 = new Uint8Array(ATLAS_WIDTH * ATLAS_HEIGHT * 4);
   for (let i = 0; i < level0.length; i += 4) {
     level0[i] = data[i];
     level0[i + 1] = data[i + 1];
     level0[i + 2] = data[i + 2];
     level0[i + 3] = mask[i + 3];
   }
-  const tex = new THREE.DataTexture(level0, ATLAS_SIZE, ATLAS_SIZE, THREE.RGBAFormat, THREE.UnsignedByteType);
-  tex.mipmaps = coverageMips(level0, ATLAS_SIZE, 2);
+  const tex = new THREE.DataTexture(level0, ATLAS_WIDTH, ATLAS_HEIGHT, THREE.RGBAFormat, THREE.UnsignedByteType);
+  tex.mipmaps = coverageMips(level0, ATLAS_WIDTH, ATLAS_HEIGHT, ATLAS_TILES_X, ATLAS_TILES_Y);
   tex.generateMipmaps = false;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.magFilter = THREE.LinearFilter;
@@ -410,63 +439,72 @@ function createLeafAtlas() {
 
 // Box-filtered mip chain whose alpha is rescaled per tile so the share of texels above the alpha-test cutoff stays as
 // it is at level 0 (otherwise alpha-tested foliage thins out and vanishes at distance)
-function coverageMips(level0, size, tiles, cutoff = 128) {
-  const levels = [{ data: level0, width: size, height: size }];
+function coverageMips(level0, width, height, tilesX, tilesY, cutoff = 128) {
+  const levels = [{ data: level0, width, height }];
   const target = [];
-  const tilePx = size / tiles;
-  for (let ty = 0; ty < tiles; ty++) {
-    for (let tx = 0; tx < tiles; tx++) {
+  const tileWidth = width / tilesX;
+  const tileHeight = height / tilesY;
+  for (let ty = 0; ty < tilesY; ty++) {
+    for (let tx = 0; tx < tilesX; tx++) {
       let n = 0;
-      for (let y = ty * tilePx; y < (ty + 1) * tilePx; y++) {
-        for (let x = tx * tilePx; x < (tx + 1) * tilePx; x++) if (level0[(y * size + x) * 4 + 3] >= cutoff) n++;
+      for (let y = ty * tileHeight; y < (ty + 1) * tileHeight; y++) {
+        for (let x = tx * tileWidth; x < (tx + 1) * tileWidth; x++) if (level0[(y * width + x) * 4 + 3] >= cutoff) n++;
       }
-      target.push(n / (tilePx * tilePx));
+      target.push(n / (tileWidth * tileHeight));
     }
   }
-  const meanTarget = target.reduce((a, b) => a + b, 0) / target.length;
   let src = level0;
-  let w = size;
+  let w = width;
+  let h = height;
   const hist = new Uint32Array(256);
-  while (w > 1) {
-    const h = w >> 1;
-    const dst = new Uint8Array(h * h * 4);
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < h; x++) {
-        const i0 = ((2 * y) * w + 2 * x) * 4;
-        const i1 = i0 + w * 4;
-        const o = (y * h + x) * 4;
-        for (let c = 0; c < 4; c++) dst[o + c] = (src[i0 + c] + src[i0 + 4 + c] + src[i1 + c] + src[i1 + 4 + c] + 2) >> 2;
+  while (w > 1 || h > 1) {
+    const nw = Math.max(1, w >> 1);
+    const nh = Math.max(1, h >> 1);
+    const sx = w / nw;
+    const sy = h / nh;
+    const dst = new Uint8Array(nw * nh * 4);
+    for (let y = 0; y < nh; y++) {
+      for (let x = 0; x < nw; x++) {
+        for (let c = 0; c < 4; c++) {
+          let sum = 0;
+          for (let dy = 0; dy < sy; dy++) for (let dx = 0; dx < sx; dx++) sum += src[((y * sy + dy) * w + x * sx + dx) * 4 + c];
+          dst[(y * nw + x) * 4 + c] = Math.round(sum / (sx * sy));
+        }
       }
     }
-    const nt = h >= tiles ? tiles : 1;
-    const tp = h / nt;
-    for (let ty = 0; ty < nt; ty++) {
-      for (let tx = 0; tx < nt; tx++) {
-        const want = (nt === tiles ? target[ty * tiles + tx] : meanTarget) * tp * tp;
+    const nx = Math.min(nw, tilesX);
+    const ny = Math.min(nh, tilesY);
+    const tw = nw / nx;
+    const th = nh / ny;
+    for (let ty = 0; ty < ny; ty++) {
+      for (let tx = 0; tx < nx; tx++) {
+        let mean = 0;
+        for (let j = ty * tilesY / ny; j < (ty + 1) * tilesY / ny; j++) {
+          for (let i = tx * tilesX / nx; i < (tx + 1) * tilesX / nx; i++) mean += target[j * tilesX + i];
+        }
+        const want = mean / ((tilesX / nx) * (tilesY / ny)) * tw * th;
         hist.fill(0);
-        for (let y = ty * tp; y < (ty + 1) * tp; y++) for (let x = tx * tp; x < (tx + 1) * tp; x++) hist[dst[(y * h + x) * 4 + 3]]++;
+        for (let y = ty * th; y < (ty + 1) * th; y++) for (let x = tx * tw; x < (tx + 1) * tw; x++) hist[dst[(y * nw + x) * 4 + 3]]++;
         let acc = 0;
         let aStar = 255;
         for (let a = 255; a >= 1; a--) {
           acc += hist[a];
-          if (acc >= want) {
-            aStar = a;
-            break;
-          }
+          if (acc >= want) { aStar = a; break; }
         }
         const scale = cutoff / Math.max(aStar, 1);
         if (Math.abs(scale - 1) < 0.01) continue;
-        for (let y = ty * tp; y < (ty + 1) * tp; y++) {
-          for (let x = tx * tp; x < (tx + 1) * tp; x++) {
-            const i = (y * h + x) * 4 + 3;
+        for (let y = ty * th; y < (ty + 1) * th; y++) {
+          for (let x = tx * tw; x < (tx + 1) * tw; x++) {
+            const i = (y * nw + x) * 4 + 3;
             dst[i] = Math.min(255, Math.round(dst[i] * scale));
           }
         }
       }
     }
-    levels.push({ data: dst, width: h, height: h });
+    levels.push({ data: dst, width: nw, height: nh });
     src = dst;
-    w = h;
+    w = nw;
+    h = nh;
   }
   return levels;
 }
@@ -508,6 +546,18 @@ const SPECIES = [
     twigs: { n: 3, t: [0.3, 1.0], angle: [0.55, 1.0], len: [1.1, 0.7], up: 0.06, out: 0, droop: 0, jitter: 0.12, segs: 2 },
     cards: { perTwig: 2, scale: [0.9, 1.15], droop: 0.08 },
     tints: [0x3c5a22, 0x466828, 0x34511f]
+  },
+  { // 3: Black locust (robinia akacjowa): open, irregular crown with ascending limbs and fine compound foliage.
+    // A search-engine snapshot of Poznań's green inventory (retrieved 2026-11-03) listed robinia in its top three;
+    // the inventory now redirects to an app, so its snapshot counts could not be independently verified:
+    // https://sip.poznan.pl/sip/zielen2/
+    name: 'robinia', tile: 4,
+    trunk: { r: 0.27, top: 8.2, lean: 0.07, segs: 8 },
+    limbs: { n: 6, y: [3.0, 7.5], tilt: [1.05, 0.4], len: [4.1, 2.8], r: 0.58, up: 0.08, out: 0.01, droop: 0, jitter: 0.12, segs: 6 },
+    branches: { n: 3, t: [0.3, 0.98], angle: [0.55, 1.0], len: [0.62, 0.44], up: 0.04, out: 0.02, droop: 0.02, jitter: 0.14, segs: 4 },
+    twigs: { n: 3, t: [0.3, 1.0], angle: [0.6, 1.1], len: [1.1, 0.75], up: 0, out: 0, droop: 0.05, jitter: 0.15, segs: 2 },
+    cards: { perTwig: 2, scale: [0.9, 1.15], droop: 0.1 },
+    tints: [0x668341, 0x73914a, 0x587438]
   }
 ];
 
@@ -714,11 +764,11 @@ function addCard(gb, at, up, face, size, tile, mirror, rnd, crown) {
   const side = new V3().crossVectors(up, face).normalize();
   const nrm = new V3().crossVectors(side, up).normalize();
   const [ox, oy] = tileOrigin(tile);
-  let u0 = (ox + GUTTER) / ATLAS_SIZE;
-  let u1 = (ox + TILE - GUTTER) / ATLAS_SIZE;
+  let u0 = (ox + GUTTER) / ATLAS_WIDTH;
+  let u1 = (ox + TILE - GUTTER) / ATLAS_WIDTH;
   if (mirror) [u0, u1] = [u1, u0];
-  const vTop = (oy + GUTTER) / ATLAS_SIZE;
-  const vBot = (oy + TILE - GUTTER) / ATLAS_SIZE;
+  const vTop = (oy + GUTTER) / ATLAS_HEIGHT;
+  const vBot = (oy + TILE - GUTTER) / ATLAS_HEIGHT;
   const corners = [
     [-0.5, 0, u0, vBot],
     [0.5, 0, u1, vBot],
@@ -908,6 +958,11 @@ function hashPos(x, y, z) {
   return s - Math.floor(s);
 }
 
+// Reassign a seeded 4% of existing sites, without changing placement, scale or trunk colliders.
+function treeSpecies(t) {
+  return hashPos(t.x, 19.7, t.z) < 0.04 ? 3 : Math.min(3, Math.max(0, t.species || 0));
+}
+
 /**
  * Builds the instanced tree field for `sites` ({ x, y, z, scale, species, yaw?, sx?, sz?, tier? }) and keeps each
  * tree's level of detail up to date from the camera of every view pass (scene.onBeforeRender). Returns
@@ -956,7 +1011,7 @@ function createTreeField(scene, sites) {
   const dummy = new THREE.Object3D();
   const tint = new THREE.Color();
   sites.forEach((t, i) => {
-    const sp = Math.min(SPECIES.length - 1, Math.max(0, t.species || 0));
+    const sp = treeSpecies(t);
     const r1 = hashPos(t.x, 1.3, t.z);
     const r2 = hashPos(t.z, 7.1, t.x);
     const r3 = hashPos(t.x + t.z, 3.3, 0.7);
@@ -1128,4 +1183,4 @@ function createTreeField(scene, sites) {
   return { group, material, atlas, update, meshes: instanced, stats };
 }
 
-export { createTreeField, createLeafAtlas, buildTreeGeometries, SPECIES as TREE_SPECIES };
+export { createTreeField, createLeafAtlas, buildTreeGeometries, coverageMips, treeSpecies, SPECIES as TREE_SPECIES };

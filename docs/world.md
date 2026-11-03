@@ -250,7 +250,26 @@ Built before the road network, so everything that stands near a lane is checked 
   - Farther out, or once the near budget is spent, a stack is a single open box whose `maskNode` draws a slab band and a picket railing per storey from `balconySize = (storey, box height, width)`.
   - buildings.js `commit()` emits them for half the kamienice, corner houses and 1930s houses (`BALCONY_P`), on street fronts only: 1–3 stacks per front (one per ~7 m), one slab width (1.8–3 m) and railing style per building, from the first floor (the second over shops, clear of the awnings) up to six storeys. Measured over the 8.2 × 5.7 km box (headless, foci on a 100 m grid, 2026-10-28): 17.4k stacks city-wide (10.1k over the 6.1 × 3.7 km box), at most 1243 within `STREAM_RADIUS` (Jeżyce) against the 2400 cap and 245 near balconies within 90 m (Garbary; 228 on the same grid before) against 256. The other streamed pools peak at cornices 1985 / 7000, chimneys 2055 / 3000, skylights 524 / 1000, HVAC 157 / 1600, awnings 942 / 1800 and scaffolds 43 / 120: the densest spots are in the old centre, so the larger box raised only the skylights (Główna, 524 against 372).
   - The record holds `x, y, z, ry, facing, storey, landings, h` (plus optional `w`, `style`): `z` sits 0.55 m off the facade, `facing` turns local +z into the street, `y` is the lowest slab top, and `h = (landings - 1) * storey + 1`.
-- **Trees** (`trees.js`): three species, by `species` index on each site: 0 lime (lipa, the default: most park and wide-street trees), 1 Norway maple (narrow streets, plaza planters, leftover slabs), 2 horse chestnut (a share of parks and wide streets). Callers pick the index (`street-details.js` section 4, `city-grid.js` park sites, `buildings.js` leftover slabs). Each species has one tile of the 2×2 leaf atlas (tile 3 is the far-canopy clump; a 4th species needs a wider atlas and its own `meshIndex` entry) and its own bark in `createTreeMaterial`, keyed off the same index. `tests/trees.test.cjs` paints the atlas on a recording canvas and checks that every path stays in its tile. Trees are procedural rows; real OSM `natural=tree` positions are not in the geodata. `LOD_NEAR` is 105 m, `LOD_MID` 420 m, then crown cards, with 6 m of hysteresis. The meshes are regrouped per 200 m cell / species / variant / level. Instance buffers use static usage on purpose: DynamicDrawUsage re-uploads in every pass of every frame.
+- **Trees** (`trees.js`): site indices select 0 lime (most park and wide-street trees), 1 Norway maple (narrow
+  streets, plaza planters and leftover slabs), or 2 horse chestnut (some parks and wide streets). An independent position
+  hash reassigns 4% of all sites, including streets, parks, plaza planters and leftover slabs, to 3 black locust
+  (*Robinia pseudoacacia*, robinia akacjowa), without changing sites or colliders. A search-engine snapshot of the
+  [municipal green inventory](https://sip.poznan.pl/sip/zielen2/), retrieved 2026-11-03, reported 2,280 black locusts
+  among 58,267 identified trees (3.9%). The page now redirects to an ArcGIS app, so these snapshot counts could not be
+  independently checked in the live inventory. The simulated distribution is illustrative, not a reconstruction of
+  individual trees. The locust has an open crown, pinnate leaf sprays and deeply furrowed grey-brown bark. All species
+  share the wind and LOD system; there is no seasonal foliage model. The 2048 × 1024 leaf atlas has 4 × 2 tiles of
+  512 px (0–2 and 4 species, 3 far canopy); mipmaps preserve coverage per tile. Each species has its own bark in
+  `createTreeMaterial`. The full headless grid → buildings → street-details build has 55,381 trees: lime 21,647 →
+  20,759, maple 23,712 → 22,767, chestnut 10,022 → 9,606, locust 0 → 2,249. `tests/tree-distribution.test.cjs`
+  fixes site and collider snapshots, distribution and field transforms; `tests/trees.test.cjs` checks atlas paths and
+  mipmaps. Trees are procedural rows; real OSM `natural=tree` positions are not in the geodata. `LOD_NEAR` is 105 m,
+  `LOD_MID` 420 m, then crown cards, with 6 m of hysteresis. Meshes are built per 200 m cell / species / variant /
+  level and regrouped within fixed instance buffers. On these sites the number of allocated meshes rises 14,155 →
+  17,283 (+3,128, 22.1%); only active cells and levels draw, including in shadow passes. Each species has different
+  geometry: sharing a mesh would require a combined geometry and per-instance vertex selection, trading these mesh
+  counts for extra vertex work and shader complexity. Instance buffers use static usage: DynamicDrawUsage re-uploads
+  in every pass of every frame.
 - **Scene culling** is automatic for anything under the seven named roots; thresholds and opt-outs are in [`rendering.md`](rendering.md#culling-scene-cullingjs-registering-new-static-geometry).
 
 ## Batching

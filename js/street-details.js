@@ -1190,14 +1190,14 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   // 4. TREES: PARKS, SQUARES & PLAZAS, AND STREET TREES ALONG THE CURBS
   //    (one unified trunk + crown instanced mesh per species & band, js/trees.js)
   // =========================================================================
-  const treePositions = []; // { x, y, z, scale, species (0 lime, 1 Norway maple, 2 horse chestnut) }
+  const treePositions = []; // { x, y, z, scale, species (0 lime, 1 Norway maple, 2 horse chestnut; trees.js can reassign 3 black locust) }
   const mixSpecies = (r, lime, maple) => (r < lime ? 0 : (r < lime + maple ? 1 : 2));
 
   // A. The parks, squares & plazas (sites laid out by city-grid.js, plus buildings.js's leftover slabs)
   for (const s of parkTreeSites || []) treePositions.push(s);
 
   // B. Street trees on the raised sidewalks of every real block, along each curb edge: small trees close to the curb
-  //    on the narrow streets (a block across within ~14 m), limes, maples & chestnuts on the wider ones, with random
+  //    on the narrow streets (a block across within ~14 m), limes, maples & chestnuts on the wider ones (trees.js also selects black locust), with random
   //    missing trees and the odd unplanted edge; sparse in Stare Miasto's narrow lanes. Never in plazas or parks.
   const sidewalkTreePositions = [];
   const SIDEWALK_Y = 0.22;

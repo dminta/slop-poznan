@@ -373,7 +373,7 @@ None pending. Both historical open decisions were confirmed by the user on 2026-
   registration plate font stack on systems without Arial Narrow is implemented. Taxi crests and exact livery/marking fidelity require
   source verification before use.
 - Street details: conditional S-2 arrows, pedestrian countdowns, a fourth
-  tree species and real OSM tree positions.
+  real OSM tree positions.
 - Traffic: passing a waiting left-turner on a wide single-lane approach is implemented (Łazarz at `−1875, 1299` and citywide). Kaponiera and Wilda retain substantial queues despite meeting the aggregate flow targets.
 - Geodata semantics: road levels and richer road-priority classification; revisit only with a runtime consumer.
   Additional height sources (nDSM/LoD1/LoD2) and GEOPOZ machine-readable data remain research candidates.
@@ -432,3 +432,11 @@ ways, over 0.764 km of eligible directional lane segments. Among 71 source ways 
 have mismatched runtime lane counts, five are too short for a mark and 23 have no retained paint edge. Count-only,
 turn-only and contraflow tags do not create markings; see [geodata.md](geodata.md) for the source counts and
 [world.md](world.md) for clearance and measurement scope. Browser appearance and WebGPU/WebGL2 checks remain open.
+
+## Fourth tree species implemented
+
+Black locust joins lime, Norway maple and horse chestnut using a deterministic 4% site reassignment; see
+[Trees](world.md) for the inventory snapshot, model and mesh cost. In the full headless grid → buildings →
+street-details build, counts are lime 21,647 → 20,759, maple 23,712 → 22,767, chestnut 10,022 → 9,606 and
+locust 0 → 2,249 (55,381 total). Site and collider snapshots are unchanged. Browser checks of the new foliage,
+bark, LOD and wind remain outstanding.
