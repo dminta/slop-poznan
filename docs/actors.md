@@ -194,7 +194,14 @@ reads the road network (signal nodes, lanes and junction curves for `mapTramsToR
   across the detail boundary. These are five existing OSM ways absent from the relations; `poz-roads.mjs` adds their
   membership using adjacent member-way anchors (see `geodata.md`). Track geometry, runtime routing and the 38 route
   records stay unchanged. Exact-coordinate tests cover both loops at two branch choices, return destinations and
-  both boundary directions. Global off-route percentages have not been re-measured after this data correction.
+  both boundary directions. On 2026-11-03, a seeded headless re-measurement at those six locations (10 minutes each,
+  15 fps, one sample per active tram per second, 84,235 samples) found **0 off-route samples**: none on track used only
+  by other numbered lines and none on track assigned to no route. Separately, 355 samples of line 5 showed the return
+  destination Górczyn PKM while the front was still on the Zawady-bound direction, on three edges from (1565.6, -187.1)
+  to (1650.1, -561.4). `TramPath.extend` switches the display while looking ahead, up to about 200 m before the loop;
+  these samples are on the same line and are not off-route. The historical script, seed, exact camera positions and
+  sampling details were not retained, so the historical 0.44% and the new 0% are not a controlled before/after comparison.
+  See `tools/bench-tram-routes.mjs` and [testing.md](testing.md#tram-route-membership-benchmark) for method and limits.
   Lines run the real sequence of tracks only roughly: no timetable, any number of trams per line.
 - **Stops**: `tram-infra.js` stops (`railIndex`, `s`, `dir`) are attached to the edge running that way
   (`attachTramStops`). Bare `GEO.tramStops` nodes are snapped to the nearest track within 6 m (`snapTramStops`); that

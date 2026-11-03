@@ -135,3 +135,23 @@ the longest sample. Separately, `switchHeld60`, `maxSwitchWait` and `switchSecon
 every frame while speed is below 0.5 m/s, excluding boarding dwells. A long red followed by a short switch wait is
 therefore distinguishable from a tram blocking a switch for over a minute. `tests/traffic-flow.test.mjs` runs the
 benchmark for 5 simulated minutes at Jeżyce and Centrum as a regression test.
+
+## Tram route membership benchmark
+
+`node tools/bench-tram-routes.mjs` runs six independent headless worlds at Ostrów Tumski (907.1, -246.5),
+Stare Miasto (0, 0), Dworzec (-1518.5, 557.7), Półwiejska (-250, 850), Rataje (1108, 1439) and Jeżyce
+(-2056, -391), in world metres. Defaults: 10 simulated minutes per location, 15 fps and seed 4242, reset at each
+location; `--minutes`, `--fps` and `--seed` override them. It emits JSON lines with per-location counts and off-route
+edge details, then a total. Samples are taken once per simulated second from the first second, for every active tram,
+without a distance filter. The front edge's route membership is compared with the tram's displayed direction and
+numbered line. `other` means the edge has routes, but none with the tram's line number; `unused` means no route uses it.
+`sameLine` counts a direction-membership mismatch where another route of the same line uses the edge. Sum counts before
+dividing for the global share. Both benchmarks share `tools/bench-world.mjs` for the headless world setup.
+
+The setup uses the same headless world and omissions as the traffic benchmark above. It does not check the rendered
+scene or full tram body. Route selection can change ahead of the front as the path is extended. The historical
+six-location run's exact coordinates, sampling point, seed, frame rate and setup were not recorded; this is a reproducible
+reconstruction, not a controlled replay. On 2026-11-03 it sampled 84,235 tram-seconds: 0 on another numbered line's
+track and 0 on track without any route. Separately, 355 samples of line 5 showed its return direction up to about 200 m
+before the Zawady loop while the front was still on its outbound direction's track. Historical pre-15.10 figures were
+0.44% total and 0.06% on other routes' track, using the older direction-membership classification.
