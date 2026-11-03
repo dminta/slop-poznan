@@ -29,7 +29,7 @@ Know which one covers the code you are editing. Two of them are coupled to the e
    - `signal-display.test.cjs` captures the head group before `      const half = a.w / 2;` in street-details.js, then
      compares the rendered groups with real incoming road lanes. It also checks the shared texture and crossing audio.
    - `dworzec-crossings.test.cjs` exposes the internal `links` function by replacing the literal
-     `return { along, across, next, crosswalks };` in pedestrian-routes.js to check real bidirectional connectivity.
+     `return { along, across, next, crosswalks, segments, segmentsNear };` in pedestrian-routes.js to check real bidirectional connectivity.
      It also records `setFacing` at `dummy.rotation.set(0, Math.atan2(fx, fz), 0);` in street-details.js to check
      that the refuge head faces walkers at the actual southern landing.
    - `signal-placement.test.cjs` records actual vehicle-head placement at `          s1Matrices.push(m);` and the
@@ -156,3 +156,14 @@ tram-seconds: 0 on another numbered line's track and 0 on track without any rout
 samples of line 5 showed its return direction before the front entered that route; afterwards the same benchmark found
 0 such samples. Historical pre-15.10 figures were 0.44% total and 0.06% on other routes' track, using the older
 direction-membership classification.
+
+## Signal head audit
+
+`node tools/audit-signal-heads.mjs` prints JSON lines for the 167 historical strict-unmatched runtime edges and
+A/B/C/D totals; `--before` stops after the earlier existing-pole additions. A includes head along/lateral offsets
+from the stop line; C reports the failure counts over 60 sampled sites and the least-blocked sample. The audit and
+runtime use the same search, including actual lanes, turn samples, crossing landings and locally materialised sidewalk, corner and refuge segments. The headless fixture uses live park/plaza data but omits building, landmark and bridge
+colliders. The browser includes them, so candidate sites and counts can differ. The audit checks geometry, not visual
+occlusion, and C does not rule out unsampled sites. `tests/signal-audit.test.cjs` checks before and after counts;
+`signal-placement.test.cjs` rebuilds the network with the new footprints and compares lanes, crossings and pedestrian
+segments and their route connections near the new poles, as well as phase, facing, setbacks, colliders and audio registrations.

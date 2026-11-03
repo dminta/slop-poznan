@@ -480,11 +480,58 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable, configureCro
     return best;
   }
 
+  // Materialise the lazy sidewalk, crossing and corner-link tracks before post-network furniture is placed.
+  // Calling links in both directions also covers the intermediate legs across split-crossing refuges.
+  function segments() {
+    const tracks = new Set();
+    for (const edge of edges) for (const track of along(edge)) tracks.add(track);
+    for (const node of nodes) for (const track of across(node)) tracks.add(track);
+    const result = new Set(tracks);
+    for (const track of tracks) for (const dir of [-1, 1]) {
+      for (const path of links(track, dir)) for (const leg of path) result.add(leg.track);
+    }
+    return [...result];
+  }
+
+  // Only tracks whose geometry or a possible corner link can reach the search area are needed by the
+  // post-network signal placement. Cache by junction: the configured network and its stop lines do not move.
+  const nearSegmentCache = new WeakMap();
+  function segmentsNear(x, z, radius, nodeKey = null) {
+    if (nodeKey && nearSegmentCache.has(nodeKey)) return nearSegmentCache.get(nodeKey);
+    const tracks = new Set();
+    const nearSegment = (ax, az, bx, bz, reach) => {
+      const dx = bx - ax, dz = bz - az, len2 = dx * dx + dz * dz;
+      const t = len2 ? Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / len2)) : 0;
+      return Math.hypot(x - ax - t * dx, z - az - t * dz) <= reach;
+    };
+    // A corner link can have two 20 m legs. Include its source track even if the track itself is farther from
+    // the candidate; a long track can otherwise bring a corner into the area from a distant junction.
+    const reach = radius + 40;
+    for (const edge of edges) {
+      const bx = edge.sx + edge.dx * edge.len, bz = edge.sz + edge.dz * edge.len;
+      if (!nearSegment(edge.sx, edge.sz, bx, bz, reach + edge.half + 2.8)) continue;
+      for (const track of along(edge)) tracks.add(track);
+    }
+    for (const c of crosswalks) {
+      if (!nearSegment(c.ax, c.az, c.bx, c.bz, reach + 3)) continue;
+      for (const track of across(c.node)) tracks.add(track);
+    }
+    const result = new Set(tracks);
+    for (const track of tracks) for (const dir of [-1, 1]) {
+      const end = point(track, dir > 0 ? 1 : 0);
+      if (Math.hypot(end.x - x, end.z - z) > reach) continue;
+      for (const path of links(track, dir)) for (const leg of path) result.add(leg.track);
+    }
+    const nearby = [...result];
+    if (nodeKey) nearSegmentCache.set(nodeKey, nearby);
+    return nearby;
+  }
+
   // every crosswalk kept, for road-paint.js: { node, side, group, ax, az, bx, bz (the zebra's ends, at the curbs),
   // ux, uz (out of the junction), span, tracks }
   layOut();
   if (configureCrosswalks) configureCrosswalks(crosswalks);
-  return { along, across, next, crosswalks };
+  return { along, across, next, crosswalks, segments, segmentsNear };
 }
 
 export { createPedestrianRoutes };

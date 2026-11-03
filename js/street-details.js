@@ -1432,9 +1432,171 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
     }
   }
 
+  const staticHeadSites = vehicleHeadSites.slice();
+
+  // Shared by the diagnostic audit and boot-time placement. Clearance is conservative: a pole's 0.3 m square
+  // is expanded by the exact margins used by lane, curve and pedestrian checks when the network is rebuilt.
+  function auditRuntimeSignalHeads(network, pedRoutes, place = false) {
+    const heads = [], entries = [], cell = 16;
+    const key = (x, z) => `${Math.floor(x / cell)},${Math.floor(z / cell)}`;
+    const index = () => new Map();
+    const file = (map, item, minX, maxX, minZ, maxZ) => {
+      for (let ix = Math.floor(minX / cell); ix <= Math.floor(maxX / cell); ix++) {
+        for (let iz = Math.floor(minZ / cell); iz <= Math.floor(maxZ / cell); iz++) {
+          const k = `${ix},${iz}`;
+          if (!map.has(k)) map.set(k, []);
+          map.get(k).push(item);
+        }
+      }
+    };
+    const lookup = (map, x, z) => map.get(key(x, z)) || [];
+    const curves = index(), lanes = index(), crossings = index(), buildings = index();
+    for (const n of network.nodes) for (const e of n.in) for (const move of e.moves) {
+      for (let i = 0; i < move.out.length; i++) {
+        const j = move.out[i];
+        if (j < 0) continue;
+        const curve = network.connector(e, i, move.to, j), point = {};
+        for (let k = 1; k < 10; k++) {
+          network.curvePoint(curve, curve.len * k / 10, point);
+          const p = { x: point.x, z: point.z };
+          file(curves, p, p.x - 0.95, p.x + 0.95, p.z - 0.95, p.z + 0.95);
+        }
+      }
+    }
+    // The original laneOpen tests 2.5 m samples on the whole untrimmed run, not just its visible edge.
+    for (const e of network.edges) for (const lane of e.lanes) {
+      const margin = 1.35;
+      const x0 = e.x0 + e.rx * lane, z0 = e.z0 + e.rz * lane;
+      const x1 = x0 + e.dx * e.span, z1 = z0 + e.dz * e.span;
+      const segment = { ax: x0, az: z0, bx: x1, bz: z1, margin };
+      file(lanes, segment, Math.min(x0, x1) - margin, Math.max(x0, x1) + margin,
+        Math.min(z0, z1) - margin, Math.max(z0, z1) + margin);
+    }
+    const addWalk = (walks, track) => {
+      const ax = track.ax, az = track.az, bx = ax + track.ux * track.len, bz = az + track.uz * track.len;
+      // clear() tests an axis-aligned box around each one-metre step, so include that step as well as
+      // its 0.4 m clearance and the pole footprint. A narrow diagonal corridor alone misses box corners.
+      const margin = 1.55;
+      const segment = { ax, az, bx, bz, margin };
+      file(walks, segment, Math.min(ax, bx) - margin, Math.max(ax, bx) + margin,
+        Math.min(az, bz) - margin, Math.max(az, bz) + margin);
+    };
+    for (const c of pedRoutes.crosswalks) {
+      const margin = c.h + 2.75;
+      file(crossings, c, Math.min(c.ax, c.bx) - margin, Math.max(c.ax, c.bx) + margin,
+        Math.min(c.az, c.bz) - margin, Math.max(c.az, c.bz) + margin);
+    }
+    for (const c of buildingColliders) {
+      if ((c.minY ?? 0) > SIGNAL_POLE_H + 0.1 || (c.maxY ?? Infinity) < 0.1) continue;
+      file(buildings, c, c.minX - 0.15, c.maxX + 0.15, c.minZ - 0.15, c.maxZ + 0.15);
+    }
+    // Segment intersects a square around the candidate (the rectangle query used by walkable/pathClear).
+    const intersects = (s, x, z) => {
+      let lo = 0, hi = 1;
+      for (const [a, d, centre] of [[s.ax, s.bx - s.ax, x], [s.az, s.bz - s.az, z]]) {
+        if (Math.abs(d) < 1e-9) { if (Math.abs(a - centre) > s.margin) return false; continue; }
+        const t0 = (centre - s.margin - a) / d, t1 = (centre + s.margin - a) / d;
+        lo = Math.max(lo, Math.min(t0, t1)); hi = Math.min(hi, Math.max(t0, t1));
+        if (lo > hi) return false;
+      }
+      return true;
+    };
+    const root = (p) => { while (p && p.alias) p = p.alias; return p; };
+    for (const node of network.nodes) {
+      if (!node.signalTiming) continue;
+      for (const edge of node.in) {
+        if (place && staticHeadSites.some((h) => h.site.timing.index === node.signalTiming.index &&
+          Math.hypot(h.p.x - node.x, h.p.z - node.z) < 45 &&
+          h.a.ux * edge.inArm.ux + h.a.uz * edge.inArm.uz > 0.98)) continue;
+        const x = edge.sx + edge.dx * edge.len, z = edge.sz + edge.dz * edge.len;
+        const entry = { node, edge, x, z };
+        entries.push(entry);
+        if (!node.signal || node.signalTiming.disabled || !edge.lanes.length) { entry.class = 'D'; continue; }
+        const sameHead = vehicleHeadSites.find((h) => {
+          if (root(h.site.timing) !== root(node.signalTiming)) return false;
+          const swap = Math.abs(h.site.timing.mainUx * node.signalTiming.mainUx +
+            h.site.timing.mainUz * node.signalTiming.mainUz) <= 0.82;
+          const ox = h.p.x - x, oz = h.p.z - z;
+          return (h.group0 !== swap) === (edge.axisIndex === 0) &&
+            -h.a.ux * edge.dx - h.a.uz * edge.dz > 0.9 && Math.hypot(ox, oz) <= 30 &&
+            ox * edge.dx + oz * edge.dz <= STOP_SETBACK;
+        });
+        if (sameHead) { entry.class = 'A'; entry.head = sameHead; continue; }
+        const reasons = {}, candidates = [], walks = index();
+        // Cache one neighbourhood per junction, enclosing the candidates on all its incoming edges. The tracks
+        // and their links are otherwise lazy; materialising the entire city made signal placement take 19 seconds.
+        let reach = 0;
+        for (const incoming of node.in) {
+          const endX = incoming.sx + incoming.dx * incoming.len, endZ = incoming.sz + incoming.dz * incoming.len;
+          reach = Math.max(reach, Math.hypot(endX - node.x, endZ - node.z) + incoming.half + 13);
+        }
+        for (const track of pedRoutes.segmentsNear(node.x, node.z, reach, node)) addWalk(walks, track);
+        let closest = null, sampleCount = 0;
+        for (const side of [1, -1]) for (const back of [0.75, 1, 1.3]) {
+          for (let dt = CROSSWALK + 0.5; dt < 16; dt += 1.2) {
+            sampleCount++;
+            const px = x - edge.dx * (dt - CROSSWALK - STOP_SETBACK) + edge.rx * (edge.half + back) * side;
+            const pz = z - edge.dz * (dt - CROSSWALK - STOP_SETBACK) + edge.rz * (edge.half + back) * side;
+            const fail = [];
+            const b = blockAt(px, pz);
+            const pad = b && b.median ? 0.9 : 0.4;
+            const curb = b && !b.underpass && !inPlaza(px, pz, 0.5, true) &&
+              [[pad, 0], [-pad, 0], [0, pad], [0, -pad]].every(([ox, oz]) => {
+                const q = blockAt(px + ox, pz + oz);
+                return q && !!q.median === !!b.median;
+              });
+            if (!curb) fail.push('curb');
+            if (!clearOfRails(px, pz, 0.22)) fail.push('rail');
+            const crossing = lookup(crossings, px, pz).some((c) => {
+              const dx = c.bx - c.ax, dz = c.bz - c.az, len = Math.hypot(dx, dz);
+              const along = ((px - c.ax) * dx + (pz - c.az) * dz) / len;
+              const across = Math.abs((px - c.ax) * dz - (pz - c.az) * dx) / len;
+              return along > -2.75 && along < len + 2.75 && across < c.h + 0.4;
+            });
+            if (!clearOfCrosswalks(px, pz, 0.15) || crossing) fail.push('crosswalk');
+            if (roadClearance(px, pz) < 0.8) fail.push('road');
+            if (!isClearOfPoles(px, pz, 1.4)) fail.push('furniture');
+            if (lookup(curves, px, pz).some((p) => Math.abs(p.x - px) < 0.95 && Math.abs(p.z - pz) < 0.95)) fail.push('curve');
+            if (lookup(lanes, px, pz).some((s) => intersects(s, px, pz))) fail.push('lane');
+            if (lookup(walks, px, pz).some((s) => intersects(s, px, pz))) fail.push('pedestrian route');
+            if (lookup(buildings, px, pz).some((c) => px >= c.minX - 0.15 && px <= c.maxX + 0.15 &&
+              pz >= c.minZ - 0.15 && pz <= c.maxZ + 0.15)) fail.push('building');
+            for (const reason of fail) reasons[reason] = (reasons[reason] || 0) + 1;
+            if (!closest || fail.length < closest.fail.length) closest = { x: px, z: pz, side, fail };
+            if (!fail.length) candidates.push({ x: px, z: pz, side });
+          }
+        }
+        entry.class = candidates.length ? 'B' : 'C';
+        entry.reasons = reasons; entry.closest = closest; entry.candidate = candidates[0];
+        entry.sampleCount = sampleCount;
+        if (!place) continue;
+        // Prefer a pole without a vehicle head. Right-hand curb before the left-hand fallback.
+        let pole = null;
+        findPole: for (const side of [1, -1]) {
+          for (const record of signalArmPoles.values()) for (const item of record.poles) {
+            const p = item.p, ox = p.x - x, oz = p.z - z;
+            const along = ox * edge.dx + oz * edge.dz, lateral = (ox * edge.rx + oz * edge.rz) * side;
+            if (along < -15 || along > STOP_SETBACK || lateral < edge.half + 0.6 || lateral > edge.half + 2.6 ||
+              vehicleHeadSites.some((h) => Math.hypot(h.p.x - p.x, h.p.z - p.z) < 0.1)) continue;
+            pole = p; break findPole;
+          }
+        }
+        if (!pole && !candidates.length) continue;
+        const p = pole || candidates[0];
+        if (!pole) addSignalPole(p);
+        const site = { timing: node.signalTiming }, group0 = edge.axisIndex === 0;
+        const a = { ux: -edge.dx, uz: -edge.dz, w: edge.half * 2, lanes: edge.lanes.length };
+        const head = { site, a, p, group0, existing: !!pole, node, edge };
+        heads.push(head);
+        vehicleHeadSites.push(head);
+      }
+    }
+    return { entries, heads };
+  }
+
   // Some mapped one-way arms acquire an incoming lane only after the network merges and centres the roads. Reuse
   // the left pole that the ordinary search already placed; the network, pedestrian routes and furniture stay fixed.
-  function addRuntimeSignalHeads(network) {
+  function addRuntimeSignalHeads(network, pedRoutes = null) {
     const matrices = [], ave = [], street = [], backplates = [], aveIndices = [], streetIndices = [];
     const planRoot = (plan) => {
       while (plan && plan.alias) plan = plan.alias;
@@ -1478,6 +1640,21 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         vehicleHeadSites.push({ site, a, p, group0 });
       }
     }
+    if (pedRoutes) {
+      const poleStart = signalPoleMatrices.length;
+      const additions = auditRuntimeSignalHeads(network, pedRoutes, true);
+      result.runtimeHeads.push(...additions.heads);
+      for (const head of additions.heads) {
+        const { site, a, p, group0 } = head;
+        const m = signalHeadMatrix(p, a);
+        const index = (site.timing.index + 0.5) / Math.max(1, SIGNAL_PLANS.length);
+        matrices.push(m);
+        (group0 ? ave : street).push(m);
+        (group0 ? aveIndices : streetIndices).push(index);
+        if (a.w >= 14.5 || a.lanes >= 3) backplates.push(m);
+      }
+      addMatrixArrayInstanced(unitCyl, signalPoleMat, signalPoleMatrices.slice(poleStart));
+    }
     addMatrixArrayInstanced(s1HousingGeo, signalHousingMat, matrices);
     addMatrixArrayInstanced(backplateGeo, signalHousingMat, backplates);
     addMatrixArrayInstanced(backplateBorderGeo, backplateBorderMat, backplates);
@@ -1488,7 +1665,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   }
   scene.add(group);
   const result = { group, footprints, colliders, signalClock, signalTexture, audioSignals,
-    vehicleHeads: s1Matrices.length, addRuntimeSignalHeads, update };
+    vehicleHeads: s1Matrices.length, runtimeHeads: [], addRuntimeSignalHeads, auditRuntimeSignalHeads, update };
   return result;
 }
 

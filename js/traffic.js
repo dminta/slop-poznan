@@ -3033,7 +3033,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     buses,
     peds,
     network,
-    crosswalks: pedRoutes.crosswalks // road-paint.js paints its zebras from them
+    crosswalks: pedRoutes.crosswalks, // road-paint.js paints its zebras from them
+    pedestrianRoutes: pedRoutes
   };
 }
 

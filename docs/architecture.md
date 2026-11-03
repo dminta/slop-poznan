@@ -24,7 +24,8 @@
 2. City builders, in this order: `buildCityGrid`, `buildOutskirts`, `buildBridges`, `buildLandmarks`, `buildCityBlocks`,
    `buildStreetDetails`, `createTrafficSystem`, `buildRoadPaint`, `buildTramInfrastructure`, `createTramSystem`, then
    `trafficSystem.setTrams(tramSystem)`. After traffic builds and configures the road network, street details add
-   any vehicle heads needed on already existing signal poles, before culling. The order matters because of the
+   vehicle heads on existing or newly placed poles, after checking the materialised pedestrian routes and before
+   colliders reach the player and the scene is culled. The order matters because of the
    live `let` exports below ([`world.md`](world.md#build-order-mainjs-initapp-and-why-it-is-fixed)).
 3. `ThirdPersonControllerManager(scene, allColliders, { keepOut: tramInfra.railCorridor })`. Saved player state is
    restored right after it is constructed.
