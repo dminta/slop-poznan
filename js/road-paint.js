@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { CROSSWALK, STOP_SETBACK } from './road-network.js';
-import { createRoadPaintMaterial } from './tsl-materials.js';
+import { createRoadPaintMaterial, createBusPaintMaterial } from './tsl-materials.js';
 
 // js/road-paint.js
 // Road markings generated from the drivable road network (js/road-network.js), so the paint matches where traffic
@@ -41,6 +41,78 @@ const ZEBRA_MIN_PIECE = 1.0; // shorter pieces of a zebra cut by the tracks are 
 const STOP_W = 0.5;
 const STOP_PERIOD = 1.0;
 const STOP_DUTY = 0.75;
+
+// P-22 long variant: 1.62 × 4.00 m, annex 2, fig. 5.2.8.1 (Dz.U. 2019 poz. 2311):
+// https://www.krbrd.gov.pl/wp-content/uploads/2025/02/Rozporzadzenie-Ministra-Infrstruktury-z-dnia-3-lipca-2003-r.-w-sprawie-szczegolowych-warunkow-technicznych-dla-znakow-i-sygnalow-drogowych.pdf
+const BUS_W = 1.62;
+const BUS_L = 4;
+
+function layoutBusMarkings(edges, crosswalks, railClearance) {
+  const marks = [];
+  for (const e of edges) for (const i of e.busLanes || []) {
+    const o = e.lanes[i];
+    // Keep 5 m beyond each stop line / junction, including room for the full inscription.
+    for (let s = 7; s <= e.len - 7; s += 30) {
+      const x = e.sx + e.dx * s + e.rx * o, z = e.sz + e.dz * s + e.rz * o;
+      let clear = true;
+      // Sample the entire rectangle conservatively, with a margin for gaps between samples.
+      for (let a = -2; a <= 2 && clear; a += 0.5) for (let b = -0.81; b <= 0.81 && clear; b += 0.27) {
+        const px = x + e.dx * a + e.rx * b, pz = z + e.dz * a + e.rz * b;
+        if (railClearance && railClearance(px, pz, 3) < 2.0) clear = false;
+        for (const c of crosswalks) {
+          const vx = c.bx - c.ax, vz = c.bz - c.az, d = vx * vx + vz * vz;
+          const t = d ? Math.max(0, Math.min(1, ((px - c.ax) * vx + (pz - c.az) * vz) / d)) : 0;
+          if (Math.hypot(px - c.ax - t * vx, pz - c.az - t * vz) < 4) clear = false;
+        }
+      }
+      if (clear) marks.push({ x, z, dx: e.dx, dz: e.dz, way: e.busWay });
+    }
+  }
+  return marks;
+}
+
+function buildBusMarkings(scene, marks) {
+  if (!marks.length) return;
+  // Driver's left to right is positive to negative local x: local +z points in the direction of travel.
+  // Each letter spans the full 4 m length; the gaps make the three 0.48 m-wide glyphs fit 1.62 m.
+  const vertices = [];
+  const rect = (left, bottom, right, top) => {
+    const x0 = -left, x1 = -right;
+    vertices.push(x0, 0, bottom, x1, 0, bottom, x1, 0, top, x0, 0, bottom, x1, 0, top, x0, 0, top);
+  };
+  const width = 0.48, gap = 0.09, stem = 0.10, bar = 0.45;
+  const [b, u, s] = [-BUS_W / 2, -BUS_W / 2 + width + gap, -BUS_W / 2 + 2 * (width + gap)];
+  const low = -BUS_L / 2, high = BUS_L / 2;
+  // B: left stem, right stem, and three crossbars.
+  rect(b, low, b + stem, high);
+  rect(b + width - stem, low, b + width, high);
+  for (const z of [low, -bar / 2, high - bar]) rect(b, z, b + width, z + bar);
+  // U: two stems and the crossbar nearest the approaching driver.
+  rect(u, low, u + stem, high);
+  rect(u + width - stem, low, u + width, high);
+  rect(u, low, u + width, low + bar);
+  // S: its upper left and lower right stems join the three crossbars.
+  rect(s, 0, s + stem, high);
+  rect(s + width - stem, low, s + width, 0);
+  for (const z of [low, -bar / 2, high - bar]) rect(s, z, s + width, z + bar);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  const normals = new Float32Array(vertices.length);
+  for (let i = 1; i < normals.length; i += 3) normals[i] = 1;
+  geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  const mesh = new THREE.InstancedMesh(geometry, createBusPaintMaterial(), marks.length);
+  const transform = new THREE.Object3D();
+  marks.forEach((m, i) => {
+    transform.position.set(m.x, HEIGHT, m.z);
+    transform.rotation.y = Math.atan2(m.dx, m.dz);
+    transform.updateMatrix();
+    mesh.setMatrixAt(i, transform.matrix);
+  });
+  mesh.name = 'BusLaneMarkings';
+  mesh.renderOrder = -1; // same transparent ground pass as the other road paint
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+}
 
 // crosswalks: pedestrian-routes.js `crosswalks` ({ node, ax, az, bx, bz, ux, uz }: a network node and the zebra's ends);
 // railClearance(x, z, r): city-grid.js's distance to the nearest track centreline, capped at r (none: no tracks)
@@ -279,7 +351,8 @@ function buildRoadPaint(scene, network, crosswalks = [], railClearance = null) {
   mesh.receiveShadow = true;
   mesh.renderOrder = -1; // under the other see-through ground effects (contact shadows, headlight beams)
   scene.add(mesh);
+  buildBusMarkings(scene, layoutBusMarkings(network.paintEdges || network.edges, crosswalks, railClearance));
   return mesh;
 }
 
-export { buildRoadPaint };
+export { buildRoadPaint, layoutBusMarkings };

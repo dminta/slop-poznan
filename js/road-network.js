@@ -150,7 +150,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
     for (let i = 0; i < RG.nodes.length; i += 2) pos.push({ x: RG.nodes[i], z: RG.nodes[i + 1] });
     const links = [];
     const roads = new Map(); // street name -> { len, majorLen, widths: [[w, len]], width, major }
-    for (const [a, b, ni, w, lanes, dir, inner, flags, kmh] of RG.links) {
+    for (const [a, b, ni, w, lanes, dir, inner, flags, kmh, bus, busWay] of RG.links) {
       let pts = [pos[a]];
       for (let k = 0; k < inner.length; k += 2) pts.push({ x: inner[k], z: inner[k + 1] });
       pts.push(pos[b]);
@@ -169,7 +169,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
         if (isMajorRoad(w, lanes)) r.majorLen += len;
       } else if (lanes >= 3) r.majorLen += len;
       links.push({ a, b, name: RG.names[ni], w, lanes, dir, pts, len, limit: (kmh || DEFAULT_KMH) / 3.6, strip,
-        sharedTram: !!(flags & 2) && !strip });
+        sharedTram: !!(flags & 2) && !strip, bus, busWay });
     }
     // Each named road's links: their length-weighted median width stands in where a link has none, and a road that is
     // major over most of its length is major throughout, so that its narrower stretches keep its buses
@@ -314,7 +314,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
       const ends = stops.length - 1;
       const geo = stops.map((q, i) => (i === 0 ? port(A, q, stops[1]) : i === ends ? port(B, q, stops[ends - 1]) : stations[i]));
       const lanes = lanesOf(l);
-      for (let k = 0; k + 1 < stations.length; k++) runs.push({ from: stations[k], to: stations[k + 1], p0: geo[k], p1: geo[k + 1], ...lanes });
+      for (let k = 0; k + 1 < stations.length; k++) runs.push({ from: stations[k], to: stations[k + 1], p0: geo[k], p1: geo[k + 1], ...lanes, bus: l.bus, busWay: l.busWay });
     }
     return runs;
   }
@@ -331,7 +331,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
     return true;
   };
   // From p0 to p1, the run's ports (2.), which lie off the junction nodes `from` and `to` by offFrom / offTo to the right
-  function addEdge(from, to, p0, p1, axis, major, lanes, half, divided, limit, sharedTram) {
+  function addEdge(from, to, p0, p1, axis, major, lanes, half, divided, limit, sharedTram, busVector, busWay) {
     const x0 = p0.x;
     const z0 = p0.z;
     const span = Math.hypot(p1.x - x0, p1.z - z0);
@@ -342,7 +342,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
     if (!open.length) return;
     const offFrom = (x0 - from.x) * -dz + (z0 - from.z) * dx;
     const offTo = (p1.x - to.x) * -dz + (p1.z - to.z) * dx;
-    edges.push({ from, to, axis, major, x0, z0, dx, dz, rx: -dz, rz: dx, span, half, lanes: open.sort((p, q) => p - q), moves: [], cand: lanes, divided: !!divided, limit, offFrom, offTo, sharedTram });
+    edges.push({ from, to, axis, major, x0, z0, dx, dz, rx: -dz, rz: dx, span, half, lanes: open.sort((p, q) => p - q), moves: [], cand: lanes, divided: !!divided, limit, offFrom, offTo, sharedTram, busVector, busWay });
   }
   // A divided road drawn as two one-way roadways between the same two junctions: each keeps its own line (their ports,
   // 2.), and the road counts as major by both roadways' width. Only roadways drawn within PAIR_SEP of each other (on
@@ -382,8 +382,8 @@ function buildRoadNetwork(sidewalks, obstacles) {
     r.half = o.half = r.half + o.half;
   }
   for (const r of genRuns) {
-    if (r.fwd.length) addEdge(r.from, r.to, r.p0, r.p1, r.axis, r.major, r.fwd, r.half, r.divided, r.limit, r.sharedTram);
-    if (r.back.length) addEdge(r.to, r.from, r.p1, r.p0, r.axis, r.major, r.back, r.half, r.divided, r.limit, r.sharedTram);
+    if (r.fwd.length) addEdge(r.from, r.to, r.p0, r.p1, r.axis, r.major, r.fwd, r.half, r.divided, r.limit, r.sharedTram, r.bus && r.bus[0], r.busWay);
+    if (r.back.length) addEdge(r.to, r.from, r.p1, r.p0, r.axis, r.major, r.back, r.half, r.divided, r.limit, r.sharedTram, r.bus && r.bus[1], r.busWay);
   }
   // Two edges from one node to the same next one (a service road whose ends were drawn onto its main road's junctions)
   // would drive through each other: keep the one with the most lanes
@@ -709,9 +709,10 @@ function buildRoadNetwork(sidewalks, obstacles) {
   // (`signal` is filled in at 6.)
   const paintNodes = new Map(nodes.map((n, id) => [n, { id, x: n.x, z: n.z, shape: n.shape, signal: false }]));
   const paintEdges = edges.map(({ from, to, axis, x0, z0, sx, sz, dx, dz, rx, rz, span, len, setbackFrom, setbackTo, half, lanes,
-    limit }) => ({
+    limit, cand, busVector, busWay }) => ({
     from: paintNodes.get(from), to: paintNodes.get(to), axis, x0, z0, sx, sz, dx, dz, rx, rz, span, len, setbackFrom,
-    setbackTo, half, lanes, limit
+    setbackTo, half, lanes, limit, busWay, busLanes: busVector && busVector.length === cand.length && lanes.length === cand.length
+      ? busVector.flatMap((v, i) => v ? [i] : []) : []
   }));
   const paintOf = new Map(edges.map((e, i) => [e, paintEdges[i]]));
 

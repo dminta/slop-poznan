@@ -3,6 +3,7 @@ const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const test = require('node:test');
 const { loadModule } = require('./helpers/module.cjs');
+const { busReport, formatBusReport } = require('./helpers/bus-report.cjs');
 
 function inert() {
   const values = {};
@@ -48,7 +49,7 @@ function overlapArea(quad, bed) {
   return Math.abs(twiceArea) / 2;
 }
 
-test('rendered zebra quads stay clear of raised tram ballast on the furnished Poznań network', async () => {
+test('rendered zebra quads stay clear of raised tram ballast on the furnished Poznań network', async (t) => {
   const config = await import('../js/city-config.js');
   const { GEO } = await import('../js/geodata.js');
   const source = (name) => readFileSync(join(__dirname, '../js', name + '.js'), 'utf8');
@@ -56,7 +57,13 @@ test('rendered zebra quads stay clear of raised tram ballast on the furnished Po
     'three/webgpu': inert(), 'three/tsl': inert(),
     'three/addons/utils/BufferGeometryUtils.js': inert(), './tsl-materials.js': inert()
   };
-  const load = (name, imports, extra = '') => loadModule(source(name) + extra, {
+  // Expose the reason on the paint snapshot solely for this measurement; the production network stays unchanged.
+  const instrument = (name) => name === 'road-network' ? source(name).replace(
+    'setbackTo, half, lanes, limit, busWay, busLanes:',
+    "setbackTo, half, lanes, limit, busWay, busStatus: !busVector || !busVector.includes(1) ? 'direction' : " +
+    "busVector.length !== cand.length ? 'count' : lanes.length !== cand.length ? 'blocked' : 'eligible', busLanes:"
+  ) : source(name);
+  const load = (name, imports, extra = '') => loadModule(instrument(name) + extra, {
     imports, globals: { document: inert() }, filename: name + '.js'
   });
   const road = load('road-network', { './city-config.js': config, './geodata.js': { GEO } });
@@ -82,11 +89,33 @@ test('rendered zebra quads stay clear of raised tram ballast on the furnished Po
   }
   class Color { constructor() { this.r = this.g = this.b = 1; } }
   class Mesh { constructor(geometry) { this.geometry = geometry; } }
-  const { buildRoadPaint } = load('road-paint', {
-    'three/webgpu': { Color, Mesh, BufferGeometry: Geometry, BufferAttribute: Attribute, Float32BufferAttribute: FloatAttribute },
-    './road-network.js': road, './tsl-materials.js': { createRoadPaintMaterial: () => ({}) }
+  const { buildRoadPaint, layoutBusMarkings } = load('road-paint', {
+    'three/webgpu': { Color, Mesh, BufferGeometry: Geometry, BufferAttribute: Attribute, Float32BufferAttribute: FloatAttribute,
+      InstancedMesh: class { setMatrixAt() {} }, MeshBasicMaterial: class {}, Object3D: inert(), DoubleSide: 2 },
+    './road-network.js': road, './tsl-materials.js': { createRoadPaintMaterial: () => ({}), createBusPaintMaterial: () => ({}) }
   });
   const mesh = buildRoadPaint({ add() {} }, network, routes.crosswalks, gridModule.railClearance);
+  const marks = layoutBusMarkings(network.paintEdges, routes.crosswalks, gridModule.railClearance);
+  const ways = JSON.parse(readFileSync(join(__dirname, '../tools/data/poz_roads.json'), 'utf8')).elements;
+  const report = busReport(ways, network.paintEdges, marks,
+    layoutBusMarkings(network.paintEdges, routes.crosswalks, null), layoutBusMarkings(network.paintEdges, [], null));
+  const summary = formatBusReport(report);
+  t.diagnostic(summary);
+  assert.ok(readFileSync(join(__dirname, '../docs/geodata.md'), 'utf8').includes(summary),
+    'geodata documentation contains the current reproducible P-22 report');
+  assert.ok(marks.some((m) => m.way === 50258410 && Math.hypot(m.x + 1739.39, m.z + 1270.07) < 1),
+    'the mapped bus lane at (-1739, -1270) receives P-22');
+  assert.ok(network.paintEdges.some((e) => !e.busWay && !e.busLanes.length));
+  const oldGraph = { ...GEO.roadGraph, links: GEO.roadGraph.links.map((l) => l.slice(0, 9)) };
+  const oldRoad = load('road-network', { './city-config.js': config, './geodata.js': { GEO: { ...GEO, roadGraph: oldGraph } } });
+  const oldNetwork = oldRoad.buildRoadNetwork(grid.sidewalks, [...grid.footprints, ...street.footprints]);
+  const geometry = (n) => JSON.stringify(n.edges.map((e) => [e.x0, e.z0, e.dx, e.dz, e.len, ...e.lanes]));
+  assert.equal(geometry(network), geometry(oldNetwork), 'bus tags do not alter traffic edges or lanes');
+  const oldMesh = buildRoadPaint({ add() {} }, oldNetwork, routes.crosswalks, gridModule.railClearance);
+  for (const key of ['position', 'paint', 'color']) {
+    assert.deepEqual(mesh.geometry.attributes[key].array, oldMesh.geometry.attributes[key].array,
+      `existing ${key} markings are unchanged`);
+  }
   // tram-infra renders each bed as a box lengthened by 0.02 m, 2 × bed wide, with its top at ground + 0.14 m.
   const ballast = beds.filter((b) => b.bed > 0);
   const cells = new Map();

@@ -57,6 +57,19 @@ const isOneway = (t) => {
   if ((t.junction === 'roundabout' || t.junction === 'circular') && t.oneway !== 'no') return 1;
   return 0;
 };
+// OSM lane values are left to right in the direction of travel. Keep their complete vectors so the runtime can
+// reject vectors that do not match its actual lane count (including narrow-road clamping).
+function busPositions(t, dir) {
+  const vector = (suffix) => {
+    const values = ['bus:lanes' + suffix, 'psv:lanes' + suffix].map((k) => t[k]).filter(Boolean);
+    if (!values.length) return null;
+    const parts = values.map((v) => v.split('|'));
+    if (parts.some((p) => p.length !== parts[0].length)) return null;
+    return parts[0].map((_, i) => parts.some((p) => p[i].split(';').includes('designated')) ? 1 : 0);
+  };
+  return [dir < 0 ? null : vector(':forward') || (dir > 0 ? vector('') : null),
+    dir > 0 ? null : vector(':backward') || (dir < 0 ? vector('') : null)];
+}
 const baseCls = (cls) => cls.replace(/_link$/, '');
 function defaultLanes(cls, dir) {
   const big = ['motorway', 'trunk', 'primary'].includes(baseCls(cls));
@@ -223,7 +236,7 @@ for (const w of drivableWays) {
     wayId: w.id, name: t.name || t.ref || '', cls, w: width, explicitW: explicit, lanes, dir,
     bridge: t.bridge && t.bridge !== 'no' ? 1 : 0, tram: 0,
     roundabout: t.junction === 'roundabout' || t.junction === 'circular' ? 1 : 0,
-    kmh: limit.kmh, kmhTagged: limit.tagged
+    kmh: limit.kmh, kmhTagged: limit.tagged, bus: busPositions(t, dir)
   };
   // Cut indices: the ends plus every split node in between
   const cuts = [0];

@@ -372,7 +372,7 @@ None pending. Both historical open decisions were confirmed by the user on 2026-
 - Vehicles: articulated 18 m bus (Solaris Urbino 18) and PSP fire truck (heavy rescue pumper) are implemented;
   registration plate font stack on systems without Arial Narrow is implemented. Taxi crests and exact livery/marking fidelity require
   source verification before use.
-- Street details: conditional S-2 arrows, pedestrian countdowns, P-22 BUS text with actual bus-lane data, a fourth
+- Street details: conditional S-2 arrows, pedestrian countdowns, a fourth
   tree species and real OSM tree positions.
 - Traffic: passing a waiting left-turner on a wide single-lane approach is implemented (Łazarz at `−1875, 1299` and citywide). Kaponiera and Wilda retain substantial queues despite meeting the aggregate flow targets.
 - Geodata semantics: road levels and richer road-priority classification; revisit only with a runtime consumer.
@@ -424,3 +424,11 @@ See the [signal observation record](observations/signals-2026-10-30.md) for setu
 
 For each implemented fix, record the before/after measurement, run the relevant regression checks, and state
 which browser checks were actually performed. Keep unresolved items here rather than reopening archived phase notes.
+
+## P-22 BUS lane markings (2026-11-03)
+
+Implemented from positional OSM bus/PSV lane tags. The furnished headless network has 27 inscriptions on 14 OSM
+ways, over 0.764 km of eligible directional lane segments. Among 71 source ways with `designated` positions, 29
+have mismatched runtime lane counts, five are too short for a mark and 23 have no retained paint edge. Count-only,
+turn-only and contraflow tags do not create markings; see [geodata.md](geodata.md) for the source counts and
+[world.md](world.md) for clearance and measurement scope. Browser appearance and WebGPU/WebGL2 checks remain open.

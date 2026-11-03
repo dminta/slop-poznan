@@ -82,7 +82,7 @@ export function buildRoadGraph(pieces, signalNodes, { service = false } = {}) {
     if (a === b) continue;
     const flags = (p.bridge ? BRIDGE : 0) | (p.tram ? TRAM : 0) | (p.roundabout ? ROUNDABOUT : 0) |
       (p.tramSide > 0 ? TRAM_RIGHT : 0) | (p.tramSide < 0 ? TRAM_LEFT : 0);
-    links.push([a, b, nameId(p.name), p.w, p.lanes, p.dir, rdp(p.pts, 0.4), flags, p.kmh]);
+    links.push([a, b, nameId(p.name), p.w, p.lanes, p.dir, rdp(p.pts, 0.4), flags, p.kmh, p.bus, p.bus.some((v) => v && v.includes(1)) ? p.wayId : 0]);
     linkPieces.push(p);
   }
 
@@ -168,10 +168,10 @@ export function buildRoadGraph(pieces, signalNodes, { service = false } = {}) {
     if (!used.has(i)) { used.set(i, outNodes.length / 2); outNodes.push(r1(nodes[i][0]), r1(nodes[i][1])); }
     return used.get(i);
   };
-  const outLinks = links.map(([a, b, n, w, lanes, dir, line, flags, kmh]) => {
+  const outLinks = links.map(([a, b, n, w, lanes, dir, line, flags, kmh, bus, busWay]) => {
     const ia = idOf(a), ib = idOf(b);
     const inner = line.slice(1, -1).flatMap(([x, z]) => [r1(x), r1(z)]);
-    return [ia, ib, n, w, lanes, dir, inner, flags, kmh];
+    return [ia, ib, n, w, lanes, dir, inner, flags, kmh, bus, busWay];
   });
   const signals = [...signalSet].filter((i) => used.has(i)).map((i) => used.get(i)).sort((p, q) => p - q);
 

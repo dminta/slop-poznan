@@ -127,3 +127,80 @@ test('P-14 stop lines of 0.75 m rectangles 0.25 m apart at signals and on major 
   assert.equal(stops(paintOf(road({ ...major, setback: 0.6 }))).length, 0);
   assert.equal(zebras(paintOf(road({ ...major, setback: 0.6 }))).length, 2);
 });
+
+test('P-22 marks only the explicitly designated lane and keeps clear of tracks', () => {
+  const source = readFileSync(join(__dirname, '../js/road-paint.js'), 'utf8');
+  const { layoutBusMarkings } = loadModule(source, {
+    imports: { 'three/webgpu': { Color: class {} }, './road-network.js': {}, './tsl-materials.js': {} }
+  });
+  const edges = road({ half: 7, lanes: [1.8, 5.4], back: null });
+  edges[0].busLanes = [1];
+  const marks = layoutBusMarkings(edges, [], () => 100);
+  assert.ok(marks.length > 0);
+  assert.ok(marks.every((m) => Math.abs(m.z - 5.4) < 1e-6));
+  edges[0].busLanes = [];
+  assert.equal(layoutBusMarkings(edges, [], () => 100).length, 0);
+  edges[0].busLanes = [1];
+  assert.equal(layoutBusMarkings(edges, [], (x, z) => Math.abs(z - 5.4)).length, 0);
+});
+
+test('P-22 glyphs read left to right across the lane in the direction of travel', () => {
+  class Attribute { constructor(array) { this.array = Array.from(array); } }
+  class Geometry { constructor() { this.attributes = {}; } setAttribute(k, v) { this.attributes[k] = v; } }
+  class Transform {
+    constructor() { this.position = { set() {} }; this.rotation = {}; this.matrix = {}; }
+    updateMatrix() { this.matrix.rotation = this.rotation.y; }
+  }
+  class InstancedMesh {
+    constructor(geometry, material) { this.geometry = geometry; this.material = material; }
+    setMatrixAt(_i, matrix) { this.angle = matrix.rotation; }
+  }
+  const material = {};
+  const { buildBusMarkings } = loadModule(readFileSync(join(__dirname, '../js/road-paint.js'), 'utf8') +
+    '\nexport { buildBusMarkings };', {
+    imports: { 'three/webgpu': { Color: class {}, BufferGeometry: Geometry, Float32BufferAttribute: Attribute,
+      BufferAttribute: Attribute, Object3D: Transform, InstancedMesh }, './road-network.js': {},
+    './tsl-materials.js': { createBusPaintMaterial: () => material } }
+  });
+  let mesh;
+  buildBusMarkings({ add(m) { mesh = m; } }, [{ x: 0, z: 0, dx: 1, dz: 0 }]);
+  assert.equal(mesh.material, material);
+  assert.equal(mesh.renderOrder, -1);
+  assert.equal(mesh.angle, Math.PI / 2, 'local +z points along travel');
+  const p = mesh.geometry.attributes.position.array;
+  const rects = Array.from({ length: p.length / 18 }, (_, n) => {
+    const xs = [], zs = [];
+    for (let v = 0; v < 6; v++) { xs.push(p[n * 18 + v * 3]); zs.push(p[n * 18 + v * 3 + 2]); }
+    return { left: Math.min(...xs), right: Math.max(...xs), low: Math.min(...zs), high: Math.max(...zs) };
+  });
+  const bounds = (rs) => [Math.min(...rs.map((r) => r.left)), Math.max(...rs.map((r) => r.right)),
+    Math.min(...rs.map((r) => r.low)), Math.max(...rs.map((r) => r.high))];
+  const [b, u, s] = [rects.slice(0, 5), rects.slice(5, 8), rects.slice(8)];
+  const bb = bounds(b), ub = bounds(u), sb = bounds(s), all = bounds(rects);
+  assert.ok(Math.abs(all[0] + 0.81) < 1e-6 && Math.abs(all[1] - 0.81) < 1e-6);
+  assert.deepEqual(all.slice(2), [-2, 2]);
+  assert.ok(bb[0] > ub[1] && ub[0] > sb[1], 'B, U, S from driver left to right');
+  assert.ok([bb, ub, sb].every((v) => v[2] === -2 && v[3] === 2));
+  assert.ok(b[0].left > b[1].left, 'B stem is on the driver-left side, not mirrored');
+  assert.ok(s[0].left > s[1].left && s[0].high === 2 && s[1].low === -2,
+    'S upper stem is on the left and its lower stem on the right');
+});
+
+test('P-22 uses the lit transparent road-paint SSR pass', () => {
+  const vm = require('node:vm');
+  const source = readFileSync(join(__dirname, '../js/tsl-materials.js'), 'utf8');
+  const start = source.indexOf('function createBusPaintMaterial() {');
+  const end = source.indexOf('// Herringbone of 20 x 10 cm', start);
+  assert.ok(start >= 0 && end > start);
+  const node = new Proxy(() => {}, { get: () => node, apply: () => node });
+  class StandardMaterial { constructor(options) { Object.assign(this, options); } }
+  const mrt = {};
+  const context = { THREE: { MeshStandardNodeMaterial: StandardMaterial }, _transparentEffectMRT: mrt,
+    positionWorld: node, cameraPosition: node, smoothstep: node, length: node, mix: node, float: node,
+    noise2D: node, roadWetMasks: node, roadPuddleField: node, color: node, canyonSkyAONode: node };
+  const material = vm.runInNewContext(`${source.slice(start, end)}\ncreateBusPaintMaterial()`, context);
+  assert.equal(material.transparent, true);
+  assert.equal(material.depthWrite, false);
+  assert.equal(material.mrtNode, mrt);
+  assert.ok(material.colorNode && material.roughnessNode && material.opacityNode && material.aoNode);
+});

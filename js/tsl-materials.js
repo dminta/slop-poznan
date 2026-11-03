@@ -1990,6 +1990,21 @@ function createRoadPaintMaterial() {
   return mat;
 }
 
+// P-22 glyphs use the same lit, wet and SSR-transparent surface as the strip markings, without their dash attributes.
+function createBusPaintMaterial() {
+  const mat = new THREE.MeshStandardNodeMaterial({ transparent: true, depthWrite: false, metalness: 0.0 });
+  mat.mrtNode = _transparentEffectMRT;
+  const xz = positionWorld.xz;
+  const detail = smoothstep(70.0, 15.0, length(positionWorld.sub(cameraPosition)));
+  const wear = mix(float(0.5), noise2D(xz.mul(0.8)).mul(0.6).add(noise2D(xz.mul(2.3)).mul(0.4)), detail);
+  mat.opacityNode = smoothstep(0.1, 0.6, wear).mul(0.4).add(0.55);
+  const wet = roadWetMasks(roadPuddleField(positionWorld.x, positionWorld.z));
+  mat.colorNode = color(0xe6e2d6).mul(mix(float(1.0), float(0.72), wet.y)).mul(mix(float(1.0), float(0.86), wet.z));
+  mat.roughnessNode = mix(mix(float(0.62), float(0.42), wet.z), float(0.2), wet.y);
+  mat.aoNode = canyonSkyAONode();
+  return mat;
+}
+
 // Herringbone of 20 x 10 cm grey concrete 'holland' pavers (polbruk), the common Polish sidewalk, laid square to the
 // world axes. In 10 cm cells, t = (cx - cz) mod 4 tells the halves apart: 0 and 1 are the two halves of a paver along
 // x, 3 and 2 the lower and upper halves of one along z, so each cell drops the joint on the edge it shares with its
@@ -2565,6 +2580,7 @@ export {
   createTreeGrateMaterial,
   createRoadSurfaceMaterial,
   createRoadPaintMaterial,
+  createBusPaintMaterial,
   createSidewalkMaterial,
   createCurbMaterial,
   createWaterMaterial,
