@@ -373,7 +373,7 @@ None pending. Both historical open decisions were confirmed by the user on 2026-
 - Vehicles: articulated 18 m bus (Solaris Urbino 18) and PSP fire truck (heavy rescue pumper) are implemented;
   registration plate font stack on systems without Arial Narrow is implemented. Taxi crests and exact livery/marking fidelity require
   source verification before use.
-- Street details: pedestrian countdowns and real OSM tree positions.
+- Street details: real OSM tree positions.
 - Traffic: passing a waiting left-turner on a wide single-lane approach is implemented (Łazarz at `−1875, 1299` and citywide). Kaponiera and Wilda retain substantial queues despite meeting the aggregate flow targets.
 - Geodata semantics: road levels and richer road-priority classification; revisit only with a runtime consumer.
   Additional height sources (nDSM/LoD1/LoD2) and GEOPOZ machine-readable data remain research candidates.
