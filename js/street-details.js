@@ -1894,7 +1894,7 @@ function buildStreetDetails(scene, opts = {}) {
     return matrices.length;
   }
   scene.add(group);
-  const result = { group, footprints, colliders, signalClock, signalTexture, audioSignals,
+  const result = { group, footprints, colliders, signalClock, audioSignals,
     vehicleHeads: s1Matrices.length, runtimeHeads: [], addRuntimeSignalHeads, auditRuntimeSignalHeads, update };
   return result;
 }

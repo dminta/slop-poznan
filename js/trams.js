@@ -1,15 +1,12 @@
 import * as THREE from 'three/webgpu';
 import { GEO } from './geodata.js';
-import { signalPhase, SIGNAL_PLANS } from './city-config.js';
+import { signalPhase } from './city-config.js';
 import { cityUniforms } from './tsl-materials.js';
 import {
   buildTramSectionGeometry,
   buildTramBellowsGeometry,
   createTramMaterial,
-  createTramDestinationTexture,
-  buildTramSignalGeometries,
-  createTramSignalTexture,
-  createTramSignalLensMaterial
+  createTramDestinationTexture
 } from './actor-models.js';
 import { HEADLIGHTS, tramLightSpec, createVehicleHeadlight, placeVehicleHeadlight } from './vehicle-lights.js';
 
@@ -867,7 +864,7 @@ function poseSections(path, u, model, out) {
 // The tram system
 // ---------------------------------------------------------------------------------------------------------------------
 function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.tramStops, routes = GEO.tramRoutes,
-  levelCrossings = GEO.levelCrossings, traffic = null, streetDetails = null } = {}) {
+  levelCrossings = GEO.levelCrossings, traffic = null } = {}) {
   const group = new THREE.Group();
   group.name = 'Trams';
   scene.add(group);
@@ -918,122 +915,6 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     : snapTramStops(graph, stops || []);
   const signals = findTrackSignals(graph, network ? network.nodes : []);
 
-  const colliders = [];
-  if (signals.length > 0) {
-    // Dedicated Polish slit tram signals (typ ST): 2 chambers (upper: horizontal bar '—' stop, lower: vertical bar '|'
-    // proceed / flashing amber) placed at stop lines of signalised junctions.
-    const { poleGeo, housingGeo, lensGeo } = buildTramSignalGeometries();
-    const slitMaskTex = createTramSignalTexture();
-    const signalClock = (streetDetails && streetDetails.signalClock) || null;
-    const signalTexture = (streetDetails && streetDetails.signalTexture) || null;
-
-    const signalPoleMat = new THREE.MeshStandardNodeMaterial({ color: 0x8d9298, roughness: 0.5, metalness: 0.7 });
-    const signalHousingMat = new THREE.MeshStandardNodeMaterial({
-      color: 0x1c1f22,
-      roughness: 0.55,
-      metalness: 0.25,
-      side: THREE.DoubleSide
-    });
-
-    const aveLensMat = createTramSignalLensMaterial(signalClock, true, slitMaskTex, signalTexture);
-    const streetLensMat = createTramSignalLensMaterial(signalClock, false, slitMaskTex, signalTexture);
-
-    const aveSignals = [];
-    const streetSignals = [];
-    for (const s of signals) {
-      if (s.group === 0) aveSignals.push(s);
-      else streetSignals.push(s);
-    }
-
-    const poleMesh = new THREE.InstancedMesh(poleGeo, signalPoleMat, signals.length);
-    poleMesh.name = 'TramSignalPoles';
-    poleMesh.castShadow = true;
-    poleMesh.receiveShadow = true;
-
-    const housingMesh = new THREE.InstancedMesh(housingGeo, signalHousingMat, signals.length);
-    housingMesh.name = 'TramSignalHousings';
-    housingMesh.castShadow = true;
-    housingMesh.receiveShadow = true;
-
-    const aveGeo = lensGeo.clone();
-    const aveMesh = new THREE.InstancedMesh(aveGeo, aveLensMat, Math.max(1, aveSignals.length));
-    aveMesh.name = 'TramSignalLensesAve';
-
-    const streetGeo = lensGeo.clone();
-    const streetMesh = new THREE.InstancedMesh(streetGeo, streetLensMat, Math.max(1, streetSignals.length));
-    streetMesh.name = 'TramSignalLensesStreet';
-
-    const aveIndices = new Float32Array(Math.max(1, aveSignals.length));
-    const streetIndices = new Float32Array(Math.max(1, streetSignals.length));
-
-    const plansTotal = (typeof SIGNAL_PLANS !== 'undefined' && SIGNAL_PLANS && SIGNAL_PLANS.length) || 32;
-    const placedPoles = [];
-    const sigAt = { x: 0, z: 0, tx: 0, tz: 0 };
-    const sigDummy = new THREE.Object3D();
-
-    let aveIdx = 0;
-    let streetIdx = 0;
-
-    for (let i = 0; i < signals.length; i++) {
-      const sig = signals[i];
-      edgePoint(sig.edge, sig.s, sigAt);
-      const rx = -sigAt.tz;
-      const rz = sigAt.tx;
-      let px = sigAt.x + rx * 2.1;
-      let pz = sigAt.z + rz * 2.1;
-
-      for (const p of placedPoles) {
-        if (Math.hypot(px - p.x, pz - p.z) < 0.8) {
-          px += rx * 0.35;
-          pz += rz * 0.35;
-        }
-      }
-      placedPoles.push({ x: px, z: pz });
-
-      const fx = -sigAt.tx;
-      const fz = -sigAt.tz;
-      const yaw = Math.atan2(fx, fz);
-
-      sigDummy.position.set(px, 0, pz);
-      sigDummy.rotation.set(0, yaw, 0);
-      sigDummy.scale.set(1, 1, 1);
-      sigDummy.updateMatrix();
-
-      poleMesh.setMatrixAt(i, sigDummy.matrix);
-      housingMesh.setMatrixAt(i, sigDummy.matrix);
-
-      colliders.push({ minX: px - 0.08, maxX: px + 0.08, minZ: pz - 0.08, maxZ: pz + 0.08, maxY: 3.8 });
-
-      const timingIndex = (sig.node && sig.node.signalTiming && typeof sig.node.signalTiming.index === 'number')
-        ? sig.node.signalTiming.index
-        : 0;
-      const normIndex = (timingIndex + 0.5) / Math.max(1, plansTotal);
-
-      if (sig.group === 0) {
-        aveMesh.setMatrixAt(aveIdx, sigDummy.matrix);
-        aveIndices[aveIdx++] = normIndex;
-      } else {
-        streetMesh.setMatrixAt(streetIdx, sigDummy.matrix);
-        streetIndices[streetIdx++] = normIndex;
-      }
-    }
-
-    poleMesh.instanceMatrix.needsUpdate = true;
-    housingMesh.instanceMatrix.needsUpdate = true;
-    if (aveSignals.length > 0) {
-      aveGeo.setAttribute('signalIndex', new THREE.InstancedBufferAttribute(aveIndices, 1));
-      aveMesh.instanceMatrix.needsUpdate = true;
-    } else {
-      aveMesh.visible = false;
-    }
-    if (streetSignals.length > 0) {
-      streetGeo.setAttribute('signalIndex', new THREE.InstancedBufferAttribute(streetIndices, 1));
-      streetMesh.instanceMatrix.needsUpdate = true;
-    } else {
-      streetMesh.visible = false;
-    }
-    group.add(poleMesh, housingMesh, aveMesh, streetMesh);
-  }
   const lines = routes || [];
   const routed = graph.edges.some((e) => e.routes.length > 0);
 
@@ -2012,7 +1893,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     }
   }
 
-  return { group, update, trams, pool, graph, stops: tramStops, signals, colliders, routes: lines, models: TRAM_MODELS };
+  return { group, update, trams, pool, graph, stops: tramStops, signals, routes: lines, models: TRAM_MODELS };
 }
 
 export {

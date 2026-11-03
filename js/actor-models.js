@@ -3123,86 +3123,6 @@ function createTramMaterial(signMap = null, rows = 1) {
   return mat;
 }
 
-// Dedicated Polish slit tram signals (typ ST): 2 chambers (upper: horizontal bar '—' stop, lower: vertical bar '|'
-// proceed / flashing amber). Galvanised pole, black housing with contrast backplate and hoods.
-function buildTramSignalGeometries() {
-  const poleGeo = new THREE.CylinderGeometry(0.05, 0.05, 3.8, 10).translate(0, 1.9, 0).toNonIndexed();
-
-  const housingParts = [
-    new THREE.BoxGeometry(0.28, 0.62, 0.22).translate(0, 3.0, 0.16),
-    new THREE.BoxGeometry(0.06, 0.06, 0.16).translate(0, 3.0, 0.08),
-    new THREE.BoxGeometry(0.24, 0.03, 0.14).rotateX(0.12).translate(0, 3.28, 0.25),
-    new THREE.BoxGeometry(0.24, 0.03, 0.14).rotateX(0.12).translate(0, 3.00, 0.25),
-    new THREE.BoxGeometry(0.42, 0.76, 0.02).translate(0, 3.0, 0.14)
-  ];
-  const housingGeo = mergeGeometries(housingParts.map((g) => g.toNonIndexed()));
-
-  const topLens = new THREE.PlaneGeometry(0.20, 0.20).translate(0, 3.14, 0.272);
-  const topUV = topLens.attributes.uv;
-  for (let i = 0; i < topUV.count; i++) {
-    topUV.setY(i, 0.5 + topUV.getY(i) * 0.5);
-  }
-
-  const botLens = new THREE.PlaneGeometry(0.20, 0.20).translate(0, 2.86, 0.272);
-  const botUV = botLens.attributes.uv;
-  for (let i = 0; i < botUV.count; i++) {
-    botUV.setY(i, botUV.getY(i) * 0.5);
-  }
-
-  const lensGeo = mergeGeometries([topLens.toNonIndexed(), botLens.toNonIndexed()]);
-  return { poleGeo, housingGeo, lensGeo };
-}
-
-function createTramSignalTexture() {
-  if (typeof document === 'undefined') {
-    return new THREE.DataTexture(new Uint8Array(4), 1, 1);
-  }
-  const c = document.createElement('canvas');
-  c.width = 128;
-  c.height = 256;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#000000';
-  ctx.fillRect(0, 0, 128, 256);
-
-  const drawBar = (x, y, w, h, r) => {
-    ctx.beginPath();
-    if (typeof ctx.roundRect === 'function') {
-      ctx.roundRect(x - w / 2, y - h / 2, w, h, r);
-    } else {
-      ctx.rect(x - w / 2, y - h / 2, w, h);
-    }
-    ctx.fill();
-  };
-
-  ctx.fillStyle = '#ffffff';
-  drawBar(64, 64, 88, 22, 6);
-  drawBar(64, 192, 22, 88, 6);
-
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-function createTramSignalLensMaterial(clock, isAvenue, slitMaskTex, stateTexture) {
-  const mat = new THREE.MeshBasicNodeMaterial();
-  mat.colorNode = Fn(() => {
-    const state = texture(stateTexture, vec2(attribute('signalIndex', 'float'), 0.5));
-    const phase = (isAvenue ? state.r : state.g).mul(255);
-    const band = (v) => step(v - 0.5, phase).sub(step(v + 0.5, phase));
-    const topActive = band(3).add(band(4));
-    const flash = step(0.5, fract(clock.mul(1.5)));
-    const botActive = band(1).add(band(2).mul(flash));
-
-    const isTop = step(0.5, uv().y);
-    const lit = mix(botActive, topActive, isTop);
-
-    const mask = texture(slitMaskTex, uv()).r;
-    const slitColor = mix(color(0x181a1d), color(0xffffff).mul(1.6), lit);
-    return mix(color(0x0a0c0e), slitColor, mask);
-  })();
-  return mat;
-}
-
 export {
   CAR_PARTS,
   BODY_SPECS,
@@ -3244,8 +3164,5 @@ export {
   buildTramSectionGeometry,
   buildTramBellowsGeometry,
   createTramMaterial,
-  createTramDestinationTexture,
-  buildTramSignalGeometries,
-  createTramSignalTexture,
-  createTramSignalLensMaterial
+  createTramDestinationTexture
 };

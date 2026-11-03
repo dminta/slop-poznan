@@ -1006,32 +1006,6 @@ test('a tram held before a switch or crossing does not claim its future approach
   }
 });
 
-test('dedicated slit tram signals (typ ST) are placed at signalised road junctions with physical colliders', () => {
-  const { createTramSystem } = load();
-  const node0 = {
-    x: 1000, z: 0, signal: true, signalTiming: { index: 3, offset: 0 },
-    in: [{ dx: 1, dz: 0, axisIndex: 0, sx: 980, sz: 0, len: 20 }]
-  };
-  const node1 = {
-    x: 2000, z: 0, signal: true, signalTiming: { index: 7, offset: 15 },
-    in: [{ dx: 1, dz: 0, axisIndex: 1, sx: 1980, sz: 0, len: 20 }]
-  };
-  const rail = [tram([0, 0, 3000, 0])];
-  const sys = createTramSystem(inert(), { network: { nodes: [node0, node1], edges: [] }, rail, stops: [] });
-  assert.equal(sys.signals.length, 2);
-  assert.equal(sys.signals[0].group, 0);
-  assert.equal(sys.signals[1].group, 1);
-  assert.equal(sys.signals[0].node.signalTiming.index, 3);
-  assert.equal(sys.signals[1].node.signalTiming.index, 7);
-
-  // Player colliders for signal poles
-  assert.ok(sys.colliders && sys.colliders.length >= 2, 'signal pole colliders generated');
-  for (const c of sys.colliders) {
-    assert.equal(c.maxY, 3.8);
-    assert.ok(c.maxX - c.minX < 0.25 && c.maxZ - c.minZ < 0.25, 'tight bounding box around 0.1 m pole');
-  }
-});
-
 test('on the Poznań network track signals attach to junctions with valid signalTiming plan index and group 0 or 1', async () => {
   const { GEO } = await import('../js/geodata.js');
   const config = await import('../js/city-config.js');

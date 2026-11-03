@@ -165,6 +165,7 @@ the road paint, and `update(dt, elapsed, focus, camera, playerEntity, activeMode
 reads the road network (signal nodes, lanes and junction curves for `mapTramsToRoads`) and, read-only,
 `traffic.cars`/`traffic.buses` (`edge, x, z, yaw, yawOffset, half, halfWidth, tx, tz, speed, vx, vz`) and
 `traffic.peds` (`placed, x, z, ux, uz, dir, v`) to brake for them; `traffic.js` does the yielding (see "Interactions" below).
+Trams follow the associated road signal phase; dedicated tram signal heads are not rendered.
 
 - **Track graph** (`buildTrackGraph`, pure). Tram chains become directed edges. One-way chains run one way. A two-way
   chain that runs parallel to another tram track 1.8–6.5 m away is one track of a double-track pair (OSM rarely tags
