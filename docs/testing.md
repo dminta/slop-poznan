@@ -33,7 +33,11 @@ Know which one covers the code you are editing. Two of them are coupled to the e
      It also records `setFacing` at `dummy.rotation.set(0, Math.atan2(fx, fz), 0);` in street-details.js to check
      that the refuge head faces walkers at the actual southern landing.
    - `signal-placement.test.cjs` records actual vehicle-head placement at `          s1Matrices.push(m);` and the
-     same `setFacing` marker to compare the restored Krucza head with its live incoming lane.
+     same `setFacing` marker to compare the restored Krucza head with its live incoming lane. It instruments
+     `signalArmPoles.set(a, { site, poles: armPoles, hasHead: false });` and the consecutive
+     `record.hasHead = true;` / `vehicleHeadSites.push({ site, a, p, group0 });` lines for runtime heads, plus
+     the instanced-mesh and attribute creation. It slices `configureSignals` from traffic.js with the same
+     two-space function marker as the traffic tests.
    - `median-refuge.test.cjs` records `createExtrudedPolygonMesh` at `const shape = createWorldXZShape(pts, holes);`
      in city-grid.js, checking emitted hedge polygons against the measured walking/waiting corridor.
    - `hetmanska-clearance.test.cjs` records the same extrusion marker for actual curbs/slabs. Its original-world

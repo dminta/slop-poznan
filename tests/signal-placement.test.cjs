@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const test = require('node:test');
+const vm = require('node:vm');
 const { loadModule } = require('./helpers/module.cjs');
 
 function inert() {
@@ -38,7 +39,7 @@ test.before(async () => {
     imports: { ...rendering, './city-config.js': config, './geodata.js': { GEO } }, globals
   });
   const grid = gridModule.buildCityGrid(inert());
-  const heads = [], facings = [];
+  const heads = [], facings = [], runtimeHeads = [], meshRecords = [], meshTypes = [], testInternals = [], attributeRecords = [];
   const liveGrid = { ...gridModule, ...gridModule.snapshot() };
   const imports = { ...rendering, './city-config.js': config, './road-network.js': road,
     './city-grid.js': liveGrid, './trees.js': { createTreeField: () => ({ group: inert() }) } };
@@ -50,15 +51,27 @@ test.before(async () => {
   }).buildStreetDetails(inert());
   const street = loadModule(source('street-details').replace('          s1Matrices.push(m);',
     '          heads.push({ site, a, p, group0 });\n          s1Matrices.push(m);'
+  ).replace('      signalArmPoles.set(a, { site, poles: armPoles, hasHead: false });',
+    '      signalArmPoles.set(a, { site, poles: armPoles, hasHead: false, corner });'
+  ).replace('        record.hasHead = true;\n        vehicleHeadSites.push({ site, a, p, group0 });',
+    '        record.hasHead = true;\n        runtimeHeads.push({ site, a, p, group0, corner: record.corner, poles: record.poles });\n        vehicleHeadSites.push({ site, a, p, group0 });'
+  ).replace('        g.setAttribute(key, new THREE.InstancedBufferAttribute(new Float32Array(data), size));',
+    '        const attr = new THREE.InstancedBufferAttribute(new Float32Array(data), size);\n        attributeRecords.push({ key, size, data: Array.from(data), attr });\n        g.setAttribute(key, attr);'
+  ).replace('    const inst = new THREE.InstancedMesh(g, mat, matrices.length);',
+    '    meshRecords.push({ geo, matrices: [...matrices], attrs });\n    const inst = new THREE.InstancedMesh(g, mat, matrices.length);'
+  ).replace('  function addRuntimeSignalHeads(network) {',
+    '  function addRuntimeSignalHeads(network) {\n    testInternals.push(vehicleHeadSites);'
+  ).replace('    addMatrixArrayInstanced(s1HousingGeo, signalHousingMat, matrices);',
+    '    meshTypes.push({ s1HousingGeo, s1LensGeo, backplateGeo, backplateBorderGeo });\n    addMatrixArrayInstanced(s1HousingGeo, signalHousingMat, matrices);'
   ).replace('    dummy.rotation.set(0, Math.atan2(fx, fz), 0);',
     '    facings.push({ x, y, z, fx, fz });\n    dummy.rotation.set(0, Math.atan2(fx, fz), 0);'), {
-    imports, globals: { ...globals, heads, facings }
+    imports, globals: { ...globals, heads, facings, runtimeHeads, meshRecords, meshTypes, testInternals, attributeRecords }
   }).buildStreetDetails(inert());
   const network = road.buildRoadNetwork(grid.sidewalks, [...grid.footprints, ...street.footprints]);
   const { createPedestrianRoutes } = loadModule(source('pedestrian-routes'), {
     imports: { './road-network.js': road }, globals
   });
-  world = { createPedestrianRoutes, network, config, GEO, road, gridModule, grid, street, heads, baseline, facings };
+  world = { createPedestrianRoutes, network, config, GEO, road, gridModule, grid, street, heads, baseline, facings, runtimeHeads, meshRecords, meshTypes, testInternals, attributeRecords };
 });
 
 test('the live Krucza approaches have correctly facing heads without changing the furnished road network', () => {
@@ -133,4 +146,102 @@ test('exact park polygons restore signal heads and street furniture across the c
     assert.ok(config.roadClearance(cx, cz) >= 0.8, `pole at ${cx}, ${cz} keeps >= 0.8 m road clearance`);
     assert.ok(gridModule.railClearance(cx, cz, 20) >= 2.22, `pole at ${cx}, ${cz} keeps >= 2.22 m rail clearance`);
   }
+});
+
+
+// This test must be last: it configures the shared network and adds meshes to the shared street fixture.
+test('runtime approaches use existing left poles when no right head or pole serves them', () => {
+  const { network, street, grid, road, gridModule, config, createPedestrianRoutes, runtimeHeads, facings, heads, meshRecords, meshTypes, testInternals, attributeRecords } = world;
+  const cases = [
+    [3842.73, 1646.90, 0.911037, -0.412325, 3859.696, 1648.169],
+    [2177.60, -2103.13, 0.371391, -0.928477, 2195.702, -2104.292],
+    [2005.84, 2631.76, 0.782705, 0.622392, 2010.926, 2650.607],
+    [-1503.29, 224.03, -0.999765, 0.021656, -1524.356, 206.256],
+    [-839.60, 793.82, -0.330681, 0.943742, -858.505, 791.542],
+    [-2263.10, 281.65, -0.538850, 0.842402, -2268.839, 278.142],
+    [967.00, 863.48, -0.936642, -0.350289, 965.736, 843.225],
+    [-294.30, -336.60, 0.993506, -0.113781, -287.534, -331.939]
+  ];
+  const footprints = JSON.stringify(street.footprints), colliders = JSON.stringify(street.colliders);
+  const lanes = (net) => Array.from(net.edges, (e) => [e.sx, e.sz, e.dx, e.dz, e.len, ...e.lanes]);
+  const crossings = (net) => Array.from(createPedestrianRoutes(net, config.blockAt, gridModule.railClearance).crosswalks,
+    (c) => [c.ax, c.az, c.bx, c.bz]);
+  const originalLanes = lanes(network), originalCrossings = crossings(network), count = street.vehicleHeads;
+  const pedRoutes = createPedestrianRoutes(network, config.blockAt, gridModule.railClearance);
+  const configure = readFileSync(join(__dirname, '../js/traffic.js'), 'utf8').match(/  function configureSignals\([^]*?\n  \}/)[0];
+  vm.runInNewContext(`(${configure})`, { nodes: network.nodes, pedRoutes, KERB: 1.6, signalNodes: [],
+    configurePedestrianSignal: config.configurePedestrianSignal, configureSignalClearance: config.configureSignalClearance })();
+  street.addRuntimeSignalHeads({ nodes: [] });
+  const node = network.nodes.find((n) => Math.hypot(n.x - cases[0][0], n.z - cases[0][1]) < 0.03);
+  const edge = node.in.find((e) => e.inArm.ux * cases[0][2] + e.inArm.uz * cases[0][3] > 0.9999);
+  const fakePlan = { index: -1, alias: { index: -2, alias: node.signalTiming } };
+  testInternals[0].push({ site: { timing: fakePlan }, a: edge.inArm, p: { x: node.x, z: node.z } });
+  assert.equal(street.addRuntimeSignalHeads({ nodes: [{ ...node, in: [edge] }] }), 0,
+    'a head on an alias of the same plan prevents a duplicate');
+  testInternals[0].pop();
+  const meshStart = meshRecords.length, attributeStart = attributeRecords.length;
+  street.addRuntimeSignalHeads(network);
+  for (const [x, z, ux, uz, px, pz] of cases) {
+    const node = network.nodes.find((n) => Math.hypot(n.x - x, n.z - z) < 0.03);
+    assert.ok(node, `runtime node ${x}, ${z}`);
+    const edge = node.in.find((e) => e.inArm.ux * ux + e.inArm.uz * uz > 0.9999);
+    assert.ok(edge, `incoming edge ${x}, ${z}`);
+    const head = runtimeHeads.find((h) => Math.hypot(h.p.x - px, h.p.z - pz) < 0.01);
+    assert.ok(head, `head on existing pole at ${px}, ${pz}`);
+    const dt = (head.p.x - head.a.x) * head.a.ux + (head.p.z - head.a.z) * head.a.uz - head.corner;
+    assert.ok(dt >= 4.79 && dt <= 15.61, `pole setback ${dt} at ${x}, ${z}`);
+    assert.ok(street.footprints.some((p) => p.kind === 'signal' &&
+      Math.hypot((p.minX + p.maxX) / 2 - px, (p.minZ + p.maxZ) / 2 - pz) < 0.01));
+    const facing = facings.find((f) => f.y === 3.55 &&
+      Math.hypot(f.x - head.p.x - head.a.ux * 0.18, f.z - head.p.z - head.a.uz * 0.18) < 0.001);
+    assert.ok(facing && -facing.fx * edge.dx - facing.fz * edge.dz > 0.98, `facing at ${x}, ${z}`);
+    for (const time of [0, 10, 20, 30, 40, 50, 60, 70]) {
+      assert.equal(config.signalPhase(time, head.group0, head.site),
+        config.signalPhase(time, edge.axisIndex === 0, node), `phase at ${x}, ${z}, time ${time}`);
+    }
+  }
+  const disabled = network.nodes.find((n) => Math.hypot(n.x + 944.85, n.z + 2366.2) < 0.03);
+  assert.ok(disabled && !disabled.signal, 'Mieszka I crossing is disabled after pedestrian route configuration');
+  for (const [x, z, ux, uz] of [[988.8, -1640.75, -0.903469, -0.428653],
+    [341.67, -1972.7, 0.993764, 0.111506]]) {
+    const node = network.nodes.find((n) => Math.hypot(n.x - x, n.z - z) < 0.03);
+    const edge = node.in.find((e) => e.inArm.ux * ux + e.inArm.uz * uz > 0.9999);
+    const endX = edge.sx + edge.dx * edge.len, endZ = edge.sz + edge.dz * edge.len;
+    const rightHead = heads.find((h) => h.site.timing.index === node.signalTiming.index &&
+      Math.hypot(h.p.x - x, h.p.z - z) < 45 &&
+      (h.p.x - endX) * edge.rx + (h.p.z - endZ) * edge.rz > Math.max(...edge.lanes) &&
+      -h.a.ux * edge.dx - h.a.uz * edge.dz > 0.82);
+    assert.ok(rightHead, `Winogrady at ${x}, ${z} already has a head on the right`);
+    for (const time of [0, 10, 20, 30, 40, 50]) {
+      assert.equal(config.signalPhase(time, rightHead.group0, rightHead.site),
+        config.signalPhase(time, edge.axisIndex === 0, node));
+    }
+    assert.ok(!runtimeHeads.some((h) => Math.hypot(h.p.x - x, h.p.z - z) < 30));
+  }
+  const meshes = meshRecords.slice(meshStart), types = meshTypes[meshTypes.length - 1];
+  const housing = meshes.filter((m) => m.geo === types.s1HousingGeo);
+  const lenses = meshes.filter((m) => m.geo === types.s1LensGeo);
+  const plates = meshes.filter((m) => m.geo === types.backplateGeo || m.geo === types.backplateBorderGeo);
+  const plateCount = runtimeHeads.filter((h) => h.a.w >= 14.5 || h.a.lanes >= 3).length;
+  assert.equal(housing.length, 1);
+  assert.equal(housing[0].matrices.length, cases.length);
+  assert.equal(lenses.reduce((sum, m) => sum + m.matrices.length, 0), cases.length);
+  assert.ok(plateCount > 0);
+  assert.equal(plates.length, 2);
+  for (const plate of plates) assert.equal(plate.matrices.length, plateCount);
+  const indices = lenses.flatMap((m) => Array.from(m.attrs.signalIndex.data)).sort((a, b) => a - b);
+  const expectedIndices = runtimeHeads.map((h) => (h.site.timing.index + 0.5) / config.SIGNAL_PLANS.length)
+    .sort((a, b) => a - b);
+  assert.deepEqual(indices, expectedIndices);
+  const attrs = attributeRecords.slice(attributeStart);
+  assert.equal(attrs.length, lenses.length);
+  assert.ok(attrs.every((a) => a.key === 'signalIndex' && a.size === 1 && a.attr));
+  assert.deepEqual(attrs.flatMap((a) => a.data).sort((a, b) => a - b), expectedIndices);
+  assert.equal(runtimeHeads.length, cases.length);
+  assert.equal(street.vehicleHeads, count + cases.length);
+  assert.equal(JSON.stringify(street.footprints), footprints);
+  assert.equal(JSON.stringify(street.colliders), colliders);
+  const rebuilt = road.buildRoadNetwork(grid.sidewalks, [...grid.footprints, ...street.footprints]);
+  assert.deepEqual(lanes(rebuilt), originalLanes);
+  assert.deepEqual(crossings(rebuilt), originalCrossings);
 });

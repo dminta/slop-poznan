@@ -366,6 +366,8 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   const pedStreetMatrices = [];
   const s1AveIndices = [], s1StreetIndices = [], pedAveIndices = [], pedStreetIndices = [];
   const audioSignals = [];
+  const signalArmPoles = new Map();
+  const vehicleHeadSites = [];
   const plateSites = []; // { x, z, nx, nz, label }
   const ledLampSites = [];
   const streetPointSites = [];
@@ -520,6 +522,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   const SIGNAL_POLE_H = 4.2;
   const S1_Y = 3.55; // head centre: its red lamp at 3.82 m, the green at 3.28 m
   const PED_Y = 2.45;
+  const signalHeadMatrix = (p, a) => setFacing(p.x + a.ux * 0.18, S1_Y, p.z + a.uz * 0.18, a.ux, a.uz);
 
   function addSignalPole(p) {
     addPole(p);
@@ -614,16 +617,21 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
       };
       const big = a.w >= 14.5 || a.lanes >= 3;
       let rightPole = false;
+      const armPoles = [];
+      signalArmPoles.set(a, { site, poles: armPoles, hasHead: false });
       for (const side of [1, -1]) {
         const p = spot(side);
         if (!p) continue;
         if (side === 1) rightPole = true;
         addSignalPole(p);
+        armPoles.push({ side, p });
         // vehicle head facing the arriving traffic: on the right, and on the left as a repeater on wide arms, or as the
         // only head where the right curb has no spot for a pole (a tram track or a crosswalk landing in the way)
         if (a.inbound && (side === 1 || a.w >= 12 || a.lanes >= 3 || !rightPole)) {
-          const m = setFacing(p.x + a.ux * 0.18, S1_Y, p.z + a.uz * 0.18, a.ux, a.uz);
+          const m = signalHeadMatrix(p, a);
           s1Matrices.push(m);
+          signalArmPoles.get(a).hasHead = true;
+          vehicleHeadSites.push({ site, a, p, group0 });
           (group0 ? s1AveMatrices : s1StreetMatrices).push(m);
           (group0 ? s1AveIndices : s1StreetIndices).push(signalIndex);
           if (big) backplateMatrices.push(m);
@@ -1424,8 +1432,64 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
     }
   }
 
+  // Some mapped one-way arms acquire an incoming lane only after the network merges and centres the roads. Reuse
+  // the left pole that the ordinary search already placed; the network, pedestrian routes and furniture stay fixed.
+  function addRuntimeSignalHeads(network) {
+    const matrices = [], ave = [], street = [], backplates = [], aveIndices = [], streetIndices = [];
+    const planRoot = (plan) => {
+      while (plan && plan.alias) plan = plan.alias;
+      return plan;
+    };
+    for (const node of network.nodes) {
+      if (!node.signal || !node.signalTiming || node.signalTiming.disabled) continue;
+      const nodePlan = planRoot(node.signalTiming);
+      for (const edge of node.in) {
+        const arm = edge.inArm;
+        const nearby = vehicleHeadSites.filter((h) => planRoot(h.site.timing) === nodePlan &&
+          Math.hypot(h.p.x - node.x, h.p.z - node.z) < 45);
+        if (nearby.some((h) => h.a.ux * arm.ux + h.a.uz * arm.uz > 0.98)) continue;
+        const endX = edge.sx + edge.dx * edge.len, endZ = edge.sz + edge.dz * edge.len;
+        const isRight = (p) => (p.x - endX) * edge.rx + (p.z - endZ) * edge.rz > Math.max(...edge.lanes);
+        // A head may serve the actual lane even when the paired runtime arm points along its outgoing half.
+        if (nearby.some((h) => {
+          const swapped = Math.abs(h.site.timing.mainUx * node.signalTiming.mainUx +
+            h.site.timing.mainUz * node.signalTiming.mainUz) <= 0.82;
+          const samePhase = node.signalTiming.pedestrian || (h.group0 !== swapped) === (edge.axisIndex === 0);
+          return samePhase && isRight(h.p) && -h.a.ux * edge.dx - h.a.uz * edge.dz > 0.82;
+        })) continue;
+        let best = null, closest = -Infinity;
+        for (const candidate of node.signalArms || []) {
+          const dot = arm.ux * candidate.arm.ux + arm.uz * candidate.arm.uz;
+          if (dot > closest) { closest = dot; best = candidate; }
+        }
+        const record = best && signalArmPoles.get(best.arm);
+        if (closest <= 0.9 || !record || record.hasHead || record.poles.some(({ p }) => isRight(p))) continue;
+        const left = record.poles.find(({ side }) => side === -1);
+        if (!left) continue;
+        const a = best.arm, p = left.p, site = record.site, timing = site.timing;
+        const group0 = Math.abs(a.ux * timing.mainUx + a.uz * timing.mainUz) > 0.82;
+        const m = signalHeadMatrix(p, a);
+        const index = (timing.index + 0.5) / Math.max(1, SIGNAL_PLANS.length);
+        matrices.push(m);
+        (group0 ? ave : street).push(m);
+        (group0 ? aveIndices : streetIndices).push(index);
+        if (a.w >= 14.5 || a.lanes >= 3) backplates.push(m);
+        record.hasHead = true;
+        vehicleHeadSites.push({ site, a, p, group0 });
+      }
+    }
+    addMatrixArrayInstanced(s1HousingGeo, signalHousingMat, matrices);
+    addMatrixArrayInstanced(backplateGeo, signalHousingMat, backplates);
+    addMatrixArrayInstanced(backplateBorderGeo, backplateBorderMat, backplates);
+    addMatrixArrayInstanced(s1LensGeo, aveSignalLensMat, ave, false, signalAttrs(aveIndices));
+    addMatrixArrayInstanced(s1LensGeo, streetSignalLensMat, street, false, signalAttrs(streetIndices));
+    result.vehicleHeads += matrices.length;
+    return matrices.length;
+  }
   scene.add(group);
-  return { group, footprints, colliders, signalClock, signalTexture, audioSignals, vehicleHeads: s1Matrices.length, update };
+  const result = { group, footprints, colliders, signalClock, signalTexture, audioSignals,
+    vehicleHeads: s1Matrices.length, addRuntimeSignalHeads, update };
+  return result;
 }
 
 export { buildStreetDetails, plateLabel };

@@ -103,6 +103,7 @@ async function initApp() {
     ...streetDetails.footprints,
     ...allColliders.filter((c) => !c.obb && (c.minY ?? 0) < 3.5)
   ]);
+  streetDetails.addRuntimeSignalHeads(trafficSystem.network);
   markInit('traffic');
   // The street furniture's player colliders join only now: its footprints already went to the network above
   allColliders.push(...streetDetails.colliders);
