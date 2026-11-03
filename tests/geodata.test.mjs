@@ -67,6 +67,43 @@ test('Poznań geodata builds offline with default paths in a checkout containing
       assert.ok(Math.abs(twiceArea) > 0, `${name}: non-degenerate footprint`);
     }
     assert.ok(GEO.blocks.length > 500);
+    // Plac Wolności's beds and fountain are not buildings or holes in its paving.
+    const inside = (ring, x, z) => {
+      let hit = false;
+      for (let i = 0, j = ring.length - 2; i < ring.length; j = i, i += 2) {
+        if ((ring[i + 1] > z) !== (ring[j + 1] > z) &&
+          x < (ring[j] - ring[i]) * (z - ring[i + 1]) / (ring[j + 1] - ring[i + 1]) + ring[i]) hit = !hit;
+      }
+      return hit;
+    };
+    for (const [x, z] of [[-400, 37], [-400, 75], [-395, 58]]) {
+      const paved = (p) => inside(p.ring, x, z) && !(p.holes || []).some((h) => inside(h, x, z));
+      assert.ok(GEO.plazas.some(paved), 'paved plaza');
+      assert.ok(!GEO.blocks.some((b) => inside(b[0], x, z)), `no building block at ${x}, ${z}`);
+    }
+    const plaza = GEO.plazas.find((p) => p.name === 'Plac Wolności').ring;
+    for (const b of GEO.blocks) {
+      const xs = b[0].filter((_, i) => i % 2 === 0), zs = b[0].filter((_, i) => i % 2 === 1);
+      if (Math.max(...xs) < -620 || Math.min(...xs) > -300 ||
+        Math.max(...zs) < -50 || Math.min(...zs) > 150) continue;
+      for (const [th, px, pz, rects] of b[5] || [[0, 0, 0, b[1]]]) {
+        const cs = Math.cos(th), sn = Math.sin(th);
+        for (const [lx, hx, lz, hz] of rects) {
+          // Sample each lot at most 1 m apart in its local frame, including its centre.
+          const nx = Math.ceil(hx - lx), nz = Math.ceil(hz - lz);
+          for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
+            const x = lx + (i + 0.5) * (hx - lx) / nx, z = lz + (j + 0.5) * (hz - lz) / nz;
+            const wx = px + (x - px) * cs + (z - pz) * sn;
+            const wz = pz - (x - px) * sn + (z - pz) * cs;
+            assert.ok(!inside(plaza, wx, wz), `building lot inside Plac Wolności at ${wx}, ${wz}`);
+          }
+        }
+      }
+    }
+    for (const [x, z] of [[-450, -50], [-450, 120]]) {
+      const built = (b, i) => inside(b[0], x, z) && GEO.blockStats[i][2] > 0;
+      assert.ok(GEO.blocks.some(built), 'square frontage remains built');
+    }
     // blockStats: [built share, median levels, buildings] per block, from the OSM footprints (poz-buildings.mjs)
     const stats = GEO.blockStats;
     assert.equal(stats.length, GEO.blocks.length);

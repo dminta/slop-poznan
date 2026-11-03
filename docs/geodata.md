@@ -226,7 +226,8 @@ The build reads only the committed `poz_*.json` snapshots. The current output co
     are stamped.
   - `STRIP` is a 10 m riverside strip, measured from `isLandAt`. The detail-box edge is not treated as a shore.
   - Plazas are cleared, then a multipolygon's inner rings of 100 m² and up are given back, grown by `SIDEWALK`. This is
-    how Stary Rynek keeps its central block.
+    how Stary Rynek keeps its central block. Plac Wolności's pedestrian relation is excluded in `poz-roads.mjs`: its
+    inner rings are planting beds and a fountain, rather than buildings.
   - Pedestrian ways are stamped only outside plazas.
   - `landuse=railway` areas and off-street track corridors are cleared.
   - Bridges are stamped like any road.

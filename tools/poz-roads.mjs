@@ -31,6 +31,8 @@ import { r1, ringArea, rdp, rdpRing, pointInRing, elemRings } from './geo-util.m
 const PIECE_PAD = 200; // m around the detail box: pieces reaching into it are kept whole, the block raster clips
 const ROADS_PAD = 100; // m: GEO.roads keeps pieces whose midpoint is this close to the box
 const PLAZA_HOLE_M2 = 100; // m²: smaller inner rings of a pedestrian area are street furniture
+// Plac Wolności's pedestrian-area inners are beds and a fountain, not buildings.
+const PLAZA_WITHOUT_BUILDING_HOLES = new Set([3991044]);
 
 const osmRoads = load('poz_roads.json');
 const osmRail = load('poz_rail.json');
@@ -622,8 +624,9 @@ for (const e of osmRoads.elements) {
     // Inner rings of a pedestrian multipolygon are what stands on the square: Stary Rynek's (relation 153057) are the
     // central block's buildings. Planters, kiosks and fountain basins under PLAZA_HOLE_M2 are dropped.
     const inner = [];
-    if (e.type === 'relation') {
-      const swapped = { type: 'relation', members: (e.members || []).filter((m) => m.role === 'inner').map((m) => ({ ...m, role: 'outer' })) };
+    if (e.type === 'relation' && !PLAZA_WITHOUT_BUILDING_HOLES.has(e.id)) {
+      const swapped = { type: 'relation', members: (e.members || []).filter((m) => m.role === 'inner')
+        .map((m) => ({ ...m, role: 'outer' })) };
       for (let r of elemRings(swapped, toWorld)) {
         if (r.length < 4 || Math.hypot(r[0][0] - r[r.length - 1][0], r[0][1] - r[r.length - 1][1]) > 0.5) continue;
         r = r.slice(0, -1);

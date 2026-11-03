@@ -47,11 +47,11 @@ test('seeded species assignment preserves the full built city tree sites and col
   const siteHash = digest(sites);
   for (const site of sites) { before[site.species || 0]++; after[treeSpecies(site)]++; }
   assert.equal(digest(sites), siteHash, 'assignment must not mutate sites');
-  assert.deepEqual(before, [18692, 22657, 8743, 0]);
-  assert.deepEqual(after, [17926, 21752, 8385, 2029]);
-  assert.equal(siteHash, '82498dfed1b4ed043d9a818c01fae8ff52bd861644094d532ce97ce8361ec136');
-  assert.equal(digest(grid.propColliders), '595aa79cda8176bb4669e628f78decf25c5d6893f0ee33835d18970cae412d01');
-  assert.equal(digest(details.colliders), 'bc1e52a7c361ba5d6d5b66f0728bd71edfb75ccad06df4506020fa86f5c741dc');
+  assert.deepEqual(before, [18698, 22658, 8743, 0]);
+  assert.deepEqual(after, [17932, 21753, 8385, 2029]);
+  assert.equal(siteHash, 'b960c4a3179d7d9b9cdb25cf36ffc70072b168c7ee60520f7ad205aecc0a8028');
+  assert.equal(digest(grid.propColliders), '15546f8e386f87f6b06e37ea8ffedd42fb6d00bc0ab26d6b3b7b49c9a497418d');
+  assert.equal(digest(details.colliders), '03880534b7e17937632b50824486989d4651150bdffd6eb931cdeabd7127a3eb');
   const meshCount = (pick) => {
     const types = new Set();
     for (const t of sites) {
@@ -63,8 +63,8 @@ test('seeded species assignment preserves the full built city tree sites and col
     }
     return types.size;
   };
-  assert.equal(meshCount((t) => t.species || 0), 13850);
-  assert.equal(meshCount(treeSpecies), 16793);
+  assert.equal(meshCount((t) => t.species || 0), 13852);
+  assert.equal(meshCount(treeSpecies), 16797);
 });
 
 // Exercise the real field's transform, allocation and regrouping with cheap stand-ins for the generated geometries.
