@@ -5,6 +5,7 @@ import {
   Fn,
   float,
   vec2,
+  vec4,
   color,
   uv,
   positionWorld,
@@ -35,6 +36,8 @@ import {
   splitDeep
 } from './city-config.js';
 import {
+  lawnColorNode,
+  setLawnSpecular,
   createPreWarBuildingMaterial,
   createCurtainWallMaterial,
   createPanelBlockMaterial,
@@ -2411,7 +2414,7 @@ function buildCityBlocks(scene) {
   // it hide the rest). Lawn, paving and tree canopies come from world-space noise; detail finer than a pixel fades
   // to its average so the gardens don't shimmer from the air
   const yardMat = new THREE.MeshStandardNodeMaterial({ roughness: 0.94, metalness: 0.0 });
-  yardMat.colorNode = Fn(() => {
+  const yardSurface = Fn(() => {
     const p = positionWorld.xz;
     const px = length(fwidth(p)); // metres per pixel
     const fine = smoothstep(0.9, 0.12, px);
@@ -2421,9 +2424,10 @@ function buildCityBlocks(scene) {
 
     // Lawns with grey / beige patios & light-court paving
     const patch = mx_noise_float(p.mul(0.21)).mul(smoothstep(12.0, 4.0, px));
-    const lawn = mix(color(0x5d7a3a), color(0x7a944c), grain);
+    const lawn = lawnColorNode(p, false, px);
     const paving = mix(color(0x8c8679), color(0xa59e90), grain);
-    const ground = mix(lawn, paving, smoothstep(0.15, 0.45, patch));
+    const pavingMask = smoothstep(0.15, 0.45, patch);
+    const ground = mix(lawn, paving, pavingMask);
 
     // Street-tree-sized (~12 m) & small (~6 m) crowns, domed: sunlit crowns, softer & darker towards their rims
     const w1 = mx_worley_noise_float(p.mul(0.085));
@@ -2432,8 +2436,12 @@ function buildCityBlocks(scene) {
     const rim = smoothstep(0.0, 1.0, min(w1.div(0.55), w2.div(0.45)));
     const leaves = mix(color(0x3f5e2a), color(0x5e7f3b), clump.mul(0.6).add(grain.mul(0.4))).mul(mix(float(1.08), float(0.78), rim));
     const leavesMean = mix(color(0x3f5e2a), color(0x5e7f3b), 0.5).mul(0.93);
-    return mix(ground, mix(leavesMean, leaves, crownLOD), mix(float(0.5), crowns, crownLOD));
+    const canopy = mix(float(0.5), crowns, crownLOD);
+    return vec4(mix(ground, mix(leavesMean, leaves, crownLOD), canopy),
+      float(1.0).sub(pavingMask).mul(float(1.0).sub(canopy)));
   })();
+  yardMat.colorNode = yardSurface.rgb;
+  setLawnSpecular(yardMat, yardSurface.a);
   const yardRects = [];
   for (const blk of allBlocks) yardRects.push(...blk.yards);
   if (yardRects.length) {

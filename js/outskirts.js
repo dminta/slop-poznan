@@ -25,7 +25,7 @@ import {
   fwidth,
   select
 } from 'three/tsl';
-import { cityUniforms, createPanelBlockMaterial, createFacadeBoxes, WALL_KINDS } from './tsl-materials.js';
+import { cityUniforms, lawnColorNode, setLawnSpecular, createPanelBlockMaterial, createFacadeBoxes, WALL_KINDS } from './tsl-materials.js';
 import { LL, OUTSKIRTS, OUTSKIRTS_HOLES, DISTRICTS, CITY_BOUNDS } from './city-config.js';
 
 // js/outskirts.js
@@ -726,7 +726,8 @@ function createLandMaterial() {
   const clumps = smoothstep(0.5, 0.72, valueNoise(wp.xz.mul(0.05)).mul(0.7).add(treeNoise.mul(0.3)));
   const pathU = boxPulse(gu.mul(4.0), 0.49, 0.51, fwU.mul(4.0));
   const pathV = boxPulse(gv.mul(3.0), 0.485, 0.515, fwV.mul(3.0));
-  const cOsiedle = mix(mix(srgb(0.38, 0.47, 0.22), cTree, clumps), srgb(0.6, 0.59, 0.56), max(pathU, pathV).mul(0.8));
+  const turf = lawnColorNode(wp.xz);
+  const cOsiedle = mix(mix(turf, cTree, clumps), srgb(0.6, 0.59, 0.56), max(pathU, pathV).mul(0.8));
   const lotsCol = mix(mix(roofCol, cTree, yardAmount), cOsiedle, osiedle);
 
   const cAsphalt = srgb(0.30, 0.30, 0.31);
@@ -751,7 +752,7 @@ function createLandMaterial() {
 
   // Forests (dense canopy with clearings) and cemeteries (pale lawns speckled with stones)
   const woods = smoothstep(0.3, 0.6, valueNoise(wp.xz.mul(0.045)).add(treeNoise.mul(0.35)));
-  const cLawn = srgb(0.36, 0.45, 0.2);
+  const cLawn = turf;
   const cPark = mix(cLawn, cTree.mul(0.85), woods);
   const cCemetery = mix(srgb(0.40, 0.48, 0.27), srgb(0.66, 0.66, 0.64), step(0.8, hash12(floor(wp.xz.mul(0.5)))).mul(0.5));
 
@@ -770,6 +771,16 @@ function createLandMaterial() {
   const slope = float(1.0).sub(normalWorld.y).toVar();
   col = mix(col, mix(srgb(0.30, 0.37, 0.18), cTree, treeNoise), smoothstep(0.04, 0.12, slope));
   mat.colorNode = col;
+
+  // Follow the same blends as the colour so paths, canopies, fields, cemeteries and banks keep their response.
+  const urbanLawn = inLots.mul(osiedle).mul(float(1.0).sub(clumps))
+    .mul(float(1.0).sub(max(pathU, pathV).mul(0.8))).mul(float(1.0).sub(streetTrees));
+  const industry = lu.g.mul(float(1.0).sub(lu.b.mul(0.6)));
+  const openGround = lu.a.mul(float(1.0).sub(lu.g));
+  const parkLawn = float(1.0).sub(woods).mul(float(1.0).sub(smoothstep(0.4, 0.8, cemeteryMix)));
+  const lawnMask = mix(urbanLawn.mul(float(1.0).sub(industry)).mul(float(1.0).sub(openGround)), parkLawn, park)
+    .mul(float(1.0).sub(smoothstep(0.04, 0.12, slope)));
+  setLawnSpecular(mat, lawnMask);
 
   mat.roughnessNode = mix(float(0.9), float(0.97), max(park, lu.a));
 
