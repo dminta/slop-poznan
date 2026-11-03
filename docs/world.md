@@ -187,25 +187,28 @@ Built before the road network, so everything that stands near a lane is checked 
 
   The 2026-11-03 furnished-grid audit initially found 178 of 738 incoming edges without a strict same-plan,
   dot > 0.98 head within 45 m. Eight existing-pole heads raised vehicle heads 895 → 903; two of the other eleven
-  already had heads and one was disabled. The remaining 167 edges classify A/B/C/D **17/27/113/10 → 47/0/110/10**
-  after runtime placement. A requires the same phase, direction dot > 0.9, a pole within 30 m of the stop line and
-  along ≤ 2 m; B has a sampled clear site; C has no such site; D is inactive. Three C approaches also gain heads
-  on existing poles. The audit reports each failed constraint's count over 60 samples and the fewest failures at any
-  one sample. C does not exclude other, unsampled sites. This is geometric visibility, without occlusion checks.
+  already had heads and one was disabled. On the remaining 167 edges, the original 60-site sampling classified
+  A/B/C/D **17/27/113/10 → 47/0/110/10** before and after the previous placement. The expanded sampling classifies
+  the same fixture **17/74/66/10** before and **91/0/66/10** after the current placement. A requires the same phase, direction dot > 0.9,
+  a pole within 30 m of the stop line and along ≤ 2 m; B has a sampled clear site; C has no such site; D is inactive.
+  The audit reports each failed constraint's count over up to 300 samples and the fewest failures at any one sample.
+  C does not exclude other, unsampled sites. This is geometric visibility, without occlusion checks.
 
   `addRuntimeSignalHeads` uses the configured runtime edges, phase and facing. It prefers an unused existing pole on
   the right, then left, 0.6–2.6 m beyond that edge's curb and −15 to +2 m along from its stop line. Otherwise it
-  searches new pole sites against runtime lanes and turning curves, curb/median, rails, landing bands, building
-  colliders and nearby pedestrian tracks including corner and refuge links. Neighbourhoods are materialised lazily
-  and cached per junction; the search conservatively accounts for the one-metre rectangle steps in route clearance.
-  In the furnished-grid headless fixture, placement measured **18.70 → 2.06 s** on this machine, with the same 30
-  head positions (single runs; buildings, landmarks and bridge colliders omitted). New poles carry S-1 heads only; their footprints and player
-  colliders are registered before controllers are built and their shafts get a runtime instanced mesh. Vehicle heads
-  increase **903 → 933** (six existing and 24 new poles); pedestrian heads and audio entries remain **1,572**.
-  The furnished-grid regression rebuilds the road and pedestrian networks with the new footprints and compares all
-  lanes, crossings, and route segments and connections near each new pole. An earlier exhaustive comparison also
-  found all route segments unchanged. The audit fixture omits building, landmark and bridge colliders; the browser
-  passes them, so actual placements and counts may differ. Browser appearance and visibility remain unverified.
+  searches new pole sites within 30 m of the stop line and no more than 15 m before it, up to 6 m beyond the edge's
+  lane half-width. Sites are checked against runtime lanes and turning curves, curb/median, rails, landing bands,
+  building colliders and nearby pedestrian tracks including corner and refuge links. Neighbourhoods are materialised
+  lazily and cached per junction; the search conservatively accounts for the one-metre rectangle steps in route
+  clearance. In the furnished-grid fixture, runtime placement measured **2.05 → 3.52 s** with the old and expanded
+  searches respectively (single runs on this machine; buildings, landmarks and bridge colliders omitted). New poles
+  carry S-1 heads only; their footprints and player colliders are registered before controllers are built and their
+  shafts get a runtime instanced mesh. Vehicle heads increase **903 → 979** (six existing and 70 new poles);
+  pedestrian heads and audio entries remain **1,572**. The furnished-grid regression rebuilds the road and pedestrian
+  networks with the new footprints and compares all lanes, crossings, and route segments and connections near each
+  new pole. An earlier exhaustive comparison also found all route segments unchanged. The audit fixture omits
+  building, landmark and bridge colliders; the browser passes them, so actual placements and counts may differ.
+  Browser appearance and visibility remain unverified.
 
 - **Name plates (1B).** For each named arm and side, a ray from the curb 3.5 m past the corner across the sidewalk finds the first wall (a `buildingColliders` box, AABB or `obb`, at least 5 m tall) within 14 m that faces the street; a plate goes on it at 3.3 m, one per name within 25 m. Plates follow Poznań's System Informacji Miejskiej (2017 manual, pp. 41–51; ZDM "Nowe tablice ulicowe"): graphite RAL 7043 (#3b3d3f) with white left-set type, the kind as a full lowercase word on a small top line with a patron's given names and titles (`plateLabel(name, district)` → `{ kind, name, district }`: "ulica Jana Henryka" over "Dąbrowskiego", "aleje Karola" over "Marcinkowskiego", "rondo" over "Kaponiera"; "Stary Rynek" and Zaułek/Pasaż/Wzgórze names have no top word; the HUD plate in `main.js` reuses it), the name large below, and a blue RAL 5005 (#1f5bb5) strip along the bottom with the block's district in capitals. 0.315 × 0.22 m in the Old Town and on streets under 10 m, 0.67 × 0.35 m elsewhere (`PLATE_SIZES`), each size its own canvas atlas with a per-instance `plateCell`. No house-number ranges. Headless (tests) there are no colliders and no plates; with the lot rects standing in for walls, 122. The old pole blades are gone.
 - **Streetlights (2).** Every curb edge takes the class of the road in front of it (`nearestRoads`): main (≥ 12.5 m, 3+ lanes or a trunk road) 10 m LED bent masts every ~34 m, side streets 7 m ones (the same mesh at 0.7) every ~30 m, both 1.08 m inside the curb with the luminaire over the road and a pooled spot. In the Old Town (Stare Miasto inside buildings.js `OLD_TOWN_BOX`) and within 650 m of the Katedra, non-main edges get cast-iron gas lanterns (ladder bar, four-sided glass) every ~22 m with pooled point lights. Measured headlessly on 2026-10-29: 1,557 main, 9,689 side and 1,026 gas.

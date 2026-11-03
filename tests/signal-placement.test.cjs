@@ -304,12 +304,18 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
   assert.equal(JSON.stringify(street.footprints.slice(0, oldFootprints)), footprintSnapshot);
   assert.equal(JSON.stringify(street.colliders.slice(0, oldColliders)), colliderSnapshot);
   assert.equal(street.vehicleHeads, oldCount + street.runtimeHeads.length);
+  assert.ok(newPoles.some(({ p, edge }) => {
+    const x = edge.sx + edge.dx * edge.len, z = edge.sz + edge.dz * edge.len;
+    return (p.x - x) * edge.dx + (p.z - z) * edge.dz < -15 ||
+      Math.abs((p.x - x) * edge.rx + (p.z - z) * edge.rz) > edge.half + 2.6;
+  }), 'expanded search places at least one pole');
   for (const h of street.runtimeHeads) {
     const e = h.edge, x = e.sx + e.dx * e.len, z = e.sz + e.dz * e.len;
     const along = (h.p.x - x) * e.dx + (h.p.z - z) * e.dz;
     const lateral = Math.abs((h.p.x - x) * e.rx + (h.p.z - z) * e.rz);
-    assert.ok(along >= -15 && along <= road.STOP_SETBACK + 1e-6, `setback ${along}`);
-    assert.ok(lateral >= e.half + 0.6 && lateral <= e.half + 2.6, `curb offset ${lateral - e.half}`);
+    assert.ok(Math.hypot(h.p.x - x, h.p.z - z) <= 30 && along >= -15 - 1e-6 && along <= road.STOP_SETBACK + 1e-6,
+      `setback ${along}`);
+    assert.ok(lateral >= e.half + 0.6 && lateral <= e.half + 6.01, `curb offset ${lateral - e.half}`);
     assert.ok(-h.a.ux * e.dx - h.a.uz * e.dz > 0.9999);
     assert.equal(h.group0, e.axisIndex === 0);
     assert.ok(config.roadClearance(h.p.x, h.p.z) >= 0.8);

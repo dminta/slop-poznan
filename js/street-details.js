@@ -1437,7 +1437,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
   // Shared by the diagnostic audit and boot-time placement. Clearance is conservative: a pole's 0.3 m square
   // is expanded by the exact margins used by lane, curve and pedestrian checks when the network is rebuilt.
   function auditRuntimeSignalHeads(network, pedRoutes, place = false) {
-    const heads = [], entries = [], cell = 16;
+    const heads = [], entries = [], cell = 16, headReach = 30;
     const key = (x, z) => `${Math.floor(x / cell)},${Math.floor(z / cell)}`;
     const index = () => new Map();
     const file = (map, item, minX, maxX, minZ, maxZ) => {
@@ -1518,7 +1518,7 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
             h.site.timing.mainUz * node.signalTiming.mainUz) <= 0.82;
           const ox = h.p.x - x, oz = h.p.z - z;
           return (h.group0 !== swap) === (edge.axisIndex === 0) &&
-            -h.a.ux * edge.dx - h.a.uz * edge.dz > 0.9 && Math.hypot(ox, oz) <= 30 &&
+            -h.a.ux * edge.dx - h.a.uz * edge.dz > 0.9 && Math.hypot(ox, oz) <= headReach &&
             ox * edge.dx + oz * edge.dz <= STOP_SETBACK;
         });
         if (sameHead) { entry.class = 'A'; entry.head = sameHead; continue; }
@@ -1528,15 +1528,21 @@ function buildStreetDetails(scene, { buildingColliders = [] } = {}) {
         let reach = 0;
         for (const incoming of node.in) {
           const endX = incoming.sx + incoming.dx * incoming.len, endZ = incoming.sz + incoming.dz * incoming.len;
-          reach = Math.max(reach, Math.hypot(endX - node.x, endZ - node.z) + incoming.half + 13);
+          reach = Math.max(reach, Math.hypot(endX - node.x, endZ - node.z) + incoming.half + 35);
         }
         for (const track of pedRoutes.segmentsNear(node.x, node.z, reach, node)) addWalk(walks, track);
         let closest = null, sampleCount = 0;
-        for (const side of [1, -1]) for (const back of [0.75, 1, 1.3]) {
-          for (let dt = CROSSWALK + 0.5; dt < 16; dt += 1.2) {
-            sampleCount++;
+        // The first clear sample is placed, so the order is the preference: near, narrow sites first, then wider offsets,
+        // then further back, where the head is harder to see from the stop line.
+        for (const [backs, start, end] of [[[0.75, 1, 1.3], CROSSWALK + 0.5, 16],
+          [[1.6, 2, 2.5, 3, 4, 5, 6], CROSSWALK + 0.5, 16],
+          [[0.75, 1, 1.3, 1.6, 2, 2.5, 3, 4, 5, 6], 16, 21.1]]) {
+          for (const side of [1, -1]) for (const back of backs) for (let dt = start; dt < end; dt += 1.2) {
             const px = x - edge.dx * (dt - CROSSWALK - STOP_SETBACK) + edge.rx * (edge.half + back) * side;
             const pz = z - edge.dz * (dt - CROSSWALK - STOP_SETBACK) + edge.rz * (edge.half + back) * side;
+            if (Math.hypot(px - x, pz - z) > headReach ||
+              (px - x) * edge.dx + (pz - z) * edge.dz < -15) continue;
+            sampleCount++;
             const fail = [];
             const b = blockAt(px, pz);
             const pad = b && b.median ? 0.9 : 0.4;
