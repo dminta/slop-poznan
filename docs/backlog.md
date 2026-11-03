@@ -358,7 +358,7 @@ Implementation details live in the [topic docs](../AGENTS.md#docs). Original pha
 | Park bounding boxes | Resolved citywide. Exact park polygons (`exact = true`) are enabled for all street furniture and trees in `js/street-details.js`, restoring 4,004 street trees and 4,639 non-signal street furniture footprints while preserving 100% of drivable road network edges (8,512/8,512) and 0 rail clearance violations. | Follow-up |
 | Sparse OSM blocks | Check the nine large blocks with under 5% mapped building coverage against BDOT10k; supplement only confirmed omissions. The original audit covered 0.69 km² and needs rechecking against the current enlarged box. Verify source terms before adding data. | 14.3 |
 | Building accuracy | Replace estimated landmark heights and massing where supported by measurements; real building footprints/roof heights remain optional. Candidates include Ratusz, Fara, Zamek Królewski, Teatr Wielki, Brama Poznania, tower placements, Iglica and AND2. | 4.4, 7 |
-| Merge starvation | A car can wait minutes to merge into a short link while newer traffic from another approach takes the slot: at the Centrum pair `−1117, 132` / `−1136, 127` (9.43 m link) the lane lead stopped about 7 m short, so it never got `mergeArrival`, which `mayEnter` sets within 2 m of the line. HEAD seed 1 Centrum already holds a car 181 s in `tools/bench-traffic.mjs`. Two candidate fixes (queue-age backdating; timestamping a stopped lane lead within 10 m) were rejected on 2026-11-03 because seed 4242 Centrum without arrows rose from 66 to 125 s. Blocks the `s2-arrows` merge. | Follow-up |
+| Merge starvation | A car can wait minutes to merge into a short link while newer traffic from another approach takes the slot: at the Centrum pair `−1117, 132` / `−1136, 127` (9.43 m link) the lane lead stopped about 7 m short, so it never got `mergeArrival`, which `mayEnter` sets within 2 m of the line. HEAD seed 1 Centrum already holds a car 181 s in `tools/bench-traffic.mjs`. Two candidate fixes (queue-age backdating; timestamping a stopped lane lead within 10 m) were rejected on 2026-11-03 because they raised the seed 4242 Centrum longest hold from 66 to 125 s. | Follow-up |
 | Tram route quality | Track continuity, tunnel preservation (PST, Franowo), the Św. Marcin – Ratajczaka curve, and universal 2.2875 m step elimination across junctions and islands are implemented. The 2026-11-03 headless run found 0 / 84,235 samples on other lines or unused track; the display timing fix reduced line 5 samples showing the return direction before the front reached its edge from 355 to 0 in the same benchmark. The historical 0.44% is not directly comparable; method and limits are in [Trams](actors.md#trams-jstramsjs) and [testing](testing.md#tram-route-membership-benchmark). | 15.10 |
 
 ## Decisions awaiting the user
@@ -373,11 +373,7 @@ None pending. Both historical open decisions were confirmed by the user on 2026-
 - Vehicles: articulated 18 m bus (Solaris Urbino 18) and PSP fire truck (heavy rescue pumper) are implemented;
   registration plate font stack on systems without Arial Narrow is implemented. Taxi crests and exact livery/marking fidelity require
   source verification before use.
-- Street details: conditional S-2 arrows, pedestrian countdowns and real OSM tree positions. S-2 traffic behaviour
-  (stage 1, no rendered heads) is on branch `s2-arrows` (`1b32233`): 227 of 709 signalised approaches qualify after
-  rejecting tram conflicts, shared tram lanes, exits under 40 m and signals within 80 m along the exit chain. It is
-  not merged because the four-seed flow test fails on seed 9001 Centrum (longest hold 134 s, limit 120 s). The hold
-  is not caused by arrow entries (see merge starvation below); merge once that is fixed, then render the heads.
+- Street details: pedestrian countdowns and real OSM tree positions.
 - Traffic: passing a waiting left-turner on a wide single-lane approach is implemented (Łazarz at `−1875, 1299` and citywide). Kaponiera and Wilda retain substantial queues despite meeting the aggregate flow targets.
 - Geodata semantics: road levels and richer road-priority classification; revisit only with a runtime consumer.
   Additional height sources (nDSM/LoD1/LoD2) and GEOPOZ machine-readable data remain research candidates.
