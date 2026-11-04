@@ -227,7 +227,7 @@ Built before the road network, so everything that stands near a lane is checked 
 - **Curbside (3).** Tall red hydrants with a white band (near one end of about half the edges ≥ 30 m), Poczta Polska post boxes (8% of edges), parking machines on non-main edges in Stare Miasto, Jeżyce, Łazarz and Wilda, and bollards 7–12 m from both ends of Old Town and Stare Miasto side-street edges (clear of the crosswalk landings). All within 1 m of the curb. Measured headlessly on 2026-10-29: 2,671 hydrants, 364 post boxes, 569 parking machines and 1,765 bollards.
 - **Wide sidewalks (3B).** Press kiosks, flower stands and advertising columns (słupy ogłoszeniowe) 3.8 m or more behind the curb, only where the footprint stays on the block and off its lot rects (`inLot`, frames turned into place), 320 m (columns) or 420 m (kiosks) apart. Measured headlessly on 2026-10-29: 124 kiosks, 101 flower stands and 194 columns. No bike-share docks (Poznański Rower Miejski closed in 2022).
 - **Cost to the network:** current grid-and-furniture input has 19,363 street footprints; the resulting strongly connected set has 8,715 edges / 433.2 km of span (442.8 directed lane km). The no-curb, no-furniture baseline is 8,756 edges / 435.5 km; this is not a furniture-only differential because the current snapshot also supplies grid curbs and footprints.
-- **Player colliders:** every footprint's prop is a static collider in `colliders` (main.js appends them to `allColliders` after the network is built): an upright box about the visible shaft or cabinet (signal poles 0.16 m to 4.3 m, LED masts 0.28 m up the shaft, gas lanterns, hydrants, post boxes, parking machines, bollards 0.14 m, columns) and oriented boxes (`obb`) for kiosks and flower stands. 19,363 in all (headless grid + street build, 2026-10-29), none within 2 m of a track (`clearOfRails`); controllers.js buckets them into its 48 m cells with the buildings, so a lookup only sees the few along its own curb. Trees have none.
+- **Player colliders:** every footprint's prop is a static collider in `colliders` (main.js appends them to `allColliders` after the network is built): an upright box about the visible shaft or cabinet (signal poles 0.16 m to 4.3 m, LED masts 0.28 m up the shaft, gas lanterns, hydrants, post boxes, parking machines, bollards 0.14 m, columns) and oriented boxes (`obb`) for kiosks and flower stands. 19,363 in all (headless grid + street build, 2026-10-29), none within 2 m of a track (`clearOfRails`); controllers.js buckets them into its 48 m cells with the buildings, so a lookup only sees the few along its own curb. Street trees add trunk colliders without a footprint: 18,112 citywide now block the player (18,152 in the headless test build, which omits landmark and bridge walls); before 2026-11-04 they had none. Park and plaza trees keep their city-grid trunk colliders.
 
 ## Tram infrastructure
 `tram-infra.js` builds everything static about the trams from `GEO.rail` (`kind: 'tram'`) and `GEO.tramStops`, and the mainline railway from the `kind: 'rail'` tracks (see **Mainline railway** below), after the road network. The placements are the pure `layoutTramInfrastructure(network)` and `layoutRailInfrastructure(network)` (no three.js), which `tests/tram-infra.test.cjs` runs on the real network.
@@ -287,8 +287,8 @@ non-park cells clear of park rings (`parkFreeCells`), while purely unmapped park
   individual trees. The locust has an open crown, pinnate leaf sprays and deeply furrowed grey-brown bark. All species
   share the wind and LOD system; there is no seasonal foliage model. The 2048 × 1024 leaf atlas has 4 × 2 tiles of
   512 px (0–2 and 4 species, 3 far canopy); mipmaps preserve coverage per tile. Each species has its own bark in
-  `createTreeMaterial`. The full headless grid → landmarks → buildings → street-details build has 50,019 trees (was
-  55,381 before clearance filtering): narrow street 15,084, wide street 3,027, park sites 31,775, plaza planters 133,
+  `createTreeMaterial`. The full headless grid → landmarks → buildings → street-details build has 50,026 trees (was
+  55,381 before clearance filtering): narrow street 15,082, wide street 3,030, park sites 31,775, plaza planters 139,
   leftover slabs 0. All trees enforce horizontal trunk-to-wall distance >= max(floor, crownR * squeeze) against all
   building, landmark and bridge colliders within the crown height band [y, y + 13 * scale], where mature crown radii
   crownR are [4.53, 4.74, 6.07, 4.55] m (lime, maple, chestnut, robinia from SPECIES_CROWN_R) and the hard floor is
@@ -305,7 +305,8 @@ non-park cells clear of park rings (`parkFreeCells`), while purely unmapped park
   17,283 (+3,128, 22.1%); only active cells and levels draw, including in shadow passes. Each species has different
   geometry: sharing a mesh would require a combined geometry and per-instance vertex selection, trading these mesh
   counts for extra vertex work and shader complexity. Instance buffers use static usage: DynamicDrawUsage re-uploads
-  in every pass of every frame.
+  in every pass of every frame. Street trees (placed by street-details.js) also carry player trunk colliders now:
+  `0.28 × scale` m half-width, top at base + 3.0 m; they add no traffic footprints.
 - **Scene culling** is automatic for anything under the seven named roots; thresholds and opt-outs are in [`rendering.md`](rendering.md#culling-scene-cullingjs-registering-new-static-geometry).
 
 ## Batching

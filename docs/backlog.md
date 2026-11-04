@@ -1,6 +1,6 @@
 # Poznań backlog
 
-Updated 2026-11-03. The port and documentation cleanup are implemented; the remaining work is below.
+Updated 2026-11-04. The port and documentation cleanup are implemented; the remaining work is below.
 Implementation details live in the [topic docs](../AGENTS.md#docs). Original phase numbers refer to the
 [archived port plan](archive/poznan-plan.md), which retains historical measurements and decisions.
 
@@ -15,6 +15,18 @@ inside walls 1,721 → 0, crowns overlapping walls 4,062 → 0, no orphan trunk 
 their area against 4.39% real (6.64% before). Park paving is still drawn under their buildings; three planter boxes
 lost their trees and stand empty. Browser checks remain. Details:
 [observation record](observations/tree-building-clearance-2026-11-03.md).
+
+## Street-tree player colliders implemented
+
+The user reported that the player walks through the street trees on ulica Rybaki's sidewalk next to the curb. Street
+trees were the only tree type without player colliders: city-grid.js gave park and plaza trunks colliders, but
+street-details.js placed its curb-side street trees without them. Each street tree now gets a trunk collider like the
+park ones (`0.56 × scale` m wide, `3.0 m` above its base), kept out of the traffic footprints so lanes, sidewalk
+links and pedestrian routes are unchanged. Headless citywide measurement: **18,112 street trees had 0 colliders
+before and all 18,112 now have one**; Rybaki's 9 trees are all covered (8 at the curb, about 0.9 m behind it; 1 at
+6.8 m from the centreline). The 18,152 in the test build includes 40 trees near landmarks or bridges that the full
+audit build drops. Park/plaza trees keep their city-grid colliders. Browser check remains: walk and drive into a
+Rybaki tree. Details: [world.md](world.md#street-furniture-street-detailsjs) "Player colliders".
 
 ## Park surfaces and road clearance: further review
 
@@ -367,6 +379,7 @@ lost their trees and stand empty. Browser checks remain. Details:
 | Car–tram body overlaps | Partially fixed: a tram stopped before a road conflict now waits for a car committed to it before restarting, and Półwiejska's southbound inner lane (edge 7500) keeps clear of the opposing track. Over seeds 1 / 4242 / 7 / 99 / 2 / 3 / 5 / 11 and all seven districts, `tools/audit-tram-overlaps.mjs` finds **89 → 74** pairs (the original Centrum and Kaponiera eight runs 17 → 12), deadlocks 1 → 1, cars held over 60 s / over 120 s 208 / 16 → 193 / 11. Remaining: the Kaponiera bus hotspot at `−1386, −213`, where `enter` accepts a refused tram conflict above 4 m/s; the other 60 opposing close lanes from `tools/audit-tram-opposing-lanes.mjs`; untraced clusters in Jeżyce, Stare Miasto and Centrum. Details and outliers: [observations/tram-overlaps-2026-11-04.md](observations/tram-overlaps-2026-11-04.md). | Follow-up |
 | Tram route quality | Track continuity, tunnel preservation (PST, Franowo), the Św. Marcin – Ratajczaka curve, and universal 2.2875 m step elimination across junctions and islands are implemented. The 2026-11-03 headless run found 0 / 84,235 samples on other lines or unused track; the display timing fix reduced line 5 samples showing the return direction before the front reached its edge from 355 to 0 in the same benchmark. The historical 0.44% is not directly comparable; method and limits are in [Trams](actors.md#trams-jstramsjs) and [testing](testing.md#tram-route-membership-benchmark). | 15.10 |
 | Park blocks with buildings | After the 2026-11-03 carve-out, park paving, granite beds and lawn are still drawn over the whole block under its buildings; the three planter boxes whose trees the wall rule dropped (Domki Budnicze, Stary Browar) stand empty; the 41 blocks build 3.46% against 4.39% real, partly because real buildings inside the park rings are carved out. | Follow-up |
+| Street-tree placement clearances | Street trees were never checked by `clearOfCrosswalks`; now that they are solid, 652 trunks stand in crosswalk landing zones, 5 overlap a zebra's painted area, 31 are within 1.2 m of a car-lane centreline (as close as 0.16 m; e.g. (2044, 1701.6), (1388, 957.1); lanes over curb islands, mostly Rataje and Żegrze) and 8 have a corner off the curb island at the city edges (x ≈ ±3,100-3,600). Fixing it means re-placing trees, which changes the tree layout and test hashes. | Follow-up |
 
 Merge benchmark, five minutes per district at 15 fps: each entry is longest hold in seconds / cars held over 60 s /
 cars held over 120 s, before → after. Dashes mark districts not measured for that seed. Current HEAD is after traffic

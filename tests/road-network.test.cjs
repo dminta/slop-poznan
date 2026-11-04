@@ -325,8 +325,10 @@ test('most of the Poznań road graph survives the largest strongly connected set
   assert.ok(split.length >= 15 && split.length < 200, `${split.length} split zebras`);
   assert.ok(crosswalks.length < 3600, `${crosswalks.length} zebras: no flood of new ones`);
 
-  // every piece of it is a player collider too, as small as the thing itself
-  assert.equal(colliders.length, footprints.length);
+  // every piece of it is a player collider too, as small as the thing itself; street trees add trunk colliders without
+  // a footprint (they are not traffic obstacles), so they are excluded from the footprint equality but keep the size check
+  const propColliders = colliders.filter((c) => !c.isTrunk);
+  assert.equal(propColliders.length, footprints.length);
   assert.ok(colliders.every((c) => c.maxX - c.minX < 3 && c.maxZ - c.minZ < 3 && c.maxY > 1 && c.maxY < 10),
     'street furniture colliders are prop-sized');
 });

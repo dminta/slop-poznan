@@ -17,7 +17,8 @@ import { pavedPlazaRects, parkTreeSites, parkLampSites, clearOfRails } from './c
 // - tall red hydrants, Poczta Polska post boxes, parking machines and bollards along the curbs; press and flower
 //   kiosks and advertising columns (słupy ogłoszeniowe) where the sidewalk is wide
 // - park and street trees, and the pooled street lights that follow the camera
-// Every prop but the trees is an obstacle footprint (lanes and walkers keep clear) and a player collider.
+// Every prop but the trees is an obstacle footprint (lanes and walkers keep clear) and a player collider; the trees'
+// trunks are player colliders only.
 
 // Pedestrian head faces: a standing figure in the top cell, a walking one in the bottom, white on black (a mask)
 function createPedestrianFigureTexture() {
@@ -230,8 +231,11 @@ function buildStreetDetails(scene, opts = {}) {
   // Player colliders (controllers.js: static boxes, bucketed into its 48 m cells), as tight as the visible shaft or
   // cabinet: an upright box of half widths hx, hz up to maxY
   const colliders = [];
-  const addCollider = (x, z, hx, hz, maxY) =>
-    colliders.push({ minX: x - hx, maxX: x + hx, minZ: z - hz, maxZ: z + hz, maxY });
+  const addCollider = (x, z, hx, hz, maxY) => {
+    const c = { minX: x - hx, maxX: x + hx, minZ: z - hz, maxZ: z + hz, maxY };
+    colliders.push(c);
+    return c;
+  };
 
   // Signal clock (seconds), set every frame by main.js
   const signalClock = uniform(0);
@@ -1394,6 +1398,11 @@ function buildStreetDetails(scene, opts = {}) {
     else t.sz = extra.squeeze || 0.82;
     treePositions.push(t);
     sidewalkTreePositions.push(t);
+    // Street trees block the player like the park & plaza trunks in city-grid.js: a box about the flared root, tall
+    // enough to stop a jump over the curb. They stay off the traffic footprints so the sidewalk links and lanes are
+    // unchanged; only the player's collider list gets them.
+    const c = addCollider(x, z, 0.28 * scale, 0.28 * scale, SIDEWALK_Y + 3.0);
+    c.isTrunk = true;
   }
   const TREE_SP = 15;
   for (const { b, p0, dx, dz, len, inx, inz, outX, outZ } of curbEdges) {
