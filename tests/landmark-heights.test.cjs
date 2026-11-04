@@ -227,6 +227,80 @@ test('Zamek Królewski: tower apex at 43.0 m and covered terrace floor at 30.0 m
     `Zamek Królewski tower shaft collider maxY matches 30.0 m (got ${towerCol.maxY})`);
 });
 
+test('Teatr Wielki: stage fly tower corrected to 31.7 m from GUGiK NMPT − NMT', () => {
+  const centrumSource = readFileSync(join(__dirname, '../js/landmarks-centrum.js'), 'utf8');
+  const centrum = loadModule(centrumSource, {
+    imports: {
+      'three/webgpu': THREE,
+      './landmark-kit.js': kit
+    },
+    globals: { Math, console }
+  });
+
+  const group = new THREE.Group();
+  const colliders = [];
+  centrum.buildCentrumLandmarks({ group, colliders, M });
+
+  const teatr = findBySite(group, 'Teatr Wielki');
+  const box = new THREE.Box3().setFromObject(teatr);
+  const height = box.max.y - box.min.y;
+
+  assert.ok(Math.abs(height - 31.7) < 0.1, `Teatr Wielki height ${height.toFixed(2)} m should be 31.7 m`);
+  assert.ok(Math.abs(box.max.y - 31.7) < 0.1,
+    `Teatr Wielki fly-tower ridge ${box.max.y.toFixed(2)} m should be 31.7 m`);
+
+  // Fly tower body rises from the 22 m stage house to 26.5 m, under a 5.2 m gable roof with the ridge along local z
+  const flyTower = teatr.children.find((node) =>
+    node.isMesh && node.geometry?.type === 'BoxGeometry' &&
+    node.geometry.parameters.width === 26 && node.geometry.parameters.depth === 21 &&
+    node.geometry.parameters.height === 4.5
+  );
+  assert.ok(flyTower, 'Identified Teatr Wielki fly tower body (26 × 4.5 × 21 m)');
+  const flyBox = new THREE.Box3().setFromObject(flyTower);
+  assert.ok(Math.abs(flyBox.min.y - 22.0) < 0.05,
+    `Fly tower starts at stage-house eaves 22.0 m (got ${flyBox.min.y.toFixed(2)} m)`);
+  assert.ok(Math.abs(flyBox.max.y - 26.5) < 0.05, `Fly tower eaves ${flyBox.max.y.toFixed(2)} m should be 26.5 m`);
+});
+
+test('Fara and Novotel: sourced heights retained (40.0 m and 68.0 m)', () => {
+  const heritageSource = readFileSync(join(__dirname, '../js/landmarks-heritage.js'), 'utf8');
+  const heritage = loadModule(heritageSource, {
+    imports: {
+      'three/webgpu': THREE,
+      './landmark-kit.js': kit,
+      './city-config.js': cityConfig
+    },
+    globals: { Math, console }
+  });
+  const heritageGroup = new THREE.Group();
+  heritage.buildHeritageLandmarks({ group: heritageGroup, colliders: [], M });
+  const fara = findBySite(heritageGroup, 'Fara');
+  const faraBox = new THREE.Box3().setFromObject(fara);
+  // The authored 37 m nave ridge sits under the 40 m overall top (the rear gable/attic); fitToSite scales the 40.8 m
+  // pediment statue down with the rest, so the ridge renders at ~36.3 m. The old 40 m ridge rendered at ~39.2 m.
+  assert.ok(Math.abs(faraBox.max.y - 40.0) < 0.1, 'Fara tops out at 40.0 m');
+  let ridgeTop = 0;
+  fara.traverse((node) => {
+    if (node.isMesh && node.material === M.tileRed) {
+      ridgeTop = Math.max(ridgeTop, new THREE.Box3().setFromObject(node).max.y);
+    }
+  });
+  assert.ok(ridgeTop > 36.0 && ridgeTop < 37.2, `Fara nave ridge ${ridgeTop.toFixed(2)} m should be about 37 m`);
+
+  const towersSource = readFileSync(join(__dirname, '../js/landmarks-towers.js'), 'utf8');
+  const towers = loadModule(towersSource, {
+    imports: {
+      'three/webgpu': THREE,
+      './landmark-kit.js': kit
+    },
+    globals: { Math, console }
+  });
+  const towersGroup = new THREE.Group();
+  towers.buildTowerLandmarks({ group: towersGroup, colliders: [], M });
+  const novotel = findBySite(towersGroup, 'Novotel');
+  assert.ok(Math.abs(new THREE.Box3().setFromObject(novotel).max.y - 68.0) < 0.1, 'Novotel tops out at 68.0 m');
+});
+
 test('Unchanged landmarks retain accurate heights selected by site', () => {
   const cityClock = require('../js/city-clock.js');
   const rynekSource = readFileSync(join(__dirname, '../js/landmarks-rynek.js'), 'utf8');

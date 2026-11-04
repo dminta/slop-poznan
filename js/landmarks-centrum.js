@@ -17,10 +17,12 @@ const DEG = Math.PI / 180;
 // courtyards north of the forecourt that opens onto Św. Marcin, and the throne-hall wing (entered from Kościuszki) is
 // the big south-east block. Ranges: 3 storeys, eaves ≈ 19 m, steep slate roofs (estimated from photos).
 const ZAMEK = { top: 75, eaves: 19, roofH: 9 };
-// Teatr Wielki (Max Littmann, 1910). No published height: the stage fly tower is estimated at ≈ 27 m from photos (the
-// portico's pediment stands at ≈ 21 m, the Pegasus at ≈ 24 m); the auditorium dome and the Pegasus on the portico stay below it. The OSM outline's portico bulge
-// (u -23..-1) puts the building's axis at u ≈ -11; the lower east part is the side wing and the former restaurant.
-const TEATR = { top: 27, axis: -11 };
+// Teatr Wielki (Max Littmann, 1910). No published height: the stage fly tower's gable roof peaks at 31.7 m above the
+// local ground in the GUGiK lidar (NMPT−NMT, ISOK 2011; docs/observations/landmark-heights-2026-11-03.md), with
+// eaves at ~26.5-28 m and the ridge running front-to-back along local z. The portico's pediment (≈ 21 m) and the Pegasus
+// (≈ 24 m) stay estimates from photos. The OSM outline's portico bulge (u -23..-1) puts the building's axis at
+// u ≈ -11; the lower east part is the side wing and the former restaurant.
+const TEATR = { top: 31.7, axis: -11 };
 // Collegium Minus (Edmund Fürstenau, 1910): eaves 17 m (OSM height), red tile roofs, the round observatory tower on the
 // railway (west) side ≈ 27 m (estimate). The outline is turned ≈ 24.5° from the site axes, so the model is drawn in the
 // building's own frame (p, q) inside a group turned back by that angle.
@@ -174,8 +176,8 @@ function buildCentrumLandmarks({ group, colliders, M }) {
     box(obj, 33, 1, 23, M.sandstone, ax, 18.6, 3);
     lathe(obj, [[13, 0], [12.6, 1.2], [11, 3], [8, 4.6], [4, 5.6], [0, 6]], 32, M.copper, ax, 19.6, 3);
     box(obj, 32, 22, 27, M.plasterCream, ax + 1, 0, -21.5); // stage house
-    box(obj, 26, 4, 21, M.plasterCream, ax + 1, 22, -22); // fly tower top
-    pitchedRoof(obj, 27, 22, 1, M.zinc, ax + 1, 26, -22, { ridge: 'x', hip: 0.6 });
+    box(obj, 26, 4.5, 21, M.plasterCream, ax + 1, 22, -22); // fly tower to the measured 26.5 m eaves
+    pitchedRoof(obj, 27, 22, 5.2, M.zinc, ax + 1, 26.5, -22, { ridge: 'z' }); // gable, ridge 31.7 m front-to-back
     box(obj, 17, 12, 37, wall, ax + 22, 0, -1); // east side wing (u 4..21)
     pitchedRoof(obj, 17.6, 37.6, 4, M.zinc, ax + 22, 12, -1, { ridge: 'z', hip: 0.4 });
     box(obj, 9, 8, 16, M.plasterCream, 25.5, 0, 26); // former restaurant pavilion
@@ -213,6 +215,7 @@ function buildCentrumLandmarks({ group, colliders, M }) {
     }
     collider(colliders, ax - 19, ax + 31, 14, 31, 14);
     collider(colliders, ax - 16, ax + 16, -35, 14, 22);
+    collider(colliders, ax - 12, ax + 14, -32.5, -11.5, TEATR.top); // fly tower above the 22 m stage collider
     collider(colliders, ax + 13.5, ax + 30.5, -19.5, 17.5, 12);
     collider(colliders, 21, 30, 18, 34, 8);
     collider(colliders, ax - pw / 2 - 2, ax + pw / 2 + 2, pz - 2.8, pz + 3.6, 2.4); // stairs; the colonnade stays open

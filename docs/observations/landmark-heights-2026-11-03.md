@@ -55,3 +55,80 @@ Real-world measurements were gathered prioritizing:
 5. **Fara, Teatr Wielki, and Novotel:** Exterior roof/ridge/fly-tower heights for Fara and Teatr Wielki, and Novotel's
    building height, lack documented primary measurements in municipal, owner, or heritage archives. Following the
    task rules, they are categorized as "no source" and left unchanged.
+
+## 2026-11-04 — measured heights from GUGiK lidar (NMPT − NMT)
+
+The three entries still marked "no source" on 2026-11-03 were revisited against measured national data rather than
+secondary text. No published figures were found for the Fara nave ridge or the Teatr Wielki fly tower, but the
+survey-grade GUGiK elevation models resolve both; Novotel's height has published figures after all. The first pass
+took the Fara's rear gable for its nave ridge and gave the fly tower 30.7 m eaves under a cross ridge (its 31.7 m ridge
+height was right), so the values below are the corrected interpretation.
+
+### Dataset, service and licence
+
+- **DSM:** `NMPT-PL-KRON86-NH` (Numeryczny Model Pokrycia Terenu — lidar surface including roofs and vegetation),
+  WCS 1.0.0 `https://mapy.geoportal.gov.pl/wss/service/PZGIK/NMPT/GRID1/WCS/DigitalSurfaceModel`, coverage
+  `DSM_PL-KRON86-NH`, native CRS EPSG:2180 (PL-1992), format Arc/Info ASCII Grid.
+- **DTM:** `NMT-PL-KRON86-NH` (Numeryczny Model Terenu — bare earth), WCS 1.0.0
+  `https://mapy.geoportal.gov.pl/wss/service/PZGIK/NMT/GRID1/WCS/DigitalTerrainModel`, coverage `DTM_PL-KRON86-NH`,
+  EPSG:2180.
+- **Cross-check:** both services also publish the newer `DSM_PL-EVRF2007-NH` / `DTM_PL-EVRF2007-NH` coverages (2018+).
+  The same request boxes and method were run on them; the solid roofs agree within ~0.3 m (Teatr 31.4–31.5 vs 31.7 m peak, depending on the cell box;
+  Fara 36.8 m nave ridge and 40.1 m rear strip; Novotel wings/plant within 0.3 m), so nothing has been rebuilt between
+  the flights. The Novotel's non-architectural equipment peak differs more (69.8 vs 72.6 m), as expected for roof
+  equipment and sign frames rather than the building envelope.
+- **Source tile and accuracy:** the NMPT skorowidz (WFS `.../NMPT/WMS/SkorowidzeUkladKRON86` GetFeatureInfo;
+  WFS `.../NumerycznyModelPokryciaTerenuKRON86/WFS/Skorowidze`) reports for Poznań sheet `M-34-27-C-a-4-4`:
+  `aktualnosc = 2011-05-04` (ISOK lidar), `charakterystykaPrzestrzenna = 1.00 m`, `bladSredniWysokosci = 0.15 m`,
+  `ukladWysokosci = PL-KRON86-NH`. The WCS mosaic resamples this 1 m source to a 0.5 m grid, so the effective
+  horizontal resolution is the 1 m source, not the 0.5 m grid spacing. The 2011 flight predates the 2017 Bałtyk, so
+  that building is not used as a control.
+- **Licence:** GUGiK data are free for any use ("Dane NMPT są dostępne bezpłatnie i możliwe do dowolnego
+  wykorzystania", geoportal.gov.pl NMPT page); no registration is required for the WCS.
+
+### Method
+
+1. Converted each landmark's OpenStreetMap outline (`GEO.landmarks[name].ring`, the same footprint the model is fitted
+   to) and the WCS request boxes from the world frame (x east, z south, origin at the Ratusz) to EPSG:2180 via the
+   build's own lon/lat affine (`GEO.frame.ll`) and the PL-1992 Transverse Mercator parameters
+   (GRS80, lat₀ 0, lon₀ 19°, k 0.9993, FE 500000, FN −5300000).
+2. Requested a ~100–200 m square patch per landmark at the WCS grid spacing (0.5 m, resampled from the 1 m source),
+   then sampled every DSM and DTM cell whose centre lies inside the building outline with a point-in-polygon test.
+3. `h = DSM − DTM` at the same cell, i.e. height above the **local** 1 m DTM cell, not above a single site datum. The
+   results were also mapped in each building's own frame (local x across, local z along the model's main axis) so the
+   roof ridge, eaves and gable ends could be separated from the overall maximum.
+
+Sample EPSG:2180 request boxes (xmin, ymin, xmax, ymax): Fara `359442.0,506412.1,359575.7,506565.7`;
+Teatr Wielki `358327.7,506874.0,358486.1,507051.4`; Novotel `358723.7,505893.4,358915.8,506098.3`.
+
+The Teatr site slopes: its DTM runs from ~73 m a.s.l. at the rear to ~77.5 m along Fredry at the front (74.75 m under
+the fly tower, 72.9–77.8 m over the outline). The same absolute roof therefore reads several metres higher above local
+ground at the rear than at the front, which is why the fly-tower ridge reads 30.6–31.7 m along its length and the two
+eaves read differently (~26.5 m west, ~28 m east).
+
+### Results
+
+| Landmark | Model before | Measured DSM − DTM | Other source | Decision |
+|---|---|---|---|---|
+| **Fara** nave ridge | 40.0 m (authored) | Nave ridge **36.6–37.1 m** along its whole length (p95 36.5 m); a ~6 × 2 m strip at the south/rear gable reaches **39.9–40.1 m** (local u ≈ 0, w ≈ +27.5); the north front/pediment reads **38.5–39.3 m** (u ≈ 0, w ≈ −26.8) | Parish records still give only the 27 m interior vault | **Ridge 40 → 37 m**; the overall top stays **40 m** through a separate `FARA.top` used by `fitToSite`. The 40 m cells are the rear gable, not the nave. |
+| **Teatr Wielki** stage fly tower | 27.0 m | **31.7 m** peak at the rear of a broad **gable** roof ~24–26 m wide × ~19–21 m deep, ridge running front-to-back along local z, eaves **~26.5 m (W) / ~28 m (E)**; max at local u ≈ −8, w ≈ −19 | No published height | **Correct to 31.7 m**: fly-tower body 22 → 26.5 m, then a 5.2 m gable roof with ridge along z to 31.7 m; add a fly-tower collider to 31.7 m. |
+| **Novotel Poznań Centrum** | 68.0 m | 64 m wings; plant roof ≈ 68 m; 69.8 m (KRON86) / 72.6 m (EVRF) equipment/sign peak at local u ≈ 9, w ≈ 24 | **68 m architectural height, 19 floors** — [CTBUH](https://www.skyscrapercenter.com/building/novotel-poznan-centrum/28508), [Urbanity](https://www.urbanity.pl/wielkopolskie/poznan/novotel-poznan-centrum,b68) | Keep 68.0 m: the measured plant roof and the published architectural height agree; the higher lidar cells are rooftop equipment excluded from the architectural height. |
+
+Sub-heights: the Fara's 29 m nave wall (lidar eaves ~28.5 m) stays, as do the 33 m front cornice and the estimated
+pediment statues; the model's 40.8 m statue is scaled down by `fitToSite` to the 40 m `top`, so the fitted nave ridge
+renders at ~36.3 m against the measured 36.6–37.1 m. The Teatr's portico pediment (21.6 m) and Pegasus (24 m) remain
+photo estimates, and the 22 m stage-house eaves were kept so only the measured fly tower changed. The fly tower's
+authored position (local w = −22) was also kept: the measured high roof is centred ~9 m nearer the auditorium
+(w ≈ −13), but a 22 m base moved there would cut through the auditorium dome at w ≈ −8…−2, so the footprint was left
+in place rather than rebuild the auditorium.
+
+### Controls and limits
+
+- **Zamek Królewski** (known tower apex 43.0 m): the DSM − DTM maximum inside its outline is 41.7 m. The 1.3 m gap is
+  the thin flag/spire tip, which a 1 m grid can miss — the reason the Fara statue and similar finials were not adjusted.
+- **Poznań Financial Centre** (documented 91.1 m architectural, 75–76 m roof): the DSM reads only 77.5 m. Its crown is a
+  glass barrel vault, and airborne lidar returns little or nothing from glass, so glass crowns are systematically
+  under-read. The Fara (tile), Teatr (zinc) and Novotel (concrete) roofs are solid and return normally.
+- GUGiK LoD2 CityGML (the other measured option) covers only 10 voivodeships and not wielkopolskie/TERC 30 (the
+  `LOD2/2017/30/3064_gml.zip` package returns 404); the national LoD1 model stores a footprint-median prism height,
+  which cannot resolve a ridge. NMPT − NMT is therefore the appropriate measured source here.

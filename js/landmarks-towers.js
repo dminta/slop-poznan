@@ -314,7 +314,8 @@ function buildTowerLandmarks({ group, colliders, M }) {
 
   // ---------------------------------------------------------------------------------------------------------------
   // Novotel Poznań Centrum (the 1974 Hotel Poznań, large-panel concrete): a pinwheel tower of four ~16 m wings round a
-  // core, 16 storeys, 68 m to the top of its plant floor (building:part way 36456643, pl.wikipedia), standing in the
+  // core, 19 storeys, 68 m to the architectural top / plant floor (CTBUH, Urbanity; the GUGiK lidar puts the wings at
+  // 64 m and the plant roof at 68 m; docs/observations/landmark-heights-2026-11-03.md), standing in the
   // SSW part of a lot whose NNE two-thirds is the 2-storey podium and car park deck in front of the hotel. The wings are
   // modelled as boxes so the windows line up in whole bays. Local -z faces NNE, +x ESE.
   // ---------------------------------------------------------------------------------------------------------------

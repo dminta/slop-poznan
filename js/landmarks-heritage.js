@@ -142,12 +142,14 @@ function buildKatedra(group, colliders, M) {
 
 // Fara (Bazylika Kolegiacka MB Nieustającej Pomocy): the former Jesuit church, 55 m long with a 27 m high nave
 // (en.wikipedia "Poznań Fara"); its baroque main front faces north, closing ul. Świętosławska from the Stary Rynek
-// (outline +u faces bearing 98°, so -z is north). Ridge and front heights are estimates: a 27 m vault under a ≈ 13 m
-// roof puts the ridge near 40 m, which the two-storey front with its pediment and statues reaches. No dome is modelled:
-// none shows on the exterior.
+// (outline +u faces bearing 98°, so -z is north). The nave ridge measures 36.6-37.1 m above ground in the GUGiK lidar
+// (NMPT−NMT, ISOK 2011; docs/observations/landmark-heights-2026-11-03.md); the 40 m cells are only a ~6 × 2 m strip
+// on the rear gable, and the north front reads 38.5-39.3 m. The model keeps a 37 m ridge under the 40 m overall top
+// (the pediment statue) and the front's cornice and statues stay estimates. No dome is modelled: none shows outside.
 const FARA = {
   naveWall: 29,
-  ridge: 40,
+  ridge: 37,
+  top: 40,
   aisleWall: 17,
   frontLower: 17,
   frontUpper: 33
@@ -214,7 +216,7 @@ function buildFara(group, colliders, M) {
 
   collider(colliders, -16.2, 16.2, -28.6, 28.5, F.aisleWall);
   collider(colliders, -9.5, 9.5, -28, 28.5, F.naveWall);
-  fitToSite([obj], site('Fara'), colliders, c0, { height: F.ridge });
+  fitToSite([obj], site('Fara'), colliders, c0, { height: F.top });
 }
 
 // Zamek Królewski on Wzgórze Przemysła, rebuilt 2010–2016 to Witold Milewski's design: a long plastered block with a
