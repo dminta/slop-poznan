@@ -4,6 +4,43 @@ Updated 2026-11-04. The port and documentation cleanup are implemented; the rema
 Implementation details live in the [topic docs](../AGENTS.md#docs). Original phase numbers refer to the
 [archived port plan](archive/poznan-plan.md), which retains historical measurements and decisions.
 
+## Most Chrobrego tram deck fixed
+
+The user reported that Most Bolesława Chrobrego is too narrow and its tram track overlaps the span/deck. The bridge links
+carry 13 m of width, which includes the `TRAM_W` 6.5 m tram strip from `tools/poz-roads.mjs` (not a PIM dimension; the
+rebuilt tram formation is at least 7 m), but `bridges.js` put the structure's centre on the roadway axis. The merged
+road/tram width is 13.34 m; with the two footways the deck is **17.14 m**, half 8.57 m, the parapet centre 8.45 m and
+the arch ribs/hangers 9.27 m. The tracks sit 1.36–4.43 m to the tram side, so their 1.2 m envelopes reached about
+**9.0 m**: past the deck edge, through the parapet and into the rib line. `bridgeStructures` now shifts a tram link's
+lateral extent to the strip's side (the land-raster capsule follows the same offset). Headless on the water run, the
+envelopes reach 5.63 m: **2.94 m** clear of the deck edge, **2.60 m** clear of the parapet's inner face and **3.14 m**
+clear of the arch ribs and hangers.
+
+The same rule changes the other split bridges. A median tram strip had been counted on both sides of the centreline, so
+each structure used to overhang 3.25 m past both outer curbs and now loses **6.5 m** (road/tram width, before the 1.9 m
+footways): Most Świętego Rocha 20.43 → 13.93 m, Most Królowej Jadwigi 23.02 → 16.52 m, Most Mieszka I 25.74 → 19.24 m,
+ul. Wyszyńskiego 25.62 → 19.12 m, Most Dworcowy main 34.33 → 27.83 m, Wiadukt Dolna Wilda 32.93 → 26.43 m and Wiadukt
+Hetmański 34.04 → 27.54 m. It also shifts Most Chrobrego, both Most Uniwersytecki pieces and the 13 m Most Dworcowy
+approach by 3.25 m; that approach is an overpass, so it draws no deck or parapets. Most Teatralny, Most Lecha, Mosty
+Berdychowskie, Most Jordana and Kładka Bramy Poznania are unchanged. Lane placement and traffic are unchanged, and the
+geodata and tram graph are untouched; the lanes still fit the narrowed decks, the new regression checking Rocha,
+Królowej Jadwigi and Mieszka I. ul. Wyszyńskiego is tightest, its 1.2 m lane envelope reaching 0.04 m past the curb.
+
+The current OSM snapshot (2026-10-28) is from the reconstruction under way, so it keeps one two-way link and the closed
+(razed/disused) track ways. The rebuilt bridge's official section is not that single link: PIM's 2020 design guidelines
+give a 6.50 m carriageway (2 × 3.25 m lanes), a tram formation of at least 7.00 m, 2.00 m footways and 2.00 m cycle
+paths, with a 4 m footway on the south side; PIM and MPK (2025–2026) describe the rebuilt crossing as two road bridges
+plus a separate tram bridge, retaining two lanes in each direction with cycle paths and footways on both sides. The
+2025–2028 works are not a 2023 reopening. Sources: PIM tender guidelines as reported by
+[Czas na Poznań](https://czasnapoznan.pl/most-chrobrego-przebudowa-projekt-przetarg/), PIM/MPK statements
+([PIM](https://pim.poznan.pl/aktualnosci/informacje-biezace/przetarg-na-przebudowe-mostu-chrobrego),
+[MPK](https://www.mpk.poznan.pl/zbliza-sie-przebudowa-mostu-chrobrego-najwazniejsze-informacje-na-temat-inwestycji/),
+[PIM Q&A](https://www.pim.poznan.pl/most-chrobrego-pytania-i-odpowiedzi)) and the PIM 2025 presentation
+([PDF](https://pim.poznan.pl/system/files/aktualnosci/prezentacja-most-chrobrego-8-pazdziernika.pdf)). Browser checks remain:
+Most Chrobrego from the bank and from a tram; how the narrowed Most Świętego Rocha, Most Królowej Jadwigi and Most
+Mieszka I decks look; and the 13 m Most Dworcowy approach. Regression:
+`tests/track-parapets-crossings.test.cjs`.
+
 ## Tree-building clearance implemented
 
 The user reported buildings overlapping trees. 41 park blocks with buildings were built over completely on top of

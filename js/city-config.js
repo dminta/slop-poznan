@@ -156,7 +156,9 @@ const BRIDGES = (() => {
     const name = g.names[ni] || '';
     const pts = [node(a), ...toPts(inner || []), node(b)];
     if (!byName.has(name)) byName.set(name, []);
-    byName.get(name).push({ pts, width: w, lanes, dir, tram: !!(flags & 2) });
+    // The tram strip is part of the link width (docs/geodata.md); keep which side so the deck can follow it
+    const tramSide = flags & 8 ? 1 : flags & 16 ? -1 : 0;
+    byName.get(name).push({ pts, width: w, lanes, dir, tram: !!(flags & 2), tramSide });
   }
   for (const fb of FOOTBRIDGES) {
     if (!byName.has(fb.name)) byName.set(fb.name, []);
@@ -182,6 +184,7 @@ const CITY_BOUNDS = { minX: DBX0, maxX: DBX1, minZ: DBZ0, maxZ: DBZ1, sidewalkHe
 // Outside the box is neither land nor water. ~1.4 M cells, ~40 ms at boot.
 // ---------------------------------------------------------------------------------------------------------------------
 const LAND_RES = 2;
+const TRAM_WIDTH = 6.5; // one tram corridor (two tracks and their clearance), as tools/poz-roads.mjs TRAM_W
 const LAND_W = Math.ceil((DBX1 - DBX0) / LAND_RES);
 const LAND_H = Math.ceil((DBZ1 - DBZ0) / LAND_RES);
 const LAND_CODE = new Uint8Array(LAND_W * LAND_H);
@@ -208,17 +211,24 @@ const LAND_DIST = new Uint8Array(LAND_W * LAND_H);
   };
   for (const r of LAND_RINGS) fill(r, 1);
   for (const h of LAND_HOLES) fill(h.ring, 0);
-  // bridge decks: capsules of half-width w/2 + 2 m along each link, extended 15 m past both ends
+  // bridge decks: capsules of half-width w/2 + 2 m along each link, extended 15 m past both ends. A tram link's
+  // width already includes its strip; shift the capsule to the strip's side so it follows the built deck.
   for (const br of [...BRIDGES, ...RAIL_BRIDGES]) {
     for (const l of br.links) {
       let hw = l.width * 0.5 + 2;
       if (br.name === 'Most Bolesława Chrobrego') hw = Math.max(hw, 15);
+      const off = l.tramSide ? (l.tramSide * TRAM_WIDTH) / 2 : 0;
       for (let s = 0; s + 1 < l.pts.length; s++) {
         let a = l.pts[s], b = l.pts[s + 1];
         const len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
         const ux = (b.x - a.x) / len, uz = (b.z - a.z) / len;
         if (s === 0) a = { x: a.x - ux * 15, z: a.z - uz * 15 };
         if (s + 2 === l.pts.length) b = { x: b.x + ux * 15, z: b.z + uz * 15 };
+        if (off) {
+          const rx = -uz, rz = ux;
+          a = { x: a.x + rx * off, z: a.z + rz * off };
+          b = { x: b.x + rx * off, z: b.z + rz * off };
+        }
         const dx = b.x - a.x, dz = b.z - a.z, L2 = dx * dx + dz * dz || 1e-9;
         const i0 = Math.max(0, Math.floor((Math.min(a.x, b.x) - hw - DBX0) / LAND_RES));
         const i1 = Math.min(LAND_W - 1, Math.ceil((Math.max(a.x, b.x) + hw - DBX0) / LAND_RES));
@@ -429,9 +439,9 @@ const { SIGNAL_SITES, LANE_GUIDE, JUNCTIONS } = (() => {
     let pts = [centre(a)];
     for (let k = 0; k < inner.length; k += 2) pts.push([inner[k], inner[k + 1]]);
     pts.push(centre(b));
-    // a tram strip beside the carriageway (flags bit 3 right, bit 4 left of a -> b): the roadway runs 3.25 m (half the
-    // 6.5 m strip) to its side, as road-network.js lays it out
-    const strip = flags & 8 ? 3.25 : flags & 16 ? -3.25 : 0;
+    // a tram strip beside the carriageway (flags bit 3 right, bit 4 left of a -> b): the roadway runs half the
+    // geodata TRAM_W (tools/poz-roads.mjs) to its side, as road-network.js lays it out
+    const strip = flags & 8 ? TRAM_WIDTH / 2 : flags & 16 ? -TRAM_WIDTH / 2 : 0;
     if (strip) {
       pts = pts.map((p, k) => {
         const q = pts[Math.max(0, k - 1)], r = pts[Math.min(pts.length - 1, k + 1)];
@@ -1486,6 +1496,7 @@ export {
   FOOTBRIDGES,
   RAIL_BRIDGES,
   BRIDGES,
+  TRAM_WIDTH,
   CITY_BOUNDS,
   isLand,
   isWater,

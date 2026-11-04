@@ -179,6 +179,88 @@ test('parapetPieces cuts gaps with min 2.0 m margin for tram tracks and min 2.4 
   assert.ok(piecesRail[1][0] >= 52.4, `piece 1 starts at or after 52.4 m (got ${piecesRail[1][0]})`);
 });
 
+test('tram tracks on Most Chrobrego stay inside the arch deck and clear of ribs, hangers and parapets', () => {
+  const spec = bridgesMod.bridgeStructures().find((s) => s.name === 'Most Bolesława Chrobrego');
+  assert.ok(spec, 'Most Bolesława Chrobrego structure exists');
+  assert.equal(spec.kind, 'arch');
+  assert.ok(spec.water, 'the arch has a water run');
+
+  // bridges.js: the road/tram corridor is spec.width wide and SIDEWALK_W lies outside each edge; the arch ribs and
+  // hangers stand a further 0.7 m out, and the parapet centre is inset 0.12 m from the deck edge.
+  const SIDEWALK_W = 1.9;
+  const TRAM_HALF = 1.2;
+  const CLEAR = 0.3;
+  const Wd = spec.width + 2 * SIDEWALK_W;
+  const deckHalf = Wd * 0.5;
+  const obstacles = [
+    { name: 'arch rib', s: Wd * 0.5 + 0.7, half: 0.5 },
+    { name: 'hanger', s: Wd * 0.5 + 0.7, half: 0.06 },
+    { name: 'parapet', s: Wd * 0.5 - 0.12, half: 0.225 }
+  ];
+
+  const ux = (spec.b.x - spec.a.x) / spec.L;
+  const uz = (spec.b.z - spec.a.z) / spec.L;
+  let samples = 0;
+  for (const r of GEO.rail) {
+    if (r.kind !== 'tram') continue;
+    for (let i = 0; i + 3 < r.pts.length; i += 2) {
+      const ax = r.pts[i], az = r.pts[i + 1], bx = r.pts[i + 2], bz = r.pts[i + 3];
+      const len = Math.hypot(bx - ax, bz - az);
+      const n = Math.max(1, Math.ceil(len / 0.5));
+      for (let k = 0; k <= n; k++) {
+        const x = ax + ((bx - ax) * k) / n;
+        const z = az + ((bz - az) * k) / n;
+        const t = (x - spec.a.x) * ux + (z - spec.a.z) * uz;
+        const s = (x - spec.a.x) * -uz + (z - spec.a.z) * ux;
+        // The axis is long enough to meet other tracks far away; only this bridge's corridor matters here.
+        if (t < spec.water.w0 - 1 || t > spec.water.w1 + 1 || Math.abs(s) > spec.width * 0.5 + 10) continue;
+        samples++;
+        assert.ok(Math.abs(s) + TRAM_HALF + CLEAR <= deckHalf,
+          `track at ${x.toFixed(1)}, ${z.toFixed(1)} is ${(Math.abs(s) + TRAM_HALF - deckHalf).toFixed(2)} m outside the deck`);
+        for (const o of obstacles) {
+          const gap = Math.min(Math.abs(s - o.s), Math.abs(s + o.s)) - TRAM_HALF - o.half;
+          assert.ok(gap >= CLEAR, `${o.name} is ${gap.toFixed(2)} m from the track at ${x.toFixed(1)}, ${z.toFixed(1)}`);
+        }
+        assert.ok(cityConfig.isLand(x, z), `track at ${x.toFixed(1)}, ${z.toFixed(1)} is on the deck raster`);
+      }
+    }
+  }
+  assert.ok(samples > 100, `${samples} tram track samples on the bridge`);
+});
+
+test('car lanes fit inside the narrowed Rocha, Królowej Jadwigi and Mieszka I decks', () => {
+  const structures = bridgesMod.bridgeStructures();
+  for (const name of ['Most Świętego Rocha', 'Most Królowej Jadwigi', 'Most Mieszka I']) {
+    const spec = structures.find((s) => s.name === name);
+    assert.ok(spec && spec.water, `${name} structure exists`);
+    const ux = (spec.b.x - spec.a.x) / spec.L;
+    const uz = (spec.b.z - spec.a.z) / spec.L;
+    const deckHalf = spec.width * 0.5 + 1.9;
+    let maxEnvelope = -Infinity;
+    let samples = 0;
+    for (const e of network.edges) {
+      if (Math.abs(e.dx * ux + e.dz * uz) < 0.8) continue;
+      for (let f = 0; f <= 1 + 1e-9; f += 0.05) {
+        const cx = e.x0 + e.dx * e.span * f;
+        const cz = e.z0 + e.dz * e.span * f;
+        const t = (cx - spec.a.x) * ux + (cz - spec.a.z) * uz;
+        const lat = (cx - spec.a.x) * -uz + (cz - spec.a.z) * ux;
+        if (t < spec.water.w0 - 1 || t > spec.water.w1 + 1 || Math.abs(lat) > spec.width * 0.5 + 10) continue;
+        samples++;
+        for (const lane of e.lanes) {
+          const px = cx + e.rx * lane;
+          const pz = cz + e.rz * lane;
+          const laneLat = (px - spec.a.x) * -uz + (pz - spec.a.z) * ux;
+          maxEnvelope = Math.max(maxEnvelope, Math.abs(laneLat) + 1.2);
+        }
+      }
+    }
+    assert.ok(samples > 5, `${name}: ${samples} lane samples on the deck`);
+    assert.ok(maxEnvelope <= deckHalf,
+      `${name}: lane envelope ${maxEnvelope.toFixed(2)} m exceeds half deck ${deckHalf.toFixed(2)} m`);
+  }
+});
+
 test('parapets and bridge colliders do not block tram or rail tracks on Most Dworcowy, Teatralny, Uniwersytecki', () => {
   const scene = new Group();
   const { colliders } = bridgesMod.buildBridges(scene);

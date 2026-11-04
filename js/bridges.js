@@ -20,7 +20,7 @@ import {
   uniform
 } from 'three/tsl';
 import { cityUniforms, createRoadSurfaceMaterial, createSidewalkMaterial, createCurbMaterial } from './tsl-materials.js';
-import { BRIDGES, CITY_BOUNDS, ROADS, RAIL, waterAt } from './city-config.js';
+import { BRIDGES, CITY_BOUNDS, ROADS, RAIL, TRAM_WIDTH, waterAt } from './city-config.js';
 import { GEO } from './geodata.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
@@ -378,7 +378,11 @@ function bridgeStructures() {
           tmin = Math.min(tmin, t);
           tmax = Math.max(tmax, t);
         }
-        const sc = ((l.a.x + l.b.x) * 0.5 - o.x) * -uz + ((l.a.z + l.b.z) * 0.5 - o.z) * ux;
+        // A tram link's width includes its TRAM_WIDTH strip on the flagged side (docs/geodata.md): move its lateral
+        // extent there, so the deck follows the carriageway and tracks instead of straddling the carriageway centreline.
+        const aligned = l.ux * ux + l.uz * uz >= 0 ? 1 : -1;
+        const shift = l.tramSide ? aligned * l.tramSide * TRAM_WIDTH * 0.5 : 0;
+        const sc = ((l.a.x + l.b.x) * 0.5 - o.x) * -uz + ((l.a.z + l.b.z) * 0.5 - o.z) * ux + shift;
         smin = Math.min(smin, sc - l.width * 0.5);
         smax = Math.max(smax, sc + l.width * 0.5);
       }
