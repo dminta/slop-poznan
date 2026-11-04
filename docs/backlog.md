@@ -28,6 +28,22 @@ before and all 18,112 now have one**; Rybaki's 9 trees are all covered (8 at the
 audit build drops. Park/plaza trees keep their city-grid colliders. Browser check remains: walk and drive into a
 Rybaki tree. Details: [world.md](world.md#street-furniture-street-detailsjs) "Player colliders".
 
+## Tram-stop shelter colliders fixed
+
+The user reported the player blocked behind a tram shelter, well before reaching the glass back wall. The stop furniture
+colliders were world AABBs, not oriented boxes: the boxes stand turned with the track. On the 139 diagonal shelters the
+AABB's local depth became `hx + hz`, up to **2.28 m past the glass** (and 0.60–0.63 m past the roof ends). Shelters,
+signs and machines now use `obb` colliders. The shelter's back face keeps **0.080 m** behind the glass at local
+z = −0.62 and its ends match the end panel / advert at len/2 across the 209 shelters (island 3.2/4.4 and curb 4.4 in
+the current data; a synthetic case covers curb 3.2); the longer roof is above player height. The ticket machine collider
+now matches its 0.62 × 0.48 m top cap; the sign keeps its 0.08 m pole box because the 0.82 m plate is above the player.
+The front stops at +0.7 m just past the front posts and inside the 0.8 m roof edge (the bench fills the back half, so
+the open side stays blocked), as explained in the build comment. `tests/tram-infra.test.cjs` probes the built colliders
+with controllers.js's collision logic: 0.3 m behind a diagonal shelter's glass is free, the glass plane and inside block,
+and the end panel frees 0.1 m beyond its face; it also checks the real and synthetic furniture dimensions. Browser check
+remains: walk and drive round a diagonal stop (Dworzec Zachodni or Żniwna) and confirm the back no longer pushes roughly
+2 m early. Details: [world.md](world.md#tram-infrastructure) "Furniture".
+
 ## Park surfaces and road clearance: further review
 
 - A city-wide scan of emitted lawn triangles against mapped road corridors found further candidates. Grudzieniec

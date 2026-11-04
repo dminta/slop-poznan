@@ -57,14 +57,16 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
       document: inert() },
     filename: 'street-details.js'
   });
-  const { layoutTramInfrastructure, layoutRailInfrastructure } = loadModule(readFileSync(join(__dirname, '../js/tram-infra.js'), 'utf8'), {
-    imports: {
-      'three/webgpu': {}, 'three/tsl': {}, 'three/addons/utils/BufferGeometryUtils.js': {},
-      './geodata.js': { GEO }, './city-config.js': config, './tsl-materials.js': {}
-    },
-    globals: { Math, Object, Array, Set, Map, Number, Float64Array },
-    filename: 'tram-infra.js'
-  });
+  const { layoutTramInfrastructure, layoutRailInfrastructure, buildTramInfrastructure, stopFurnitureColliders } =
+    loadModule(readFileSync(join(__dirname, '../js/tram-infra.js'), 'utf8'), {
+      imports: {
+        'three/webgpu': inert(), 'three/tsl': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert(),
+        './geodata.js': { GEO }, './city-config.js': config, './tsl-materials.js': inert()
+      },
+      globals: { Math, Object, Array, Set, Map, Number, Infinity, JSON, Symbol, Float32Array, Float64Array, Promise,
+        String, Error, document: inert(), console: { info() {}, warn() {}, log() {} } },
+      filename: 'tram-infra.js'
+    });
   const km = (net) => net.edges.reduce((sum, e) => sum + e.span, 0) / 1000;
 
   const { footprints } = buildStreetDetails(inert());
@@ -89,6 +91,105 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
   // Teatralny and Fredry: their stops have track now
   for (const name of ['Katedra', 'Rondo Śródka', 'Fredry', 'Most Teatralny', 'Pl. Wielkopolski', 'Stare Zoo']) {
     assert.ok(stops.some((s) => s.name === name), `a stop named ${name}`);
+  }
+
+  // Behavioural check against the built scene: a point just behind a diagonal shelter's glass must be free, while the
+  // glass plane and the inside stay blocked. Uses controllers.js's own broad and narrow phases, as the player does.
+  {
+    const infra = buildTramInfrastructure(inert(), network);
+    const src = readFileSync(join(__dirname, '../js/controllers.js'), 'utf8');
+    const cut = (a, b) => src.slice(src.indexOf(a), src.indexOf(b, src.indexOf(a)));
+    const fnSrc = cut('function collisionBody(', '\n// The taxi');
+    const nearSrc = cut('  nearColliders(x, z, r) {', '\n  resolveHorizontalCollision(');
+    const { collisionBody, buildingContact, nearColliders } = new Function(
+      `${fnSrc}\nconst nearColliders = function ${nearSrc.trim().replace(/^nearColliders/, '')};\n` +
+      'return { collisionBody, buildingContact, nearColliders };')();
+    const mgr = { colliders: infra.colliders, _colliderCells: null, nearColliders };
+    const blocked = (mode, radius, x, y, z) => {
+      const body = collisionBody(mode, radius, 0);
+      for (const c of mgr.nearColliders(x, z, 8)) if (buildingContact(c, x, y + 0.01, z, body)) return true;
+      return false;
+    };
+    let diagonal = 0;
+    for (const st of stops) {
+      if (!st.shelter) continue;
+      const { x, y, z, yaw, len } = st.shelter;
+      if (Math.abs(Math.sin(2 * yaw)) <= 0.5) continue; // only a diagonal shelter's AABB reaches past its glass
+      diagonal++;
+      const cs = Math.cos(yaw), sn = Math.sin(yaw);
+      // local (lx, lz) -> world: x axis (cs, -sn), z axis (sn, cs)
+      const W = (lx, lz) => [x + lx * cs + lz * sn, z - lx * sn + lz * cs];
+      for (const lx of [-1.5, -0.75, 0, 0.75, 1.5].map((v) => (v * len) / 4.4)) {
+        const [bx, bz] = W(lx, -0.92);
+        assert.ok(!blocked('person', 0.01, bx, y, bz), `${st.name}: 0.3 m behind the glass is free`);
+        const [gx, gz] = W(lx, -0.62);
+        assert.ok(blocked('person', 0.01, gx, y, gz), `${st.name}: the glass plane blocks`);
+        const [ix, iz] = W(lx, -0.3);
+        assert.ok(blocked('person', 0.01, ix, y, iz), `${st.name}: the shelter inside blocks`);
+      }
+      // A person's 0.48 m radius whose body edge is 0.3 m off the glass stays free.
+      const [qx, qz] = W(0, -0.62 - 0.3 - 0.48);
+      assert.ok(!blocked('person', 0.48, qx, y, qz), `${st.name}: a walker 0.3 m off the glass is free`);
+      // The end panel / advert collider stops inside its face and frees a point 0.1 m beyond it.
+      const [ex, ez] = W(len / 2 + 0.1, 0);
+      assert.ok(!blocked('person', 0.01, ex, y, ez), `${st.name}: 0.1 m past the end panel is free`);
+      const [px, pz] = W(len / 2 - 0.01, 0);
+      assert.ok(blocked('person', 0.01, px, y, pz), `${st.name}: the end panel blocks`);
+    }
+    assert.ok(diagonal >= 100, `${diagonal} diagonal shelters probed`);
+  }
+
+  // Stop furniture colliders follow the turned shelter (an OBB), not its world AABB: the old AABB flattened the
+  // shelter's local depth to hx + hz, reaching up to 2.28 m past the glass on the diagonal stops. Compare against the
+  // rendered shelter: the end panel / advert at len / 2, glass back at local z = -0.62, roof front at +0.8.
+  {
+    const GLASS_BACK = -0.62;
+    const ROOF_FRONT = 0.8;
+    const cases = stops.map((s) => ({ ...s, tag: `${s.name} (${s.kind} ${s.shelter?.len ?? '-'})` }));
+    // No curb shelter currently gets the 3.2 m setting, so cover all four kind/length pairs synthetically too.
+    for (const kind of ['island', 'curb']) {
+      for (const len of [3.2, 4.4]) {
+        cases.push({
+          tag: `synthetic ${kind} ${len}`,
+          kind,
+          shelter: { x: 10, y: kind === 'island' ? 0.25 : 0.22, z: 20, yaw: 0.72, len },
+          sign: { x: 12, y: 0.25, z: 22, yaw: 1.1 },
+          machine: { x: 11, y: 0.25, z: 21, yaw: 0.72 }
+        });
+      }
+    }
+    const one = (st, key) => stopFurnitureColliders([{ ...st, shelter: null, sign: null, machine: null, [key]: st[key] }])[0];
+    for (const st of cases) {
+      for (const c of stopFurnitureColliders([st])) {
+        const ex = Math.abs(c.obb.cs) * c.obb.hx + Math.abs(c.obb.sn) * c.obb.hz;
+        const ez = Math.abs(c.obb.sn) * c.obb.hx + Math.abs(c.obb.cs) * c.obb.hz;
+        assert.ok(Math.abs(c.minX - (c.obb.cx - ex)) < 1e-9 && Math.abs(c.maxX - (c.obb.cx + ex)) < 1e-9 &&
+          Math.abs(c.minZ - (c.obb.cz - ez)) < 1e-9 && Math.abs(c.maxZ - (c.obb.cz + ez)) < 1e-9,
+        `${st.tag}: the collider's AABB is its OBB's world bounds`);
+      }
+      if (st.shelter) {
+        const c = one(st, 'shelter');
+        const { x, z, yaw, len } = st.shelter;
+        assert.ok(Math.abs(c.obb.cx - x) < 1e-9 && Math.abs(c.obb.cz - z) < 1e-9, `${st.tag}: centred on the shelter`);
+        assert.ok(Math.abs(c.obb.cs - Math.cos(yaw)) < 1e-9 && Math.abs(c.obb.sn - Math.sin(yaw)) < 1e-9,
+          `${st.tag}: turned with the shelter`);
+        const halfLen = len / 2;
+        assert.ok(Math.abs(c.obb.hx - halfLen) < 0.01, `${st.tag}: ends match the ${(2 * halfLen).toFixed(2)} m end panel`);
+        const back = c.obb.hz + GLASS_BACK;
+        assert.ok(back >= 0.05 && back <= 0.1, `${st.tag}: back ${back.toFixed(2)} m behind the glass`);
+        assert.ok(c.obb.hz <= ROOF_FRONT + 1e-9, `${st.tag}: front stays under the roof`);
+      }
+      if (st.sign) {
+        const c = one(st, 'sign');
+        // The plate is 0.82 m wide at 2.65 m, above the players' 1.9 m top; the ground collider is the 0.08 m pole box.
+        assert.ok(Math.abs(c.obb.hx - 0.08) < 1e-9 && Math.abs(c.obb.hz - 0.08) < 1e-9, `${st.tag}: sign pole`);
+      }
+      if (st.machine) {
+        const c = one(st, 'machine');
+        // Cabinet 0.55 x 0.4 m with a 0.62 x 0.48 m top cap: 0.31 x 0.24 m half extents.
+        assert.ok(Math.abs(c.obb.hx - 0.31) < 1e-9 && Math.abs(c.obb.hz - 0.24) < 1e-9, `${st.tag}: ticket machine`);
+      }
+    }
   }
 
   // Independently sample each ballast rectangle against graph carriageways and traffic lanes. The side strip is a

@@ -1309,6 +1309,38 @@ function instanced(name, geo, mat, matrices, attrs = {}, shadow = true) {
   return mesh;
 }
 
+// Player colliders for the stop furniture. The shelter, sign and machine stand turned with the track, so each is an
+// oriented box: the old world AABB flattened the shelter's local depth to hx + hz at 45°, reaching up to 2.28 m past
+// the glass on the real stops. The shelter's back face keeps 0.08 m behind the glass at z = -0.62; its front stops at
+// +0.7 m, just past the 0.655 m front posts and inside the 0.8 m roof edge (the bench fills the back half, so the open
+// side stays blocked under the roof), and its ends match the end panel / advert at hx = len / 2 (2.2 m at 4.4 m); the
+// longer roof is above player height.
+function stopFurnitureColliders(stops) {
+  const colliders = [];
+  const box = (x, z, hx, hz, yaw, maxY) => {
+    const cs = Math.cos(yaw);
+    const sn = Math.sin(yaw);
+    const ex = Math.abs(cs) * hx + Math.abs(sn) * hz;
+    const ez = Math.abs(sn) * hx + Math.abs(cs) * hz;
+    colliders.push({ minX: x - ex, maxX: x + ex, minZ: z - ez, maxZ: z + ez, maxY, obb: { cx: x, cz: z, hx, hz, cs, sn } });
+  };
+  for (const st of stops) {
+    if (st.shelter) {
+      const { x, y, z, yaw, len } = st.shelter;
+      box(x, z, len / 2, 0.7, yaw, y + 2.6);
+    }
+    if (st.sign) {
+      const { x, y, z } = st.sign;
+      box(x, z, 0.08, 0.08, 0, y + 3);
+    }
+    if (st.machine) {
+      const { x, y, z, yaw } = st.machine;
+      box(x, z, 0.31, 0.24, yaw, y + 1.8);
+    }
+  }
+  return colliders;
+}
+
 /**
  * Builds the rails, overhead line and stops into a `TramInfrastructure` group (a scene-culling root, main.js) and
  * returns { group, colliders, stops, railCorridor } (colliders: poles, masts, shelters, signs, machines, end walls and
@@ -1855,13 +1887,6 @@ function buildTramInfrastructure(scene, network) {
   const names = [...new Set(stops.map((s) => s.name))].sort();
   const atlas = createPlateAtlas(names);
   const trackByRail = new Map(tracks.map((tr) => [tr.railIndex, tr]));
-  const footprint = (x, z, hx, hz, yaw, maxY) => {
-    const c = Math.abs(Math.cos(yaw));
-    const s = Math.abs(Math.sin(yaw));
-    const ex = hx * c + hz * s;
-    const ez = hx * s + hz * c;
-    colliders.push({ minX: x - ex, maxX: x + ex, minZ: z - ez, maxZ: z + ez, maxY });
-  };
   for (const st of stops) {
     if (st.platform) {
       const tr = trackByRail.get(st.railIndex);
@@ -1896,7 +1921,6 @@ function buildTramInfrastructure(scene, network) {
       frameM.push(m);
       glassM.push(m);
       adM.push(m);
-      footprint(x, z, len / 2, 0.7, yaw, y + 2.6);
     }
     if (st.sign) {
       const { x, y, z, yaw } = st.sign;
@@ -1908,7 +1932,6 @@ function buildTramInfrastructure(scene, network) {
       plateM.push(m);
       const i = names.indexOf(st.name);
       plateCells.push(i % atlas.cols, Math.floor(i / atlas.cols));
-      footprint(x, z, 0.08, 0.08, 0, y + 3);
     }
     if (st.machine) {
       const { x, y, z, yaw } = st.machine;
@@ -1918,9 +1941,9 @@ function buildTramInfrastructure(scene, network) {
       const m = M();
       machineM.push(m);
       screenM.push(m);
-      footprint(x, z, 0.35, 0.3, yaw, y + 1.8);
     }
   }
+  colliders.push(...stopFurnitureColliders(stops));
   // Shelter (local: 4.4 m along x, open front facing +z, back wall at z = -0.6): four posts, a roof slab, a glass back
   // wall and end panels, one end holding a lit advert, and a bench
   const shelterFrameGeo = mergeGeometries([
@@ -1975,4 +1998,4 @@ function buildTramInfrastructure(scene, network) {
   return { group, colliders, stops: publicStops, railCorridor: rail.corridor.has };
 }
 
-export { layoutTramInfrastructure, layoutRailInfrastructure, buildTramInfrastructure };
+export { layoutTramInfrastructure, layoutRailInfrastructure, buildTramInfrastructure, stopFurnitureColliders };
