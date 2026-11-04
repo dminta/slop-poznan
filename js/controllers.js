@@ -612,7 +612,7 @@ class ThirdPersonControllerManager {
 
     // 3. Polish EU plates on black holders. The holders are wider and taller than the plate the body material paints
     // underneath, so none of it shows round the plate.
-    const plateTex = createPolishLicensePlateTexture('PO', '4K217');
+    const plateTex = createPolishLicensePlateTexture('P0', 'ROGAL');
     const plateMat = new THREE.MeshStandardNodeMaterial({ map: plateTex, roughness: 0.28 });
     const holderMat = new THREE.MeshStandardNodeMaterial({ color: 0x121417, roughness: 0.6 });
     const plateGeo = new THREE.BoxGeometry(PLATE_W, PLATE_H, 0.008);
