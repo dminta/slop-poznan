@@ -91,15 +91,21 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
     assert.ok(stops.some((s) => s.name === name), `a stop named ${name}`);
   }
 
-  // The roadway wins over the trackbed: no ballast on an OSM carriageway (the link's width less a tram strip beside
-  // it) or within a lane's 1.8 m, no lane centre under ballast, and street-running track (its centreline on a
-  // carriageway) flush. Sampled on a 0.25 m grid over every bed, independently of tram-infra.js's own lookups.
-  // Measured 2026-10-28 (with curbs as in road-network.test.cjs; this network has none): before (a fixed 2.9 m bed
-  // wherever no lane centre came within 3.5 m of the piece's middle) 297 m² of carriageway and 7 m² of lanes under
-  // ballast, 25 pieces with their centreline on a carriageway; after 0, 0 and 0, with 139 of 7899 ballast pieces made
-  // flush and 61 narrowed (31.0 -> 30.5 km of ballast).
+  // Independently sample each ballast rectangle against graph carriageways and traffic lanes. The side strip is a
+  // separate reservation; network turning paths are also accounted for by the layout.
   {
     const { beds } = layout;
+    // Baseline lengths within 200 m; protect reservations even if road/guide changes widen a flush area.
+    for (const [name, x, z, minimum] of [
+      ['Rondo Rataje north', 1027, 1396, 650], ['Rondo Rataje south', 1083, 1524, 500],
+      ['Plac Bernardyński', 183, 463, 680], ['Most Dworcowy', -1549, 478, 560],
+      ['Dworzec Zachodni', -1696, 751, 690], ['Ostroroga', -3511, 883, 600],
+      ['Rondo Kaponiera', -1445, 100, 540], ['Rondo Nowaka-Jeziorańskiego', -3055, 655, 420]
+    ]) {
+      const length = beds.filter((p) => p.bed && Math.hypot((p.ax + p.bx) / 2 - x, (p.az + p.bz) / 2 - z) < 200)
+        .reduce((sum, p) => sum + Math.hypot(p.bx - p.ax, p.bz - p.az), 0);
+      assert.ok(length > minimum, `${name} retains separate ballast: ${length.toFixed(1)} m`);
+    }
     const RG = GEO.roadGraph;
     const C = 16;
     const file = (g, s, pad) => {
@@ -121,9 +127,18 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
     for (const [a, b, , w, , , inner, flags] of RG.links) {
       const pts = [RG.nodes[2 * a], RG.nodes[2 * a + 1], ...inner, RG.nodes[2 * b], RG.nodes[2 * b + 1]];
       const half = (w > 3 ? w : 9.1) / 2 - (flags & 24 ? 3.25 : 0);
-      for (let k = 0; k + 3 < pts.length; k += 2) file(cars, { ax: pts[k], az: pts[k + 1], bx: pts[k + 2], bz: pts[k + 3], half }, 12);
+      for (let k = 0; k + 3 < pts.length; k += 2) {
+        file(cars, { ax: pts[k], az: pts[k + 1], bx: pts[k + 2], bz: pts[k + 3], half }, 12);
+      }
     }
     const onCarriageway = (x, z) => near(cars, x, z).some((s) => segD(s, x, z) < s.half);
+    const junctions = new Map();
+    for (const j of config.JUNCTIONS) {
+      if (j.arms.length < 3) continue;
+      file(junctions, { ax: j.x, az: j.z, bx: j.x, bz: j.z }, 10);
+    }
+    // The 10 m guide query samples the track centreline; a bed may extend 1.45 m beyond that radius.
+    const atJunction = (x, z) => near(junctions, x, z).some((j) => segD(j, x, z) < 10 - 2);
     const lanes = new Map();
     const laneSegs = [];
     for (const e of network.paintEdges) {
@@ -134,8 +149,21 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
         laneSegs.push(s);
       }
     }
+    const point = { x: 0, z: 0, dx: 0, dz: 0 };
+    for (const e of network.edges) for (const move of e.moves || []) {
+      for (let i = 0; i < move.out.length; i++) {
+        if (move.out[i] < 0) continue;
+        const curve = network.connector(e, i, move.to, move.out[i]);
+        network.curvePoint(curve, 0, point);
+        for (let k = 1; k <= 8; k++) {
+          const ax = point.x, az = point.z;
+          network.curvePoint(curve, curve.len * k / 8, point);
+          file(lanes, { ax, az, bx: point.x, bz: point.z }, 4);
+        }
+      }
+    }
     const inLane = (x, z) => near(lanes, x, z).some((s) => segD(s, x, z) < 1.8);
-    let overCar = 0, overLane = 0, streetOnBallast = 0, ballast = 0;
+    let overCar = 0, overLane = 0, overJunction = 0, streetOnBallast = 0, ballast = 0;
     const bedGrid = new Map();
     for (const p of beds) {
       const mx = (p.ax + p.bx) / 2, mz = (p.az + p.bz) / 2;
@@ -153,6 +181,7 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
           if (x > -1570 && x < -1525 && z > 535 && z < 585) continue; // Most Dworcowy elevated bridge over PST trench
           if (onCarriageway(x, z)) overCar += 0.0625;
           if (inLane(x, z)) overLane += 0.0625;
+          if (atJunction(x, z) && config.roadClearance(x, z) < 0) overJunction += 0.0625;
         }
       }
     }
@@ -168,8 +197,11 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
         })) laneUnder++;
       }
     }
-    assert.ok(ballast > 7000, `${ballast} ballast pieces`);
+    assert.ok(beds.some((p) => p.bed && Math.hypot((p.ax + p.bx) / 2 + 2664.36, (p.az + p.bz) / 2 - 2305.09) < 2),
+      'the separate Górczyn tramway keeps its ballast');
+    assert.ok(ballast > 5000, `${ballast} ballast pieces`);
     assert.equal(overCar, 0, `${overCar} m² of carriageway under ballast`);
+    assert.equal(overJunction, 0, `${overJunction} m² of junction road under ballast`);
     assert.equal(overLane, 0, `${overLane} m² of lanes under ballast`);
     assert.equal(laneUnder, 0, `${laneUnder} lane centre samples under ballast`);
     assert.equal(streetOnBallast, 0, `${streetOnBallast} ballast pieces centred on a carriageway`);

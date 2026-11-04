@@ -93,8 +93,8 @@ lost their trees and stand empty. Browser checks remain. Details:
 ## Zebra visibility verified
 
 - The remaining ballast-occlusion report was stale: the existing 1.7 m rail cuts and narrowed tram beds already
-  keep the paint visible. The furnished-network regression finds **0 m²** of zebra/ballast overlap across 2563
-  zebra pieces and 7760 ballast beds. Disabling the rail cuts reproduces the conflict on the same crossings.
+  keep the paint visible. The headless furnished-network regression finds **0 m²** of overlap between emitted zebra
+  quads and ballast beds. Disabling the rail cuts provides a positive control.
 - Full Chrome scenes on WebGPU and forced WebGL2 confirm zero overlap using actual mesh buffers and instance
   matrices; the closest paint-to-bed gap is 0.386 m. Midday rendered spot checks show visible stripes and the
   deliberate unpainted track corridor. No production geometry change was needed.

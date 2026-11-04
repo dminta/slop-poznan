@@ -2,15 +2,14 @@ import * as THREE from 'three/webgpu';
 import { Fn, attribute, color, float, vec2, mix, smoothstep, step, abs, fract, floor, fwidth, max, clamp, normalGeometry, positionGeometry, screenCoordinate, texture, uv } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GEO } from './geodata.js';
-import { BRIDGES, RAIL_BRIDGES, PLAZAS, blockAt, isLand, isWater, roadClearance } from './city-config.js';
+import { BRIDGES, RAIL_BRIDGES, PLAZAS, JUNCTIONS, blockAt, isLand, isWater, roadClearance } from './city-config.js';
 import { cityUniforms, createCurbMaterial, transparentEffectMRT } from './tsl-materials.js';
 
 // js/tram-infra.js
 // The static tram infrastructure (docs/poznan-plan.md Phase 9 step 1), built once after the road network so it can keep
 // clear of the car lanes without feeding obstacles back into them:
 // - grooved rails for every tram track of GEO.rail (two 70 mm heads at 1435 mm gauge, flush with the road on
-//   street-running track; on ballast with concrete sleepers on off-street track, the ballast narrowed or left out where
-//   the roadway comes near, so it never lies on a carriageway or a lane)
+//   street-running track; ballast and concrete sleepers narrowed or omitted to clear road and junction footprints)
 // - the overhead line: a contact wire 5.8 m over each track, carried every ~30 m by span wires between side poles (or a
 //   centre pole between the tracks), cantilever arms on one-sided poles, or wall rosettes in the narrow streets round
 //   the Old Town
@@ -29,7 +28,7 @@ const GROOVE_W = 0.042;
 const SW_TOP = 0.22; // city-grid.js sidewalk top
 const PIECE = 4; // rails and ballast are laid as straight pieces up to this long, so they follow curbs and bends
 const BED_HALF = 1.45; // off-street ballast, 2.9 m across
-const BED_MIN = 1.2; // ...narrowed to keep off the roadway down to this, else the rails are flush (sleepers 0.82 of it)
+const BED_MIN = 1.2; // narrower beds are flush rather than leaving too little room for sleepers
 const BED_GAP = 0.05; // ...and this far outside it
 const LANE_HALF = 1.8; // half of road-network.js LANE_W: a lane's paint lines stand this far from its centreline
 const WIRE_Y = 5.8; // contact wire height
@@ -222,27 +221,32 @@ function laneDistance(network) {
   };
 }
 
-// How far (x, z) stands outside the nearest OSM carriageway (negative inside, capped at r <= 4): every GEO.roadGraph
-// link along its own points at its carriageway's half width. A tram strip beside the carriageway (link flags bits 3/4)
-// is left out of it, as the lanes are (road-network.js lanesOf); a tram link with the tracks on it (no side bit) is
-// carriageway all across, so its tracks are street-running.
+// Graph points follow the original carriageway axis. The extra tram strip is added on one side, so its
+// centre is shifted by 3.25 m; subtracting that shift returns the carriageway to the original graph points.
 const TRAM_STRIP_W = 6.5; // poz-roads.mjs TRAM_W
 function carriagewayDistance() {
   const CELL = 32;
   const cells = new Map();
   const g = GEO.roadGraph;
+  const segments = [];
   for (const [a, b, , w, , , inner, flags] of g.links) {
     const half = Math.max(0.5, (w > 3 ? w : 9.1) / 2 - (flags & 24 ? TRAM_STRIP_W / 2 : 0));
     const pts = [g.nodes[2 * a], g.nodes[2 * a + 1], ...inner, g.nodes[2 * b], g.nodes[2 * b + 1]];
     for (let k = 0; k + 3 < pts.length; k += 2) {
-      const seg = [pts[k], pts[k + 1], pts[k + 2], pts[k + 3], half];
-      const m = half + 4;
-      for (let ix = Math.floor((Math.min(seg[0], seg[2]) - m) / CELL); ix <= Math.floor((Math.max(seg[0], seg[2]) + m) / CELL); ix++) {
-        for (let iz = Math.floor((Math.min(seg[1], seg[3]) - m) / CELL); iz <= Math.floor((Math.max(seg[1], seg[3]) + m) / CELL); iz++) {
-          const key = ix * 100003 + iz;
-          if (!cells.has(key)) cells.set(key, []);
-          cells.get(key).push(seg);
-        }
+      segments.push([pts[k], pts[k + 1], pts[k + 2], pts[k + 3], half]);
+    }
+  }
+  for (const seg of segments) {
+    const m = seg[4] + 4;
+    const minX = Math.floor((Math.min(seg[0], seg[2]) - m) / CELL);
+    const maxX = Math.floor((Math.max(seg[0], seg[2]) + m) / CELL);
+    const minZ = Math.floor((Math.min(seg[1], seg[3]) - m) / CELL);
+    const maxZ = Math.floor((Math.max(seg[1], seg[3]) + m) / CELL);
+    for (let ix = minX; ix <= maxX; ix++) {
+      for (let iz = minZ; iz <= maxZ; iz++) {
+        const key = ix * 100003 + iz;
+        if (!cells.has(key)) cells.set(key, []);
+        cells.get(key).push(seg);
       }
     }
   }
@@ -258,18 +262,32 @@ function carriagewayDistance() {
   };
 }
 
-// Rail pieces of every tram track and the trackbed each gets: [{ railIndex, s0, ax, az, bx, bz, ground, bed }] (ground:
-// the curb island's top under the piece, else 0; bed: the ballast's half width, 0 where the rails are flush). The
-// roadway wins: a piece whose centreline comes into a carriageway, a lane or a turning path is flush (street-running, or
-// a level crossing), and the ballast of the rest is narrowed to keep BED_GAP off the roadway, or left out below BED_MIN.
-// roadwayDist(x, z): how far (x, z) stands outside the roadway (the OSM carriageways, LANE_HALF either side of every
-// lane centreline and turning path; capped at 4 m). Under the old rule (ballast wherever no lane centreline came within
-// 3.5 m of the piece's middle) the fixed 2.9 m bed lay on ~300 m² of carriageway: in junction boxes and carriageways the
-// lanes keep off (28 Czerwca 1956 roku at Hetmańska, Drobna, Głogowska), and down 25 pieces of carriageway carrying
-// street=0 track.
+// The bed is narrowed or laid flush to clear graph carriageways, lanes and junction turning paths. The inferred
+// tram strip beside a carriageway is separate; street flags alone miss independently mapped on-road tracks.
+// Raised islands and the three surveyed bridge-deck crossings are handled separately.
 function layoutTrackBeds(tracks, laneDist) {
   const carriageway = carriagewayDistance();
-  const roadwayDist = (x, z) => Math.min(carriageway(x, z, 4), laneDist(x, z, 4 + LANE_HALF) - LANE_HALF);
+  // The broad guide includes tram reservations along roads, so use it only inside actual junction centres.
+  const junctions = new Map();
+  for (const j of JUNCTIONS) {
+    if (j.arms.length < 3) continue;
+    const key = `${Math.floor(j.x / 32)},${Math.floor(j.z / 32)}`;
+    if (!junctions.has(key)) junctions.set(key, []);
+    junctions.get(key).push(j);
+  }
+  const junctionRoad = (x, z) => {
+    const ix = Math.floor(x / 32), iz = Math.floor(z / 32);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        for (const j of junctions.get(`${ix + dx},${iz + dz}`) || []) {
+          if (Math.hypot(x - j.x, z - j.z) < 10) return roadClearance(x, z);
+        }
+      }
+    }
+    return Infinity;
+  };
+  const roadwayDist = (x, z) => Math.min(carriageway(x, z, 4), junctionRoad(x, z),
+    laneDist(x, z, 4 + LANE_HALF) - LANE_HALF);
   const beds = [];
   for (const tr of tracks) {
     const count = Math.max(1, Math.ceil(tr.len / PIECE));
@@ -292,7 +310,9 @@ function layoutTrackBeds(tracks, laneDist) {
           (mx > -1380 && mx < -1345 && mz > -230 && mz < -170);
         if (!underBridgeDeck) {
           const n = Math.max(2, Math.ceil(len / 0.5));
-          for (let k = 0; k <= n; k++) room = Math.min(room, roadwayDist(A.x + (B.x - A.x) * k / n, A.z + (B.z - A.z) * k / n));
+          for (let k = 0; k <= n; k++) {
+            room = Math.min(room, roadwayDist(A.x + (B.x - A.x) * k / n, A.z + (B.z - A.z) * k / n));
+          }
           const half = Math.min(BED_HALF, room - 0.25 - BED_GAP);
           if (half >= BED_MIN) bed = half;
         }
