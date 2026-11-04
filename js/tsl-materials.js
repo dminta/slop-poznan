@@ -2477,51 +2477,59 @@ function createWaterMaterial() {
   return mat;
 }
 
-// Shared world-space turf: fade each octave to its mean as it becomes smaller than a pixel.
-function lawnColorNode(wp, isMeadow = false, pixel = length(fwidth(wp))) {
-  const macro = mix(float(0.5), noise2D(wp.mul(0.06)), smoothstep(7.0, 3.0, pixel));
-  const mid = mix(float(0.5), noise2D(wp.mul(0.35)), smoothstep(1.2, 0.4, pixel));
-  const fine = mix(float(0.5), noise2D(wp.mul(3.8)), smoothstep(0.1, 0.03, pixel));
-  const deep = color(isMeadow ? 0x2c5c28 : 0x224c20);
-  const midGreen = color(isMeadow ? 0x457d36 : 0x36682c);
-  const sun = color(0x6b9c3e);
-  // Mowing stripes: ±0.08 of the deep-to-mid mix (about 4 sRGB steps), centred so the mean stays at ~0.475
-  const stripe = sin(wp.x.mul(0.55).add(wp.y.mul(0.25))).mul(0.5)
-    .mul(smoothstep(4.0, 1.5, pixel));
-  const turf = macro.mul(0.5).add(mid.mul(0.42)).add(stripe.mul(0.16)).add(0.01);
-  return mix(mix(deep, midGreen, turf), sun, fine.mul(0.38));
+// The park turf is evaluated in world metres so adjoining surfaces share its pattern.
+function parkLawnColorNode(isMeadow = false) {
+  const cGrassDeep = color(isMeadow ? 0x2c5c28 : 0x224c20);
+  const cGrassMid = color(isMeadow ? 0x457d36 : 0x36682c);
+  const cGrassSun = color(0x6b9c3e);
+
+  return Fn(() => {
+    const wp = positionWorld.xz;
+    const macroPatch = noise2D(wp.mul(0.06));
+    const midClover = noise2D(wp.mul(0.35));
+    const microBlade = noise2D(wp.mul(3.8));
+    const mowStripe = sin(wp.x.mul(0.55).add(wp.y.mul(0.25))).mul(0.5).add(0.5);
+    const baseLawn = mix(cGrassDeep, cGrassMid,
+      macroPatch.mul(0.45).add(midClover.mul(0.35)).add(mowStripe.mul(0.20)));
+    return mix(baseLawn, cGrassSun, microBlade.mul(0.38));
+  })();
 }
 
-// Preserve the standard material response on paving and other non-grass surfaces.
-function setLawnSpecular(mat, mask) {
+function parkLawnNormalNode(mask = float(1.0)) {
+  return Fn(() => {
+    const wp = positionWorld.xz;
+    const camDist = length(positionWorld.sub(cameraPosition));
+    const detail = smoothstep(85.0, 10.0, camDist);
+    const turf = noise2D(wp.mul(7.5)).sub(0.5).mul(0.008);
+    return bumpNormal(turf.mul(detail).mul(mask));
+  })();
+}
+
+// Grass blades shadow one another; retain the standard response outside the lawn mask.
+function setParkLawnSpecular(mat, mask) {
   mat.setupSpecular = function (builder) {
-    THREE.MeshStandardNodeMaterial.prototype.setupSpecular.call(this, builder);
-    specularColor.assign(mix(specularColor, vec3(0.025), mask));
-    specularColorBlended.assign(mix(specularColorBlended, vec3(0.025), mask));
-    specularF90.assign(mix(specularF90, float(0.3), mask));
+    if (mask === undefined) {
+      specularColor.assign(vec3(0.025));
+      specularColorBlended.assign(vec3(0.025));
+      specularF90.assign(0.3);
+    } else {
+      THREE.MeshStandardNodeMaterial.prototype.setupSpecular.call(this, builder);
+      specularColor.assign(mix(specularColor, vec3(0.025), mask));
+      specularColorBlended.assign(mix(specularColorBlended, vec3(0.025), mask));
+      specularF90.assign(mix(specularF90, float(0.3), mask));
+    }
   };
 }
 
-/** Park turf with irregular variation at several scales. */
+/** Park Lush Multi-Octave Turf, Clover & Mowing Stripes TSL Material */
 function createParkLawnMaterial(isMeadow = false) {
   const mat = new THREE.MeshStandardNodeMaterial({
     metalness: 0.0,
     roughness: 0.86
   });
-
-  mat.colorNode = lawnColorNode(positionWorld.xz, isMeadow);
-
-  mat.normalNode = Fn(() => {
-    const wp = positionWorld.xz;
-    const camDist = length(positionWorld.sub(cameraPosition));
-    const detail = smoothstep(85.0, 10.0, camDist);
-    const turf = noise2D(wp.mul(7.5)).sub(0.5).mul(0.008);
-    return bumpNormal(turf.mul(detail));
-  })();
-
-  // Grass blades shadow one another and reduce the grazing reflection of the sky.
-  setLawnSpecular(mat, float(1.0));
-
+  mat.colorNode = parkLawnColorNode(isMeadow);
+  mat.normalNode = parkLawnNormalNode();
+  setParkLawnSpecular(mat);
   return mat;
 }
 
@@ -2587,8 +2595,9 @@ export {
   createSidewalkMaterial,
   createCurbMaterial,
   createWaterMaterial,
-  lawnColorNode,
-  setLawnSpecular,
+  parkLawnColorNode,
+  parkLawnNormalNode,
+  setParkLawnSpecular,
   createParkLawnMaterial,
   createContactShadowMaterial,
   _transparentEffectMRT as transparentEffectMRT

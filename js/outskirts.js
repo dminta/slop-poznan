@@ -25,7 +25,7 @@ import {
   fwidth,
   select
 } from 'three/tsl';
-import { cityUniforms, lawnColorNode, setLawnSpecular, createPanelBlockMaterial, createFacadeBoxes, WALL_KINDS } from './tsl-materials.js';
+import { cityUniforms, parkLawnColorNode, parkLawnNormalNode, setParkLawnSpecular, createPanelBlockMaterial, createFacadeBoxes, WALL_KINDS } from './tsl-materials.js';
 import { LL, OUTSKIRTS, OUTSKIRTS_HOLES, DISTRICTS, CITY_BOUNDS } from './city-config.js';
 
 // js/outskirts.js
@@ -726,7 +726,7 @@ function createLandMaterial() {
   const clumps = smoothstep(0.5, 0.72, valueNoise(wp.xz.mul(0.05)).mul(0.7).add(treeNoise.mul(0.3)));
   const pathU = boxPulse(gu.mul(4.0), 0.49, 0.51, fwU.mul(4.0));
   const pathV = boxPulse(gv.mul(3.0), 0.485, 0.515, fwV.mul(3.0));
-  const turf = lawnColorNode(wp.xz);
+  const turf = parkLawnColorNode();
   const cOsiedle = mix(mix(turf, cTree, clumps), srgb(0.6, 0.59, 0.56), max(pathU, pathV).mul(0.8));
   const lotsCol = mix(mix(roofCol, cTree, yardAmount), cOsiedle, osiedle);
 
@@ -780,9 +780,10 @@ function createLandMaterial() {
   const parkLawn = float(1.0).sub(woods).mul(float(1.0).sub(smoothstep(0.4, 0.8, cemeteryMix)));
   const lawnMask = mix(urbanLawn.mul(float(1.0).sub(industry)).mul(float(1.0).sub(openGround)), parkLawn, park)
     .mul(float(1.0).sub(smoothstep(0.04, 0.12, slope)));
-  setLawnSpecular(mat, lawnMask);
+  mat.normalNode = parkLawnNormalNode(lawnMask);
+  setParkLawnSpecular(mat, lawnMask);
 
-  mat.roughnessNode = mix(float(0.9), float(0.97), max(park, lu.a));
+  mat.roughnessNode = mix(mix(float(0.9), float(0.97), max(park, lu.a)), float(0.86), lawnMask);
 
   // Night: street lights along the grid (none in forests, fields or yards); faint lit windows on the roofs
   const flat = float(1.0).sub(smoothstep(0.1, 0.3, slope));

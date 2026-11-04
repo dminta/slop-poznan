@@ -36,8 +36,9 @@ import {
   splitDeep
 } from './city-config.js';
 import {
-  lawnColorNode,
-  setLawnSpecular,
+  parkLawnColorNode,
+  parkLawnNormalNode,
+  setParkLawnSpecular,
   createPreWarBuildingMaterial,
   createCurtainWallMaterial,
   createPanelBlockMaterial,
@@ -2411,8 +2412,8 @@ function buildCityBlocks(scene) {
   roofs.finish();
 
   // Rear yards, light courts & project lawns: one thin slab per patch just above the sidewalk (buildings standing on
-  // it hide the rest). Lawn, paving and tree canopies come from world-space noise; detail finer than a pixel fades
-  // to its average so the gardens don't shimmer from the air
+  // it hide the rest). Lawn, paving and tree canopies come from world-space noise; paving and canopy detail finer
+  // than a pixel fades to its average, and the lawn is the parks' own turf (createParkLawnMaterial's nodes)
   const yardMat = new THREE.MeshStandardNodeMaterial({ roughness: 0.94, metalness: 0.0 });
   const yardSurface = Fn(() => {
     const p = positionWorld.xz;
@@ -2424,7 +2425,7 @@ function buildCityBlocks(scene) {
 
     // Lawns with grey / beige patios & light-court paving
     const patch = mx_noise_float(p.mul(0.21)).mul(smoothstep(12.0, 4.0, px));
-    const lawn = lawnColorNode(p, false, px);
+    const lawn = parkLawnColorNode();
     const paving = mix(color(0x8c8679), color(0xa59e90), grain);
     const pavingMask = smoothstep(0.15, 0.45, patch);
     const ground = mix(lawn, paving, pavingMask);
@@ -2441,7 +2442,9 @@ function buildCityBlocks(scene) {
       float(1.0).sub(pavingMask).mul(float(1.0).sub(canopy)));
   })();
   yardMat.colorNode = yardSurface.rgb;
-  setLawnSpecular(yardMat, yardSurface.a);
+  yardMat.normalNode = parkLawnNormalNode(yardSurface.a);
+  yardMat.roughnessNode = mix(float(0.94), float(0.86), yardSurface.a);
+  setParkLawnSpecular(yardMat, yardSurface.a);
   const yardRects = [];
   for (const blk of allBlocks) yardRects.push(...blk.yards);
   if (yardRects.length) {
