@@ -109,6 +109,42 @@ Single-seed outliers of the kept change, all from simulations that diverge once 
   cars in its forward sweep, so it restarted into the stationary car. The proxy is deliberately inserted for
   opposite-direction track runs to stop cars entering them; deleting it would instead send the car toward the tram.
 
+## Short-link bus guard (2026-11-04 follow-up)
+
+The Kaponiera bus hotspot was traced further: bus 200 committed at 25.13 s while tram 1 stood at a curve 10 m before
+the next conflict. The conflict became held at 25.6 s, after the bus had committed, and its front reached the 10 m
+link 7343 with d = 1 m, so it could not stop before that link's far line. The `enter` fallback then accepted the
+refused conflict above 4 m/s. `mayEnter` now checks the connector out of a link shorter than the bus body from the
+upstream approach, but only for a committed bus and only while the tram is within 16 m of that curve; the >4 m/s
+fallback still stops a bus on a short link if a tram body is already over the curve.
+
+Eight seeds, five minutes, 15 fps, all seven districts; same benchmark world as above. Cells are mean longest hold
+(s) / cars held over 60 s / over 120 s / deadlocks / overlap pairs, summed over the eight seeds. Baseline is the
+previous HEAD (49e11a6), not the older `1eff3b4` columns above.
+
+| District | Baseline | Guard |
+|---|---|---|
+| Jeżyce | 77.9 / 27 / 0 / 0 / 28 | 74.4 / 31 / 0 / 0 / 18 |
+| Łazarz | 31.9 / 0 / 0 / 0 / 0 | 31.9 / 0 / 0 / 0 / 0 |
+| Centrum | 77.8 / 21 / 1 / 0 / 10 | 77.8 / 22 / 1 / 0 / 10 |
+| Kaponiera | 116.9 / 134 / 8 / 1 / 13 | 118.6 / 119 / 6 / 0 / 10 |
+| Stare Miasto | 32.2 / 2 / 0 / 0 / 22 | 28.5 / 2 / 0 / 0 / 26 |
+| Rataje | 71.1 / 9 / 2 / 0 / 1 | 71.1 / 9 / 2 / 0 / 1 |
+| Wilda | 39.0 / 0 / 0 / 0 / 0 | 39.0 / 0 / 0 / 0 / 0 |
+| **Sum** | 446.75 s / 193 / 11 / 1 / **74** | 441.25 s / 183 / 9 / 0 / **65** |
+
+The Kaponiera hotspot pairs 200:1 (seed 4242), 206:1 and 204:1 (seed 99) are gone; seeds 7, 2, 5 and 11 keep their
+baseline numbers or swap them for late car pairs. The Stare Miasto 22 → 26 rise is late in the run (seeds 7 and 11
+2 → 4, seed 5 1 → 2, all after 200 s) and is car-only; bus timings shift the later trajectories, so it is not a new
+bus–tram mechanism. Kaponiera's mean hold rises 1.5% while both held counts fall; seed 2's 115 → 141 s peak is a
+give-way merge queue at `−1497, 198`, not the guarded junction. Rejected variants: a generic guard for every
+committed vehicle and a 16 m hard-stop reach reduced pairs to 50 but raised Kaponiera to 134.2 s mean / 16 cars over
+120 s; the upstream guard without the commit check had the same regression. The generic high-speed fallback for cars
+outside the short-link case is still open.
+
+Browser check: the hard stop in `enter` sets speed to 0 from above 4 m/s, a visible jolt chosen over a tram body
+overlap; watch a guarded bus at Kaponiera.
+
 ## What remains
 
 The final audit's 74 pairs, grouped by 25 m cell (pairs / of them buses): Jeżyce `−2050, −450` 11 / 5, `−1875, −400`
@@ -116,9 +152,11 @@ The final audit's 74 pairs, grouped by 25 m cell (pairs / of them buses): Jeżyc
 `−1400, −200` 7 / 4 (the bus hotspot above, seeds 1, 4242, 7, 99); Centrum `−1125, 150` 4 / 0; the rest are one to
 three pairs each. 23 of the 74 are buses. 51 vehicles were on a connector at first contact, and for 44 of them the
 overlapping tram held that connector's conflict, so most remaining cases are entries into a curve the tram had already
-reserved (the `enter` fallback above, or a commitment made before the reservation), not missing conflicts. Open:
+reserved (the `enter` fallback above, or a commitment made before the reservation), not missing conflicts. The
+short-link bus guard above takes the total to 65. Open:
 
-- the bus (and car) high-speed entry fallback in `enter` that accepts a refused tram conflict above 4 m/s;
+- the generic high-speed entry fallback in `enter` that accepts a refused tram conflict above 4 m/s for cars outside
+  the short-link bus case (the guarded bus stops at the line);
 - the other 60 opposing close lanes (64 runs, 668 m) from `tools/audit-tram-opposing-lanes.mjs`, which the
   correction's conditions do not cover: 49 runs are 10 m or shorter; the longest is 71 m on edge 7930 at `−865, 978`
   (down to 0.02 m from the track);

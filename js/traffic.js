@@ -1207,7 +1207,18 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     // Could it still stop? For a light that isn't green, also by crawling up to it, closer than it stops for lines
     const stoppable = canStopBefore(v, d) || (phase !== 'green' && v.speed * v.speed < 2 * v.driver.b * d);
     if (stoppable) v.commit = null; // could stop after all: decide afresh
-    if (v.commit === n) return true;
+    // A bus committed onto a link shorter than its body still yields to a tram that is actually at the next curve:
+    // bus 200 stopped 0.54 m short of Kaponiera's 10 m link 7343, counted as unable to stop, committed at 25.13 s,
+    // and ignored the tram that started into the conflict at 25.6 s. Use the planned move directly: a committed
+    // vehicle must not run chooseMove here, and it already has a valid lane.
+    if (v.commit === n) {
+      if (v.bus) {
+        const f = v.move.to;
+        const j = v.move.out[v.lane];
+        if (j >= 0 && f.len < 2 * v.half && tramRefusedClose(v, f, j)) return refuse(v, 'tram');
+      }
+      return true;
+    }
     if (v.move.out[v.lane] < 0) {
       // missed the lane for the planned move: go wherever this lane goes instead
       if (d > 12) return refuse(v, 'lane');
@@ -1427,12 +1438,17 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     v.acc = clamp(acc, -9, v.driver.a);
   }
 
-  // Front bumper at the stop line: cross if allowed, or if going too fast to stop; otherwise wait there
+  // Front bumper at the stop line: cross if allowed, or if going too fast to stop; otherwise wait there. A bus longer
+  // than the next link is the exception: a tram body already on that link's next curve stops it even above 4 m/s.
   function enter(v) {
     const e = v.edge;
     if (!mayEnter(v, 0)) {
       const j = v.move.out[v.lane];
-      if (v.speed < 4 || j < 0) {
+      const f = v.move.to;
+      // The old fallback drove Kaponiera bus 200 into tram 1 at 8.4 m/s. A tram still approaching is refused earlier,
+      // while the bus can brake off the line; only a body already over the curve reaches this hard stop.
+      if (v.speed < 4 || j < 0 ||
+        (v.held === 'tram' && v.bus && f.len < 2 * v.half && tramRefusedClose(v, f, j, TRAM_HARD_REACH))) {
         v.s = e.len - v.half;
         v.speed = 0;
         return;
@@ -1864,26 +1880,74 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     }
   }
 
-  // Is the curve v would take through n (into lane j of f) held by a tram? Not for a car the tram is waiting for (it is
-  // in its way already), nor for one ahead of it in a lane the tram runs along or right in front of it: the car is the
-  // tram's leader and goes first.
+  // Is curve c (from `se`/`si` into lane j of f) held by a tram? With `exempt`, also let a car the tram waits for go
+  // (it is in the tram's way already), and one ahead of it in a lane the tram runs along or right in front of it: the
+  // car is the tram's leader and goes first.
+  function heldByTram(v, c, se, si, f, j, exempt) {
+    if (c.held !== tramFrame || c.e !== se || c.i !== si || c.f !== f || c.j !== j) return false;
+    if (!exempt) return true;
+    const t = c.by;
+    const front = t.sections[0];
+    const hx = Math.sin(front.heading);
+    const hz = Math.cos(front.heading);
+    const dx = v.x - t.frontX;
+    const dz = v.z - t.frontZ;
+    if (t.obstacle === v) return false; // the tram is waiting for it
+    if (dx * hx + dz * hz > -1 && (Math.abs(dx * hz - dz * hx) < front.halfWidth + v.halfWidth + 0.3 || inTramLane(t, v))) return false;
+    return true;
+  }
+
+  // Is the curve v would take through n (into lane j of f) held by a tram?
   function tramBlocks(v, n, f, j) {
     const list = n.tramConflicts;
     if (!list) return false;
-    for (const c of list) {
-      if (c.held !== tramFrame || c.e !== v.edge || c.i !== v.lane || c.f !== f || c.j !== j) continue;
-      const t = c.by;
-      const front = t.sections[0];
-      const hx = Math.sin(front.heading);
-      const hz = Math.cos(front.heading);
-      const dx = v.x - t.frontX;
-      const dz = v.z - t.frontZ;
-      if (t.obstacle === v) continue; // the tram is waiting for it
-      if (dx * hx + dz * hz > -1 && (Math.abs(dx * hz - dz * hx) < front.halfWidth + v.halfWidth + 0.3 || inTramLane(t, v))) continue;
-      return true;
+    for (const c of list) if (heldByTram(v, c, v.edge, v.lane, f, j, true)) return true;
+    return false;
+  }
+  // A held curve is a forecast up to TRAM_REACH ahead, often tens of seconds away. Only a tram already on or close
+  // to the conflict needs the guard: stopping for a distant one blocked the box and raised Kaponiera holds. `c` is
+  // the same object in te.junctions and node.tramConflicts, so find it on the tram's own path.
+  const TRAM_STOP_REACH = 16; // m of tram path ahead of its front for a bus that cannot fit on the next link
+  const TRAM_HARD_REACH = 0; // a tram body already on the curve: a bus that cannot stop stops at the line
+  function tramClose(t, c, reach) {
+    const path = t.path;
+    for (let i = path.indexAt(Math.max(0, path.u - t.length)); i < path.n; i++) {
+      const te = path.edges[i];
+      const base = path.start[i];
+      if (base - path.u > reach + 20) break;
+      for (const jc of te.junctions) {
+        if (jc === c) return base + c.s0 - path.u < reach;
+      }
     }
     return false;
   }
+
+  // Is a tram that holds the curve v would take (from `se`/`si` into lane j of f) actually close to it?
+  function tramHoldsClose(v, n, f, j, se, si, reach) {
+    const list = n.tramConflicts;
+    if (!list) return false;
+    for (const c of list) {
+      if (heldByTram(v, c, se, si, f, j, false) && tramClose(c.by, c, reach)) return true;
+    }
+    return false;
+  }
+
+  // Does the connector out of lane j of f cross a tram that is close? Used from the upstream approach and on the
+  // connector into a short link, where the next stop line cannot be seen before the vehicle is already on it.
+  function nextTramHoldsClose(v, f, j, reach) {
+    if (!f.moves) return false;
+    for (const m of f.moves) {
+      const k = m.out[j];
+      if (k >= 0 && tramHoldsClose(v, f.to, m.to, k, f, j, reach)) return true;
+    }
+    return false;
+  }
+
+  // Either the curve v is taking or the one after it: the last check before the too-fast-to-stop fallback.
+  function tramRefusedClose(v, f, j, reach = TRAM_STOP_REACH) {
+    return tramHoldsClose(v, v.edge.to, f, j, v.edge, v.lane, reach) || nextTramHoldsClose(v, f, j, reach);
+  }
+
   // Is (x, z) within r of a tram's body? (Lane lists only hold the trams of the frame before: after a teleport the
   // trams are all somewhere new.)
   function nearTram(x, z, r) {

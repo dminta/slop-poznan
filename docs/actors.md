@@ -147,7 +147,6 @@ no persistent deadlocks and no continuous `switch` wait over 60 s (maximum 39.6 
 `--no-signals` comparison is 18.5 km/h / 23.4% stopped. Full measurements and browser limitations are in
 the [archived Phase 16 report](archive/poznan-plan.md#phase-16-signal-timing-and-trams-on-switches).
 
-
 ## Player interaction
 - `player.active` is false in the helicopter or when the entity is at y >= 2.6. Mode-specific `halfW/halfL/push` values are set in `update()`. Drivers treat the player as a leader (`playerGap`), and lane changes avoid the player.
 - `collideWithPlayer` uses a SAT OBB test. The extents are the car's `hitW`/`hitL` (from its body spec) or the bus's literals in the call in `update()`, and the mass ratio is set in `collideWithPlayer`. `reportCollision` fires synchronously with a **reused** event object, so listeners (audio) must copy any field they keep.
@@ -162,7 +161,7 @@ the [archived Phase 16 report](archive/poznan-plan.md#phase-16-signal-timing-and
 - `tools/benchmark-pedestrians.mjs` (usage in [`testing.md`](testing.md)) is the correctness check after `PersonRig` changes; it string-replaces `if (updatePose) this.solve();`, so keep that exact text.
 
 ## Test-harness coupling (gotcha)
-`traffic.test.cjs` and `traffic-performance.test.cjs` extract inner functions of `traffic.js` by regex: from a line starting `  function name(` up to the first line that is exactly `  }`. They then run each function in a `vm` with a hand-written context of its free variables. `traffic.test.cjs` also cuts out `courtesy` and runs `mayEnter` with its own context (the courtesy test). The extracted functions are `mayEnter, signalAhead, canStop, yieldToCrossTraffic, yieldOncoming, nearView, refreshNear, spawnVehicle, spawnPed, renderPed, updateSparks, flagRange, occupyTrams, tramBlocks, inTramLane, overlapWithPlayer, collideWithTram, tramRoom, tramCrossings, tramNear` (`mayEnter` needs `tramBlocks`, `refuse` and `PED_COURTESY`; `spawnVehicle` a `nearTram` stub; `refreshNear` `vehicles`, `VEHICLE_DENSITY` and `MIN_VEHICLES`). Keep them as 2-space-indented `function` declarations. When a change adds a free variable or helper to one of them, add a stub to the matching test context.
+`traffic.test.cjs` and `traffic-performance.test.cjs` extract inner functions of `traffic.js` by regex: from a line starting `  function name(` up to the first line that is exactly `  }`. They then run each function in a `vm` with a hand-written context of its free variables. `traffic.test.cjs` also cuts out `courtesy` and runs `mayEnter` with its own context (the courtesy test). The extracted functions are `mayEnter, signalAhead, canStop, yieldToCrossTraffic, yieldOncoming, nearView, refreshNear, spawnVehicle, spawnPed, renderPed, updateSparks, flagRange, occupyTrams, tramBlocks, heldByTram, tramClose, tramHoldsClose, inTramLane, overlapWithPlayer, collideWithTram, tramRoom, tramCrossings, tramNear` (`mayEnter` needs `tramBlocks`, `tramRefusedClose`, `refuse` and `PED_COURTESY`; `spawnVehicle` a `nearTram` stub; `refreshNear` `vehicles`, `VEHICLE_DENSITY` and `MIN_VEHICLES`). Keep them as 2-space-indented `function` declarations. When a change adds a free variable or helper to one of them, add a stub to the matching test context.
 
 ## Trams (`js/trams.js`)
 `createTramSystem(scene, { network, rail = GEO.rail, stops = GEO.tramStops, routes = GEO.tramRoutes, traffic })` is built in `main.js` after
@@ -248,9 +247,20 @@ forecast while a car or bus committed to that curve. Before restarting it holds 
 is 0.2–5 m ahead while a vehicle (not itself waiting for a tram) is committed to the curve, on it, or still has its tail
 on it after leaving (`_roadCarGate` keeps the gate until the vehicle clears). The ordinary sweep sees only a vehicle's
 current position, so a fast crossing car was detected after the bodies met. A 10 m window held more trams and added a
-car–tram wait cycle. `tools/audit-tram-overlaps.mjs` still finds car–tram body overlaps (74 pairs over 8 seeds × 7
-districts, from 89); the [investigation](observations/tram-overlaps-2026-11-04.md) records the runs, rejected variants
-and remaining clusters.
+car–tram wait cycle. `tools/audit-tram-overlaps.mjs` still finds car–tram body overlaps (65 pairs over 8 seeds × 7
+districts, from 74 at the previous HEAD); the [investigation](observations/tram-overlaps-2026-11-04.md) records the
+runs, rejected variants and remaining clusters.
+
+**Short-link bus guard.** A bus can be longer than the edge after a connector (18 m on Kaponiera's 10 m link 7343), so
+its front is already at that edge's far stop line when it enters. The connector out of it was never seen before the bus
+was committed. `nextTramHoldsClose` checks the moves out of a short link from the upstream approach, and a committed
+bus on a link shorter than its body refuses entry while a tram holds that next curve within `TRAM_STOP_REACH` 16 m of
+it. The check is deliberately bus-and-short-link only: applying it to every committed vehicle, or to distant held
+curves, blocked junction boxes and raised Kaponiera holds. The >4 m/s `enter` fallback remains for genuine can't-stop
+cases, but a bus on a short link stops at the line rather than entering a tram body already over the curve
+(`TRAM_HARD_REACH` 0). This removes Kaponiera bus 200 / tram 1 (seed 4242) and the seed 99 bus pairs; the remaining
+overlaps are mostly cars and the generic high-speed fallback is still open. **Browser check:** the hard stop in
+`enter` snaps speed to 0 from above 4 m/s, a visible jolt chosen over driving into a tram; watch it at Kaponiera.
 
 **Public contract for interactions** (car yielding, pedestrians, player collisions, audio):
 - `tramSystem.trams`: the active trams, refreshed every update (the same objects as `tramSystem.pool`, filtered).

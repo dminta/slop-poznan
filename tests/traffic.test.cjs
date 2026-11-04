@@ -22,14 +22,15 @@ function intersectionHarness() {
   const edge = { to: n, axisIndex: 0, occ: [[]], opposite: null, inSide: 0, len: 100, setbackTo: 1.75 };
   const car = { edge, move: { to: exit, out: [0], turn: 'S' }, lane: 0, s: 80, speed: 4,
     driver: { b: 3 }, half: 2.25, wait: 0, commit: null, isPolice: false };
-  const state = { phase: 'red', occupied: false, pedestrians: false, space: true, conflict: false, tram: false };
+  const state = { phase: 'red', occupied: false, pedestrians: false, space: true, conflict: false, tram: false,
+    nextTram: false, stoppable: true };
   const context = {
     clock: 0,
     LOOKAHEAD: 70,
     CROSSWALK: 4.3,
     shortOfZebra: (f) => f.setbackFrom + 4.3 + 0.5,
     phaseOf: () => state.phase,
-    canStopBefore: () => true,
+    canStopBefore: () => state.stoppable,
     stopAt: () => -3,
     boxBusy: () => state.occupied,
     ahead: () => null,
@@ -42,6 +43,7 @@ function intersectionHarness() {
     alongside: () => false,
     mergingAhead: () => null,
     tramBlocks: () => state.tram,
+    tramRefusedClose: () => state.nextTram,
     refuse: (v, why) => { v.held = why; return false; },
     PED_COURTESY: 5
   };
@@ -766,6 +768,7 @@ test('cars leave a junction curve held by a tram alone, unless they are ahead of
   const n = { tramConflicts: [conflict] };
   const context = { tramFrame: 3, TRAM_REACH: 70, Math };
   context.inTramLane = trafficFunction('inTramLane', context);
+  context.heldByTram = trafficFunction('heldByTram', context);
   const tramBlocks = trafficFunction('tramBlocks', context);
   const car = { edge: e, lane: 0, x: 10, z: 20, halfWidth: 0.9 };
   assert.equal(tramBlocks(car, n, f, 0), true, 'a car across the tram\'s way waits');
@@ -787,6 +790,56 @@ test('cars leave a junction curve held by a tram alone, unless they are ahead of
   Object.assign(car, { x: 0.5, z: -40 });
   assert.equal(tramBlocks(car, n, f, 0), true, 'behind the tram');
   assert.equal(tramBlocks({ ...car, edge: other }, n, f, 0), false);
+});
+
+test('the short-link guard counts only a tram on or near the next curve', () => {
+  const conflict = { s0: 5, s1: 8, held: 3, by: null, e: {}, i: 0, f: {}, j: 0 };
+  const te = { junctions: [conflict] };
+  const path = { n: 2, edges: [{ junctions: [] }, te], start: [0, 20], u: 10, indexAt: (u) => (u >= 20 ? 1 : 0) };
+  const tram = {
+    length: 30, path, obstacle: null, frontX: 0, frontZ: 0,
+    sections: [{ heading: 0, halfWidth: 1.2 }]
+  };
+  conflict.by = tram;
+  const n = { tramConflicts: [conflict] };
+  const context = { tramFrame: 3, Math, inTramLane: () => false };
+  context.heldByTram = trafficFunction('heldByTram', context);
+  context.tramClose = trafficFunction('tramClose', context);
+  const tramHoldsClose = trafficFunction('tramHoldsClose', context);
+  const v = { edge: {}, lane: 1, x: 10, z: 20, halfWidth: 0.9 };
+  const source = [conflict.e, conflict.i];
+  assert.equal(tramHoldsClose(v, n, conflict.f, conflict.j, source[0], source[1], 16), true,
+    '15 m before the conflict is close');
+  assert.equal(tramHoldsClose(v, n, conflict.f, conflict.j, source[0], source[1], 12), false,
+    'outside a 12 m reach');
+  assert.equal(tramHoldsClose(v, n, conflict.f, conflict.j, source[0], 1, 16), false,
+    'another source lane');
+  context.tramFrame = 4;
+  assert.equal(tramHoldsClose(v, n, conflict.f, conflict.j, source[0], source[1], 16), false,
+    'held last frame only');
+  context.tramFrame = 3;
+  path.u = 24;
+  assert.equal(tramHoldsClose(v, n, conflict.f, conflict.j, source[0], source[1], 0), false,
+    '1 m before the conflict is not yet on it');
+  path.u = 26;
+  assert.equal(tramHoldsClose(v, n, conflict.f, conflict.j, source[0], source[1], 0), true,
+    'the body is over the conflict');
+});
+
+test('a committed bus on a link shorter than its body yields to a tram at the next curve', () => {
+  const h = intersectionHarness();
+  h.state.phase = 'green';
+  h.state.stoppable = false;
+  h.car.bus = true;
+  h.car.half = 9;
+  h.car.speed = 1.2;
+  h.car.commit = h.car.edge.to;
+  h.car.move = { to: { lanes: [0], len: 10, outSide: 0, setbackFrom: 1.75 }, out: [0], turn: 'S' };
+  h.state.nextTram = true;
+  assert.equal(h.mayEnter(h.car, 0.5), false, 'the committed bus waits at the upstream line');
+  assert.equal(h.car.held, 'tram');
+  h.state.nextTram = false;
+  assert.equal(h.mayEnter(h.car, 0.5), true, 'it goes once no tram is close');
 });
 
 test('a tram section pushes the player out of its body (SAT) and knocks a car back like a bus', () => {
