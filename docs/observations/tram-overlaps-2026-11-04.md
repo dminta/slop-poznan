@@ -161,3 +161,58 @@ short-link bus guard above takes the total to 65. Open:
   correction's conditions do not cover: 49 runs are 10 m or shorter; the longest is 71 m on edge 7930 at `−865, 978`
   (down to 0.02 m from the track);
 - the Jeżyce, Stare Miasto and Centrum clusters above, not yet traced.
+
+## Oncoming exemption fix (2026-11-05)
+
+The largest traced mechanism was not the `enter` fallback: in Stare Miasto, `heldByTram` exempted a car that projected
+ahead of the tram's nose in world space even when it was oncoming and approaching the same conflict from another arm. The
+tram's `drive()` ignores cars facing it, so the tram drove into the exempted car. The exemption now requires the car to
+travel the tram's way (heading dot above 0.2) unless the tram is farther than 8 m from the conflict, which keeps distant
+tram-stop queues out of the change. `inTramLane` keeps its own exemption.
+
+Eight seeds (1, 4242, 7, 99, 2, 3, 5, 11), five minutes, 15 fps, all seven districts; same benchmark world as above. Cells
+are mean longest hold (s) / cars held over 60 s / over 120 s / deadlocks / overlap pairs, summed over the eight seeds.
+Baseline is HEAD `313bb33`.
+
+| District | Baseline | Final |
+|---|---|---|
+| Jeżyce | 74.4 / 31 / 0 / 0 / 18 | 74.4 / 31 / 0 / 0 / 18 |
+| Łazarz | 31.9 / 0 / 0 / 0 / 0 | 31.9 / 0 / 0 / 0 / 0 |
+| Centrum | 77.8 / 22 / 1 / 0 / 10 | 81.0 / 24 / 1 / 0 / 9 |
+| Kaponiera | 118.6 / 119 / 6 / 0 / 10 | 118.6 / 119 / 6 / 0 / 10 |
+| Stare Miasto | 28.5 / 2 / 0 / 0 / 26 | 27.4 / 0 / 0 / 0 / 14 |
+| Rataje | 71.1 / 9 / 2 / 0 / 1 | 71.1 / 9 / 2 / 0 / 1 |
+| Wilda | 39.0 / 0 / 0 / 0 / 0 | 39.0 / 0 / 0 / 0 / 0 |
+| **Sum** | 441.3 s / 183 / 9 / 0 / **65** | 443.4 s / 183 / 9 / 0 / **52** |
+
+Centrum's mean rises 3.2 s and held >60 by 2 (seed 7 longest hold 61 → 87 s); its single >120 s car and the Kaponiera
+hotspot are unchanged. The seed 7 rise is a divergence of the random sequence, not a car held by a tram: logging every
+frame where the new rule changes a decision in Centrum seed 7 finds exactly one (t 49.8 s, a car at (−600, 49), heading
+dot −0.98), about 500 m from the known signal/merge junction at (−1117, 132) where the 87 s car waits. The Stare Miasto pair count falls 26 → 14. A contact-frame classifier over the 65 baseline pairs
+groups them as: 28 moving vehicles ≥4 m/s with the matched conflict held (17 after), 17 stopped with no matched conflict
+(15), 10 stopped on a connector with a matched conflict (12), 5 slow (1–4 m/s), 3 moving with no matched conflict (1) and
+2 moving with the curve not held at contact (0). The categories move by a pair or two because later trajectories diverge;
+the clear change is the Stare Miasto oncoming cluster.
+
+### Rejected variants measured on the way
+
+- **Tram-body hard stop for every vehicle** (drop the bus/short-link test in `enter` and stop whenever a refused
+  `v.held === 'tram'` has a body already over the next curve): the three hot districts (Centrum, Kaponiera, Stare
+  Miasto) go 46 → 20 pairs, but Kaponiera's mean longest hold rises 118.6 → 140.0 s and cars held over 120 s 6 → 20
+  (sum 468.8 s / 222 / 23). Limiting it to links under 12 m still gives Kaponiera 134.5 s / 147 / 15.
+- **Forecast guard for every vehicle entering a short link** (refuse at the upstream line while a tram holds the curve
+  beyond, with the connector length added to the 16 m reach; with or without the committed branch): the three districts
+  go 46 → 19 and 46 → 18 pairs, but the sums rise to 516.6 s / 359 / 41 / 4 deadlocks and 504.4 s / 277 / 22 / 5
+  deadlocks; Kaponiera alone reaches 153.1 s / 212 / 32 / 4. Guarding only cars that cannot physically stop on the link
+  still gives 456.4 s / 216 / 16 / 1 and 12 Kaponiera pairs.
+- **Broader oncoming rule** (no 8 m close gate, or requiring same direction for the whole exemption): the three
+  districts go 46 → 33–35 pairs, but Kaponiera's mean stays 124–125 s and held over 120 s rises 6 → 10. The close gate
+  is what keeps the hold metrics at baseline.
+
+## What remains after 2026-11-05
+
+The 52 pairs still split into: Kaponiera 10 and Centrum 4 of the 17 moving entries into a held curve, almost all on the
+10 m links at `−1386, −217` and `−1125, 143`; 27 cars already stopped in or near the tram envelope (Jeżyce mostly buses);
+and the Jeżyce `−2050, −450` bus cluster. The short-link blind spot for cars needs a solution that does not hold the
+upstream junction box; the forecast and hard-stop variants above all traded the collisions for long Kaponiera holds or
+deadlocks. The 60 opposing close lanes (64 runs, 668 m) from `tools/audit-tram-opposing-lanes.mjs` are unchanged.

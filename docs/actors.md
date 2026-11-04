@@ -247,9 +247,19 @@ forecast while a car or bus committed to that curve. Before restarting it holds 
 is 0.2–5 m ahead while a vehicle (not itself waiting for a tram) is committed to the curve, on it, or still has its tail
 on it after leaving (`_roadCarGate` keeps the gate until the vehicle clears). The ordinary sweep sees only a vehicle's
 current position, so a fast crossing car was detected after the bodies met. A 10 m window held more trams and added a
-car–tram wait cycle. `tools/audit-tram-overlaps.mjs` still finds car–tram body overlaps (65 pairs over 8 seeds × 7
-districts, from 74 at the previous HEAD); the [investigation](observations/tram-overlaps-2026-11-04.md) records the
+car–tram wait cycle. `tools/audit-tram-overlaps.mjs` still finds car–tram body overlaps (52 pairs over 8 seeds × 7
+districts, from 65 at the previous HEAD); the [investigation](observations/tram-overlaps-2026-11-04.md) records the
 runs, rejected variants and remaining clusters.
+
+**Oncoming cars at a held curve.** `heldByTram` exempts a car the tram is following (its `obstacle`, a car right in
+front of the nose, or one ahead in a lane the tram runs along), so that the tram does not hold its own leader. The
+nose/lane exemption used a world-space projection and did not check heading: an oncoming car 30 m ahead of the tram but
+approaching the same conflict from the other arm counted as "right in front". `drive()` ignores cars facing the tram
+(heading dot below −0.5), so the tram then drove into it. The exemption now needs the car to travel the tram's way
+(heading dot above 0.2) unless the tram is farther than `TRAM_ONCOMING_REACH` 8 m from the conflict, so crossing cars
+just ahead of the nose of a tram at the conflict wait too; only `inTramLane` and the tram's own `obstacle` keep their
+exemption. Over the 8 seeds × 7 districts this removes 13 pairs, 12 of them
+in Stare Miasto, without moving cars held over 60 s / over 120 s (183 / 9) or the deadlock count (0).
 
 **Short-link bus guard.** A bus can be longer than the edge after a connector (18 m on Kaponiera's 10 m link 7343), so
 its front is already at that edge's far stop line when it enters. The connector out of it was never seen before the bus
@@ -258,9 +268,13 @@ bus on a link shorter than its body refuses entry while a tram holds that next c
 it. The check is deliberately bus-and-short-link only: applying it to every committed vehicle, or to distant held
 curves, blocked junction boxes and raised Kaponiera holds. The >4 m/s `enter` fallback remains for genuine can't-stop
 cases, but a bus on a short link stops at the line rather than entering a tram body already over the curve
-(`TRAM_HARD_REACH` 0). This removes Kaponiera bus 200 / tram 1 (seed 4242) and the seed 99 bus pairs; the remaining
-overlaps are mostly cars and the generic high-speed fallback is still open. **Browser check:** the hard stop in
-`enter` snaps speed to 0 from above 4 m/s, a visible jolt chosen over driving into a tram; watch it at Kaponiera.
+(`TRAM_HARD_REACH` 0). This removes Kaponiera bus 200 / tram 1 (seed 4242) and the seed 99 bus pairs. The remaining
+overlaps are mostly cars: 10 at Kaponiera are mostly the same short-link blind spot, 27 are cars already stopped in or
+near the tram envelope (15 before the line, 12 on a connector), and 18 are in Jeżyce, mostly buses. A forecast guard for
+cars on short links and a tram-body hard stop for every vehicle were both measured and rejected: they took the three hot
+districts from 46 to 18–20 pairs but raised Kaponiera's mean longest hold to 134–153 s and cars held over 120 s to 15–32,
+with up to 4 deadlocks. **Browser check:** the hard stop in `enter` snaps speed to 0 from above 4 m/s, a visible jolt
+chosen over driving into a tram; watch it at Kaponiera.
 
 **Public contract for interactions** (car yielding, pedestrians, player collisions, audio):
 - `tramSystem.trams`: the active trams, refreshed every update (the same objects as `tramSystem.pool`, filtered).

@@ -766,11 +766,11 @@ test('cars leave a junction curve held by a tram alone, unless they are ahead of
   const f = {};
   const conflict = { e, i: 0, f, j: 0, held: 3, by: t };
   const n = { tramConflicts: [conflict] };
-  const context = { tramFrame: 3, TRAM_REACH: 70, Math };
+  const context = { tramFrame: 3, TRAM_REACH: 70, TRAM_ONCOMING_REACH: 8, Math, tramClose: () => true };
   context.inTramLane = trafficFunction('inTramLane', context);
   context.heldByTram = trafficFunction('heldByTram', context);
   const tramBlocks = trafficFunction('tramBlocks', context);
-  const car = { edge: e, lane: 0, x: 10, z: 20, halfWidth: 0.9 };
+  const car = { edge: e, lane: 0, x: 10, z: 20, halfWidth: 0.9, tx: 0, tz: 1 };
   assert.equal(tramBlocks(car, n, f, 0), true, 'a car across the tram\'s way waits');
   assert.equal(tramBlocks(car, n, f, 1), false, 'another curve');
   assert.equal(tramBlocks(car, { }, f, 0), false, 'a junction without track');
@@ -782,6 +782,12 @@ test('cars leave a junction curve held by a tram alone, unless they are ahead of
   t.obstacle = null;
   Object.assign(car, { x: 0.5, z: 15 });
   assert.equal(tramBlocks(car, n, f, 0), false, 'right in front of the tram: it leads');
+  Object.assign(car, { tx: 0, tz: -1 });
+  assert.equal(tramBlocks(car, n, f, 0), true, 'a car facing the tram is ignored by it, so it must wait');
+  context.tramClose = () => false;
+  assert.equal(tramBlocks(car, n, f, 0), false, 'a distant tram still lets an oncoming car go');
+  context.tramClose = () => true;
+  Object.assign(car, { tx: 0, tz: 1 });
   Object.assign(car, { x: 6, z: 15, edge: lane });
   conflict.e = lane;
   assert.equal(tramBlocks(car, n, f, 0), false, 'ahead in a lane the tram runs along');

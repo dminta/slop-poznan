@@ -1893,7 +1893,17 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     const dx = v.x - t.frontX;
     const dz = v.z - t.frontZ;
     if (t.obstacle === v) return false; // the tram is waiting for it
-    if (dx * hx + dz * hz > -1 && (Math.abs(dx * hz - dz * hx) < front.halfWidth + v.halfWidth + 0.3 || inTramLane(t, v))) return false;
+    // A car that happens to project just ahead of the nose goes first only if it is going the tram's way (heading dot
+    // above 0.2): drive() ignores cars facing it (dot below -0.5), so exempting an oncoming one drove the tram into it
+    // (12 of the 13 removed pairs, Stare Miasto). Crossing cars are refused too, on purpose: the measured numbers are
+    // for this threshold. Only refuse while the tram is actually at the conflict: a distant one still lets the car go
+    // (it was never the collision case), which keeps long tram-stop queues out of the change. A lane the tram runs
+    // along ahead keeps its exemption throughout.
+    const lateral = Math.abs(dx * hz - dz * hx);
+    const sameWay = v.tx * hx + v.tz * hz > 0.2;
+    const noseExempt = sameWay || !tramClose(t, c, TRAM_ONCOMING_REACH);
+    if (dx * hx + dz * hz > -1 &&
+      ((noseExempt && lateral < front.halfWidth + v.halfWidth + 0.3) || inTramLane(t, v))) return false;
     return true;
   }
 
@@ -1909,6 +1919,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // the same object in te.junctions and node.tramConflicts, so find it on the tram's own path.
   const TRAM_STOP_REACH = 16; // m of tram path ahead of its front for a bus that cannot fit on the next link
   const TRAM_HARD_REACH = 0; // a tram body already on the curve: a bus that cannot stop stops at the line
+  const TRAM_ONCOMING_REACH = 8; // m: an oncoming car the tram ignores is safe to exempt only while the tram is farther
   function tramClose(t, c, reach) {
     const path = t.path;
     for (let i = path.indexAt(Math.max(0, path.u - t.length)); i < path.n; i++) {
