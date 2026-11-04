@@ -50,7 +50,7 @@ test('seeded species assignment preserves the full built city tree sites and col
   assert.deepEqual(before, [18698, 22658, 8743, 0]);
   assert.deepEqual(after, [17932, 21753, 8385, 2029]);
   assert.equal(siteHash, 'b960c4a3179d7d9b9cdb25cf36ffc70072b168c7ee60520f7ad205aecc0a8028');
-  assert.equal(digest(grid.propColliders), '15546f8e386f87f6b06e37ea8ffedd42fb6d00bc0ab26d6b3b7b49c9a497418d');
+  assert.equal(digest(grid.propColliders), '2c9753350cf7849cb916076c4b72f73be803975bcae4aedfd07e541b4a7814ca');
   assert.equal(digest(details.colliders), '03880534b7e17937632b50824486989d4651150bdffd6eb931cdeabd7127a3eb');
   const meshCount = (pick) => {
     const types = new Set();

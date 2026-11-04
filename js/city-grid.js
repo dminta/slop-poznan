@@ -475,8 +475,38 @@ function clipHalfPlane(poly, a, b, left) {
  * corridor stays closed round bends). Subtracting a convex quad from a convex piece leaves at most four convex pieces,
  * one per quad edge, so every step is plain half-plane clipping. Slivers under 0.02 m² are dropped.
  */
-function cutSlab(ring, segs, half) {
+function cutSlab(ring, segs, half, holes = []) {
   let pieces = triangulateRing(ring);
+  // Subtract building holes as triangles before cutting corridors; all pieces remain convex.
+  for (const hole of holes) {
+    for (const triangle of triangulateRing(hole)) {
+      const next = [];
+      const minX = Math.min(...triangle.map((p) => p.x)), maxX = Math.max(...triangle.map((p) => p.x));
+      const minZ = Math.min(...triangle.map((p) => p.z)), maxZ = Math.max(...triangle.map((p) => p.z));
+      for (const piece of pieces) {
+        if (piece.every((p) => p.x <= minX) || piece.every((p) => p.x >= maxX) ||
+            piece.every((p) => p.z <= minZ) || piece.every((p) => p.z >= maxZ)) {
+          next.push(piece);
+          continue;
+        }
+        let overlap = piece;
+        for (let i = 0; i < 3 && overlap.length >= 3; i++) {
+          overlap = clipHalfPlane(overlap, triangle[i], triangle[(i + 1) % 3], true);
+        }
+        if (overlap.length < 3 || polygonCentroidArea(overlap) < 1e-8) {
+          next.push(piece);
+          continue;
+        }
+        let rest = piece;
+        for (let i = 0; i < 3 && rest.length >= 3; i++) {
+          const outside = clipHalfPlane(rest, triangle[i], triangle[(i + 1) % 3], false);
+          if (outside.length >= 3 && polygonCentroidArea(outside) > 0.01) next.push(outside);
+          rest = clipHalfPlane(rest, triangle[i], triangle[(i + 1) % 3], true);
+        }
+      }
+      pieces = next;
+    }
+  }
   const area = (p) => polygonCentroidArea(p);
   for (const [ax, az, bx, bz, segmentHalf = half] of segs) {
     const len = Math.hypot(bx - ax, bz - az);
@@ -609,7 +639,43 @@ function pavedPlazas() {
     }
     return inside <= 30;
   });
+  const roadSegments = [];
+  const graph = GEO.roadGraph;
+  for (const [a, b, , w, , , inner] of graph.links) {
+    let x = graph.nodes[a * 2], z = graph.nodes[a * 2 + 1];
+    for (let i = 0; i <= inner.length; i += 2) {
+      const nx = i < inner.length ? inner[i] : graph.nodes[b * 2];
+      const nz = i < inner.length ? inner[i + 1] : graph.nodes[b * 2 + 1];
+      roadSegments.push([x, z, nx, nz, w / 2]);
+      x = nx; z = nz;
+    }
+  }
+  // Intersect the centreline with every ring edge, then sample each interval. This catches short crossings which
+  // the 2 m plaza-deduplication sampling above can miss, while excluding segments entirely inside a building hole.
+  function crossesPlaza(p, [ax, az, bx, bz]) {
+    if (Math.max(ax, bx) < p.minX || Math.min(ax, bx) > p.maxX ||
+      Math.max(az, bz) < p.minZ || Math.min(az, bz) > p.maxZ) return false;
+    const dx = bx - ax, dz = bz - az, cuts = [0, 1];
+    for (const ring of [p.ring, ...p.holes]) {
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i], b = ring[(i + 1) % ring.length];
+        const ex = b.x - a.x, ez = b.z - a.z, den = dx * ez - dz * ex;
+        if (Math.abs(den) < 1e-9) continue;
+        const t = ((a.x - ax) * ez - (a.z - az) * ex) / den;
+        const u = ((a.x - ax) * dz - (a.z - az) * dx) / den;
+        if (t > 0 && t < 1 && u >= 0 && u <= 1) cuts.push(t);
+      }
+    }
+    cuts.sort((a, b) => a - b);
+    for (let i = 1; i < cuts.length; i++) {
+      if (cuts[i] - cuts[i - 1] < 1e-8) continue;
+      const t = (cuts[i] + cuts[i - 1]) * 0.5, x = ax + dx * t, z = az + dz * t;
+      if (pointInPolygonXZ(p.ring, x, z) && !p.holes.some((h) => pointInPolygonXZ(h, x, z))) return true;
+    }
+    return false;
+  }
   for (const p of kept) {
+    p.roadSegs = roadSegments.filter((s) => crossesPlaza(p, s));
     let inside = 0;
     const segs = [];
     const m = TRAM_CUT * 2;
@@ -870,10 +936,12 @@ function buildCityGrid(scene) {
   // tracks are unchanged (the park blocks are whole footprints already), and they are not walls for street-details.js
   // to hang name plates on.
   const propColliders = [];
+  let activePlaza = null;
   function addPropCollider(x, z, hx, hz, maxY, rotY = 0) {
     if (!rotY) {
       const c = { minX: x - hx, maxX: x + hx, minZ: z - hz, maxZ: z + hz, maxY };
       propColliders.push(c);
+      if (activePlaza) activePlaza.props.push(c);
       return c;
     }
     // local x maps to world (cos, -sin) under a three.js y rotation, local z to (sin, cos): the controllers' obb frame
@@ -882,6 +950,7 @@ function buildCityGrid(scene) {
     const ez = Math.abs(sn) * hx + Math.abs(cs) * hz;
     const c = { minX: x - ex, maxX: x + ex, minZ: z - ez, maxZ: z + ez, maxY, obb: { cx: x, cz: z, hx, hz, cs, sn } };
     propColliders.push(c);
+    if (activePlaza) activePlaza.props.push(c);
     return c;
   }
   const prand = (x, z, k = 0) => {
@@ -889,22 +958,30 @@ function buildCityGrid(scene) {
     return s - Math.floor(s);
   };
 
+  const roadCutPlazas = [];
   const cutPlazas = []; // { name, curb, top }: the convex slab pieces of the squares paved round tram track
-  function addPavedPlaza(pts, style, topY = PLAZA_Y, holes = [], tramSegs = null, name = '') {
+  function addPavedPlaza(pts, style, topY = PLAZA_Y, holes = [], tramSegs = null, name = '', roads = []) {
     pavedRects.push(...coverRects(pts));
     const inner = offsetPolygonInward(pts, 0.3) || pts;
-    if (tramSegs) {
+    if (tramSegs || roads.length) {
       // the curb-stone rim runs along the cut edges too: the paving keeps 0.3 m back from them as from the outline
-      const curb = cutSlab(pts, tramSegs, TRAM_CUT);
-      const top = cutSlab(inner, tramSegs, TRAM_CUT + 0.3);
+      const segments = [...(tramSegs || []).map((s) => [...s, TRAM_CUT]), ...roads];
+      const curb = cutSlab(pts, segments, 0, holes);
+      const topSegs = segments.map(([ax, az, bx, bz, half]) => [ax, az, bx, bz, half + 0.3]);
+      const top = cutSlab(inner, topSegs, 0, holes.filter((h) => ringInside(inner, h)));
       for (const piece of curb) group.add(createExtrudedPolygonMesh(piece, 0.0, topY - 0.04, curbMat));
       for (const piece of top) {
         const mesh = createExtrudedPolygonMesh(piece, 0.0, topY, pavingMat);
         setPavingStyle(mesh.geometry, style);
         group.add(mesh);
       }
-      cutPlazas.push({ name, curb, top });
-      return;
+      if (tramSegs) cutPlazas.push({ name, curb, top });
+      if (roads.length) {
+        const result = { name, ring: pts, curb, top, roads, props: [] };
+        roadCutPlazas.push(result);
+        return result;
+      }
+      return null;
     }
     group.add(createExtrudedPolygonMesh(pts, 0.0, topY - 0.04, curbMat, true, false, holes));
     const top = createExtrudedPolygonMesh(inner, 0.0, topY, pavingMat, true, false, holes.filter((h) => ringInside(inner, h)));
@@ -952,11 +1029,21 @@ function buildCityGrid(scene) {
   }
 
   for (const pl of pavedPlazas()) {
+    activePlaza = null;
     const holes = pl.holes.filter((h) => h.length >= 3 && ringInside(pl.ring, h));
-    // cutSlab has no holes: a square with both buildings and tram track on it (one: the pedestrian area at the Ogrody
-    // tram loop on Dąbrowskiego) is left unpaved rather than burying the rails
-    if (pl.tramSegs && holes.length) continue;
-    addPavedPlaza(pl.ring, 1, PLAZA_Y, holes, pl.tramSegs, pl.name || '');
+    // The Ogrody tram-loop area has both track and buildings and was not paved before the road cuts.
+    if (pl.tramSegs && holes.length && !pl.roadSegs.length) continue;
+    activePlaza = addPavedPlaza(pl.ring, 1, PLAZA_Y, holes, pl.tramSegs, pl.name || '', pl.roadSegs);
+    const clearRoad = (x, z, radius) => pl.roadSegs.every(([ax, az, bx, bz, half]) => {
+      const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
+      if (!len) return true;
+      const ux = dx / len, uz = dz / len;
+      const along = (x - ax) * ux + (z - az) * uz;
+      const across = Math.abs((x - ax) * uz - (z - az) * ux);
+      const da = Math.max(-half - along, along - len - half, 0);
+      const dc = Math.max(across - half, 0);
+      return Math.hypot(da, dc) >= radius + 0.1;
+    });
     // furniture keeps 2 m in from the plaza's edge and 2.5 m off the buildings on it
     const edge = offsetPolygonInward(pl.ring, 2.0);
     if (!edge) continue;
@@ -999,10 +1086,12 @@ function buildCityGrid(scene) {
           }
           if (!shifted) continue;
         }
-        if (!addLamp(px, PLAZA_Y, pz)) continue;
+        if (clearRoad(px, pz, 0.3) && !addLamp(px, PLAZA_Y, pz)) continue;
         // the bench 2.4 m along the edge from the lamp, its back to the edge
         const bx = px + nx * 1.0 + tx * 2.4, bz = pz + nz * 1.0 + tz * 2.4;
-        if (k % 2 === 0 && clear(bx, bz)) addBench(bx, PLAZA_Y, bz, Math.atan2(nx, nz));
+        if (k % 2 === 0 && clear(bx, bz) && clearRoad(bx, bz, 1.0)) {
+          addBench(bx, PLAZA_Y, bz, Math.atan2(nx, nz));
+        }
       }
     }
     // planted squares: a sparse 22 m grid of planter trees, 5 m in from the edge and clear of the buildings
@@ -1013,7 +1102,7 @@ function buildCityGrid(scene) {
       for (let gx = pl.minX + SP * 0.5; gx < pl.maxX; gx += SP) {
         for (let gz = pl.minZ + SP * 0.5; gz < pl.maxZ; gz += SP) {
           if (prand(gx, gz, 11) < 0.5) continue;
-          if (!pointInPolygonXZ(inner, gx, gz) || !clear(gx, gz)) continue;
+          if (!pointInPolygonXZ(inner, gx, gz) || !clear(gx, gz) || !clearRoad(gx, gz, 1.7)) continue;
           addPlanterTree(gx, gz, prand(gz, gx, 12) < 0.6 ? 1 : 0, 0.8 + prand(gx, gz, 13) * 0.2);
         }
       }
@@ -1021,6 +1110,7 @@ function buildCityGrid(scene) {
   }
 
   // =========================================================================
+  activePlaza = null;
   // 6. PARKS: every park block (BLOCKS with a park share over 0.6: the Cytadela, Park Wilsona, Park Sołacki...): its
   //    curb island paved like a park walk, a granite-coped lawn inset from it under scattered trees, lampposts round the
   //    walk, its ponds cut out with a paved path round them
@@ -1290,7 +1380,7 @@ function buildCityGrid(scene) {
   console.info(`[cityGrid] ${benchMatrices.length} benches, ${lampMatrices.length} lampposts, ` +
     `${treeSites.length} park & plaza trees; ${propColliders.length} player colliders; ${offTrack} props kept off the ` +
     `tracks; ${cutPlazas.length} squares paved round tram track`);
-  return { group, sidewalks, footprints, colliders, propColliders, cutPlazas };
+  return { group, sidewalks, footprints, colliders, propColliders, cutPlazas, roadCutPlazas };
 }
 
 export {

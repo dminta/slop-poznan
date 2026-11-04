@@ -12,8 +12,8 @@ test('all city lamps (street, gas, park, plaza) sit on sidewalk/walk with >= 0.5
   assert.equal(byType.side.count, 12512, 'expected 12,512 side LED streetlights');
   assert.equal(byType.gas.count, 1074, 'expected 1,074 historic gas lanterns');
   assert.equal(byType.park.count, 2332, 'expected 2,332 park walk and lawn lampposts');
-  assert.equal(byType.plaza.count, 643, 'expected 643 square/plaza lampposts');
-  assert.equal(allLamps.length, 18620, 'expected 18,620 total lamps citywide');
+  assert.equal(byType.plaza.count, 641, 'expected 641 square/plaza lampposts');
+  assert.equal(allLamps.length, 18618, 'expected 18,618 total lamps citywide');
 
   // 2. Zero lamps overlapping curb stone or roadway (< 0.25 m from curb edge)
   for (const [type, t] of Object.entries(byType)) {
