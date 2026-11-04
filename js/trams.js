@@ -65,6 +65,16 @@ const TRAM_RADIUS = 900; // trams further than this from the camera are respawne
 const SPAWN_MIN = 120;
 const SPAWN_VIEW = 300; // no spawning in view this close
 const SPAWN_SPACING = 70;
+// Spawns on the last 200 m of a buffer approach are the ones that join the queue immediately. A wider gate
+// (measured at 500 m and 900 m) kept the queue down but emptied the edges: trams within 400 m of an edge focus fell
+// from 6.7–10.2 to 0–3.7 and the pool could not fill at the SE focus. Keep only this short gate.
+const SPAWN_BUFFER_CLEAR = 200;
+// A tram queued behind a buffer-held tram is retired after 2 s only while slow/stopped and out of the frustum and
+// render range: otherwise the queue behind the front counts `stuck` (90 s out of view, 240 s in view) and drains one
+// tram per front retirement. `bufferWait` deliberately does not count on a freely moving tram.
+const BUFFER_QUEUE_REACH = LOOKAHEAD + 20; // path.extend only sees a dead end this far ahead
+const BUFFER_WAIT = 2;
+const BUFFER_SPEED = 2; // a queue creeps at 1-2 m/s between trams; anything faster is not waiting
 const TRAM_CULL = 1500;
 const PATH_CAP = 32;
 const TRAM_SPOT_POOL = 8; // 2 per lit tram
@@ -864,7 +874,7 @@ function poseSections(path, u, model, out) {
 // The tram system
 // ---------------------------------------------------------------------------------------------------------------------
 function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.tramStops, routes = GEO.tramRoutes,
-  levelCrossings = GEO.levelCrossings, traffic = null } = {}) {
+  levelCrossings = GEO.levelCrossings, traffic = null, seed = 1922 } = {}) {
   const group = new THREE.Group();
   group.name = 'Trams';
   scene.add(group);
@@ -918,8 +928,8 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
   const lines = routes || [];
   const routed = graph.edges.some((e) => e.routes.length > 0);
 
-  let seed = 1922; // the first electric tram in Poznań (1898 horse tram, 1922 MPK)
-  const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  let rng = seed; // default 1922: the first electric tram in Poznań (1898 horse tram, 1922 MPK); injectable for benches
+  const rand = () => (rng = (rng * 16807) % 2147483647) / 2147483647;
 
   // The pool: ~12% Combino (14 in service), ~29% Tramino (45 in service), the rest Gamma (80 in service)
   const pool = [];
@@ -936,7 +946,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       atStop: false, stopName: '', dwell: 0, doorsOpen: false, nextStop: null, lastStop: null,
       leader: null, gap: Infinity, waitReason: '', obstacle: null, _roadCarGate: false,
       route: -1, line: '', destination: '',
-      deadEndWait: 0, stuck: 0,
+      deadEndWait: 0, bufferWait: 0, stuck: 0,
       _signalTime: 0, _signalCommitN: 0, _signalCommits: new Array(PATH_CAP).fill(null),
       // per-frame occupancy: the path edges under the body, local [s0, s1] on each
       occN: 0, occEdge: new Array(PATH_CAP).fill(null), occS0: new Float64Array(PATH_CAP), occS1: new Float64Array(PATH_CAP),
@@ -1009,6 +1019,9 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     return true;
   }
   const nearView = (x, z, r, distance) => hasView && Math.hypot(x - camX, camY, z - camZ) < distance && visible(x, z, r);
+  // Out of the rendered view, not merely outside the 250 m spawn-protection radius: a tram still in the frustum out
+  // to TRAM_CULL is on screen and must not be retired.
+  const outOfView = (x, z, r) => !hasView || Math.hypot(x - camX, z - camZ) > TRAM_CULL || !visible(x, z, r);
 
   // Edges around the focus, to spawn on (refreshed after the focus moves 60 m)
   const nearEdges = [];
@@ -1057,8 +1070,8 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     const path = t.path;
     path.route = route;
     path.reset(e, s, t.length + 10, rand);
-    path.extend(LOOKAHEAD, rand);
-    if (path.end - path.u < 80) return false; // not just before a buffer stop
+    path.extend(SPAWN_BUFFER_CLEAR, rand);
+    if (path.end - path.u < SPAWN_BUFFER_CLEAR) return false; // not on a buffer approach (the edge queue)
     for (let i = 0; i < path.n; i++) {
       const e = path.edges[i];
       if (e.run < 0) continue;
@@ -1076,6 +1089,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     t.nextStop = null;
     t.lastStop = null;
     t.deadEndWait = 0;
+    t.bufferWait = 0;
     t.stuck = 0;
     t._signalCommitN = 0;
     t._roadCarGate = false;
@@ -1730,6 +1744,18 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     if (frontRoute !== t.route) setLine(t, frontRoute);
   }
 
+  // Is this tram (or the tram it follows) queued behind a buffer stop? A path only knows a dead end
+  // BUFFER_QUEUE_REACH ahead, so a tram several places back would not see the end itself; follow the leader chain.
+  function bufferQueueAhead(t) {
+    let o = t;
+    for (let k = 0; o && k < 8; k++) {
+      const path = o.path;
+      if (path && path.end < Infinity && path.end - path.u < BUFFER_QUEUE_REACH) return true;
+      o = o.leader;
+    }
+    return false;
+  }
+
   // Instance writes
   const dirtyState = new Set();
   let updates = 0;
@@ -1831,8 +1857,16 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     for (const t of pool) {
       if (!t.active) continue;
       const far = Math.hypot(t.x - fx, t.z - fz) > TRAM_RADIUS;
-      const unseen = !nearView(t.x, t.z, 25, 250);
-      if (jump || far || (t.deadEndWait > 8 && unseen) || t.deadEndWait > 40 || (t.stuck > 90 && unseen) || t.stuck > 240) {
+      const hidden = outOfView(t.x, t.z, 25);
+      const last = t.path.edges[t.path.n - 1];
+      const toEnd = t.path.end < Infinity ? t.path.end - t.path.u : Infinity;
+      // A free-ending buffer (endPad 1: 10 of the 54 dead ends, 9 of them at the detail-box edge) is the edge of the
+      // model, not a platform: a stopped front tram leaves after 2 s out of view instead of the 8 s wait. A stub
+      // ending on another track (endPad 19 = 1 + 2 FOUL, incl. 2 of the 11 edge buffers) keeps the 8 s wait.
+      const boxEdgeStop = last.endPad < 2 && toEnd < last.endPad + 1 && t.speed < 0.2;
+      if (jump || far || (boxEdgeStop && t.deadEndWait > BUFFER_WAIT && hidden) ||
+          (t.deadEndWait > 8 && hidden) || t.deadEndWait > 40 ||
+          (t.bufferWait > BUFFER_WAIT && hidden) || (t.stuck > 90 && hidden) || t.stuck > 240) {
         t.active = false;
       }
     }
@@ -1854,8 +1888,12 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     for (const t of pool) {
       if (!t.active) continue;
       advance(t, dt);
-      const atEnd = t.path.end < Infinity && t.path.end - t.path.u < t.path.edges[t.path.n - 1].endPad + 1 && t.speed < 0.2;
+      const toEnd = t.path.end < Infinity ? t.path.end - t.path.u : Infinity;
+      const atEnd = toEnd < t.path.edges[t.path.n - 1].endPad + 1 && t.speed < 0.2;
       t.deadEndWait = atEnd ? t.deadEndWait + dt : 0;
+      // Any slow tram queued behind a buffer stop, not just the front one: an out-of-view queue leaves together
+      // instead of waiting for its turn. A moving tram and a boarding dwell do not count.
+      t.bufferWait = t.speed < BUFFER_SPEED && !t.atStop && bufferQueueAhead(t) ? t.bufferWait + dt : 0;
       t.stuck = t.speed < 0.1 && !t.atStop ? t.stuck + dt : 0;
     }
 

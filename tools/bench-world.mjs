@@ -40,7 +40,7 @@ const config = await import(pathToFileURL(join(ROOT, 'js/city-config.js')).href)
 const { GEO } = await import(pathToFileURL(join(ROOT, 'js/geodata.js')).href);
 
 // The furnished network as main.js builds it, less the buildings (none stands in a lane) and the curb rectangles
-function buildWorld({ noPeds = false, noTrams = false, noSignals = false } = {}) {
+function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSeed = 1922 } = {}) {
   const rn = loadModule(js('road-network.js'), {
     imports: { './city-config.js': config, './geodata.js': { GEO } }, globals: G, filename: 'road-network.js'
   });
@@ -114,7 +114,7 @@ function buildWorld({ noPeds = false, noTrams = false, noSignals = false } = {})
     },
     globals: G, filename: 'trams.js'
   });
-  const trams = createTramSystem(inert(), { network: traffic.network, stops, traffic });
+  const trams = createTramSystem(inert(), { network: traffic.network, stops, traffic, seed: tramSeed });
   if (!noTrams) traffic.setTrams(trams);
   return { traffic, trams, network: traffic.network };
 }

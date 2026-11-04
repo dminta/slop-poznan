@@ -159,6 +159,20 @@ unique physical streets where track runs overlap. The scene omissions above appl
 it listed 65 runs on 61 lanes (753 m); the Półwiejska lane correction leaves 64 runs on 60 lanes (668 m).
 `tests/opposing-tram-audit.test.mjs` runs it, checks the row and total format and that edge 7500 no longer appears.
 
+## Tram edge queue benchmark
+
+`node tools/bench-tram-edges.mjs --in-view --seed 4242 --tram-seed 1922` parks the headless focus just inside each
+of the 11 track buffer stops at the detail-box edge, plus Jeżyce, Centrum and Rataje as central baselines, and runs
+five simulated minutes at 15 fps (`--minutes`, `--fps`, `--seed`, `--tram-seed`, `--only` override them). It reports
+the average active trams and those within 400 m/250 m of the focus, trams ever stopped over 30/60 s,
+`deadEndWait`/`bufferWait`/`stuck` histograms, the queue at every buffer end (all and slow/stopped: max and final,
+share of one-second samples) and the worst cluster of stopped trams, then a Markdown table. Without `--in-view` there
+is no camera, so every tram is out of view; with it, a fake camera at the focus sees in every direction, so every tram
+within `TRAM_CULL` 1,500 m counts as on screen: a 360° worst case, not the browser frustum. Tram seeds 1922/77/4242 and limits are in
+[observations/tram-edge-jams-2026-11-04.md](observations/tram-edge-jams-2026-11-04.md). No test runs the benchmark;
+`tests/tram-buffers.test.cjs` covers the spawn gate, moving-tram clock, render-range visibility, seed injection and
+hidden queue retirement on synthetic track.
+
 ## Tram route membership benchmark
 
 `node tools/bench-tram-routes.mjs` runs six independent headless worlds at Ostrów Tumski (907.1, -246.5),

@@ -229,8 +229,19 @@ Trams follow the associated road signal phase; dedicated tram signal heads are n
   `car`, `player`, `pedestrian`, or empty).
 - **Population**: 24 pooled trams (~12% Combino, ~29% Tramino, ~58% Gamma), kept within 900 m of the camera focus and respawned
   120–800 m away, never within 300 m in view or 70 m from another tram. After a camera jump of more than 140 m they are
-  all respawned. A tram waiting at a buffer stop is respawned after 8 s out of view (40 s in view). A tram stopped
-  90 s out of view (240 s in view) is respawned too; that also clears rare head-on deadlocks.
+  all respawned. `createTramSystem` takes an optional `seed` (default 1922, passed through as `buildWorld({ tramSeed })`
+  in the benchmarks) so runs can vary the tram sequence. A spawn is rejected inside the last 200 m of a buffer approach
+  (`SPAWN_BUFFER_CLEAR`), which stops a new tram joining the buffer queue directly without emptying the edge approaches.
+  A tram queued behind a buffer end (`bufferQueueAhead`, following its leader chain because the path only sees 160 m
+  ahead) accumulates `bufferWait` only while it is under 2 m/s. After 2 s it is respawned when `outOfView` says it is
+  not rendered: no camera, beyond `TRAM_CULL` 1 500 m, or outside the frustum. A tram in the frustum inside the render
+  range is never retired by that rule, and a moving tram never accrues the clock. A free-ending buffer (`endPad` 1, mostly at the
+  detail-box edge; a stub ending on another track has 19 and keeps 8 s) lets a stopped front go after 2 s out of view instead of 8 s; in view the existing 40 s wait
+  stays, so no new popping is added. On 2026-11-05, over tram seeds 1922/77/4242, no edge count within 400 m or 250 m
+  fell below the old base minus its stopped queue; most were within about ±2 trams of the old base and every edge pool
+  filled (16.5–23.5 of 24). With the camera elsewhere no edge had a stopped buffer queue (max 0). A camera that sees
+  every direction still sees the front's 40 s wait and its queue: that is the no-visible-popping trade-off. See the
+  [observation record](observations/tram-edge-jams-2026-11-04.md) and `tools/bench-tram-edges.mjs`.
 - **Bodies**: `TRAM_MODELS` in `trams.js` (Moderus Gamma, 3 sections, 31.8 m; Solaris Tramino, 5, 31.8 m; Siemens Combino, 5, 31.9 m). Each section
   lies on the chord between its two ends on the path (`poseSections`), so the joints stay on the track. Section kinds
   map to one `InstancedMesh` each (`buildTramSectionGeometry` in `actor-models.js`), plus the bellows. All of them use
