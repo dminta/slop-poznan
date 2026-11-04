@@ -123,9 +123,13 @@ world-aligned person's 0.71 m diagonal and 0.05 m margin exceeded the old 1.8 m 
 streets. Two trams could therefore brake for people waiting safely before the other track and hold each other.
 The waiting distance and tram obstacle envelope are regression-tested together.
 
-Exit reservations use one transitive approach order and the same `mergeFirst` order within an approach. Uncommitted
-red-light approaches do not reserve an empty exit against green traffic. `mergeArrival` records arrival within 2 m
-of the line, so a later vehicle stopping a few centimetres farther forward cannot starve a neighbouring lane.
+Exit reservations use one transitive approach order and the same `mergeFirst` order within an approach.
+`mergeArrival` records arrival within 2 m of the line. For exits under 12 m, a red approach whose lead has arrived
+and waited over 10 s remains eligible if the green entrant is estimated to reach a non-green downstream signal.
+The estimate uses a scratch signal plan, leaving the live signal unchanged. This can hold green traffic before an
+empty link if the estimated travel time is pessimistic, but lets it through when the predicted signal is green.
+Between signalised junctions, a follower stopped over 15 s by merge braking may close up behind its own lane lead;
+the lead still obeys merge priority. Without that exception the follower can stay far back through repeated merges.
 
 Trams reserve space for their full length plus 2 m beyond switches, track crossings, mapped road/mainline crossings
 and occupied platforms. A tram already inside continues through. A tram held before entry records `waitReason: 'room'`

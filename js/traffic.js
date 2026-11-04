@@ -1070,10 +1070,32 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     return u.lane < v.lane;
   }
 
+  // Evaluate the downstream phase on a scratch plan: updating the real plan at a future time would change the
+  // signal seen by other drivers and walkers this frame. `timeTo` estimates when v's front reaches its stop line.
+  const signalForecast = {};
+  function downstreamStops(f, j, v) {
+    if (!f.to.signal) return false;
+    const plan = f.to.signalTiming;
+    let timing = plan;
+    while (timing.alias) timing = timing.alias;
+    if (timing.disabled) return false;
+    const d = Math.max(0, v.edge.len - v.s - v.half) + connector(v.edge, v.lane, f, j).len + f.len - v.half;
+    Object.assign(signalForecast, timing);
+    signalForecast.alias = null;
+    signalForecast.time = NaN;
+    const future = updateSignal(clock + timeTo(v, d), signalForecast);
+    const swap = plan !== timing && !future.pedestrian &&
+      Math.abs(plan.mainUx * timing.mainUx + plan.mainUz * timing.mainUz) <= 0.82;
+    const group = swap ? 1 - f.axisIndex : f.axisIndex;
+    return (group === 0 ? future.phase0 : future.phase1) !== 'green';
+  }
+
   // Would there be room for v in lane j of edge f if everyone headed there queued bumper to bumper behind its far
   // stop line? (An empty lane always has room, however short.) Rank approaches by their oldest eligible waiting
   // lead, then fronts within that approach. Ranking individual wait across roads and fronts within one road was
-  // non-transitive: three cars could each reserve the same empty exit against the next at Kaponiera.
+  // non-transitive: three cars could each reserve the same empty exit against the next at Kaponiera. At a short link,
+  // an arrived lead waiting over 10 s remains eligible through red only if the entrant is expected to stop at the
+  // downstream signal. Otherwise green traffic can clear the empty link instead of waiting for the red approach.
   function room(f, j, v) {
     let free = f.len - 1;
     for (const o of f.occ[j]) if (o.v !== v && o.s - o.v.half < f.len) free -= 2 * o.v.half + o.v.driver.s0;
@@ -1082,7 +1104,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       for (const list of a.occ) {
         const o = leadOf(list);
         if (!o || o.v.claimed || !o.v.move || o.v.move.to !== f || o.v.move.out[o.v.lane] !== j) continue;
-        if (a.to.signal && !o.v.isPolice && o.v.commit !== a.to && phaseOf(a) !== 'green') continue;
+        if (a.to.signal && !o.v.isPolice && o.v.commit !== a.to && phaseOf(a) !== 'green' &&
+          !(f.len < 12 && o.v.wait > 10 && Number.isFinite(o.v.mergeArrival) && downstreamStops(f, j, v))) continue;
         const at = Number.isFinite(o.v.mergeArrival) ? o.v.mergeArrival : Infinity;
         const first = Number.isFinite(at) ? priority && a.id < priority.id
           : o.v.wait > waited || (priority && o.v.wait === waited && a.id < priority.id);
@@ -1097,7 +1120,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       for (const list of a.occ) {
         const o = leadOf(list);
         if (!o || o.v.claimed || !o.v.move || o.v.move.to !== f || o.v.move.out[o.v.lane] !== j) continue;
-        if (a.to.signal && !o.v.isPolice && o.v.commit !== a.to && phaseOf(a) !== 'green') continue;
+        if (a.to.signal && !o.v.isPolice && o.v.commit !== a.to && phaseOf(a) !== 'green' &&
+          !(f.len < 12 && o.v.wait > 10 && Number.isFinite(o.v.mergeArrival) && downstreamStops(f, j, v))) continue;
         const first = a === v.edge ? mergeFirst(o.v, o.s, v, v.s) : a === priority;
         if (first) free -= 2 * o.v.half + o.v.driver.s0;
       }
@@ -1145,6 +1169,11 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   function mergingAhead(v, f, j) {
     const e = v.edge;
     merger.v = null;
+    const lead = leadOf(e.occ[v.lane]);
+    // At adjacent signals a follower can be held metres behind its own lead by an endless stream of other-lane
+    // mergers. After a long stop, let it follow that lead toward the line; the lead still obeys merge priority.
+    if (f.len < 12 && e.to.signal && f.to.signal && v.wait > 15 && v.waitReason === 'merge' &&
+      lead && lead.v !== v) return null;
     for (let i = 0; i < e.lanes.length; i++) {
       const o = i === v.lane ? null : leadOf(e.occ[i]);
       if (!o || o.v === v || o.v.claimed || o.v.move.to !== f || !mergeFirst(o.v, o.s, v, v.s)) continue;

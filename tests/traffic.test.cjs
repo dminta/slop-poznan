@@ -152,6 +152,94 @@ test('a newcomer stopping centimetres farther forward cannot repeatedly pass an 
   assert.equal(mergingAhead(newcomer, exit, 0).v, old, 'the newcomer follows its predecessor');
 });
 
+test('a long-held follower can close up behind its own lane lead at a short merge', () => {
+  const exit = { len: 9.43, lanes: [0], to: { signal: true } };
+  const edge = { len: 25, lanes: [0, 1], occ: [], to: { signal: true } };
+  const car = (lane, s, wait, reason) => ({ edge, lane, s, wait, waitReason: reason, half: 2.2,
+    move: { to: exit, out: [0, 0] } });
+  const follower = car(0, 10, 16, 'merge');
+  const lead = car(0, 22, 0, '');
+  const rival = car(1, 23, 0, '');
+  edge.occ = [[{ v: follower, s: follower.s }, { v: lead, s: lead.s }], [{ v: rival, s: rival.s }]];
+  const context = { merger: {}, connector: () => ({ len: 20 }), besideTail: () => false,
+    leadOf: (list) => list.at(-1), precedence: (v, s) => s + v.half };
+  context.mergeFirst = trafficFunction('mergeFirst', context);
+  const mergingAhead = trafficFunction('mergingAhead', context);
+  assert.equal(mergingAhead(follower, exit, 0), null, 'the car follows its own leader up to the line');
+  follower.wait = 15;
+  assert.equal(mergingAhead(follower, exit, 0).v, rival, 'normal merge braking applies before the long wait');
+  follower.wait = 16;
+  edge.occ[0].pop();
+  assert.equal(mergingAhead(follower, exit, 0).v, rival, 'a lane lead still yields to the older merging car');
+  edge.occ[0].push({ v: lead, s: lead.s });
+  exit.len = 30;
+  assert.equal(mergingAhead(follower, exit, 0).v, rival, 'normal merge braking applies at a longer exit');
+  exit.len = 9.43;
+  exit.to.signal = false;
+  assert.equal(mergingAhead(follower, exit, 0).v, rival, 'ordinary unsignalised links keep normal merge braking');
+});
+
+test('a long-waiting red approach can reserve the next opening in a short exit', () => {
+  const n = { signal: true, in: [] };
+  const a = { id: 1, to: n, occ: [], phase: 'red' };
+  const b = { id: 2, to: n, occ: [], phase: 'green' };
+  const exit = { len: 9.43, occ: [[]], from: n };
+  let downstreamBlocked = false;
+  const car = (edge, wait, arrival) => ({ edge, lane: 0, s: 9, wait, mergeArrival: arrival, half: 2.2,
+    driver: { s0: 2 }, move: { to: exit, out: [0] } });
+  const old = car(a, 70, 10), newer = car(b, 5, 75);
+  a.occ = [[{ v: old, s: old.s }]];
+  b.occ = [[{ v: newer, s: newer.s }]];
+  n.in = [a, b];
+  const context = { leadOf: (list) => list.at(-1), precedence: (v, s) => s + v.half, phaseOf: (e) => e.phase,
+    downstreamStops: () => downstreamBlocked };
+  context.mergeFirst = trafficFunction('mergeFirst', context);
+  const room = trafficFunction('room', context);
+  assert.equal(room(exit, 0, newer), true, 'green traffic can use an empty exit it can clear');
+  downstreamBlocked = true;
+  assert.equal(room(exit, 0, newer), false, 'the old approach gets an opening on its next green');
+  old.wait = 10;
+  assert.equal(room(exit, 0, newer), true, 'ordinary red queues do not block green traffic');
+  old.wait = 70;
+  exit.len = 30;
+  assert.equal(room(exit, 0, newer), true, 'long exits retain normal signal priority');
+});
+
+test('the downstream forecast matches signal plans without changing their current state', async () => {
+  const { updateSignal } = await import('../js/city-config.js');
+  const root = { cycle: 60, green0: 25, start1: 30, offset: 2, mainUx: 1, mainUz: 0,
+    disabled: false, pedestrian: false, start: 20, duration: 22 };
+  const alias = { alias: root, mainUx: 0, mainUz: 1 };
+  const edge = { to: { signal: true, signalTiming: root }, len: 9.43, axisIndex: 0 };
+  const car = { edge: { len: 20 }, s: 10, half: 2, lane: 0 };
+  let when = 0;
+  const forecast = trafficFunction('downstreamStops', {
+    clock: 5, timeTo: () => when - 5, connector: () => ({ len: 15 }), updateSignal, signalForecast: {}
+  });
+  for (const plan of [root, alias]) {
+    edge.to.signalTiming = plan;
+    for (const pedestrian of [false, true]) {
+      root.pedestrian = pedestrian;
+      for (const group of [0, 1]) {
+        edge.axisIndex = group;
+        for (when = 0; when <= 80; when++) {
+          const before = JSON.stringify([root, alias]);
+          const actual = forecast(edge, 0, car);
+          assert.equal(JSON.stringify([root, alias]), before, 'forecast must not alter the live plans');
+          const copy = plan === root ? { ...root } : { ...alias, alias: { ...root } };
+          const expected = updateSignal(when, copy);
+          assert.equal(actual, (group === 0 ? expected.phase0 : expected.phase1) !== 'green',
+            `time ${when}, group ${group}, pedestrian ${pedestrian}, alias ${plan === alias}`);
+        }
+      }
+    }
+  }
+  root.disabled = true;
+  assert.equal(forecast(edge, 0, car), false, 'a disabled signal does not cause a reservation');
+  edge.to.signal = false;
+  assert.equal(forecast(edge, 0, car), false, 'an unsignalised exit does not cause a reservation');
+});
+
 test('traffic reads each junction timing once per frame, independently of vehicle count', () => {
   const nodes = [
     { signalTiming: { phase0: 'green', phase1: 'red' } },

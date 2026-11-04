@@ -362,9 +362,32 @@ lost their trees and stand empty. Browser checks remain. Details:
 | Park bounding boxes | Resolved citywide. Exact park polygons (`exact = true`) are enabled for all street furniture and trees in `js/street-details.js`, restoring 4,004 street trees and 4,639 non-signal street furniture footprints while preserving 100% of drivable road network edges (8,512/8,512) and 0 rail clearance violations. | Follow-up |
 | Sparse OSM blocks | Check the nine large blocks with under 5% mapped building coverage against BDOT10k; supplement only confirmed omissions. The original audit covered 0.69 km² and needs rechecking against the current enlarged box. Verify source terms before adding data. | 14.3 |
 | Building accuracy | Sourced landmark heights calibrated (audit record: [observations/landmark-heights-2026-11-03.md](observations/landmark-heights-2026-11-03.md); tests: `tests/landmark-heights.test.cjs`). Corrected: Iglica (70 m), Delta (43.5 m), Brama Poznania (16.3 m), Zamek Królewski terrace (30 m). Remaining unsourced: Fara roof ridge, Teatr Wielki fly tower, Novotel. | 4.4, 7 |
-| Merge starvation | A car can wait minutes to merge into a short link while newer traffic from another approach takes the slot: at the Centrum pair `−1117, 132` / `−1136, 127` (9.43 m link) the lane lead stopped about 7 m short, so it never got `mergeArrival`, which `mayEnter` sets within 2 m of the line. HEAD seed 1 Centrum already holds a car 181 s in `tools/bench-traffic.mjs`. Two candidate fixes (queue-age backdating; timestamping a stopped lane lead within 10 m) were rejected on 2026-11-03 because they raised the seed 4242 Centrum longest hold from 66 to 125 s. | Follow-up |
+| Merge starvation | The short-exit reservation now considers a waiting red approach only when the green entrant is predicted to encounter a non-green downstream signal; a long-held follower at adjacent signals can also close up behind its own lane lead. At current HEAD, Centrum seed 1 longest hold / held over 60 s / over 120 s is **166 / 1 / 1 → 63 / 2 / 0**; seed 4242 is **88 / 5 / 0 → 85 / 4 / 0**, still above the original 66 s target. The historical 181 s merge-braking hold is reduced. For seed 7, the merge junction at `−1117, 132` drops from 185 to 72 s; the district's new 91 s peak is at `−1136, 127`. See the comparison below. | Follow-up |
+| Short-link left-turn phase | Investigate the signal phase for the left turn at `−1136, 127`. In Centrum seed 99, car #46 waits inside the 9.43 m link for 176 s both before and after the merge change, mostly for `signal` (once for `tram`); car #44 behind it is held for `room`, accounting for the 174 s wait reported at `−1117, 132`. This is separate from merge starvation. | Follow-up |
 | Tram route quality | Track continuity, tunnel preservation (PST, Franowo), the Św. Marcin – Ratajczaka curve, and universal 2.2875 m step elimination across junctions and islands are implemented. The 2026-11-03 headless run found 0 / 84,235 samples on other lines or unused track; the display timing fix reduced line 5 samples showing the return direction before the front reached its edge from 355 to 0 in the same benchmark. The historical 0.44% is not directly comparable; method and limits are in [Trams](actors.md#trams-jstramsjs) and [testing](testing.md#tram-route-membership-benchmark). | 15.10 |
 | Park blocks with buildings | After the 2026-11-03 carve-out, park paving, granite beds and lawn are still drawn over the whole block under its buildings; the three planter boxes whose trees the wall rule dropped (Domki Budnicze, Stary Browar) stand empty; the 41 blocks build 3.46% against 4.39% real, partly because real buildings inside the park rings are carved out. | Follow-up |
+
+Merge benchmark, five minutes per district at 15 fps: each entry is longest hold in seconds / cars held over 60 s /
+cars held over 120 s, before → after. Dashes mark districts not measured for that seed. Current HEAD is after traffic
+commits `1e6a8b5`, `89f2fee`, `cf797ed`, `759e06e`, `29d72c8`, `64b802c` and `284d4bc`; the earlier `dedac97`
+baselines of 181 s (seed 1) and 66 s (seed 4242) differ because the simulation changed, not because of Node.
+At the Centrum junction, the seed 1 stopped-car root causes changed from 53% merge at `dedac97` to 75% signal at
+current HEAD. Replaying the original historical car with the revised logic reduced its maximum stop from 181 s to
+about 114 s and it entered the junction; historical seed 4242 changed from 66 s / 2 / 0 to 63 s / 3 / 0. This does
+not establish that all merge starvation is eliminated. The rejected early-arrival rule remains removed: on `dedac97`
+it raised seed 4242 to 125 s even with the narrower reservation. A lane-lead braking relaxation was also rejected:
+it changed current seed 4242 Kaponiera from 140 to 237 s. Current Centrum seed 4242 remains above the original 66 s
+target. Seed 99's 176 s district peak is the separate left-turn signal hold described above, not merge starvation.
+
+| District | Seed 1 | Seed 4242 | Seed 7 | Seed 99 |
+|---|---|---|---|---|
+| Jeżyce | 64 / 2 / 0 → 64 / 2 / 0 | 71 / 1 / 0 → 71 / 1 / 0 | 67 / 2 / 0 → 67 / 2 / 0 | 82 / 2 / 0 → 82 / 2 / 0 |
+| Łazarz | 33 / 0 / 0 → 33 / 0 / 0 | 29 / 0 / 0 → 29 / 0 / 0 | — | — |
+| Centrum | 166 / 1 / 1 → 63 / 2 / 0 | 88 / 5 / 0 → 85 / 4 / 0 | 185 / 11 / 2 → 91 / 5 / 0 | 187 / 9 / 6 → 176 / 8 / 5 |
+| Rondo Kaponiera | 160 / 29 / 5 → 160 / 29 / 5 | 140 / 24 / 1 → 140 / 18 / 1 | 133 / 19 / 1 → 133 / 19 / 1 | 103 / 22 / 0 → 103 / 22 / 0 |
+| Stare Miasto | 43 / 0 / 0 → 43 / 0 / 0 | 27 / 0 / 0 → 27 / 0 / 0 | — | — |
+| Rataje | 46 / 0 / 0 → 46 / 0 / 0 | 186 / 2 / 2 → 186 / 2 / 2 | — | — |
+| Wilda | 42 / 0 / 0 → 42 / 0 / 0 | 38 / 0 / 0 → 38 / 0 / 0 | — | — |
 
 ## Decisions awaiting the user
 
