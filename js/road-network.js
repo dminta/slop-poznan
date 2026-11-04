@@ -477,7 +477,9 @@ function buildRoadNetwork(sidewalks, obstacles) {
     for (let k = 2; k < r.pts.length; k += 2) {
       const ax = r.pts[k - 2], az = r.pts[k - 1], bx = r.pts[k], bz = r.pts[k + 1];
       const len = Math.hypot(bx - ax, bz - az);
-      if (len > 0) streetTracks.push({ ax, az, bx, bz, len, ux: (bx - ax) / len, uz: (bz - az) / len });
+      if (len > 0) {
+        streetTracks.push({ ax, az, bx, bz, len, ux: (bx - ax) / len, uz: (bz - az) / len, oneway: !!r.oneway });
+      }
     }
   }
   function alignSharedTramLane(e) {
@@ -507,6 +509,30 @@ function buildRoadNetwork(sidewalks, obstacles) {
     e.lanes[0] = lane;
   }
   for (const e of edges) alignSharedTramLane(e);
+  // A strip can put its opposing track too close to the inner of two car lanes. Move that lane away only where a
+  // one-way track runs alongside the whole edge and both car lanes still fit clear of each other and the curb.
+  function clearOpposingStripTrack(e) {
+    if (e.sharedTram || e.lanes.length !== 2) return;
+    let trackRight = -Infinity;
+    for (const fraction of [0.05, 0.275, 0.5, 0.725, 0.95]) {
+      const x = e.x0 + e.dx * e.span * fraction, z = e.z0 + e.dz * e.span * fraction;
+      let closest = -Infinity;
+      for (const t of streetTracks) {
+        if (!t.oneway || t.ux * e.dx + t.uz * e.dz > -0.95) continue;
+        const along = (x - t.ax) * t.ux + (z - t.az) * t.uz;
+        if (along < 0 || along > t.len) continue;
+        const lateral = (t.ax + t.ux * along - x) * e.rx + (t.az + t.uz * along - z) * e.rz;
+        if (lateral < e.lanes[0] && e.lanes[0] - lateral < 2.5) closest = Math.max(closest, lateral);
+      }
+      if (closest === -Infinity) return;
+      trackRight = Math.max(trackRight, closest);
+    }
+    const lane = trackRight + 2.5;
+    if (lane <= e.lanes[0] || e.lanes[1] - lane < 2.6 || lane > e.half - LANE_CLEAR ||
+        !laneOpen(e.x0, e.z0, e.dx, e.dz, e.span, lane)) return;
+    e.lanes[0] = lane;
+  }
+  for (const e of edges) clearOpposingStripTrack(e);
   // Edges no vehicle could both reach and leave (dead ends, and roads reached only from them) are dropped once the
   // moves are known (5.); know them already, so that no road keeps clear of a dead one merging with it or forking off it
   {

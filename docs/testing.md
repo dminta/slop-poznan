@@ -136,6 +136,29 @@ every frame while speed is below 0.5 m/s, excluding boarding dwells. A long red 
 therefore distinguishable from a tram blocking a switch for over a minute. `tests/traffic-flow.test.mjs` runs the
 benchmark for 5 simulated minutes at Jeżyce and Centrum as a regression test.
 
+## Car–tram body overlap audit
+
+`node tools/audit-tram-overlaps.mjs` runs the same independent seeded worlds and update order as the traffic
+benchmark. It accepts `--minutes`, `--fps`, `--seed` and `--only` with the same defaults and district keys. Each JSON
+line reports a district's overlapping pooled vehicle–tram pairs, the number of pair-frames and the first observed
+contact for each pair. After the 20 s warmup, it compares each car and bus's oriented body rectangle against each
+active tram section on every frame; touching counts as an overlap. Pooled IDs may be reused after respawning, so a pair
+is counted once even if those objects meet again. It uses the benchmark's headless scene and omissions described above;
+it neither proves collision-free behavior between frames nor checks the rendered scene. Each seed takes a few minutes
+for all seven districts; no test runs it. Results over eight seeds are in
+[observations/tram-overlaps-2026-11-04.md](observations/tram-overlaps-2026-11-04.md).
+
+## Opposing tram-lane clearance audit
+
+`node tools/audit-tram-opposing-lanes.mjs` lists JSON lines for each opposing track/lane run whose centre separation is
+under 2.3 m for at least 5 m; the total on stderr counts directed runs and distinct road lanes. The default clearance is
+0.9 m car half-width + 1.2 m tram half-width + 0.2 m margin. `--clearance` can lower the threshold, and `--min-length`
+changes the 5 m cutoff. It uses the benchmark network and `mapTramsToRoads` runs, samples them every metre, and classifies
+direction from each mapped run, so short encounters and unsampled gaps are not covered. The counts are not lengths of
+unique physical streets where track runs overlap. The scene omissions above apply. It takes a few seconds. At `1eff3b4`
+it listed 65 runs on 61 lanes (753 m); the Półwiejska lane correction leaves 64 runs on 60 lanes (668 m).
+`tests/opposing-tram-audit.test.mjs` runs it, checks the row and total format and that edge 7500 no longer appears.
+
 ## Tram route membership benchmark
 
 `node tools/bench-tram-routes.mjs` runs six independent headless worlds at Ostrów Tumski (907.1, -246.5),

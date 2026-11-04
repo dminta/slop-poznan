@@ -1029,3 +1029,44 @@ test('on the Poznań network track signals attach to junctions with valid signal
     assert.ok(sig.edge, 'signal must reference track edge');
   }
 });
+
+test('a stopped tram waits for a car committed to its road conflict and releases it after the car clears', () => {
+  const { createTramSystem } = load(() => 'green', true);
+  const node = {};
+  const approach = { to: node };
+  const exit = {};
+  const car = { edge: approach, lane: 0, move: { to: exit, out: [0] }, out: 0, conn: {}, commit: node,
+    x: 100, z: -20, yaw: 0, yawOffset: 0, half: 2.3, halfWidth: 0.9, tx: 0, tz: 1, speed: 2, vx: 0, vz: 0, waitReason: '' };
+  const curve = {};
+  const network = { nodes: [], edges: [], connector: () => curve };
+  const sys = createTramSystem(inert(), { network, rail: [tram([0, 0, 3000, 0])],
+    stops: [], traffic: { cars: [car], buses: [] } });
+  const t = sys.pool[0];
+  t.active = true;
+  t.path.reset(sys.graph.edges[0], 100, t.length + 8, () => 0);
+  t.path.extend(200, () => 0);
+  t.speed = 0;
+  t.x = 100 - t.length / 2;
+  t.z = 0;
+  sys.graph.edges[0].junctions.push({ node, e: approach, i: 0, f: exit, j: 0, s0: 104, s1: 108 });
+  sys.occupy(t);
+  sys.drive(t, 0);
+  assert.equal(t.waitReason, 'car');
+  assert.equal(t.obstacle, car);
+  Object.assign(car, { edge: exit, conn: null, trail: curve, s: 1 });
+  sys.drive(t, 0.5);
+  assert.equal(t.waitReason, 'car', 'waits while the tail still occupies the connector');
+  car.edge = null;
+  sys.drive(t, 1);
+  assert.notEqual(t.waitReason, 'car');
+  assert.ok(t.acc > 0, 'departs once the committed car clears');
+  car.edge = approach;
+  car.conn = {};
+  car.waitReason = 'tram';
+  sys.drive(t, 2);
+  assert.notEqual(t.waitReason, 'car', 'does not wait for a vehicle waiting for a tram');
+  car.waitReason = '';
+  t.speed = 3;
+  sys.drive(t, 3);
+  assert.notEqual(t.waitReason, 'car', 'does not introduce a new gate for a moving tram');
+});

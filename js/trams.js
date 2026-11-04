@@ -934,7 +934,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       frontX: 0, frontZ: 0,
       sections: model.sections.map(() => ({ x: 0, z: 0, heading: 0, halfLength: 0, halfWidth: TRAM_HALF_WIDTH, fx: 0, fz: 0, rx: 0, rz: 0 })),
       atStop: false, stopName: '', dwell: 0, doorsOpen: false, nextStop: null, lastStop: null,
-      leader: null, gap: Infinity, waitReason: '', obstacle: null,
+      leader: null, gap: Infinity, waitReason: '', obstacle: null, _roadCarGate: false,
       route: -1, line: '', destination: '',
       deadEndWait: 0, stuck: 0,
       _signalTime: 0, _signalCommitN: 0, _signalCommits: new Array(PATH_CAP).fill(null),
@@ -1078,6 +1078,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     t.deadEndWait = 0;
     t.stuck = 0;
     t._signalCommitN = 0;
+    t._roadCarGate = false;
     t._signalCommits.fill(null);
     placeMid(t);
     return true;
@@ -1493,6 +1494,41 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
         consider(idm(Math.max(gap, 0.1), _obsV), 'pedestrian');
       }
     }
+    // A stopped tram may have released a road curve while a car committed to it. Before restarting, let that
+    // vehicle clear: the ordinary sweep only detects its current position and can see a fast crossing car too late.
+    // Keep the gate once selected until the car clears, and do not hold for a car itself waiting for a tram. Only
+    // conflicts within 5 m count: a 10 m window held trams for cars further off and, over 8 seeds × 7 districts,
+    // raised cars held over 120 s 16 → 21 and added a Jeżyce car–tram wait cycle (5 m: 16 → 11, no new cycle).
+    let roadCarGate = false;
+    if (traffic && (t.speed < 1 || t._roadCarGate)) {
+      for (let j = ic; j < path.n; j++) {
+        const base = path.start[j];
+        if (base - u > 5) break;
+        for (const c of path.edges[j].junctions) {
+          const entry = base + c.s0 - u;
+          if (entry <= 0.2 || entry > 5) continue;
+          for (let pass = 0; pass < 2; pass++) {
+            const list = pass ? traffic.buses : traffic.cars;
+            if (!list) continue;
+            for (const v of list) {
+              if (!v.edge || v.waitReason === 'tram') continue;
+              const entering = v.edge === c.e && v.lane === c.i && v.move && v.move.to === c.f &&
+                (v.conn ? v.out === c.j : v.commit === c.node && v.move.out[v.lane] === c.j);
+              const tail = v.edge === c.f && v.lane === c.j && v.trail && network && network.connector &&
+                v.trail === network.connector(c.e, c.i, c.f, c.j) &&
+                (v.conn ? v.edge.len + v.cs : v.s) < v.half;
+              if (!entering && !tail) continue;
+              roadCarGate = true;
+              t.clearance = Math.min(t.clearance, entry);
+              const before = _acc;
+              considerGate(entry - 0.5, 'car');
+              if (_acc < before) t.obstacle = v;
+            }
+          }
+        }
+      }
+    }
+    t._roadCarGate = roadCarGate;
     t.gap = gapMin;
     t.leader = leader;
 

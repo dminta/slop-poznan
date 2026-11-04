@@ -243,6 +243,15 @@ Trams follow the associated road signal phase; dedicated tram signal heads are n
 - **Lights**: `tramLightSpec(cabLength)` in `vehicle-lights.js` gives `headlight`/`zFront`. A pool of 8 spots lights
   the 4 nearest trams in view, placed with the front section's matrix.
 
+**Restart gate for committed cars.** A tram stopped (under 1 m/s) before a mapped road conflict may have released its
+forecast while a car or bus committed to that curve. Before restarting it holds 0.5 m short of any conflict whose entry
+is 0.2–5 m ahead while a vehicle (not itself waiting for a tram) is committed to the curve, on it, or still has its tail
+on it after leaving (`_roadCarGate` keeps the gate until the vehicle clears). The ordinary sweep sees only a vehicle's
+current position, so a fast crossing car was detected after the bodies met. A 10 m window held more trams and added a
+car–tram wait cycle. `tools/audit-tram-overlaps.mjs` still finds car–tram body overlaps (74 pairs over 8 seeds × 7
+districts, from 89); the [investigation](observations/tram-overlaps-2026-11-04.md) records the runs, rejected variants
+and remaining clusters.
+
 **Public contract for interactions** (car yielding, pedestrians, player collisions, audio):
 - `tramSystem.trams`: the active trams, refreshed every update (the same objects as `tramSystem.pool`, filtered).
   Each has `id`, `model` (`'gamma'|'tramino'|'combino'`), `spec` (its `TRAM_MODELS` entry), `length`, `x, z, heading` (the

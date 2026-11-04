@@ -127,6 +127,14 @@ Per frame: `cityBlocks.update(camX, camZ)` (detail streaming), `cityBlocks.updat
     before stop lines, connectors and paint are built. Rynek Jeżycki's eastbound exit kept less than 1.6 m from the
     opposing track; it now leaves over 2.4 m, with no lost lanes or graph edges. `shared-tram-lanes.test.cjs` checks
     the real differential case, paint/port agreement and the synthetic exclusions.
+  - **Opposing strip tracks.** On a two-lane edge (not a shared tram street), where a one-way street track running
+    against the edge lies less than 2.5 m to the left of the inner lane at all five sample points along it, the inner
+    lane moves to 2.5 m from the nearest such track. It moves only if the two lanes stay at least 2.6 m apart, the lane
+    stays `LANE_CLEAR` inside the roadway and `laneOpen` passes (`clearOpposingStripTrack`, road-network.js). Of the 61
+    opposing close lanes `tools/audit-tram-opposing-lanes.mjs` listed at `1eff3b4`, this moves only Półwiejska's
+    southbound inner lane (edge 7500, offset 1.45 → 2.34 m: it ran within 1.62 m of track 275 over 85 m and now keeps
+    over the audit's 2.3 m; 60 lanes, 668 m remain).
+    `shared-tram-lanes.test.cjs` checks its clearance, lane spacing and paint.
   - **Lane count changes at bends.** One-way lanes are centred on their roadway, so where OSM splits a way to change its
     lane count every lane shifts sideways. Both edges then end `1 + 3 × shift` m before the bend (up to `SHIFT_BACK`
     7 m) instead of 1 m, so the S-bend runs at ~8° rather than a 2 m kink at ~40°.

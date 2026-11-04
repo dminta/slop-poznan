@@ -85,3 +85,25 @@ test('Rynek Jeżycki eastbound cars clear opposing trams without losing lanes or
     assert.equal(painted.sz, driven.sz);
   }
 });
+
+test('the two-lane carriageway at -590, 102 clears the opposing tram without losing a lane', async () => {
+  const config = await import('../js/city-config.js');
+  const { GEO } = await import('../js/geodata.js');
+  const network = loadModule(source, {
+    imports: { './city-config.js': config, './geodata.js': { GEO } }, globals: { console: { info() {} } }
+  }).buildRoadNetwork([], []);
+  const e = network.edges.find((edge) => Math.hypot(edge.sx + 590.5, edge.sz - 101.9) < 2 && edge.dz > 0.9);
+  assert.ok(e, 'the southbound carriageway remains in the graph');
+  assert.equal(e.lanes.length, 2);
+  const track = GEO.rail[801].pts;
+  let clearance = Infinity;
+  for (let k = 2; k < track.length; k += 2) {
+    const x = (track[k - 2] + track[k]) / 2, z = (track[k - 1] + track[k + 1]) / 2;
+    const along = (x - e.sx) * e.dx + (z - e.sz) * e.dz;
+    if (along < 0 || along > e.len) continue;
+    clearance = Math.min(clearance, Math.abs((x - e.sx) * e.rx + (z - e.sz) * e.rz - e.lanes[0]));
+  }
+  assert.ok(clearance >= 2.4, `${clearance.toFixed(2)} m leaves clearance for a tram and car`);
+  assert.ok(e.lanes[1] - e.lanes[0] >= 2.6, 'the two shifted lane bodies remain clear');
+  assert.ok(network.paintEdges.some((paint) => paint.lanes === e.lanes), 'paint uses the corrected lane offsets');
+});
