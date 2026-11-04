@@ -283,7 +283,11 @@ Trams follow the associated road signal phase; dedicated tram signal heads are n
   its front; a stationary held tram reserves junction curves only up to its actual nose: holding the curves ahead of a tram that can't go kept the cars of a green approach waiting, and at a
   busy tram junction (Most Teatralny) cars waited 240 s through green and red. The reach never covers a car already there
   (it ends 0.3 m short of it; a crossing with a car on it gets no proxy). Junction curves within the same reach are
-  marked `held = tramFrame, by = tram`; `mayEnter` refuses a held curve through `tramBlocks(v, n, f, j)`, except for
+  marked `held = tramFrame, by = tram`. For a signal approach shorter than 12 m, a tram's junction forecast ends at
+  `tram.clearance` only if it can stop before that gate at 3 m/s². Gates include signals, switches, single-track blocks,
+  downstream queues and occupied platforms; its actual body remains reserved. Cars can use the gap while the tram
+  brakes; the tram itself still brakes for any car in its swept path.
+  `mayEnter` refuses a held curve through `tramBlocks(v, n, f, j)`, except for
   the car the tram waits for (`tram.obstacle`), a car right in front of the front, or one ahead in a lane the tram
   runs along (`inTramLane`).
   `spawnVehicle` rejects places within 3 m of a tram body (`nearTram`); tram spawns reject track with a car on it.

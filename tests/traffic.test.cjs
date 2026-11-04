@@ -656,6 +656,10 @@ function tramOn(te, u, speed = 5) {
 }
 
 function tramLaneContext(trams) {
+  for (const t of trams) for (const edge of t.path.edges) for (const conflict of edge.junctions || []) {
+    conflict.e ||= { len: 20 };
+    conflict.node ||= { signal: false };
+  }
   const context = {
     trams, tramFrame: 7, tramProxies: [], tramProxiesUsed: 0, TRAM_REACH: 70, TRAM_PROXY_DRIVER: { a: 1.15, b: 1.4, T: 1.6, s0: 3 },
     Math, Infinity,
@@ -713,6 +717,39 @@ test('a tram goes into the car lanes under it as a leader, reaching a little ahe
   context.tramFrame++;
   context.occupyTrams();
   assert.equal(te.junctions[0].held, context.tramFrame - 1);
+});
+
+test('tram reservations end at a clearance gate but always include the body', () => {
+  const short = { len: 9 };
+  const node = { signal: true };
+  const te = { len: 300, lanes: [], junctions: [
+    { e: short, node, s0: 98, s1: 102, held: -1 }, { e: short, node, s0: 110, s1: 115, held: -1 },
+    { e: short, node, s0: 120, s1: 125, held: -1 }, { e: { len: 20 }, node, s0: 120, s1: 125, held: -1 }
+  ] };
+  const tram = tramOn(te, 100);
+  tram.clearance = 15;
+  const context = tramLaneContext([tram]);
+  context.occupyTrams();
+  assert.equal(te.junctions[0].held, 7, 'body');
+  assert.equal(te.junctions[1].held, 7, 'before the gate');
+  assert.equal(te.junctions[2].held, -1, 'beyond the gate');
+  assert.equal(te.junctions[3].held, 7, 'longer approaches keep their existing reservation');
+  tram.speed = 2;
+  tram.clearance = 5;
+  context.tramFrame++;
+  context.occupyTrams();
+  assert.equal(te.junctions[0].held, 8, 'body remains reserved');
+  assert.equal(te.junctions[1].held, 7, 'the old forecast is released');
+  tram.speed = 10.7;
+  tram.clearance = 1;
+  context.tramFrame++;
+  context.occupyTrams();
+  assert.equal(te.junctions[2].held, 9, 'tram cannot stop before gate, so retains its forecast');
+  tram.speed = 5;
+  tram.clearance = Infinity;
+  context.tramFrame++;
+  context.occupyTrams();
+  assert.equal(te.junctions[2].held, 10, 'forecast resumes after gate release');
 });
 
 test('cars leave a junction curve held by a tram alone, unless they are ahead of it or it waits for them', () => {

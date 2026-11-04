@@ -1790,6 +1790,10 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       // Conflict spans already include the tram's width. A stopped nose 0.5 m before a keep-clear gate must leave
       // its crossing free; the lane proxy's extra 2 m otherwise reserves it through the whole opposing green.
       const junctionFar = held && t.speed < 0.1 ? path.u : far;
+      // Short signal links cannot store a queue. Cap the forecast at a gate only if the tram can stop before it
+      // at 3 m/s²; otherwise it might cross the gate. Its body always stays reserved.
+      const clearance = t.clearance ?? Infinity;
+      const shortFar = t.speed * t.speed < 6 * clearance ? Math.min(junctionFar, path.u + clearance) : junctionFar;
       for (let i = 0; i < path.n; i++) {
         const te = path.edges[i];
         const base = path.start[i];
@@ -1798,7 +1802,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
         const a = rear - base; // the body on te: [a, b]
         const b = path.u - base;
         for (const c of te.junctions) {
-          if (c.s1 < a || c.s0 > junctionFar - base) continue;
+          if (c.s1 < a || c.s0 > (c.e.len < 12 && c.node.signal ? shortFar : junctionFar) - base) continue;
           c.held = tramFrame;
           c.by = t;
         }

@@ -363,7 +363,8 @@ lost their trees and stand empty. Browser checks remain. Details:
 | Sparse OSM blocks | Check the nine large blocks with under 5% mapped building coverage against BDOT10k; supplement only confirmed omissions. The original audit covered 0.69 km² and needs rechecking against the current enlarged box. Verify source terms before adding data. | 14.3 |
 | Building accuracy | Sourced landmark heights calibrated (audit record: [observations/landmark-heights-2026-11-03.md](observations/landmark-heights-2026-11-03.md); tests: `tests/landmark-heights.test.cjs`). Corrected: Iglica (70 m), Delta (43.5 m), Brama Poznania (16.3 m), Zamek Królewski terrace (30 m). Remaining unsourced: Fara roof ridge, Teatr Wielki fly tower, Novotel. | 4.4, 7 |
 | Merge starvation | The short-exit reservation now considers a waiting red approach only when the green entrant is predicted to encounter a non-green downstream signal; a long-held follower at adjacent signals can also close up behind its own lane lead. At current HEAD, Centrum seed 1 longest hold / held over 60 s / over 120 s is **166 / 1 / 1 → 63 / 2 / 0**; seed 4242 is **88 / 5 / 0 → 85 / 4 / 0**, still above the original 66 s target. The historical 181 s merge-braking hold is reduced. For seed 7, the merge junction at `−1117, 132` drops from 185 to 72 s; the district's new 91 s peak is at `−1136, 127`. See the comparison below. | Follow-up |
-| Short-link left-turn phase | Investigate the signal phase for the left turn at `−1136, 127`. In Centrum seed 99, car #46 waits inside the 9.43 m link for 176 s both before and after the merge change, mostly for `signal` (once for `tram`); car #44 behind it is held for `room`, accounting for the 174 s wait reported at `−1117, 132`. This is separate from merge starvation. | Follow-up |
+| Short-link left-turn phase | Partially improved: a tram that can stop at its clearance gate no longer reserves beyond it on a short signal approach; its body remains reserved. The guarded change reduces Centrum seed 99 longest hold / cars held over 60 s / over 120 s **176 / 8 / 5 → 110 / 5 / 0**, but long holds remain. See the comparison and trace below. | Follow-up |
+| Car–tram body overlaps | Investigate pre-existing car and tram body overlaps: at `cf48bed`, a five-minute OBB audit found 17 overlapping car–tram pairs across Centrum and Kaponiera, seeds 1 / 4242 / 7 / 99. For example, at Kaponiera seed 1 near `−1135, 128`, cars moving at 6–9 m/s run into moving trams. | Follow-up |
 | Tram route quality | Track continuity, tunnel preservation (PST, Franowo), the Św. Marcin – Ratajczaka curve, and universal 2.2875 m step elimination across junctions and islands are implemented. The 2026-11-03 headless run found 0 / 84,235 samples on other lines or unused track; the display timing fix reduced line 5 samples showing the return direction before the front reached its edge from 355 to 0 in the same benchmark. The historical 0.44% is not directly comparable; method and limits are in [Trams](actors.md#trams-jstramsjs) and [testing](testing.md#tram-route-membership-benchmark). | 15.10 |
 | Park blocks with buildings | After the 2026-11-03 carve-out, park paving, granite beds and lawn are still drawn over the whole block under its buildings; the three planter boxes whose trees the wall rule dropped (Domki Budnicze, Stary Browar) stand empty; the 41 blocks build 3.46% against 4.39% real, partly because real buildings inside the park rings are carved out. | Follow-up |
 
@@ -377,7 +378,7 @@ about 114 s and it entered the junction; historical seed 4242 changed from 66 s 
 not establish that all merge starvation is eliminated. The rejected early-arrival rule remains removed: on `dedac97`
 it raised seed 4242 to 125 s even with the narrower reservation. A lane-lead braking relaxation was also rejected:
 it changed current seed 4242 Kaponiera from 140 to 237 s. Current Centrum seed 4242 remains above the original 66 s
-target. Seed 99's 176 s district peak is the separate left-turn signal hold described above, not merge starvation.
+target. The historical seed 99 district peak of 176 s was the separate left-turn signal hold described above, not merge starvation.
 
 | District | Seed 1 | Seed 4242 | Seed 7 | Seed 99 |
 |---|---|---|---|---|
@@ -388,6 +389,30 @@ target. Seed 99's 176 s district peak is the separate left-turn signal hold desc
 | Stare Miasto | 43 / 0 / 0 → 43 / 0 / 0 | 27 / 0 / 0 → 27 / 0 / 0 | — | — |
 | Rataje | 46 / 0 / 0 → 46 / 0 / 0 | 186 / 2 / 2 → 186 / 2 / 2 | — | — |
 | Wilda | 42 / 0 / 0 → 42 / 0 / 0 | 38 / 0 / 0 → 38 / 0 / 0 | — | — |
+
+Short-link clearance-gate comparison, five minutes per district at 15 fps, Node 26.13.0. The unguarded and guarded runs produced identical district summaries. Entries are longest hold / cars held over 60 s / cars held over 120 s, before → after. Unlike the historical merge table, all four seeds were replayed for every district.
+
+| District | Seed 1 | Seed 4242 | Seed 7 | Seed 99 |
+|---|---|---|---|---|
+| Jeżyce (Rynek Jeżycki) | 64 / 2 / 0 → 64 / 2 / 0 | 71 / 1 / 0 → 71 / 1 / 0 | 67 / 2 / 0 → 67 / 2 / 0 | 82 / 2 / 0 → 82 / 2 / 0 |
+| Łazarz (Głogowska) | 33 / 0 / 0 → 33 / 0 / 0 | 29 / 0 / 0 → 29 / 0 / 0 | 46 / 0 / 0 → 46 / 0 / 0 | 39 / 0 / 0 → 39 / 0 / 0 |
+| Centrum (Św. Marcin) | 63 / 2 / 0 → 56 / 0 / 0 | 85 / 4 / 0 → 85 / 4 / 0 | 91 / 5 / 0 → 91 / 4 / 0 | 176 / 8 / 5 → 110 / 5 / 0 |
+| Rondo Kaponiera | 160 / 29 / 5 → 133 / 27 / 4 | 140 / 18 / 1 → 98 / 13 / 0 | 133 / 19 / 1 → 133 / 19 / 1 | 103 / 22 / 0 → 103 / 22 / 0 |
+| Stare Miasto | 43 / 0 / 0 → 43 / 0 / 0 | 27 / 0 / 0 → 27 / 0 / 0 | 17 / 0 / 0 → 17 / 0 / 0 | 32 / 0 / 0 → 32 / 0 / 0 |
+| Rataje (Rondo Rataje) | 46 / 0 / 0 → 46 / 0 / 0 | 186 / 2 / 2 → 186 / 2 / 2 | 49 / 0 / 0 → 49 / 0 / 0 | 52 / 0 / 0 → 52 / 0 / 0 |
+| Wilda | 42 / 0 / 0 → 42 / 0 / 0 | 38 / 0 / 0 → 38 / 0 / 0 | 41 / 0 / 0 → 41 / 0 / 0 | 41 / 0 / 0 → 41 / 0 / 0 |
+
+In both the original unguarded experiment and the guarded replay, Kaponiera seed 1 exposed a car–tram mutual wait: deadlocks
+**0 → 1**. At 300 s, tram 2 (line 2) has waited 70 s for car 16, while that car waits for `tram` at the unsignalised
+node `−1496, 82` on a 16.9 m approach. This divergence exposes an existing mutual-wait behavior. In that run, the
+maximum wait at `−1136, 127` rose **60 → 108 s**. The table above also describes the guarded replay.
+
+The three hold metrics do not worsen in these runs. Finished-wait p90 does rise in Kaponiera seed 1 (47 → 50 s),
+Centrum seed 7 (27 → 28 s), and Centrum seed 99 (20 → 22 s); it falls in Kaponiera seed 4242 (52 → 48 s) and
+Centrum seed 4242 (27 → 26 s). These simulations can diverge after the changed crossing.
+
+The [per-second tram trace](observations/left-turn-tram-2026-11-04.md) records the two original green phases,
+reservation and body-occupancy times, and the timetable context.
 
 ## Decisions awaiting the user
 
