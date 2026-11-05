@@ -1526,7 +1526,8 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
         for (let i = 0; i < list.length; i++) {
           const v = list[i];
           if (!v.edge) continue;
-          const gap = obstacleGap(v.x, v.z, v.yaw + v.yawOffset, v.halfWidth, v.half, v.tx * v.speed + v.vx, v.tz * v.speed + v.vz, false);
+          const gap = obstacleGap(v.x, v.z, v.yaw + v.yawOffset, v.halfWidth, v.half, v.tx * v.speed + v.vx, v.tz * v.speed + v.vz, false,
+            v.speed < 0.3);
           if (gap === Infinity) continue;
           if (gap < gapMin) {
             gapMin = gap;
