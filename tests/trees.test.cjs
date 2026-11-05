@@ -38,8 +38,9 @@ function recordingCanvas(paths) {
 
 function loadTrees(paths) {
   const stub = new Proxy({}, { get: () => function Stub() { return {}; } });
+  const config = require('../js/city-config.js');
   return loadModule(readFileSync(join(__dirname, '../js/trees.js'), 'utf8'), {
-    imports: { 'three/webgpu': stub, './tsl-materials.js': { createTreeMaterial: () => ({}) } },
+    imports: { 'three/webgpu': stub, './tsl-materials.js': { createTreeMaterial: () => ({}) }, './city-config.js': config },
     globals: { document: { createElement: () => recordingCanvas(paths) }, Math, Array, Uint8Array, Uint32Array, Float32Array, Int32Array, Map, Set, Infinity },
     filename: 'trees.js'
   });

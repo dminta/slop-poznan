@@ -22,6 +22,16 @@ class Vector3 {
   }
   dot(v) { return this.x * v.x + this.y * v.y + this.z * v.z; }
   length() { return Math.hypot(this.x, this.y, this.z); }
+  lengthSq() { return this.x * this.x + this.y * this.y + this.z * this.z; }
+  addScaledVector(v, s) { this.x += v.x * s; this.y += v.y * s; this.z += v.z * s; return this; }
+  addVectors(a, b) { this.x = a.x + b.x; this.y = a.y + b.y; this.z = a.z + b.z; return this; }
+  divide(v) { this.x /= v.x; this.y /= v.y; this.z /= v.z; return this; }
+  negate() {
+    this.x = -this.x;
+    this.y = -this.y;
+    this.z = -this.z;
+    return this;
+  }
   normalize() {
     const l = this.length() || 1;
     return this.multiplyScalar(1 / l);
@@ -114,6 +124,83 @@ class Matrix4 {
     ];
     return this;
   }
+  makeTranslation(x, y, z) {
+    this.identity();
+    this.setPosition(x, y, z);
+    return this;
+  }
+  makeScale(x, y, z) {
+    this.elements = [
+      x, 0, 0, 0,
+      0, y, 0, 0,
+      0, 0, z, 0,
+      0, 0, 0, 1
+    ];
+    return this;
+  }
+  makeBasis(xAxis, yAxis, zAxis) {
+    const te = this.elements;
+    te[0] = xAxis.x; te[1] = xAxis.y; te[2] = xAxis.z; te[3] = 0;
+    te[4] = yAxis.x; te[5] = yAxis.y; te[6] = yAxis.z; te[7] = 0;
+    te[8] = zAxis.x; te[9] = zAxis.y; te[10] = zAxis.z; te[11] = 0;
+    te[12] = 0; te[13] = 0; te[14] = 0; te[15] = 1;
+    return this;
+  }
+  setPosition(x, y, z) {
+    const te = this.elements;
+    if (x && typeof x === 'object') {
+      te[12] = x.x; te[13] = x.y; te[14] = x.z;
+    } else {
+      te[12] = x; te[13] = y; te[14] = z;
+    }
+    return this;
+  }
+  clone() {
+    const m = new Matrix4();
+    m.elements = [...this.elements];
+    return m;
+  }
+  invert() {
+    const te = this.elements,
+      n11 = te[0], n21 = te[1], n31 = te[2], n41 = te[3],
+      n12 = te[4], n22 = te[5], n32 = te[6], n42 = te[7],
+      n13 = te[8], n23 = te[9], n33 = te[10], n43 = te[11],
+      n14 = te[12], n24 = te[13], n34 = te[14], n44 = te[15],
+
+      t11 = n23 * n34 * n42 - n24 * n33 * n42 + n24 * n32 * n43 - n22 * n34 * n43 - n23 * n32 * n44 + n22 * n33 * n44,
+      t12 = n14 * n33 * n42 - n13 * n34 * n42 - n14 * n32 * n43 + n12 * n34 * n43 + n13 * n32 * n44 - n12 * n33 * n44,
+      t13 = n13 * n24 * n42 - n14 * n23 * n42 + n14 * n22 * n43 - n12 * n24 * n43 - n13 * n22 * n44 + n12 * n23 * n44,
+      t14 = n14 * n23 * n32 - n13 * n24 * n32 - n14 * n22 * n33 + n12 * n24 * n33 + n13 * n22 * n34 - n12 * n23 * n34;
+
+    const det = n11 * t11 + n21 * t12 + n31 * t13 + n41 * t14;
+    if (det === 0) return this.identity();
+    const detInv = 1 / det;
+
+    te[0] = t11 * detInv;
+    te[1] = (n24 * n33 * n41 - n23 * n34 * n41 - n24 * n31 * n43 + n21 * n34 * n43 + n23 * n31 * n44 - n21 * n33 * n44) * detInv;
+    te[2] = (n22 * n34 * n41 - n24 * n32 * n41 + n24 * n31 * n42 - n21 * n34 * n42 - n22 * n31 * n44 + n21 * n32 * n44) * detInv;
+    te[3] = (n23 * n32 * n41 - n22 * n33 * n41 - n23 * n31 * n42 + n21 * n33 * n42 + n22 * n31 * n43 - n21 * n32 * n43) * detInv;
+
+    te[4] = t12 * detInv;
+    te[5] = (n13 * n34 * n41 - n14 * n33 * n41 + n14 * n31 * n43 - n11 * n34 * n43 - n13 * n31 * n44 + n11 * n33 * n44) * detInv;
+    te[6] = (n14 * n32 * n41 - n12 * n34 * n41 - n14 * n31 * n42 + n11 * n34 * n42 + n12 * n31 * n44 - n11 * n32 * n44) * detInv;
+    te[7] = (n12 * n33 * n41 - n13 * n32 * n41 + n13 * n31 * n42 - n11 * n33 * n42 - n12 * n31 * n43 + n11 * n32 * n43) * detInv;
+
+    te[8] = t13 * detInv;
+    te[9] = (n14 * n23 * n41 - n13 * n24 * n41 - n14 * n21 * n43 + n11 * n24 * n43 + n13 * n21 * n44 - n11 * n23 * n44) * detInv;
+    te[10] = (n12 * n24 * n41 - n14 * n22 * n41 + n14 * n21 * n42 - n11 * n24 * n42 - n12 * n21 * n44 + n11 * n22 * n44) * detInv;
+    te[11] = (n13 * n22 * n41 - n12 * n23 * n41 - n13 * n21 * n42 + n11 * n23 * n42 + n12 * n21 * n43 - n11 * n22 * n43) * detInv;
+
+    te[12] = t14 * detInv;
+    te[13] = (n13 * n24 * n31 - n14 * n23 * n31 + n14 * n21 * n33 - n11 * n24 * n33 - n13 * n21 * n34 + n11 * n23 * n34) * detInv;
+    te[14] = (n14 * n22 * n31 - n12 * n24 * n31 - n14 * n21 * n32 + n11 * n24 * n32 + n12 * n21 * n34 - n11 * n22 * n34) * detInv;
+    te[15] = (n12 * n23 * n31 - n13 * n22 * n31 + n13 * n21 * n32 - n11 * n23 * n32 - n12 * n21 * n33 + n11 * n22 * n33) * detInv;
+    return this;
+  }
+  copy(m) {
+    this.elements = [...m.elements];
+    return this;
+  }
   compose(position, quaternion, scale) {
     const te = this.elements;
     const x = quaternion.x, y = quaternion.y, z = quaternion.z, w = quaternion.w;
@@ -143,6 +230,61 @@ class Matrix4 {
     te[14] = position.z;
     te[15] = 1;
 
+    return this;
+  }
+  determinant() {
+    const te = this.elements;
+    const n11 = te[0], n12 = te[4], n13 = te[8], n14 = te[12];
+    const n21 = te[1], n22 = te[5], n23 = te[9], n24 = te[13];
+    const n31 = te[2], n32 = te[6], n33 = te[10], n34 = te[14];
+    const n41 = te[3], n42 = te[7], n43 = te[11], n44 = te[15];
+    return (
+      n41 * (+ n14 * n23 * n32 - n13 * n24 * n32 - n14 * n22 * n33 + n12 * n24 * n33 + n13 * n22 * n34 - n12 * n23 * n34) +
+      n42 * (+ n11 * n23 * n34 - n11 * n24 * n33 + n14 * n21 * n33 - n13 * n21 * n34 + n13 * n24 * n31 - n14 * n23 * n31) +
+      n43 * (+ n11 * n24 * n32 - n11 * n22 * n34 - n14 * n21 * n32 + n12 * n21 * n34 + n14 * n22 * n31 - n12 * n24 * n31) +
+      n44 * (- n13 * n22 * n31 - n11 * n23 * n32 + n11 * n22 * n33 + n13 * n21 * n32 - n12 * n21 * n33 + n12 * n23 * n31)
+    );
+  }
+  decompose(position, quaternion, scale) {
+    const te = this.elements;
+    let sx = Math.hypot(te[0], te[1], te[2]);
+    const sy = Math.hypot(te[4], te[5], te[6]);
+    const sz = Math.hypot(te[8], te[9], te[10]);
+    if (this.determinant() < 0) sx = -sx;
+    if (position) position.set(te[12], te[13], te[14]);
+    if (scale) scale.set(sx, sy, sz);
+    if (quaternion) {
+      const invSX = 1 / (sx || 1), invSY = 1 / (sy || 1), invSZ = 1 / (sz || 1);
+      const m11 = te[0] * invSX, m12 = te[4] * invSY, m13 = te[8] * invSZ;
+      const m21 = te[1] * invSX, m22 = te[5] * invSY, m23 = te[9] * invSZ;
+      const m31 = te[2] * invSX, m32 = te[6] * invSY, m33 = te[10] * invSZ;
+      const trace = m11 + m22 + m33;
+      if (trace > 0) {
+        const s = 0.5 / Math.sqrt(trace + 1.0);
+        quaternion.w = 0.25 / s;
+        quaternion.x = (m32 - m23) * s;
+        quaternion.y = (m13 - m31) * s;
+        quaternion.z = (m21 - m12) * s;
+      } else if (m11 > m22 && m11 > m33) {
+        const s = 2.0 * Math.sqrt(1.0 + m11 - m22 - m33);
+        quaternion.w = (m32 - m23) / s;
+        quaternion.x = 0.25 * s;
+        quaternion.y = (m12 + m21) / s;
+        quaternion.z = (m13 + m31) / s;
+      } else if (m22 > m33) {
+        const s = 2.0 * Math.sqrt(1.0 + m22 - m11 - m33);
+        quaternion.w = (m13 - m31) / s;
+        quaternion.x = (m12 + m21) / s;
+        quaternion.y = 0.25 * s;
+        quaternion.z = (m23 + m32) / s;
+      } else {
+        const s = 2.0 * Math.sqrt(1.0 + m33 - m11 - m22);
+        quaternion.w = (m21 - m12) / s;
+        quaternion.x = (m13 + m31) / s;
+        quaternion.y = (m23 + m32) / s;
+        quaternion.z = 0.25 * s;
+      }
+    }
     return this;
   }
   multiplyMatrices(a, b) {
@@ -219,6 +361,18 @@ class Object3D {
     child.parent = this;
     this.children.push(child);
   }
+  remove(child) {
+    const index = this.children.indexOf(child);
+    if (index !== -1) {
+      child.parent = null;
+      this.children.splice(index, 1);
+    }
+    return this;
+  }
+  removeFromParent() {
+    if (this.parent) this.parent.remove(this);
+    return this;
+  }
   updateMatrix() {
     this.matrix.compose(this.position, this.quaternion, this.scale);
   }
@@ -236,6 +390,14 @@ class Object3D {
   traverse(cb) {
     cb(this);
     for (const child of this.children) child.traverse(cb);
+  }
+  removeFromParent() {
+    if (this.parent) {
+      const idx = this.parent.children.indexOf(this);
+      if (idx !== -1) this.parent.children.splice(idx, 1);
+      this.parent = null;
+    }
+    return this;
   }
 }
 
@@ -255,12 +417,37 @@ class Mesh extends Object3D {
   }
 }
 
+class InstancedMesh extends Mesh {
+  constructor(geometry, material, count) {
+    super(geometry, material);
+    this.isInstancedMesh = true;
+    this.count = count;
+    this.instanceMatrix = new BufferAttribute(new Float32Array(count * 16), 16);
+  }
+  setMatrixAt(index, matrix) {}
+  getMatrixAt(index, matrix) {}
+  setColorAt(index, color) {}
+  getColorAt(index, color) {}
+  computeBoundingBox() {}
+  computeBoundingSphere() {}
+}
+
 class BufferAttribute {
   constructor(array, itemSize) {
     this.array = array;
     this.itemSize = itemSize;
-    this.count = array.length / itemSize;
+    this.count = array ? array.length / itemSize : 0;
+    this.updateRanges = [];
+    this.needsUpdate = false;
   }
+  setXY(i, x, y) {
+    if (this.array && i * 2 + 1 < this.array.length) {
+      this.array[i * 2] = x;
+      this.array[i * 2 + 1] = y;
+    }
+  }
+  clearUpdateRanges() { this.updateRanges = []; }
+  addUpdateRange(start, count) { this.updateRanges.push({ start, count }); }
 }
 class Float32BufferAttribute extends BufferAttribute {}
 
@@ -280,6 +467,10 @@ class BufferGeometry {
       }
     }
   }
+  deleteAttribute(name) {
+    delete this.attributes[name];
+    return this;
+  }
   computeVertexNormals() {}
   rotateX(rad) {
     const c = Math.cos(rad);
@@ -290,12 +481,28 @@ class BufferGeometry {
       v.y = y; v.z = z;
     }
     this.computeBoundingBox();
+    return this;
   }
   translate(x, y, z) {
     for (const v of this.vertices) {
       v.x += x; v.y += y; v.z += z;
     }
     this.computeBoundingBox();
+    return this;
+  }
+  applyMatrix4(m) {
+    for (const v of this.vertices) v.applyMatrix4(m);
+    this.computeBoundingBox();
+    return this;
+  }
+  clone() {
+    const g = new BufferGeometry();
+    g.vertices = this.vertices.map((v) => v.clone());
+    for (const [k, v] of Object.entries(this.attributes)) {
+      g.attributes[k] = v;
+    }
+    g.computeBoundingBox();
+    return g;
   }
   computeBoundingBox() {
     const min = new Vector3(Infinity, Infinity, Infinity);
@@ -379,10 +586,35 @@ class SphereGeometry extends BufferGeometry {
   }
 }
 
-class Shape {
+class Path {
   constructor(points = []) {
     this.curves = [];
     this.points = points;
+  }
+  moveTo(x, y) { this.points.push(new Vector2(x, y)); return this; }
+  lineTo(x, y) { this.points.push(new Vector2(x, y)); return this; }
+  closePath() { return this; }
+}
+
+class Shape extends Path {
+  constructor(points = []) {
+    super(points);
+    this.holes = [];
+  }
+}
+
+class ShapeGeometry extends BufferGeometry {
+  constructor(shape) {
+    super();
+    this.type = 'ShapeGeometry';
+    this.shape = shape;
+    this.parameters = { shape };
+    if (shape && shape.points) {
+      for (const p of shape.points) {
+        this.vertices.push(new Vector3(p.x, p.y, 0));
+      }
+    }
+    this.computeBoundingBox();
   }
 }
 
@@ -397,6 +629,7 @@ class ExtrudeGeometry extends BufferGeometry {
       this.vertices.push(new Vector3(p.x, p.y, 0));
       this.vertices.push(new Vector3(p.x, p.y, depth));
     }
+    this.setAttribute('uv', new BufferAttribute(new Float32Array(this.vertices.length * 2), 2));
     this.computeBoundingBox();
   }
 }
@@ -462,11 +695,64 @@ class MeshStandardNodeMaterial {
   constructor(params = {}) { Object.assign(this, params); }
 }
 
+class MeshBasicNodeMaterial {
+  constructor(params = {}) { Object.assign(this, params); }
+}
+
 class CanvasTexture {
   constructor() { this.colorSpace = null; }
 }
 
+class Color {
+  constructor(r = 0, g = 0, b = 0) {
+    if (typeof r === 'number') this.hex = r;
+  }
+  setHex(hex) { this.hex = hex; return this; }
+  setRGB(r, g, b) { return this; }
+  getHex() { return this.hex || 0; }
+}
+
+const { Earcut } = require('./earcut.cjs');
+
+class ShapeUtils {
+  static area(contour) {
+    const n = contour.length;
+    let a = 0.0;
+    for (let p = n - 1, q = 0; q < n; p = q++) {
+      a += contour[p].x * contour[q].y - contour[q].x * contour[p].y;
+    }
+    return a * 0.5;
+  }
+  static isClockWise(pts) {
+    return ShapeUtils.area(pts) < 0;
+  }
+  static triangulateShape(contour, holes) {
+    const vertices = [];
+    const holeIndices = [];
+    const faces = [];
+    const addContour = (pts) => {
+      for (let i = 0; i < pts.length; i++) {
+        vertices.push(pts[i].x, pts[i].y);
+      }
+    };
+    addContour(contour);
+    let holeIndex = contour.length;
+    for (let i = 0; i < holes.length; i++) {
+      holeIndices.push(holeIndex);
+      holeIndex += holes[i].length;
+      addContour(holes[i]);
+    }
+    const triangles = Earcut.triangulate(vertices, holeIndices);
+    for (let i = 0; i < triangles.length; i += 3) {
+      faces.push(triangles.slice(i, i + 3));
+    }
+    return faces;
+  }
+}
+
 const THREE = {
+  Color,
+  ShapeUtils,
   Vector3,
   Vector2,
   Quaternion,
@@ -475,12 +761,15 @@ const THREE = {
   Object3D,
   Group,
   Mesh,
+  InstancedMesh,
   BoxGeometry,
   CylinderGeometry,
   ConeGeometry,
   PlaneGeometry,
   SphereGeometry,
+  Path,
   Shape,
+  ShapeGeometry,
   ExtrudeGeometry,
   LatheGeometry,
   BufferGeometry,
@@ -488,7 +777,13 @@ const THREE = {
   Float32BufferAttribute,
   Box3,
   MeshStandardNodeMaterial,
+  MeshBasicNodeMaterial,
   CanvasTexture,
+  SpotLight: class extends Object3D { constructor() { super(); this.target = new Object3D(); } },
+  PointLight: class extends Object3D {},
+  AmbientLight: class extends Object3D {},
+  HemisphereLight: class extends Object3D {},
+  DirectionalLight: class extends Object3D { constructor() { super(); this.target = new Object3D(); } },
   SRGBColorSpace: 'srgb'
 };
 

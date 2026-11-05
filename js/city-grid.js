@@ -11,7 +11,9 @@ import {
   blockAt,
   distToWater,
   blockLots,
-  distToLots
+  distToLots,
+  createTreeWallChecker,
+  SPECIES_CROWN_R
 } from './city-config.js';
 import { GEO } from './geodata.js';
 import {
@@ -265,6 +267,7 @@ function polygonCentroidArea(pts) {
   for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) a += pts[j].x * pts[i].z - pts[i].x * pts[j].z;
   return a * 0.5;
 }
+
 function pointInPolygonXZ(pts, x, z) {
   let inside = false;
   for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
@@ -298,6 +301,265 @@ function offsetPolygon(pts, d) {
     out.push({ x: q.x + mx * len, z: q.z + mz * len });
   }
   return out;
+}
+
+// Do segments ab and cd properly cross (touching and collinear overlaps excluded)?
+function segmentsIntersect(a, b, c, d) {
+  const cdx = d.x - c.x, cdz = d.z - c.z;
+  const d1 = cdx * (a.z - c.z) - cdz * (a.x - c.x), d2 = cdx * (b.z - c.z) - cdz * (b.x - c.x);
+  if (!((d1 > 1e-9 && d2 < -1e-9) || (d1 < -1e-9 && d2 > 1e-9))) return false;
+  const abx = b.x - a.x, abz = b.z - a.z;
+  const d3 = abx * (c.z - a.z) - abz * (c.x - a.x), d4 = abx * (d.z - a.z) - abz * (d.x - a.x);
+  return (d3 > 1e-9 && d4 < -1e-9) || (d3 < -1e-9 && d4 > 1e-9);
+}
+
+// Edges of a ring bucketed on a 16 m grid, so checking a park outline (often 1,000+ vertices) against hundreds of
+// footprint holes costs a few edge tests per hole edge instead of a full scan
+const EDGE_CELL = 16;
+const _edgeCells = [];
+
+// Math.floor without the global lookup, which costs ~10x in the vm test harness; edgeCells is the hot loop
+const cellOf = (v) => {
+  const q = v / EDGE_CELL, i = q | 0;
+  return i > q ? i - 1 : i;
+};
+
+/**
+ * The grid cells segment ab passes through (padded by 1 mm), column by column, into `out`. Walking the segment rather
+ * than its bounding box matters: a 500 m diagonal park edge spans ~1,000 bbox cells but only ~60 crossed ones.
+ */
+function edgeCells(a, b, out = _edgeCells) {
+  const m = 1e-3;
+  out.length = 0;
+  const minX = a.x < b.x ? a.x : b.x, maxX = a.x < b.x ? b.x : a.x;
+  const gx0 = cellOf(minX - m), gx1 = cellOf(maxX + m);
+  const dx = b.x - a.x, flat = dx < 1e-9 && dx > -1e-9, slope = flat ? 0 : (b.z - a.z) / dx;
+  for (let gx = gx0; gx <= gx1; gx++) {
+    let zLo, zHi;
+    if (gx0 === gx1 || flat) {
+      zLo = a.z < b.z ? a.z : b.z; zHi = a.z < b.z ? b.z : a.z;
+    } else {
+      const x0 = gx * EDGE_CELL - m, x1 = (gx + 1) * EDGE_CELL + m;
+      const zl = a.z + ((x0 > minX ? x0 : minX) - a.x) * slope, zr = a.z + ((x1 < maxX ? x1 : maxX) - a.x) * slope;
+      zLo = zl < zr ? zl : zr; zHi = zl < zr ? zr : zl;
+    }
+    const gz1 = cellOf(zHi + m);
+    for (let gz = cellOf(zLo - m); gz <= gz1; gz++) out.push(gx * 100000 + gz);
+  }
+  return out;
+}
+
+function ringEdgeGrid(ring) {
+  const grid = new Map();
+  for (let i = 0, n = ring.length; i < n; i++) {
+    for (const k of edgeCells(ring[i], ring[(i + 1) % n])) {
+      const list = grid.get(k);
+      if (list) list.push(i); else grid.set(k, [i]);
+    }
+  }
+  return grid;
+}
+
+/** Does any edge of `inner` properly cross an edge of `outer` (indexed by ringEdgeGrid)? */
+function ringCrossesGrid(outer, grid, inner) {
+  const n = outer.length;
+  for (let i = 0, m = inner.length; i < m; i++) {
+    const a = inner[i], b = inner[(i + 1) % m];
+    for (const k of edgeCells(a, b)) {
+      const list = grid.get(k);
+      if (!list) continue;
+      for (const j of list) if (segmentsIntersect(a, b, outer[j], outer[(j + 1) % n])) return true;
+    }
+  }
+  return false;
+}
+
+function lineIntersection(p1, p2, p3, p4) {
+  const d = (p1.x - p2.x) * (p3.z - p4.z) - (p1.z - p2.z) * (p3.x - p4.x);
+  if (Math.abs(d) < 1e-9) return null;
+  const t = ((p1.x - p3.x) * (p3.z - p4.z) - (p1.z - p3.z) * (p3.x - p4.x)) / d;
+  return { x: p1.x + t * (p2.x - p1.x), z: p1.z + t * (p2.z - p1.z), t };
+}
+
+// Subdivides segments where any vertex lies along a non-adjacent edge so collinear overlaps match exactly. One pass
+// inserts every such vertex in order along its edge: the inserted points are existing vertices, so they create no new
+// on-edge cases (an earlier one-insertion-per-pass loop stopped after 20 and left folds like block 613's lawn unsplit)
+function insertVerticesOnEdges(pts) {
+  const n = pts.length;
+  const grid = new Map();
+  for (let j = 0; j < n; j++) {
+    const p = pts[j];
+    const k = cellOf(p.x) * 100000 + cellOf(p.z);
+    const list = grid.get(k);
+    if (list) list.push(j); else grid.set(k, [j]);
+  }
+  const ring = [];
+  const hits = [];
+  for (let i = 0; i < n; i++) {
+    const a = pts[i], b = pts[(i + 1) % n];
+    ring.push(a);
+    const dx = b.x - a.x, dz = b.z - a.z;
+    const l2 = dx * dx + dz * dz;
+    if (l2 < 1e-8) continue;
+    hits.length = 0;
+    for (const k of edgeCells(a, b)) {
+      const list = grid.get(k);
+      if (!list) continue;
+      for (const j of list) {
+        if (j === i || j === (i + 1) % n) continue;
+        const p = pts[j];
+        const t = ((p.x - a.x) * dx + (p.z - a.z) * dz) / l2;
+        if (t > 1e-4 && t < 1 - 1e-4 && Math.hypot(p.x - (a.x + t * dx), p.z - (a.z + t * dz)) < 1e-4) hits.push({ t, p });
+      }
+    }
+    if (!hits.length) continue;
+    hits.sort((u, v) => u.t - v.t);
+    let last = a;
+    for (const { p } of hits) {
+      if (Math.hypot(p.x - last.x, p.z - last.z) < 1e-4) continue;
+      last = { x: p.x, z: p.z };
+      ring.push(last);
+    }
+  }
+  return ring;
+}
+
+// Splits corridors that collapsed to coincident reverse edges into separate simple rings
+function splitReverseEdges(ring) {
+  const ptKey = (p) => Math.round(p.x * 20) + ',' + Math.round(p.z * 20);
+  const queue = [ring];
+  const out = [];
+  while (queue.length > 0) {
+    let p = queue.pop();
+    const n = p.length;
+    const edgeMap = new Map();
+    let split = false;
+    for (let i = 0; i < n; i++) {
+      const a = p[i], b = p[(i + 1) % n];
+      const kRev = ptKey(b) + '->' + ptKey(a);
+      if (edgeMap.has(kRev)) {
+        const j = edgeMap.get(kRev);
+        if (Math.abs(i - j) > 1 && Math.abs(i - j) < n - 1) {
+          const idx1 = Math.min(i, j), idx2 = Math.max(i, j);
+          const r1 = p.slice(idx1 + 1, idx2 + 1);
+          const r2 = p.slice(0, idx1 + 1).concat(p.slice(idx2 + 1));
+          if (r1.length >= 3 && Math.abs(polygonCentroidArea(r1)) > 0.05) queue.push(r1);
+          if (r2.length >= 3 && Math.abs(polygonCentroidArea(r2)) > 0.05) queue.push(r2);
+          split = true;
+          break;
+        }
+      }
+      edgeMap.set(ptKey(a) + '->' + ptKey(b), i);
+    }
+    if (!split && p.length >= 3 && Math.abs(polygonCentroidArea(p)) > 0.05) {
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+// Splits self-touching boundaries where non-adjacent vertices meet at the same location
+function splitPinchVertices(ring) {
+  const ptKey = (p) => Math.round(p.x * 20) + ',' + Math.round(p.z * 20);
+  const queue = [ring];
+  const out = [];
+  while (queue.length > 0) {
+    let p = queue.pop();
+    const n = p.length;
+    const vMap = new Map();
+    let split = false;
+    for (let i = 0; i < n; i++) {
+      const k = ptKey(p[i]);
+      if (vMap.has(k)) {
+        const j = vMap.get(k);
+        if (Math.abs(i - j) > 1 && Math.abs(i - j) < n - 1) {
+          const idx1 = Math.min(i, j), idx2 = Math.max(i, j);
+          const r1 = p.slice(idx1, idx2);
+          const r2 = p.slice(0, idx1).concat(p.slice(idx2));
+          if (r1.length >= 3 && Math.abs(polygonCentroidArea(r1)) > 0.05) queue.push(r1);
+          if (r2.length >= 3 && Math.abs(polygonCentroidArea(r2)) > 0.05) queue.push(r2);
+          split = true;
+          break;
+        }
+      }
+      vMap.set(k, i);
+    }
+    if (!split && p.length >= 3 && Math.abs(polygonCentroidArea(p)) > 0.05) {
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+// Splits crossings selecting the first intersection along each edge (t closest to 0) to avoid slicing peninsulas
+function splitCrossings(pts) {
+  const initialSign = Math.sign(polygonCentroidArea(pts));
+  const queue = [pts];
+  const result = [];
+  while (queue.length > 0) {
+    let ring = queue.pop();
+    let maxIters = 100;
+    let wasSplit = false;
+    while (maxIters-- > 0 && !wasSplit) {
+      let bestI = -1, bestJ = -1, bestT = Infinity, bestPt = null;
+      const n = ring.length;
+      // the first crossed edge i, nearest crossing along it (ties to the lowest j); the edge grid keeps this linear
+      // for the 1,000-vertex park outlines, which mostly have no crossing at all
+      const grid = ringEdgeGrid(ring);
+      for (let i = 0; i < n; i++) {
+        const a = ring[i], b = ring[(i + 1) % n];
+        for (const k of edgeCells(a, b)) {
+          const list = grid.get(k);
+          if (!list) continue;
+          for (const j of list) {
+            if (j < i + 2 || (i === 0 && j === n - 1)) continue;
+            if (!segmentsIntersect(a, b, ring[j], ring[(j + 1) % n])) continue;
+            const pt = lineIntersection(a, b, ring[j], ring[(j + 1) % n]);
+            if (pt && pt.t > 1e-5 && (pt.t < bestT || (pt.t === bestT && j < bestJ))) {
+              bestT = pt.t;
+              bestI = i;
+              bestJ = j;
+              bestPt = { x: pt.x, z: pt.z };
+            }
+          }
+        }
+        if (bestI !== -1) break;
+      }
+      if (bestI === -1) break;
+
+      const r1 = ring.slice(0, bestI + 1).concat([bestPt], ring.slice(bestJ + 1));
+      const r2 = [bestPt].concat(ring.slice(bestI + 1, bestJ + 1));
+      const s1 = polygonCentroidArea(r1);
+      const s2 = polygonCentroidArea(r2);
+      if (s1 * s2 < 0) {
+        ring = Math.sign(s1) === initialSign ? r1 : r2;
+      } else if (Math.abs(s1) < 0.05 || Math.abs(s2) < 0.05) {
+        ring = Math.abs(s1) > Math.abs(s2) ? r1 : r2;
+      } else {
+        queue.push(r1);
+        queue.push(r2);
+        wasSplit = true;
+      }
+    }
+    if (!wasSplit && ring.length >= 3 && Math.abs(polygonCentroidArea(ring)) > 0.05) {
+      result.push(ring);
+    }
+  }
+  return result;
+}
+
+// Splits a pinched outline into simple disjoint rings: decomposes collinear corridor collapses and crossing folds
+function splitIntoSimpleRings(pts) {
+  if (!pts || pts.length < 3) return pts ? [pts] : [];
+  const sub = insertVerticesOnEdges(pts);
+  const rev = splitReverseEdges(sub);
+  const pin = [];
+  for (const r of rev) pin.push(...splitPinchVertices(r));
+  const result = [];
+  for (const r of pin) {
+    result.push(...splitCrossings(r));
+  }
+  return result;
 }
 
 /**
@@ -469,6 +731,230 @@ function clipHalfPlane(poly, a, b, left) {
   return out;
 }
 
+function cleanRing(pts) {
+  const res = [];
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    if (res.length > 0 && Math.hypot(p.x - res[res.length - 1].x, p.z - res[res.length - 1].z) < 0.01) continue;
+    res.push(p);
+  }
+  if (res.length > 2 && Math.hypot(res[res.length - 1].x - res[0].x, res[res.length - 1].z - res[0].z) < 0.01) {
+    res.pop();
+  }
+  return res;
+}
+
+/**
+ * Merges adjacent and overlapping polygon footprints within a block into disjoint boundary rings.
+ * Cancels interior shared segments, keeps buildings separate at pinch points using right-turn angular
+ * ordering, and identifies enclosed courtyard rings so three's triangulator encounters no touching
+ * holes or collinear split vertices.
+ */
+function unionPolygons(polys) {
+  if (!polys || polys.length === 0) {
+    const res = [];
+    res.outer = [];
+    res.courtyards = [];
+    return res;
+  }
+  if (polys.length === 1) {
+    const c = cleanRing(polys[0]);
+    const res = [c];
+    res.outer = [c];
+    res.courtyards = [];
+    return res;
+  }
+
+  const EPS = 1e-4;
+  const CELL = 16;
+  const ptKey = (p) => `${Math.round(p.x * 20)},${Math.round(p.z * 20)}`;
+  const segments = [];
+  const allPts = [];
+  const ptMap = new Map();
+  const addPt = (p) => {
+    const k = ptKey(p);
+    if (!ptMap.has(k)) { ptMap.set(k, p); allPts.push(p); }
+    return ptMap.get(k);
+  };
+
+  const ensureCCW = (pts) => (polygonCentroidArea(pts) > 0 ? pts : pts.slice().reverse());
+  for (const poly of polys) {
+    const pts = ensureCCW(cleanRing(poly));
+    const n = pts.length;
+    for (let i = 0; i < n; i++) {
+      const p1 = pts[i], p2 = pts[(i + 1) % n];
+      if (Math.hypot(p2.x - p1.x, p2.z - p1.z) > 0.01) {
+        segments.push({ p1: addPt(p1), p2: addPt(p2) });
+      }
+    }
+  }
+
+  const grid = new Map();
+  const getCellKey = (gx, gz) => (gx * 100000 + gz);
+  segments.forEach((s, idx) => {
+    const minX = Math.min(s.p1.x, s.p2.x), maxX = Math.max(s.p1.x, s.p2.x);
+    const minZ = Math.min(s.p1.z, s.p2.z), maxZ = Math.max(s.p1.z, s.p2.z);
+    const gx0 = Math.floor(minX / CELL), gx1 = Math.floor(maxX / CELL);
+    const gz0 = Math.floor(minZ / CELL), gz1 = Math.floor(maxZ / CELL);
+    for (let gx = gx0; gx <= gx1; gx++) {
+      for (let gz = gz0; gz <= gz1; gz++) {
+        const ck = getCellKey(gx, gz);
+        let list = grid.get(ck);
+        if (!list) { list = []; grid.set(ck, list); }
+        list.push(idx);
+      }
+    }
+  });
+
+  const checkedPairs = new Set();
+  for (const list of grid.values()) {
+    if (list.length < 2) continue;
+    for (let i = 0; i < list.length; i++) {
+      const idx1 = list[i];
+      for (let j = i + 1; j < list.length; j++) {
+        const idx2 = list[j];
+        const pk = idx1 < idx2 ? `${idx1},${idx2}` : `${idx2},${idx1}`;
+        if (checkedPairs.has(pk)) continue;
+        checkedPairs.add(pk);
+        const pt = lineIntersection(segments[idx1].p1, segments[idx1].p2, segments[idx2].p1, segments[idx2].p2);
+        if (pt) {
+          const s1 = segments[idx1], s2 = segments[idx2];
+          const dot1 = (pt.x - s1.p1.x) * (s1.p2.x - s1.p1.x) + (pt.z - s1.p1.z) * (s1.p2.z - s1.p1.z);
+          const len1 = Math.hypot(s1.p2.x - s1.p1.x, s1.p2.z - s1.p1.z);
+          const dot2 = (pt.x - s2.p1.x) * (s2.p2.x - s2.p1.x) + (pt.z - s2.p1.z) * (s2.p2.z - s2.p1.z);
+          const len2 = Math.hypot(s2.p2.x - s2.p1.x, s2.p2.z - s2.p1.z);
+          if (dot1 > 0.01 && dot1 < len1 * len1 - 0.01 && dot2 > 0.01 && dot2 < len2 * len2 - 0.01) {
+            addPt(pt);
+          }
+        }
+      }
+    }
+  }
+
+  const ptGrid = new Map();
+  allPts.forEach((p) => {
+    const gx = Math.floor(p.x / CELL), gz = Math.floor(p.z / CELL);
+    const ck = getCellKey(gx, gz);
+    let list = ptGrid.get(ck);
+    if (!list) { list = []; ptGrid.set(ck, list); }
+    list.push(p);
+  });
+
+  const newSegments = [];
+  for (const s of segments) {
+    const { p1, p2 } = s;
+    const dx = p2.x - p1.x, dz = p2.z - p1.z;
+    const len = Math.hypot(dx, dz);
+    if (len < EPS) continue;
+    const ux = dx / len, uz = dz / len;
+    const cuts = [0, len];
+    const minX = Math.min(p1.x, p2.x) - EPS, maxX = Math.max(p1.x, p2.x) + EPS;
+    const minZ = Math.min(p1.z, p2.z) - EPS, maxZ = Math.max(p1.z, p2.z) + EPS;
+    const gx0 = Math.floor(minX / CELL), gx1 = Math.floor(maxX / CELL);
+    const gz0 = Math.floor(minZ / CELL), gz1 = Math.floor(maxZ / CELL);
+    const seenPts = new Set();
+    for (let gx = gx0; gx <= gx1; gx++) {
+      for (let gz = gz0; gz <= gz1; gz++) {
+        const list = ptGrid.get(getCellKey(gx, gz));
+        if (!list) continue;
+        for (const p of list) {
+          if (seenPts.has(p)) continue;
+          seenPts.add(p);
+          const cross = Math.abs((p.x - p1.x) * uz - (p.z - p1.z) * ux);
+          if (cross < 0.01) {
+            const dot = (p.x - p1.x) * ux + (p.z - p1.z) * uz;
+            if (dot > 0.01 && dot < len - 0.01) cuts.push(dot);
+          }
+        }
+      }
+    }
+    cuts.sort((a, b) => a - b);
+    const uniq = [];
+    for (const c of cuts) if (uniq.length === 0 || c - uniq[uniq.length - 1] > 0.01) uniq.push(c);
+    for (let i = 0; i < uniq.length - 1; i++) {
+      newSegments.push({
+        p1: { x: p1.x + ux * uniq[i], z: p1.z + uz * uniq[i] },
+        p2: { x: p1.x + ux * uniq[i + 1], z: p1.z + uz * uniq[i + 1] }
+      });
+    }
+  }
+
+  const segMap = new Map();
+  for (const s of newSegments) {
+    const kForward = `${ptKey(s.p1)}->${ptKey(s.p2)}`;
+    const kReverse = `${ptKey(s.p2)}->${ptKey(s.p1)}`;
+    if (segMap.has(kReverse) && segMap.get(kReverse) > 0) {
+      segMap.set(kReverse, segMap.get(kReverse) - 1);
+    } else {
+      segMap.set(kForward, (segMap.get(kForward) || 0) + 1);
+    }
+  }
+
+  const adj = new Map();
+  for (const s of newSegments) {
+    const kForward = `${ptKey(s.p1)}->${ptKey(s.p2)}`;
+    if (segMap.get(kForward) > 0) {
+      segMap.set(kForward, segMap.get(kForward) - 1);
+      const k1 = ptKey(s.p1);
+      let list = adj.get(k1);
+      if (!list) { list = []; adj.set(k1, list); }
+      list.push(s.p2);
+    }
+  }
+
+  const rawRings = [];
+  for (const [startK, targets] of adj.entries()) {
+    while (targets.length > 0) {
+      const startPt = ptMap.get(startK);
+      if (!startPt) { targets.pop(); continue; }
+      const ring = [startPt];
+      let prevPt = startPt;
+      let currPt = targets.pop();
+      let safety = 2000;
+      while (safety-- > 0) {
+        ring.push(currPt);
+        const currK = ptKey(currPt);
+        if (currK === startK) { ring.pop(); break; }
+        const nextTargets = adj.get(currK);
+        if (!nextTargets || nextTargets.length === 0) break;
+        const inAngle = Math.atan2(currPt.z - prevPt.z, currPt.x - prevPt.x);
+        let bestIdx = 0;
+        let bestTurn = Infinity;
+        for (let ti = 0; ti < nextTargets.length; ti++) {
+          const cand = nextTargets[ti];
+          const outAngle = Math.atan2(cand.z - currPt.z, cand.x - currPt.x);
+          let turn = (outAngle - inAngle + Math.PI * 2) % (Math.PI * 2);
+          if (turn < bestTurn) { bestTurn = turn; bestIdx = ti; }
+        }
+        prevPt = currPt;
+        currPt = nextTargets.splice(bestIdx, 1)[0];
+      }
+      const cRing = cleanRing(ring);
+      if (cRing.length >= 3 && Math.abs(polygonCentroidArea(cRing)) > 0.05) {
+        rawRings.push(cRing);
+      }
+    }
+  }
+
+  const outer = [];
+  const courtyards = [];
+  for (let i = 0; i < rawRings.length; i++) {
+    const r = rawRings[i];
+    const depth = rawRings.filter((o, j) => i !== j && r.every((p) => pointInPolygonXZ(o, p.x, p.z))).length;
+    const isCourtyard = depth % 2 === 1 && polygonCentroidArea(r) < 0;
+    if (isCourtyard) {
+      courtyards.push(ensureCCW(r));
+    } else {
+      outer.push(ensureCCW(r));
+    }
+  }
+
+  const res = outer;
+  res.outer = outer;
+  res.courtyards = courtyards;
+  return res;
+}
+
 /**
  * A slab outline with the track corridors cut out, as convex pieces: the ring is ear-clipped, then every piece loses
  * each corridor quad (a track segment widened by `half` either side and lengthened by `half` at both ends, so the
@@ -541,22 +1027,30 @@ function cutSlab(ring, segs, half, holes = []) {
 
 // Both rings must be simple. Triangulating them first lets convex half-plane clipping retain disconnected
 // intersections as separate pieces, rather than folding a projected boundary across itself.
-function intersectSimpleRings(ring, boundary) {
-  const inside = triangulateRing(ring);
-  const border = triangulateRing(boundary);
+function intersectSimpleRings(ring, boundary, border = boundaryTriangles(boundary)) {
+  const inside = triangulateRing(polygonCentroidArea(ring) > 0 ? ring : ring.slice().reverse());
   const pieces = [];
   for (const a of inside) {
-    const ax0 = Math.min(...a.map((p) => p.x)), ax1 = Math.max(...a.map((p) => p.x));
-    const az0 = Math.min(...a.map((p) => p.z)), az1 = Math.max(...a.map((p) => p.z));
-    for (const b of border) {
-      if (b.every((p) => p.x < ax0) || b.every((p) => p.x > ax1) || b.every((p) => p.z < az0) ||
-        b.every((p) => p.z > az1)) continue;
+    const ax0 = Math.min(a[0].x, a[1].x, a[2].x), ax1 = Math.max(a[0].x, a[1].x, a[2].x);
+    const az0 = Math.min(a[0].z, a[1].z, a[2].z), az1 = Math.max(a[0].z, a[1].z, a[2].z);
+    for (let k = 0; k < border.length; k++) {
+      const b = border[k], bb = border.boxes[k];
+      if (bb[1] < ax0 || bb[0] > ax1 || bb[3] < az0 || bb[2] > az1) continue;
       let p = a;
       for (let i = 0; i < 3 && p.length >= 3; i++) p = clipHalfPlane(p, b[i], b[(i + 1) % 3], true);
-      if (p.length >= 3 && polygonCentroidArea(p) > 0.01) pieces.push(p);
+      if (p.length >= 3 && polygonCentroidArea(p) > 1e-6) pieces.push(p);
     }
   }
   return pieces;
+}
+
+// The boundary side of intersectSimpleRings, triangulated once with per-triangle bounds so a park outline clipped
+// against hundreds of footprint holes is not re-triangulated for each
+function boundaryTriangles(boundary) {
+  const tris = triangulateRing(polygonCentroidArea(boundary) > 0 ? boundary : boundary.slice().reverse());
+  tris.boxes = tris.map((t) => [Math.min(t[0].x, t[1].x, t[2].x), Math.max(t[0].x, t[1].x, t[2].x),
+    Math.min(t[0].z, t[1].z, t[2].z), Math.max(t[0].z, t[1].z, t[2].z)]);
+  return tris;
 }
 
 // The narrow park island at Armii Poznań folds across itself with the normal 5 m inset. Its smaller inset stays
@@ -694,7 +1188,8 @@ function pavedPlazas() {
   return kept;
 }
 
-function buildCityGrid(scene) {
+function buildCityGrid(scene, opts = {}) {
+  const { buildingFootprints = null, buildingColliders = [] } = opts;
   const group = new THREE.Group();
   group.name = 'CityGrid';
 
@@ -1005,8 +1500,11 @@ function buildCityGrid(scene) {
   // Each add* below returns false (and places nothing) where the prop would stand within RAIL_PROP_KEEP of a track
   let offTrack = 0;
   const railClear = (x, z, radius) => clearOfRails(x, z, radius) || (offTrack++, false);
+  const { isClearOfWalls } = createTreeWallChecker(buildingColliders, SPECIES_CROWN_R);
+
   function addPlanterTree(x, z, species = 1, scale = 0.85) {
     if (!railClear(x, z, 1.7)) return false; // the 2.4 m planter's corner
+    if (!isClearOfWalls(x, z, scale, species, 1.0, PLAZA_Y + 0.55, 1)) return false;
     addPlanter(x, z, 2.4, 2.4);
     treeSites.push({ x, y: PLAZA_Y + 0.55, z, scale, species });
     return true;
@@ -1118,26 +1616,74 @@ function buildCityGrid(scene) {
   const PARK_Y = 0.26; // mineral walks (sidewalk tops are at 0.22)
   const BED_Y = 0.41; // lawn top inside the granite bed copings
   const parkLawnGeos = [];
+
+  function clipHolesToPiece(piece, uHoles) {
+    if (!uHoles.length) return [];
+    const pMinX = Math.min(...piece.map((p) => p.x)), pMaxX = Math.max(...piece.map((p) => p.x));
+    const pMinZ = Math.min(...piece.map((p) => p.z)), pMaxZ = Math.max(...piece.map((p) => p.z));
+    const holes = [];
+    let edges = null, border = null;
+    for (const h of uHoles) {
+      const hMinX = Math.min(...h.map((p) => p.x)), hMaxX = Math.max(...h.map((p) => p.x));
+      const hMinZ = Math.min(...h.map((p) => p.z)), hMaxZ = Math.max(...h.map((p) => p.z));
+      if (hMinX > pMaxX || hMaxX < pMinX || hMinZ > pMaxZ || hMaxZ < pMinZ) continue;
+      // all vertices inside is not enough: a concave stretch of the outline can still cut through the hole's edges
+      // (block 966's lawn and a 3,499 m² footprint union), and earcut then fills across it
+      const crosses = ringCrossesGrid(piece, edges || (edges = ringEdgeGrid(piece)), h);
+      if (!crosses && ringInside(piece, h)) {
+        holes.push(h);
+      } else if (crosses || h.some((p) => pointInPolygonXZ(piece, p.x, p.z)) ||
+        piece.some((p) => pointInPolygonXZ(h, p.x, p.z))) {
+        // Clip to the piece as convex fragments, each pulled 1 mm towards its centroid so fragments touch neither the
+        // outline nor each other (earcut misfills touching holes). Measured on the 41 park blocks with buildings: a
+        // 2 cm pull and dropping fragments under 0.5 m² left 319 m² granite and 376 m² lawn under walls; 1 mm and
+        // 0.05 m² leave ~17 and ~14 m² for ~15k more triangles.
+        const intersected = intersectSimpleRings(h, piece, border || (border = boundaryTriangles(piece)));
+        for (const raw of intersected) {
+          if (raw.length < 3 || Math.abs(polygonCentroidArea(raw)) < 0.05) continue;
+          const cx = raw.reduce((s, p) => s + p.x, 0) / raw.length;
+          const cz = raw.reduce((s, p) => s + p.z, 0) / raw.length;
+          const nudged = raw.map((p) => {
+            const d = Math.hypot(cx - p.x, cz - p.z) || 1e-6;
+            const step = Math.min(0.001, d * 0.05);
+            return { x: p.x + ((cx - p.x) / d) * step, z: p.z + ((cz - p.z) / d) * step };
+          });
+          holes.push(nudged);
+        }
+      }
+    }
+    return holes;
+  }
+
   for (const b of BLOCKS) {
     if (!isParkBlock(b)) continue;
     const ponds = pondsIn(b.poly);
     const slab = offsetPolygonInward(b.poly, 0.1) || b.poly;
-    const curbPieces = b.roadCut ? cutSlab(b.poly, b.roadCut, 0) : [b.poly];
-    const slabPieces = b.roadCut ? cutSlab(slab, b.roadCut, 0) : [slab];
+    const armiiCuts = armiiParkRoadCuts(b);
+    const roadCuts = armiiCuts || b.roadCut;
+    const bHoles = (b.buildings > 0 && buildingFootprints?.get(b.id)) || [];
+    const unionHoles = bHoles.length > 0 ? unionPolygons(bHoles) : [];
+    const curbPieces = roadCuts ? cutSlab(b.poly, roadCuts, 0, unionHoles) : [b.poly];
+    const slabPieces = roadCuts ? cutSlab(slab, roadCuts, 0, unionHoles) : [slab];
     for (const piece of curbPieces) {
-      group.add(createExtrudedPolygonMesh(piece, 0.0, PARK_Y - 0.04, curbMat, true, false,
-        ponds.filter((h) => ringInside(piece, h))));
+      const holes = roadCuts ? [] : [...ponds.filter((h) => ringInside(piece, h)), ...clipHolesToPiece(piece, unionHoles)];
+      group.add(createExtrudedPolygonMesh(piece, 0.0, PARK_Y - 0.04, curbMat, true, false, holes));
     }
     for (const piece of slabPieces) {
-      const top = createExtrudedPolygonMesh(piece, 0.0, PARK_Y, pavingMat, true, false,
-        ponds.filter((h) => ringInside(piece, h)));
+      const holes = roadCuts ? [] : [...ponds.filter((h) => ringInside(piece, h)), ...clipHolesToPiece(piece, unionHoles)];
+      const top = createExtrudedPolygonMesh(piece, 0.0, PARK_Y, pavingMat, true, false, holes);
+      setPavingStyle(top.geometry, 0);
+      group.add(top);
+    }
+    // Re-emit open-air enclosed courtyards inside buildings as curb and paving slabs
+    for (const cy of unionHoles.courtyards || []) {
+      group.add(createExtrudedPolygonMesh(cy, 0.0, PARK_Y - 0.04, curbMat, true, false));
+      const top = createExtrudedPolygonMesh(cy, 0.0, PARK_Y, pavingMat, true, false);
       setPavingStyle(top.geometry, 0);
       group.add(top);
     }
     pavedRects.push({ minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ, ring: b.poly });
     addFootprint((b.minX + b.maxX) * 0.5, (b.minZ + b.maxZ) * 0.5, b.maxX - b.minX, b.maxZ - b.minZ);
-    const armiiCuts = armiiParkRoadCuts(b);
-    const roadCuts = armiiCuts || b.roadCut;
     const bed = offsetPolygonInward(parkBedOutline(b), parkBedInset(b, roadCuts));
     if (!bed) continue;
     // the lawn keeps a 2 m paved path round each pond (or meets the water where the pond comes too close to the walk)
@@ -1145,16 +1691,26 @@ function buildCityGrid(scene) {
       const path = offsetPolygon(h, -2.0);
       return path && ringInside(bed, path) ? path : h;
     }).filter((h) => ringInside(bed, h));
-    const beds = roadCuts ? cutSlab(bed, roadCuts, 0) : [bed];
+    const allBedHoles = bedHoles.length > 0 && unionHoles.length > 0
+      ? unionPolygons([...bedHoles, ...unionHoles])
+      : (bedHoles.length > 0 ? bedHoles : unionHoles);
+    const bedPieces = buildingFootprints ? splitIntoSimpleRings(bed) : [bed];
+    const beds = roadCuts ? cutSlab(bed, roadCuts, 0, unionHoles) : bedPieces;
     for (const piece of beds) {
-      group.add(createExtrudedPolygonMesh(piece, 0.2, BED_Y - 0.21, graniteMat, true, false,
-        bedHoles.filter((h) => ringInside(piece, h))));
+      const holes = roadCuts ? [] : (buildingFootprints ? clipHolesToPiece(piece, allBedHoles) :
+        ponds.map((h) => {
+          const path = offsetPolygon(h, -2.0);
+          return path && ringInside(piece, path) ? path : h;
+        }).filter((h) => ringInside(piece, h)));
+      group.add(createExtrudedPolygonMesh(piece, 0.2, BED_Y - 0.21, graniteMat, true, false, holes));
     }
     const lawnTop = offsetPolygonInward(bed, 0.3);
-    const lawns = lawnTop ? (roadCuts ? cutSlab(lawnTop, roadCuts, 0) : [lawnTop]) : [];
+    const lawns = roadCuts ? (lawnTop ? cutSlab(lawnTop, roadCuts, 0, unionHoles) : []) :
+      (lawnTop ? (buildingFootprints ? splitIntoSimpleRings(lawnTop) : [lawnTop]) : []);
     for (const piece of lawns) {
-      parkLawnGeos.push(createExtrudedPolygonMesh(piece, 0.3, BED_Y - 0.3, lawnMat, true, false,
-        bedHoles.filter((h) => ringInside(piece, h))).geometry);
+      const holes = roadCuts ? [] : (buildingFootprints ? clipHolesToPiece(piece, allBedHoles) :
+        bedHoles.filter((h) => ringInside(piece, h)));
+      parkLawnGeos.push(createExtrudedPolygonMesh(piece, 0.3, BED_Y - 0.3, lawnMat, true, false, holes).geometry);
     }
     // trees on a jittered grid inside the bed, sparser in the big parks (the Cytadela alone is ~1 km²), never within
     // 4 m of a pond

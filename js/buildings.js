@@ -752,7 +752,7 @@ function buildCityBlocks(scene) {
       const box = { x: p.x0 + w * 0.5, y: p.y0 + h * 0.5, z: p.z0 + d * 0.5, w, h, d, faces: wallKinds(b, p, shops, o), tone };
       buckets[mat].push(box);
       blk.facadeBoxes.push(box);
-      blk.footprints.push({ x0: p.x0, x1: p.x1, z0: p.z0, z1: p.z1, h: p.y1, tone });
+      blk.footprints.push({ x0: p.x0, x1: p.x1, z0: p.z0, z1: p.z1, y0: p.y0, h: p.y1, tone });
       if (p.y1 > blk.maxH) blk.maxH = p.y1;
       pushCollider(p.x0, p.x1, p.z0, p.z1, p.y0, p.y1);
       if (p.y1 > top.y1 + EPS || (p.y1 > top.y1 - EPS && w * d > rectW(top) * rectD(top))) top = p;
@@ -2132,6 +2132,7 @@ function buildCityBlocks(scene) {
 
     const blockDetail = {
       id: `${district}_${Math.round(cx)}_${Math.round(cz)}`,
+      srcBlockId: srcBlock ? srcBlock.id : null,
       cx,
       cz,
       minX,
@@ -2365,9 +2366,13 @@ function buildCityBlocks(scene) {
   // B6. Narrow leftover slabs no building fits on (8-26 m wide: wedges between converging streets, slivers by the
   //     bridge approaches) become sitting areas: a row or two of street trees in tree pits (planted by
   //     street-details.js)
-  {
+  let populatedSlabs = false;
+  function populateLeftoverSlabs() {
+    if (populatedSlabs) return;
     const plazas = pavedPlazaRects || [];
     const sites = parkTreeSites;
+    if (!sites || !sidewalkBlocks) return;
+    populatedSlabs = true;
     const hit = (r, x0, x1, z0, z1) => r.minX < x1 && r.maxX > x0 && r.minZ < z1 && r.maxZ > z0;
     for (const s of (sites && sidewalkBlocks) || []) {
       const x0 = s.cx - s.w / 2;
@@ -2395,6 +2400,7 @@ function buildCityBlocks(scene) {
       }
     }
   }
+  populateLeftoverSlabs();
 
   // ============================================================================
   // C. STATIC CITY-WIDE ARCHITECTURAL MASSING (one instanced facade-box mesh per facade material)
@@ -2904,12 +2910,30 @@ function buildCityBlocks(scene) {
   // Initial quadtree stream around the spawn point
   update(SPAWN.x, SPAWN.z, true);
 
+  const footprintsByBlock = new Map();
+  for (const blk of allBlocks) {
+    if (blk.srcBlockId !== null && blk.srcBlockId !== undefined) {
+      if (!footprintsByBlock.has(blk.srcBlockId)) footprintsByBlock.set(blk.srcBlockId, []);
+      const list = footprintsByBlock.get(blk.srcBlockId);
+      for (const f of blk.footprints) {
+        if (f.y0 !== undefined && f.y0 > 0.01) continue; // ground-level footprints only (exclude upper-tier stacked parts)
+        const pts = f.pts || [
+          { x: f.x0, z: f.z0 }, { x: f.x1, z: f.z0 },
+          { x: f.x1, z: f.z1 }, { x: f.x0, z: f.z1 }
+        ];
+        list.push(pts);
+      }
+    }
+  }
+
   scene.add(group);
   return {
     group,
     colliders,
     quadtree,
     allBlocks,
+    footprintsByBlock,
+    populateLeftoverSlabs,
     update,
     updateLights
   };

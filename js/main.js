@@ -77,17 +77,22 @@ async function initApp() {
   }
 
   // 3. Build Poznań's Geography, Bridges, Landmarks, Blocks, Street Details & Traffic
-  const cityGrid = buildCityGrid(scene);
-  markInit('cityGrid');
-  const outskirts = buildOutskirts(scene);
-  markInit('outskirts');
-  const bridges = buildBridges(scene, { sidewalks: cityGrid.sidewalks });
-  markInit('bridges');
   const landmarks = buildLandmarks(scene);
   const landmarkColliders = landmarks.colliders;
   markInit('landmarks');
   const cityBlocks = buildCityBlocks(scene);
   markInit('blocks');
+  const buildingColliders = [...landmarkColliders, ...cityBlocks.colliders];
+  const cityGrid = buildCityGrid(scene, {
+    buildingFootprints: cityBlocks.footprintsByBlock,
+    buildingColliders
+  });
+  markInit('cityGrid');
+  cityBlocks.populateLeftoverSlabs?.();
+  const outskirts = buildOutskirts(scene);
+  markInit('outskirts');
+  const bridges = buildBridges(scene, { sidewalks: cityGrid.sidewalks });
+  markInit('bridges');
   const allColliders = [
     ...landmarkColliders, ...cityBlocks.colliders, ...outskirts.colliders, ...bridges.colliders, ...(cityGrid.colliders || [])
   ];

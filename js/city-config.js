@@ -1483,6 +1483,73 @@ function configurePedestrianSignal(node, hasCrosswalk, width = 10) {
   node.signal = hasCrosswalk;
 }
 
+// Base crown radius from trees.js SPECIES models (half-extents of foliage crown)
+// lime: 4.53 m, maple: 4.74 m, chestnut: 6.07 m, robinia: 4.55 m
+const SPECIES_CROWN_R = [4.53, 4.74, 6.07, 4.55];
+
+/**
+ * Builds a spatial hash grid over building colliders and returns an isClearOfWalls predicate that tests
+ * whether a tree crown or planter tree at (x, z) clears all walls by at least its crown radius (or floor clearance).
+ */
+function createTreeWallChecker(buildingColliders = [], speciesCrownR = null) {
+  const TREE_WALL_CELL = 32;
+  const treeWallGrid = new Map();
+  for (const c of buildingColliders) {
+    const ix0 = Math.floor(c.minX / TREE_WALL_CELL), ix1 = Math.floor(c.maxX / TREE_WALL_CELL);
+    const iz0 = Math.floor(c.minZ / TREE_WALL_CELL), iz1 = Math.floor(c.maxZ / TREE_WALL_CELL);
+    for (let ix = ix0; ix <= ix1; ix++) {
+      for (let iz = iz0; iz <= iz1; iz++) {
+        const k = ix * 100000 + iz;
+        const list = treeWallGrid.get(k);
+        if (list) list.push(c);
+        else treeWallGrid.set(k, [c]);
+      }
+    }
+  }
+
+  function isClearOfWalls(x, z, scale, species, squeezeTowardWall = 1, treeY = 0.22, tier = 1) {
+    if (!treeWallGrid.size) return true;
+    const baseR = (speciesCrownR && speciesCrownR[species]) || 4.6;
+    const crownR = baseR * scale * squeezeTowardWall;
+    const floor = tier === 2 ? 0.5 : 1.2;
+    const req = Math.max(crownR, floor);
+    const radCells = Math.ceil((req + 0.5) / TREE_WALL_CELL);
+    const cix = Math.floor(x / TREE_WALL_CELL), ciz = Math.floor(z / TREE_WALL_CELL);
+    const topY = treeY + 13.0 * scale;
+    const seen = new Set();
+    for (let dx = -radCells; dx <= radCells; dx++) {
+      for (let dz = -radCells; dz <= radCells; dz++) {
+        const list = treeWallGrid.get((cix + dx) * 100000 + (ciz + dz));
+        if (!list) continue;
+        for (const c of list) {
+          if (seen.has(c)) continue;
+          seen.add(c);
+          if ((c.maxY !== undefined && c.maxY < treeY) || (c.minY !== undefined && c.minY > topY)) continue;
+          let d;
+          if (c.obb) {
+            const { cx, cz, hx, hz, cs, sn } = c.obb;
+            const ox = x - cx, oz = z - cz;
+            const lx = ox * cs - oz * sn, lz = ox * sn + oz * cs;
+            const ax = Math.abs(lx), az = Math.abs(lz);
+            if (ax <= hx && az <= hz) return false;
+            d = Math.hypot(Math.max(0, ax - hx), Math.max(0, az - hz));
+          } else {
+            const cx = (c.minX + c.maxX) * 0.5, cz = (c.minZ + c.maxZ) * 0.5;
+            const hx = (c.maxX - c.minX) * 0.5, hz = (c.maxZ - c.minZ) * 0.5;
+            const ax = Math.abs(x - cx), az = Math.abs(z - cz);
+            if (ax <= hx && az <= hz) return false;
+            d = Math.hypot(Math.max(0, ax - hx), Math.max(0, az - hz));
+          }
+          if (d < req) return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  return { isClearOfWalls, treeWallGrid, TREE_WALL_CELL };
+}
+
 export {
   LL,
   LAND_RINGS,
@@ -1541,5 +1608,7 @@ export {
   parkFreeCells,
   splitDeep,
   blockLots,
-  distToLots
+  distToLots,
+  SPECIES_CROWN_R,
+  createTreeWallChecker
 };

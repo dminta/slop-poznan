@@ -42,7 +42,7 @@ test('seeded species assignment preserves the full built city tree sites and col
     './road-network.js': { CROSSWALK: 4.3, CROSSWALK_REACH: 3, STOP_SETBACK: 1.5 }, './city-grid.js': liveGrid,
     './trees.js': { createTreeField: (_scene, trees) => { sites = trees; return { group: stub }; } } }, globals
   }).buildStreetDetails(stub, { buildingColliders: bld.colliders, grid });
-  const { treeSpecies } = loadModule(source('trees'), { imports: { 'three/webgpu': stub, './tsl-materials.js': stub }, globals });
+  const { treeSpecies } = loadModule(source('trees'), { imports: { 'three/webgpu': stub, './tsl-materials.js': stub, './city-config.js': config }, globals });
   const before = [0, 0, 0, 0], after = [0, 0, 0, 0];
   const siteHash = digest(sites);
   for (const site of sites) { before[site.species || 0]++; after[treeSpecies(site)]++; }
@@ -114,7 +114,8 @@ test('createTreeField preserves each site matrix across species', () => {
     .replace('buildTreeGeometries(s, v, atlas.tileMeters)', 'fakeGeometries(s, v, atlas.tileMeters)');
   const { createTreeField, treeSpecies } = loadModule(code, {
     imports: { 'three/webgpu': { Vector3, Group, Object3D, Color, BufferGeometry: Geometry,
-      InstancedBufferAttribute: Attribute, InstancedMesh: Mesh }, './tsl-materials.js': { createTreeMaterial: () => ({}) } },
+      InstancedBufferAttribute: Attribute, InstancedMesh: Mesh }, './tsl-materials.js': { createTreeMaterial: () => ({}) },
+      './city-config.js': { SPECIES_CROWN_R: [4.53, 4.74, 6.07, 4.55] } },
     globals: { fakeGeometries }
   });
   const sites = [{ x: 10, y: 0.22, z: 130, scale: 0.8, sx: 0.7 },

@@ -13,343 +13,14 @@ const require = createRequire(import.meta.url);
 const { loadModule } = require('../tests/helpers/module.cjs');
 const source = (name) => readFileSync(join(root, 'js', name + '.js'), 'utf8');
 
-// Minimal Three.js mock supporting mesh hierarchy, transforms, bounding box computation for landmark fitting
-class Vector2 {
-  constructor(x = 0, y = 0) { this.x = x; this.y = y; }
-}
-class Vector3 {
-  constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; }
-  set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
-  copy(v) { return this.set(v.x, v.y, v.z); }
-  clone() { return new Vector3(this.x, this.y, this.z); }
-  add(v) { this.x += v.x; this.y += v.y; this.z += v.z; return this; }
-  addVectors(a, b) { this.x = a.x + b.x; this.y = a.y + b.y; this.z = a.z + b.z; return this; }
-  addScaledVector(v, s) { this.x += v.x * s; this.y += v.y * s; this.z += v.z * s; return this; }
-  sub(v) { this.x -= v.x; this.y -= v.y; this.z -= v.z; return this; }
-  multiply(v) { this.x *= v.x; this.y *= v.y; this.z *= v.z; return this; }
-  multiplyScalar(s) { this.x *= s; this.y *= s; this.z *= s; return this; }
-  divide(v) { this.x /= v.x; this.y /= v.y; this.z /= v.z; return this; }
-  length() { return Math.hypot(this.x, this.y, this.z); }
-  lengthSq() { return this.x * this.x + this.y * this.y + this.z * this.z; }
-  normalize() { const l = this.length(); if (l > 0) this.multiplyScalar(1 / l); return this; }
-  fromArray(arr, offset = 0) { this.x = arr[offset]; this.y = arr[offset + 1]; this.z = arr[offset + 2]; return this; }
-  cross(v) { return this.crossVectors(this, v); }
-  crossVectors(a, b) { return this.set(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x); }
-  subVectors(a, b) { return this.set(a.x - b.x, a.y - b.y, a.z - b.z); }
-  dot(v) { return this.x * v.x + this.y * v.y + this.z * v.z; }
-  applyMatrix4(m) {
-    const x = this.x, y = this.y, z = this.z, e = m.elements;
-    const w = 1 / (e[3] * x + e[7] * y + e[11] * z + e[15]);
-    this.x = (e[0] * x + e[4] * y + e[8] * z + e[12]) * w;
-    this.y = (e[1] * x + e[5] * y + e[9] * z + e[13]) * w;
-    this.z = (e[2] * x + e[6] * y + e[10] * z + e[14]) * w;
-    return this;
-  }
-}
-class Matrix4 {
-  constructor() { this.elements = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]; }
-  identity() { this.elements = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]; return this; }
-  compose(pos, quat, scale) {
-    const te = this.elements;
-    const x = quat.x, y = quat.y, z = quat.z, w = quat.w;
-    const x2 = x + x, y2 = y + y, z2 = z + z;
-    const xx = x * x2, xy = x * y2, xz = x * z2;
-    const yy = y * y2, yz = y * z2, zz = z * z2;
-    const wx = w * x2, wy = w * y2, wz = w * z2;
-    const sx = scale.x, sy = scale.y, sz = scale.z;
-    te[0] = (1 - (yy + zz)) * sx; te[1] = (xy + wz) * sx; te[2] = (xz - wy) * sx; te[3] = 0;
-    te[4] = (xy - wz) * sy; te[5] = (1 - (xx + zz)) * sy; te[6] = (yz + wx) * sy; te[7] = 0;
-    te[8] = (xz + wy) * sz; te[9] = (yz - wx) * sz; te[10] = (1 - (xx + yy)) * sz; te[11] = 0;
-    te[12] = pos.x; te[13] = pos.y; te[14] = pos.z; te[15] = 1;
-    return this;
-  }
-  multiplyMatrices(a, b) {
-    const ae = a.elements, be = b.elements, te = this.elements;
-    for (let i = 0; i < 4; i++) {
-      for (let j = 0; j < 4; j++) {
-        te[i + j * 4] = ae[i] * be[j * 4] + ae[i + 4] * be[j * 4 + 1] + ae[i + 8] * be[j * 4 + 2] + ae[i + 12] * be[j * 4 + 3];
-      }
-    }
-    return this;
-  }
-  makeBasis(xAxis, yAxis, zAxis) {
-    const te = this.elements;
-    te[0] = xAxis.x; te[1] = xAxis.y; te[2] = xAxis.z; te[3] = 0;
-    te[4] = yAxis.x; te[5] = yAxis.y; te[6] = yAxis.z; te[7] = 0;
-    te[8] = zAxis.x; te[9] = zAxis.y; te[10] = zAxis.z; te[11] = 0;
-    te[12] = 0; te[13] = 0; te[14] = 0; te[15] = 1;
-    return this;
-  }
-  setPosition(x, y, z) {
-    const te = this.elements;
-    if (x && typeof x === 'object') {
-      te[12] = x.x; te[13] = x.y; te[14] = x.z;
-    } else {
-      te[12] = x; te[13] = y; te[14] = z;
-    }
-    return this;
-  }
-}
-class Quaternion {
-  constructor(x = 0, y = 0, z = 0, w = 1) { this.x = x; this.y = y; this.z = z; this.w = w; }
-  setFromAxisAngle(axis, rad) {
-    const half = rad / 2, s = Math.sin(half);
-    this.x = axis.x * s; this.y = axis.y * s; this.z = axis.z * s; this.w = Math.cos(half);
-    return this;
-  }
-  setFromUnitVectors(vFrom, vTo) {
-    let r = vFrom.dot(vTo) + 1;
-    if (r < 1e-6) {
-      r = 0;
-      if (Math.abs(vFrom.x) > Math.abs(vFrom.z)) { this.x = -vFrom.y; this.y = vFrom.x; this.z = 0; this.w = r; }
-      else { this.x = 0; this.y = -vFrom.z; this.z = vFrom.y; this.w = r; }
-    } else {
-      this.x = vFrom.y * vTo.z - vFrom.z * vTo.y;
-      this.y = vFrom.z * vTo.x - vFrom.x * vTo.z;
-      this.z = vFrom.x * vTo.y - vFrom.y * vTo.x;
-      this.w = r;
-    }
-    return this.normalize();
-  }
-  normalize() {
-    let l = Math.hypot(this.x, this.y, this.z, this.w);
-    if (l === 0) { this.x = 0; this.y = 0; this.z = 0; this.w = 1; }
-    else { this.x /= l; this.y /= l; this.z /= l; this.w /= l; }
-    return this;
-  }
-  premultiply(q) {
-    const qax = q.x, qay = q.y, qaz = q.z, qaw = q.w;
-    const qbx = this.x, qby = this.y, qbz = this.z, qbw = this.w;
-    this.x = qax * qbw + qaw * qbx + qay * qbz - qaz * qby;
-    this.y = qay * qbw + qaw * qbx + qaz * qby - qax * qbz;
-    this.z = qaz * qbw + qaw * qbz + qax * qby - qay * qbx;
-    this.w = qaw * qbw - qax * qbx - qay * qbz - qaz * qby;
-    return this;
-  }
-  makeBasis(xAxis, yAxis, zAxis) {
-    const te = this.elements;
-    te[0] = xAxis.x; te[1] = xAxis.y; te[2] = xAxis.z; te[3] = 0;
-    te[4] = yAxis.x; te[5] = yAxis.y; te[6] = yAxis.z; te[7] = 0;
-    te[8] = zAxis.x; te[9] = zAxis.y; te[10] = zAxis.z; te[11] = 0;
-    te[12] = 0; te[13] = 0; te[14] = 0; te[15] = 1;
-    return this;
-  }
-  setPosition(x, y, z) {
-    const te = this.elements;
-    if (x && typeof x === 'object') {
-      te[12] = x.x; te[13] = x.y; te[14] = x.z;
-    } else {
-      te[12] = x; te[13] = y; te[14] = z;
-    }
-    return this;
-  }
-}
-class Euler {
-  constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; }
-}
-class Object3D {
-  constructor() {
-    this.position = new Vector3();
-    this.rotation = new Euler();
-    this.scale = new Vector3(1, 1, 1);
-    this.quaternion = new Quaternion();
-    this.matrix = new Matrix4();
-    this.matrixWorld = new Matrix4();
-    this.children = [];
-    this.parent = null;
-  }
-  add(...objs) {
-    for (const o of objs) {
-      if (o.parent) o.removeFromParent();
-      o.parent = this;
-      this.children.push(o);
-    }
-  }
-  removeFromParent() {
-    if (this.parent) {
-      const idx = this.parent.children.indexOf(this);
-      if (idx !== -1) this.parent.children.splice(idx, 1);
-      this.parent = null;
-    }
-  }
-  updateMatrix() {
-    if (this.rotation.y !== 0 && this.quaternion.y === 0 && this.quaternion.w === 1) {
-      this.quaternion.setFromAxisAngle(new Vector3(0, 1, 0), this.rotation.y);
-    }
-    this.matrix.compose(this.position, this.quaternion, this.scale);
-  }
-  updateMatrixWorld(force) {
-    this.updateMatrix();
-    if (this.parent) this.matrixWorld.multiplyMatrices(this.parent.matrixWorld, this.matrix);
-    else this.matrixWorld.elements = [...this.matrix.elements];
-    for (const c of this.children) c.updateMatrixWorld(force);
-  }
-  traverse(cb) {
-    cb(this);
-    for (const c of this.children) c.traverse(cb);
-  }
-}
-class Group extends Object3D {}
-class Mesh extends Object3D {
-  constructor(geometry, material) {
-    super();
-    this.geometry = geometry;
-    this.material = material;
-  }
-}
-class InstancedMesh extends Mesh {
-  constructor(geometry, material, count) {
-    super(geometry, material);
-    this.count = count;
-    this.instanceMatrix = new BufferAttribute(new Float32Array(count * 16), 16);
-  }
-  setMatrixAt() {}
-  computeBoundingSphere() { this.boundingSphere = { radius: 1 }; }
-}
-class BufferAttribute {
-  constructor(array, itemSize) { this.array = array; this.itemSize = itemSize; }
-}
-class BufferGeometry {
-  constructor() {
-    this.attributes = {};
-    this.boundingBox = null;
-    this.parameters = {};
-  }
-  clone() { return this; }
-  applyMatrix4() { return this; }
-  setAttribute(name, attr) { this.attributes[name] = attr; }
-  computeVertexNormals() {}
-  computeBoundingBox() {
-    if (this.boundingBox) return;
-    const pos = this.attributes.position;
-    if (!pos) return;
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    for (let i = 0; i < pos.array.length; i += 3) {
-      const x = pos.array[i], y = pos.array[i + 1], z = pos.array[i + 2];
-      if (x < minX) minX = x; if (x > maxX) maxX = x;
-      if (y < minY) minY = y; if (y > maxY) maxY = y;
-      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
-    }
-    this.boundingBox = { min: new Vector3(minX, minY, minZ), max: new Vector3(maxX, maxY, maxZ) };
-  }
-  rotateX() { return this; }
-  translate() { return this; }
-}
-class BoxGeometry extends BufferGeometry {
-  constructor(w = 1, h = 1, d = 1) {
-    super();
-    this.parameters = { width: w, height: h, depth: d };
-    this.boundingBox = { min: new Vector3(-w / 2, -h / 2, -d / 2), max: new Vector3(w / 2, h / 2, d / 2) };
-  }
-}
-class CylinderGeometry extends BufferGeometry {
-  constructor(rt = 1, rb = 1, h = 1) {
-    super();
-    const r = Math.max(rt, rb);
-    this.boundingBox = { min: new Vector3(-r, -h / 2, -r), max: new Vector3(r, h / 2, r) };
-  }
-}
-class ConeGeometry extends CylinderGeometry {
-  constructor(r = 1, h = 1) { super(0, r, h); }
-}
-class SphereGeometry extends BufferGeometry {
-  constructor(r = 1) {
-    super();
-    this.boundingBox = { min: new Vector3(-r, -r, -r), max: new Vector3(r, r, r) };
-  }
-}
-class PlaneGeometry extends BufferGeometry {
-  constructor(w = 1, h = 1) {
-    super();
-    this.boundingBox = { min: new Vector3(-w / 2, -h / 2, 0), max: new Vector3(w / 2, h / 2, 0) };
-  }
-}
-class LatheGeometry extends BufferGeometry {
-  constructor(pts) {
-    super();
-    let maxR = 0, minY = Infinity, maxY = -Infinity;
-    for (const p of pts) {
-      if (p.x > maxR) maxR = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.y > maxY) maxY = p.y;
-    }
-    this.boundingBox = { min: new Vector3(-maxR, minY, -maxR), max: new Vector3(maxR, maxY, maxR) };
-  }
-}
-class ExtrudeGeometry extends BufferGeometry {
-  constructor(shape, opts = {}) {
-    super();
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const p of shape.points) {
-      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
-      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
-    }
-    const d = opts.depth || 1;
-    this.boundingBox = { min: new Vector3(minX, minY, 0), max: new Vector3(maxX, maxY, d) };
-  }
-}
-class Shape {
-  constructor(points = []) { this.points = points; this.holes = []; }
-}
-class Path {
-  constructor(points = []) { this.points = points; }
-}
-class Box3 {
-  constructor() {
-    this.min = new Vector3(Infinity, Infinity, Infinity);
-    this.max = new Vector3(-Infinity, -Infinity, -Infinity);
-  }
-  setFromObject(obj) {
-    this.min.set(Infinity, Infinity, Infinity);
-    this.max.set(-Infinity, -Infinity, -Infinity);
-    return this.expandByObject(obj);
-  }
-  expandByPoint(p) {
-    this.min.x = Math.min(this.min.x, p.x);
-    this.min.y = Math.min(this.min.y, p.y);
-    this.min.z = Math.min(this.min.z, p.z);
-    this.max.x = Math.max(this.max.x, p.x);
-    this.max.y = Math.max(this.max.y, p.y);
-    this.max.z = Math.max(this.max.z, p.z);
-  }
-  expandByObject(object) {
-    object.traverse((node) => {
-      const geo = node.geometry;
-      if (geo) {
-        if (!geo.boundingBox) geo.computeBoundingBox();
-        if (geo.boundingBox) {
-          const b = geo.boundingBox;
-          const corners = [
-            new Vector3(b.min.x, b.min.y, b.min.z), new Vector3(b.min.x, b.min.y, b.max.z),
-            new Vector3(b.min.x, b.max.y, b.min.z), new Vector3(b.min.x, b.max.y, b.max.z),
-            new Vector3(b.max.x, b.min.y, b.min.z), new Vector3(b.max.x, b.min.y, b.max.z),
-            new Vector3(b.max.x, b.max.y, b.min.z), new Vector3(b.max.x, b.max.y, b.max.z)
-          ];
-          for (const c of corners) {
-            c.applyMatrix4(node.matrixWorld);
-            this.expandByPoint(c);
-          }
-        }
-      }
-    });
-    return this;
-  }
-  getSize(target) {
-    return target.set(this.max.x - this.min.x, this.max.y - this.min.y, this.max.z - this.min.z);
-  }
-  getCenter(target) {
-    return target.set((this.min.x + this.max.x) / 2, (this.min.y + this.max.y) / 2, (this.min.z + this.max.z) / 2);
-  }
-}
-
-const mockTHREE = {
+// Shared Three.js stub supporting mesh hierarchy, transforms, bounding box computation for landmark fitting
+const { THREE: mockTHREE } = require('../tests/helpers/three-stub.cjs');
+const {
   Vector2, Vector3, Matrix4, Quaternion, Euler, Object3D, Group, Mesh, InstancedMesh,
-  BufferAttribute, Float32BufferAttribute: BufferAttribute, BufferGeometry,
+  BufferAttribute, Float32BufferAttribute, BufferGeometry,
   BoxGeometry, CylinderGeometry, ConeGeometry, SphereGeometry, PlaneGeometry,
-  LatheGeometry, ExtrudeGeometry, Shape, Path, Box3,
-  MeshStandardNodeMaterial: class {}
-};
+  LatheGeometry, ExtrudeGeometry, Shape, Path, Box3
+} = mockTHREE;
 
 function inert() {
   const values = {};
@@ -400,6 +71,13 @@ async function runAudit() {
     './tsl-materials.js': materialsStub
   };
 
+  const treesMod = loadModule(source('trees'), {
+    imports: { 'three/webgpu': stub, './tsl-materials.js': stub, './city-config.js': config },
+    globals: { document: { createElement: () => ({ width: 0, height: 0, getContext: () => ({}) }) }, ...globals },
+    filename: 'trees.js'
+  });
+  const { treeSpecies } = treesMod;
+
   // Step 1: City Grid
   let gridSrc = source('city-grid');
   gridSrc = gridSrc.replace('treeSites.push({ x, y: PLAZA_Y + 0.55, z, scale, species });',
@@ -411,10 +89,8 @@ async function runAudit() {
   gridSrc += '\nexport function snapshot() { return { pavedPlazaRects, parkTreeSites, parkLampSites, sidewalkBlocks }; }';
 
   const gridModule = loadModule(gridSrc, {
-    imports: { ...gridRendering, './city-config.js': config, './geodata.js': { GEO } }, globals
+    imports: { ...gridRendering, './city-config.js': config, './geodata.js': { GEO }, './trees.js': treesMod }, globals
   });
-  const cityGridBuilt = gridModule.buildCityGrid(stub);
-  const liveGrid = { ...gridModule, ...gridModule.snapshot() };
 
   // Step 2: Landmarks
   console.log('2. Building landmarks with full oriented colliders...');
@@ -473,13 +149,23 @@ async function runAudit() {
       './roofs.js': stub,
       './city-config.js': config,
       './geodata.js': { GEO },
-      './city-grid.js': liveGrid
+      './city-grid.js': gridModule
     },
     globals: { ...globals, document: stub },
     filename: 'buildings.js'
   });
   const cityBlocksBuilt = bldMod.buildCityBlocks(stub);
   const blockColliders = cityBlocksBuilt.colliders;
+
+  // Step 3A: City grid
+  console.log('3A. Building city grid with building footprints and colliders...');
+  const buildingColliders = [...landmarkColliders, ...blockColliders];
+  const cityGridBuilt = gridModule.buildCityGrid(stub, {
+    buildingFootprints: cityBlocksBuilt.footprintsByBlock,
+    buildingColliders
+  });
+  const liveGrid = { ...gridModule, ...gridModule.snapshot() };
+  cityBlocksBuilt.populateLeftoverSlabs?.();
 
   // Step 3B: Bridges
   console.log('3B. Building bridges with colliders...');
@@ -528,8 +214,8 @@ async function runAudit() {
       './road-network.js': { CROSSWALK: 4.3, CROSSWALK_REACH: 3, STOP_SETBACK: 1.5 },
       './city-grid.js': liveGrid,
       './trees.js': {
-        createTreeField: (_scene, trees) => { sites = trees; return { group: stub }; },
-        SPECIES_CROWN_R: [4.53, 4.74, 6.07, 4.55]
+        ...treesMod,
+        createTreeField: (_scene, trees) => { sites = trees; return { group: stub }; }
       }
     },
     globals: { ...globals, document: stub }
@@ -544,10 +230,15 @@ async function runAudit() {
   console.log(`Park tree trunk colliders: ${remainingTrunkColliders.length}, orphans: ${orphanCount}`);
   assert.equal(orphanCount, 0, 'every remaining tree trunk prop collider has a tree site');
 
-  const { treeSpecies } = loadModule(source('trees'), {
-    imports: { 'three/webgpu': stub, './tsl-materials.js': stub },
-    globals
-  });
+  const remainingPlanters = cityGridBuilt.propColliders.filter((c) => !c.obb && Math.abs(c.maxX - c.minX - 2.4) < 1e-4 && Math.abs(c.maxZ - c.minZ - 2.4) < 1e-4);
+  let emptyPlanterCount = 0;
+  for (const p of remainingPlanters) {
+    const cx = (p.minX + p.maxX) / 2, cz = (p.minZ + p.maxZ) / 2;
+    const hasTree = sites.some((t) => Math.hypot(t.x - cx, t.z - cz) < 1.0);
+    if (!hasTree) emptyPlanterCount++;
+  }
+  console.log(`Plaza planters: ${remainingPlanters.length}, empty: ${emptyPlanterCount}`);
+  assert.equal(emptyPlanterCount, 0, 'every remaining planter box has an active tree');
 
   console.log(`Trees collected: ${sites.length} total.`);
 
@@ -912,7 +603,9 @@ async function runAudit() {
     summaryBySource,
     citySummary,
     worstInside,
-    worstStreet
+    worstStreet,
+    emptyPlanterCount,
+    planterCount: remainingPlanters.length
   };
 }
 
