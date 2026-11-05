@@ -167,7 +167,7 @@ body::after {
 }
 
 /* ------------------------------------------------------------------------------------------------------------------
-   Loading screen
+   Loading screen (Poznań visual identity: white background, brand blue #234792)
    ------------------------------------------------------------------------------------------------------------------ */
 #loading-overlay {
   position: fixed;
@@ -175,7 +175,8 @@ body::after {
   z-index: 100;
   display: grid;
   place-items: center;
-  background: radial-gradient(120% 90% at 50% 38%, #1b1e24 0%, #0c0d10 55%, #060607 100%);
+  background-color: #ffffff;
+  color: #234792;
   transition: opacity 0.6s ease, visibility 0.6s ease;
 }
 
@@ -190,6 +191,7 @@ body::after {
   flex-direction: column;
   align-items: center;
   text-align: center;
+  max-width: 90vw;
   animation: rise-in 0.8s var(--ease-out) both;
 }
 
@@ -198,22 +200,27 @@ body::after {
   height: 56px;
   margin-bottom: 22px;
   font-size: 21px;
+  background: #234792;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(35, 71, 146, 0.22);
 }
 
 .loader-title {
   font-size: 34px;
-  font-weight: 650;
+  font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.1;
+  color: #234792;
 }
 
 .loader-track {
   position: relative;
-  width: 240px;
-  height: 3px;
+  width: 260px;
+  max-width: 80vw;
+  height: 4px;
   margin: 26px 0 14px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  background: rgba(35, 71, 146, 0.12);
   overflow: hidden;
 }
 
@@ -221,7 +228,7 @@ body::after {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: var(--accent);
+  background: linear-gradient(90deg, #234792 0%, #009cdc 100%);
   transform-origin: left center;
   transform: scaleX(0);
   transition: transform 0.3s ease;
@@ -237,9 +244,37 @@ body::after {
 }
 
 #loading-status {
-  font-size: 12.5px;
-  color: var(--text-3);
+  font-size: 13px;
+  color: rgba(35, 71, 146, 0.82);
   font-variant-numeric: tabular-nums;
+  margin-bottom: 20px;
+}
+
+.loader-credits {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(35, 71, 146, 0.78);
+  max-width: 540px;
+  padding: 0 16px;
+}
+
+.loader-credits a {
+  color: #234792;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  transition: text-decoration-thickness 0.15s ease;
+}
+
+.loader-credits a:hover,
+.loader-credits a:focus-visible {
+  color: #234792;
+  text-decoration-thickness: 2.5px;
 }
 
 @keyframes loader-sweep {
@@ -372,6 +407,13 @@ body.hud-minimized .toolbar > :not(#btn-toggle-hud) {
   line-height: 1;
   text-decoration: none;
   white-space: nowrap;
+}
+
+button.repo-link {
+  background: none;
+  border: none;
+  font: inherit;
+  cursor: pointer;
 }
 
 .repo-link:hover,
@@ -622,6 +664,40 @@ body.hud-minimized .icon-show {
   font-size: 11.5px;
   font-weight: 500;
   color: var(--text-3);
+}
+
+.credits-popover {
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  padding: 10px 12px 14px;
+}
+
+.credits-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.credits-section strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+
+.credits-section a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.credits-section a:hover,
+.credits-section a:focus-visible {
+  color: #ffffff;
 }
 
 /* ------------------------------------------------------------------------------------------------------------------

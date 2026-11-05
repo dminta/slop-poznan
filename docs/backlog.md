@@ -549,6 +549,7 @@ Both historical open decisions were confirmed by the user on 2026-11-01 and impl
 
 ## Browser checks still outstanding
 
+- Start (loading) screen: verify Poznań brand colours (white background `#ffffff`, official dark blue `#234792` badge, title, progress bar, text and links; gradient to `#009cdc`), contrast (WCAG AA/AAA, ratio 8.79:1), independence from OS dark mode before boot, and loader credits and in-game HUD "Źródła" popover layout and link responsiveness on desktop and phone.
 - Polish UI labels fit the HUD/toolbar/touch layout on desktop and phone; new shop signs render.
 - Shop signs: 26 instanced meshes (+21 draw calls vs. 5) — verify frame rate and draw call budget in browser; atlas texture with per-instance UVs if needed.
 

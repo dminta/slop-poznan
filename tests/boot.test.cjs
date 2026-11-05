@@ -43,3 +43,22 @@ test('native module entry and imports share canonical preloaded URLs on GitHub P
     }
   }
 });
+
+test('loading screen has Poznań visual identity and required attributions including OpenStreetMap', () => {
+  const loaderMatch = html.match(/<div\b[^>]*id="loading-overlay"[^>]*>([\s\S]*?)<\/div>\s*<!-- 3D WebGPU/);
+  assert.ok(loaderMatch, 'loading overlay exists in index.html');
+  const loaderHtml = loaderMatch[1];
+  assert.ok(loaderHtml.includes('class="loader-credits"'), 'loader credits container exists in loader');
+  const osmMatch = loaderHtml.match(/<a\b[^>]*href="https:\/\/www\.openstreetmap\.org\/copyright"[^>]*>([\s\S]*?)<\/a>/i);
+  assert.ok(osmMatch, 'loader contains OpenStreetMap attribution link with https://www.openstreetmap.org/copyright');
+  assert.ok(osmMatch[1].includes('OpenStreetMap'));
+  assert.ok(loaderHtml.includes('autorzy'), 'Polish OpenStreetMap attribution wording included in loader credits');
+  assert.ok(loaderHtml.includes('rel="noopener noreferrer"'), 'external links in loader specify rel="noopener noreferrer"');
+  assert.ok(loaderHtml.includes('Dominik Minta'), 'Dominik Minta credited in loader');
+  assert.ok(loaderHtml.includes('Mr.doob'), 'Mr.doob credited in loader');
+  assert.ok(!loaderHtml.includes('three.js'), 'three.js removed from loader credits');
+});
+
+test('stylesheet link has a valid cache-busting query', () => {
+  assert.match(html, /<link rel="stylesheet" href="\.\/css\/style\.css\?v=\d{8}-[\w-]+"\s*\/>/);
+});

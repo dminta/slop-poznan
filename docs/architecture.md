@@ -193,11 +193,22 @@ Physics notes:
 - Wrap every storage access in `try { } catch { /* reason */ }`. Storage may be unavailable, and that must never block play.
 
 ## HUD, CSS and cache busting
-- `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently `20261105-polish-ui`). When you change
+- `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently `20261106-poznan-loader`). When you change
   `style.css`, bump that query in `index.html` in the same commit; GitHub Pages caches it.
 - Colours are tokens on `:root`: `--accent`/`--accent-ink` (yellow, also the map's GPS route in `city-map.js`) mark
   whatever is active; `--sign-graphite` (#3b3d3f) and `--sign-blue` (#1f5bb5, the district strip) are the street plate.
-  The loading screen, brand and map title share the `.badge` roundel.
+  The in-game brand and map title share the `.badge` roundel with `--accent` ink.
+- **Poznań city colours and loading screen visual identity**:
+  The start (loading) screen uses Poznań's earlier visual identity ([logo manual PDF](https://www.poznan.pl/mim/public/sport/attachments.att?co=show&instance=1017&parent=37249&lang=pl&id=76107):
+  "Podstawowe kolory występowania logo to ciemny błękit (100% cyan, 75% magenta), błękit (100%) i biel tła"; 2024 introduced a
+  new identity with district colours, [poznan.pl](https://www.poznan.pl/mim/main/nowa-identyfikacja-wizualna,p,77224,77225,77232.html),
+  retaining blue here):
+  - Ciemny błękit (primary brand blue): Pantone 2747, CMYK `100, 75, 0, 0`, RGB `35, 71, 146`, **`#234792`**.
+  - Błękit (Process Blue / accent): Pantone Process Blue, CMYK `100, 0, 0, 0`, RGB `0, 156, 220`, **`#009CDC`**.
+  - Biel (white background): **`#FFFFFF`**.
+  Contrast of `#234792` on `#ffffff` is **8.79:1** (WCAG AA/AAA). The overlay sets solid `#ffffff`/`#234792` before app boot,
+  independent of OS dark mode. The in-game HUD keeps its quiet graphite glass palette; a persistent "Źródła" button and popover
+  in the top-left brand heading keeps map and data attributions accessible after the splash screen closes.
 - The location HUD draws each street as a Poznań SIM 2017 plate, the same design as the in-world wall plates:
   `renderLocation(label, district)` in `main.js` runs each OSM name through `plateLabel` (exported by
   `street-details.js`, the one copy of the kind words and the patron given-name list) and fills `.street-sign-kind`
