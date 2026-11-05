@@ -40,8 +40,18 @@ const GRID_BEARING = (GEO.frame && GEO.frame.bearingDeg) || 0; // the map's up d
 // The map compass's tooltip, from the bearing of the map's up direction (degrees east of true north)
 function compassTitle(bearingDeg) {
   const deg = Math.round(Math.abs(bearingDeg));
-  if (!deg) return 'True north';
-  return `True north · the street grid runs ${deg}° ${bearingDeg > 0 ? 'east' : 'west'} of it`;
+  if (!deg) return 'Północ geograficzna';
+  return `Północ geograficzna · siatka ulic jest odchylona o ${deg}° na ${bearingDeg > 0 ? 'wschód' : 'zachód'}`;
+}
+
+// Polish grammatical plural helper for cardinal numbers
+function pluralPl(n, one, few, many) {
+  const abs = Math.abs(Math.round(n));
+  if (abs === 1) return one;
+  const mod10 = abs % 10;
+  const mod100 = abs % 100;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+  return many;
 }
 
 // Map palette, shared by the radar & the atlas (in step with css/style.css): graphite ground with the streets a shade
@@ -768,7 +778,11 @@ class CityMapSystem {
     this.miniScale = RADAR_SCALE;
     this.miniCache = null; // { canvas, cx, cz, s, version }: the radar's ground layers, twice the radar's size
     const elCounts = document.getElementById('fullmap-counts');
-    if (elCounts) elCounts.textContent = `${ROAD_NAME_COUNT} streets · ${formatCount(BLOCKS.length)} blocks`;
+    if (elCounts) {
+      const streets = pluralPl(ROAD_NAME_COUNT, 'ulica', 'ulice', 'ulic');
+      const blocks = pluralPl(BLOCKS.length, 'kwartał', 'kwartały', 'kwartałów');
+      elCounts.textContent = `${formatCount(ROAD_NAME_COUNT)} ${streets} · ${formatCount(BLOCKS.length)} ${blocks}`;
+    }
     // The legend's bridge, tram & rail swatches take their colours from the palette the map draws them with
     const elLegend = document.getElementById('fullmap-legend');
     if (elLegend) {
@@ -793,7 +807,7 @@ class CityMapSystem {
     this.elHoverInfo = document.getElementById('fullmap-hover-info');
     this.elPlayerInfo = document.getElementById('fullmap-player-info');
     this.elSearchInput = document.getElementById('fullmap-search');
-    if (this.elSearchInput) this.elSearchInput.placeholder = 'Św. Marcin, Głogowska, Stary Rynek…';
+    if (this.elSearchInput) this.elSearchInput.placeholder = 'Szukaj ulic i miejsc — Św. Marcin, Głogowska, Stary Rynek…';
 
     this.isFullMapOpen = false;
     // Full map viewport state (world metres; zoom in CSS pixels per metre)
@@ -810,7 +824,7 @@ class CityMapSystem {
     this.searchPath = null;
     this.textWidths = new Map();
     // Default GPS waypoint: the Ratusz on Stary Rynek (the world origin)
-    const ratusz = CITY_LANDMARKS.find((l) => l.id === 'ratusz') || { x: 0, z: 0, name: 'Ratusz & Stary Rynek' };
+    const ratusz = CITY_LANDMARKS.find((l) => l.id === 'ratusz') || { x: 0, z: 0, name: 'Ratusz i Stary Rynek' };
     this.waypoint = { x: ratusz.x, z: ratusz.z, name: ratusz.name };
     // GPS route state (updateRoute): the graph (built on first use), the shortest-path tree towards the waypoint's
     // node, and the node path from the player's node, recomputed only when one of those nodes changes
@@ -934,7 +948,7 @@ class CityMapSystem {
             // over a pin, name it (a merged group names all its landmarks)
             const pin = this.pinAt(wPos.x, wPos.z);
             const label = pin ? pin.members.map((l) => l.name).join(', ') : getLocationLabel(wPos.x, wPos.z);
-            this.elHoverInfo.textContent = `${label} · Click to teleport here`;
+            this.elHoverInfo.textContent = `${label} · Kliknij, aby się teleportować`;
           }
         }
       });
@@ -1486,7 +1500,7 @@ class CityMapSystem {
 
     const ent = this.controllerManager.getActiveEntity();
     if (this.elPlayerInfo) {
-      const text = `You are at ${getLocationLabel(ent.position.x, ent.position.z)}`;
+      const text = `Jesteś: ${getLocationLabel(ent.position.x, ent.position.z)}`;
       if (text !== this.playerInfoText) {
         this.playerInfoText = text;
         this.elPlayerInfo.textContent = text;
@@ -1706,4 +1720,4 @@ class CityMapSystem {
   }
 }
 
-export { CityMapSystem, buildRouteGraph, nearestNode, routeTree, routePath, compassTitle, roadLabelAnchors, chainRoadPieces, districtGroupLabels, DISTRICT_GROUPS };
+export { CityMapSystem, buildRouteGraph, nearestNode, routeTree, routePath, compassTitle, roadLabelAnchors, chainRoadPieces, districtGroupLabels, DISTRICT_GROUPS, pluralPl };

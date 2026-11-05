@@ -40,7 +40,7 @@ async function initApp() {
   };
 
   if (loadingStatus) {
-    loadingStatus.textContent = `Initializing Three.js r${THREE.REVISION} WebGPURenderer & TSL Shaders...`;
+    loadingStatus.textContent = `Inicjalizacja Three.js r${THREE.REVISION} WebGPURenderer i shaderów TSL…`;
   }
 
   // 1. Initialize Three.js WebGPURenderer with 32-bit float reversedDepthBuffer
@@ -73,7 +73,7 @@ async function initApp() {
   markInit('lighting');
 
   if (loadingStatus) {
-    loadingStatus.textContent = 'Constructing Poznań Streets, Landmarks & Streetscape...';
+    loadingStatus.textContent = 'Budowanie ulic, zabytków i zabudowy Poznania…';
   }
 
   // 3. Build Poznań's Geography, Bridges, Landmarks, Blocks, Street Details & Traffic
@@ -170,8 +170,8 @@ async function initApp() {
     if (!soundButton) return;
     soundButton.disabled = !audioSystem.supported;
     soundButton.setAttribute('aria-pressed', String(audioSystem.enabled));
-    soundButton.setAttribute('aria-label', audioSystem.enabled ? 'Mute sound' : 'Enable sound');
-    soundButton.title = audioSystem.supported ? `${audioSystem.enabled ? 'Mute' : 'Enable'} sound [N]` : 'Web Audio is unavailable';
+    soundButton.setAttribute('aria-label', audioSystem.enabled ? 'Wycisz dźwięk' : 'Włącz dźwięk');
+    soundButton.title = audioSystem.supported ? `${audioSystem.enabled ? 'Wycisz' : 'Włącz'} dźwięk [N]` : 'Dźwięk niedostępny (brak Web Audio)';
     soundButton.querySelector('use').setAttribute('href', audioSystem.enabled ? '#i-sound' : '#i-sound-off');
   }
   soundButton?.addEventListener('click', () => audioSystem.setEnabled(!audioSystem.enabled));
@@ -276,10 +276,10 @@ async function initApp() {
 
   // Keyboard guide for each mode: [keys, action]
   const controlHints = {
-    person: [[['W', 'S'], 'Walk'], [['A', 'D'], 'Turn'], [['Shift'], 'Sprint'], [['Space'], 'Jump'], [['Drag'], 'Orbit']],
-    car: [[['W', 'S'], 'Drive / Reverse'], [['A', 'D'], 'Steer'], [['Shift'], 'Boost'], [['B'], 'Horn'], [['Drag'], 'Orbit']],
-    cyclist: [[['W', 'S'], 'Pedal / Brake'], [['A', 'D'], 'Lean & Turn'], [['Shift'], 'Sprint'], [['Drag'], 'Orbit']],
-    helicopter: [[['W', 'S'], 'Pitch'], [['A', 'D'], 'Yaw'], [['Space', 'E'], 'Ascend'], [['Q', 'C'], 'Descend'], [['Shift'], 'Boost']]
+    person: [[['W', 'S'], 'Chód'], [['A', 'D'], 'Obrót'], [['Shift'], 'Sprint'], [['Spacja'], 'Skok'], [['Mysz'], 'Obrót kamery']],
+    car: [[['W', 'S'], 'Gaz / Wsteczny'], [['A', 'D'], 'Sterowanie'], [['Shift'], 'Turbo'], [['B'], 'Klakson'], [['Mysz'], 'Obrót kamery']],
+    cyclist: [[['W', 'S'], 'Pedałowanie / Hamowanie'], [['A', 'D'], 'Przechył i skręt'], [['Shift'], 'Sprint'], [['Mysz'], 'Obrót kamery']],
+    helicopter: [[['W', 'S'], 'Przód / tył'], [['A', 'D'], 'Obrót'], [['Spacja', 'E'], 'W górę'], [['Q', 'C'], 'W dół'], [['Shift'], 'Turbo']]
   };
   // Boosted top speeds in km/h (controllers.js caps them at 8.2, 36, 19 & 52 m/s, x 3.6 rounded): full scale of the speed
   // meter, so the bar fills exactly at each mode's cap
@@ -454,11 +454,11 @@ async function initApp() {
     if (streets) {
       const row = document.createElement('div');
       row.className = 'location-signs';
-      if (streets.startsWith('near ')) {
-        streets = streets.slice(5);
+      if (streets.startsWith('w pobliżu: ')) {
+        streets = streets.slice(11);
         const near = document.createElement('span');
         near.className = 'location-near';
-        near.textContent = 'near';
+        near.textContent = 'w pobliżu:';
         row.appendChild(near);
       }
       for (const name of streets.split(STREET_JOIN)) {
@@ -506,7 +506,7 @@ async function initApp() {
       gamepadControls.setEnabled(!open);
       const mapHint = document.getElementById('fullmap-hover-info');
       if (open && touchControls.available && mapHint) {
-        mapHint.textContent = 'Tap to teleport · Drag to pan · Use + / − to zoom';
+        mapHint.textContent = 'Dotknij, aby się teleportować · Przeciągnij, aby przesunąć · Użyj + / −, aby przybliżyć';
       }
     },
     onTeleport: teleportTo
@@ -531,8 +531,8 @@ async function initApp() {
       document.body.classList.toggle('hud-minimized');
       const isMin = document.body.classList.contains('hud-minimized');
       hudToggleBtn.setAttribute('aria-pressed', String(isMin));
-      hudToggleBtn.setAttribute('aria-label', isMin ? 'Show HUD' : 'Hide HUD');
-      hudToggleBtn.title = isMin ? 'Show the HUD [H]' : 'Clean view: hide the HUD [H]';
+      hudToggleBtn.setAttribute('aria-label', isMin ? 'Pokaż interfejs' : 'Ukryj interfejs');
+      hudToggleBtn.title = isMin ? 'Pokaż interfejs [H]' : 'Czysty widok: ukryj interfejs [H]';
       if (isMin) closePopovers();
     });
   }
@@ -607,7 +607,7 @@ async function initApp() {
   // The loading screen stays up while the shaders compile (precompileShaders() & the warm-up frame, see the loop) and
   // until the first frame is on screen
   if (loadingStatus) {
-    loadingStatus.textContent = 'Compiling Shaders & Render Pipelines...';
+    loadingStatus.textContent = 'Kompilacja shaderów i potoków renderowania…';
   }
 
   // 6b. Shader pre-compilation behind the loading screen. compileAsync() builds the node graphs in slices and has the GPU
@@ -677,7 +677,7 @@ async function initApp() {
         for (const object of job) await compile(object);
         done++;
         if (loadingStatus) {
-          loadingStatus.textContent = `Compiling Shaders & Render Pipelines... ${Math.round((done / jobs.length) * 100)}%`;
+          loadingStatus.textContent = `Kompilacja shaderów i potoków renderowania… ${Math.round((done / jobs.length) * 100)}%`;
         }
         setLoadingProgress(done / jobs.length);
       }

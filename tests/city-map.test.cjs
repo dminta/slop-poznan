@@ -98,7 +98,7 @@ function mapHarness() {
   const config = {
     ROADS: [], BLOCKS: [],
     CITY_LANDMARKS: [{ id: 'fara', name: 'Fara Poznańska', short: 'Fara', x: 5, z: 6 },
-      { id: 'ratusz', name: 'Ratusz & Stary Rynek', short: 'Ratusz', x: 1, z: 2 }],
+      { id: 'ratusz', name: 'Ratusz i Stary Rynek', short: 'Ratusz', x: 1, z: 2 }],
     LANDMARK_SITES: {},
     CITY_BOUNDS: { minX: -10000, maxX: 10000, minZ: -10000, maxZ: 10000 },
     // snaps every tap 12 m east, so the tests see that teleports go through it with both coordinates
@@ -165,7 +165,7 @@ test('unrelated touches cannot move or release the map pan', () => {
 
 test('the default waypoint is the Ratusz', () => {
   const h = mapHarness();
-  assert.deepEqual({ ...h.map.waypoint }, { x: 1, z: 2, name: 'Ratusz & Stary Rynek' });
+  assert.deepEqual({ ...h.map.waypoint }, { x: 1, z: 2, name: 'Ratusz i Stary Rynek' });
 });
 
 test('a normal map tap teleports once, onto land clear of the water, and releases capture', () => {
@@ -303,9 +303,24 @@ test('the GPS route is cached per destination and re-snapped only when the playe
 
 test('the map compass tooltip states the grid bearing', () => {
   const { compassTitle } = routeModule();
-  assert.equal(compassTitle(29.02), 'True north · the street grid runs 29° east of it');
-  assert.equal(compassTitle(-12.6), 'True north · the street grid runs 13° west of it');
-  assert.equal(compassTitle(0.2), 'True north');
+  assert.equal(compassTitle(29.02), 'Północ geograficzna · siatka ulic jest odchylona o 29° na wschód');
+  assert.equal(compassTitle(-12.6), 'Północ geograficzna · siatka ulic jest odchylona o 13° na zachód');
+  assert.equal(compassTitle(0.2), 'Północ geograficzna');
+});
+
+test('pluralPl inflects Polish nouns correctly for 1, few and many', () => {
+  const { pluralPl } = routeModule();
+  assert.equal(pluralPl(1, 'ulica', 'ulice', 'ulic'), 'ulica');
+  assert.equal(pluralPl(2, 'ulica', 'ulice', 'ulic'), 'ulice');
+  assert.equal(pluralPl(4, 'ulica', 'ulice', 'ulic'), 'ulice');
+  assert.equal(pluralPl(5, 'ulica', 'ulice', 'ulic'), 'ulic');
+  assert.equal(pluralPl(12, 'ulica', 'ulice', 'ulic'), 'ulic');
+  assert.equal(pluralPl(14, 'ulica', 'ulice', 'ulic'), 'ulic');
+  assert.equal(pluralPl(22, 'ulica', 'ulice', 'ulic'), 'ulice');
+  assert.equal(pluralPl(25, 'ulica', 'ulice', 'ulic'), 'ulic');
+  assert.equal(pluralPl(733, 'ulica', 'ulice', 'ulic'), 'ulice');
+  assert.equal(pluralPl(1422, 'kwartał', 'kwartały', 'kwartałów'), 'kwartały');
+  assert.equal(pluralPl(1425, 'kwartał', 'kwartały', 'kwartałów'), 'kwartałów');
 });
 
 // A polyline from (x0, z0) heading `deg` degrees (atan2 convention: 0 east, 90 south) through `n` steps of `step` metres,

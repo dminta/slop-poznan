@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pl">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Slop Poznań</title>
   <link rel="icon" href="data:," />
-  <meta name="description" content="Photorealistic GTA-style 3D Slop Poznań simulation built with Three.js WebGPURenderer and TSL shaders featuring the real Poznań street map from OpenStreetMap (Stary Rynek, Ostrów Tumski, Jeżyce, Łazarz, Wilda and Malta), third-person navigation (Person, Car, Cyclist, Helicopter), and 11 cinematic cameras at 60 FPS." />
+  <meta name="description" content="Fotorealistyczna symulacja 3D Poznania w Three.js WebGPURenderer i shaderach TSL z rzeczywistą siatką ulic z OpenStreetMap (Stary Rynek, Ostrów Tumski, Jeżyce, Łazarz, Wilda i Malta), poruszaniem się w trzeciej osobie (Spacer, Jazda, Rower, Lot) oraz 11 kamerami filmowymi w 60 kl./s." />
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   <!-- three.js dev branch (builds committed to mrdoob/three.js@dev, served by jsDelivr) -->
   <script type="importmap">
@@ -66,7 +66,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..800&amp;family=Overpass:wght@500;600&amp;display=swap" />
-  <link rel="stylesheet" href="./css/style.css?v=20261028-plate-comment" />
+  <link rel="stylesheet" href="./css/style.css?v=20261105-polish-ui" />
 </head>
 <body>
   <!-- Icon sprite (24 × 24 stroke icons, drawn in currentColor) -->
@@ -105,12 +105,12 @@
       <span class="badge loader-badge" aria-hidden="true">PZ</span>
       <div class="loader-title">Slop Poznań</div>
       <div class="loader-track is-indeterminate" aria-hidden="true"><span id="loading-progress" class="loader-fill"></span></div>
-      <div id="loading-status">Initializing WebGPURenderer &amp; TSL Shaders...</div>
+      <div id="loading-status">Inicjalizacja WebGPURenderer i shaderów TSL…</div>
     </div>
   </div>
 
   <!-- 3D WebGPU Viewport Container -->
-  <main id="canvas-container" aria-label="3D Interactive Slop Poznań Viewport"></main>
+  <main id="canvas-container" aria-label="Interaktywny widok 3D Slop Poznań"></main>
 
   <!-- Top-Left: Brand & Renderer Telemetry -->
   <header class="hud hud-top-left">
@@ -119,7 +119,7 @@
       <div class="brand-titles">
         <div class="brand-heading">
           <h1>Slop Poznań</h1>
-          <a class="repo-link" href="https://github.com/dminta/slop-poznan/" target="_blank" rel="noopener noreferrer" aria-label="Slop Poznań on GitHub (opens in a new tab)">GitHub <span aria-hidden="true">↗</span></a>
+          <a class="repo-link" href="https://github.com/dminta/slop-poznan/" target="_blank" rel="noopener noreferrer" aria-label="Slop Poznań na GitHubie (otwiera się w nowej karcie)">GitHub <span aria-hidden="true">↗</span></a>
         </div>
         <div class="brand-subtitle">three.js · WebGPU · TSL · <span id="hud-fps" class="fps-ok">60</span> fps</div>
       </div>
@@ -129,43 +129,43 @@
   <!-- Top-Right Toolbar: Time of Day, Teleport, Map & Clean View -->
   <div class="hud hud-top-right">
     <div id="hud-toolbar" class="panel toolbar">
-      <div class="time-switch" role="group" aria-label="Atmosphere &amp; time of day">
-        <button id="time-golden" class="time-btn active" data-time="golden" type="button" title="Golden Hour">
-          <svg class="icon" aria-hidden="true"><use href="#i-golden"/></svg><span class="seg-label">Golden Hour</span>
+      <div class="time-switch" role="group" aria-label="Pora dnia i atmosfera">
+        <button id="time-golden" class="time-btn active" data-time="golden" type="button" title="Złota godzina">
+          <svg class="icon" aria-hidden="true"><use href="#i-golden"/></svg><span class="seg-label">Złota godzina</span>
         </button>
-        <button id="time-midday" class="time-btn" data-time="midday" type="button" title="Sunny Midday">
-          <svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg><span class="seg-label">Midday</span>
+        <button id="time-midday" class="time-btn" data-time="midday" type="button" title="Południe">
+          <svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg><span class="seg-label">Południe</span>
         </button>
-        <button id="time-twilight" class="time-btn" data-time="twilight" type="button" title="Blue Hour">
-          <svg class="icon" aria-hidden="true"><use href="#i-twilight"/></svg><span class="seg-label">Blue Hour</span>
+        <button id="time-twilight" class="time-btn" data-time="twilight" type="button" title="Błękitna godzina">
+          <svg class="icon" aria-hidden="true"><use href="#i-twilight"/></svg><span class="seg-label">Błękitna godzina</span>
         </button>
-        <button id="time-midnight" class="time-btn" data-time="midnight" type="button" title="Night 23:00">
-          <svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg><span class="seg-label">Night</span>
+        <button id="time-midnight" class="time-btn" data-time="midnight" type="button" title="Noc">
+          <svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg><span class="seg-label">Noc</span>
         </button>
       </div>
       <span class="toolbar-divider" aria-hidden="true"></span>
-      <button id="btn-teleport" class="tool-btn" type="button" popovertarget="teleport-popover" title="Teleport the active player">
-        <svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg><span class="tool-label">Teleport</span><svg class="icon icon-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+      <button id="btn-teleport" class="tool-btn" type="button" popovertarget="teleport-popover" title="Teleportuj gracza">
+        <svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg><span class="tool-label">Teleportuj</span><svg class="icon icon-sm" aria-hidden="true"><use href="#i-chevron-down"/></svg>
       </button>
-      <button id="btn-open-map" class="tool-btn" type="button" title="Full Poznań street map [M]">
-        <svg class="icon" aria-hidden="true"><use href="#i-map"/></svg><span class="tool-label">Map</span><kbd>M</kbd>
+      <button id="btn-open-map" class="tool-btn" type="button" title="Plan ulic Poznania [M]">
+        <svg class="icon" aria-hidden="true"><use href="#i-map"/></svg><span class="tool-label">Mapa</span><kbd>M</kbd>
       </button>
       <span class="toolbar-divider" aria-hidden="true"></span>
-      <button id="btn-sound" class="tool-btn icon-only" type="button" title="Mute sound [N]" aria-label="Mute sound" aria-pressed="true">
+      <button id="btn-sound" class="tool-btn icon-only" type="button" title="Wycisz dźwięk [N]" aria-label="Wycisz dźwięk" aria-pressed="true">
         <svg class="icon" aria-hidden="true"><use href="#i-sound"/></svg>
       </button>
-      <button id="btn-toggle-hud" class="tool-btn icon-only" type="button" title="Clean view: hide the HUD [H]" aria-label="Hide HUD" aria-pressed="false">
+      <button id="btn-toggle-hud" class="tool-btn icon-only" type="button" title="Czysty widok: ukryj interfejs [H]" aria-label="Ukryj interfejs" aria-pressed="false">
         <svg class="icon icon-hide" aria-hidden="true"><use href="#i-eye"/></svg><svg class="icon icon-show" aria-hidden="true"><use href="#i-eye-off"/></svg>
       </button>
     </div>
   </div>
 
   <!-- Teleport Destinations (native popover: light-dismiss & Esc) -->
-  <div id="teleport-popover" class="popover" popover data-side="below" data-anchor="hud-toolbar" aria-label="Teleport the active player">
-    <div class="pop-title">Teleport to</div>
+  <div id="teleport-popover" class="popover" popover data-side="below" data-anchor="hud-toolbar" aria-label="Teleportuj gracza">
+    <div class="pop-title">Teleportuj do</div>
     <button id="tp-rynek" class="pop-item tp-btn" data-teleport="rynek" type="button"><span class="pop-name">Stary Rynek</span><span class="pop-sub">Ratusz · Stare Miasto</span></button>
-    <button id="tp-katedra" class="pop-item tp-btn" data-teleport="katedra" type="button"><span class="pop-name">Ostrów Tumski</span><span class="pop-sub">Katedra · Ostrów Tumski</span></button>
-    <button id="tp-zamek" class="pop-item tp-btn" data-teleport="zamek" type="button"><span class="pop-name">Zamek Cesarski</span><span class="pop-sub">ul. Święty Marcin · Centrum</span></button>
+    <button id="tp-katedra" class="pop-item tp-btn" data-teleport="katedra" type="button"><span class="pop-name">Ostrów Tumski</span><span class="pop-sub">Katedra · Most Jordana</span></button>
+    <button id="tp-zamek" class="pop-item tp-btn" data-teleport="zamek" type="button"><span class="pop-name">Zamek Cesarski</span><span class="pop-sub">ul. Św. Marcin · Centrum</span></button>
     <button id="tp-baltyk" class="pop-item tp-btn" data-teleport="baltyk" type="button"><span class="pop-name">Bałtyk</span><span class="pop-sub">Rondo Kaponiera · Jeżyce</span></button>
     <button id="tp-dworzec" class="pop-item tp-btn" data-teleport="dworzec" type="button"><span class="pop-name">Poznań Główny</span><span class="pop-sub">Most Dworcowy · Łazarz</span></button>
     <button id="tp-teatr" class="pop-item tp-btn" data-teleport="teatr" type="button"><span class="pop-name">Teatr Wielki</span><span class="pop-sub">ul. Fredry · Centrum</span></button>
@@ -176,7 +176,7 @@
   <!-- Bottom-Left: Street-Name Signs & Live GPS Radar Minimap -->
   <div class="hud hud-bottom-left">
     <div id="hud-location" class="location" aria-live="off"></div>
-    <aside id="minimap-card" class="panel radar" aria-label="Live Poznań Street Radar Minimap" title="Open the full Poznań street map [M]">
+    <aside id="minimap-card" class="panel radar" aria-label="Minimapa radarowa Poznania" title="Otwórz plan ulic Poznania [M]">
       <canvas id="minimap-canvas"></canvas>
       <span class="radar-north" aria-hidden="true">N</span>
       <kbd class="radar-key">M</kbd>
@@ -186,42 +186,42 @@
   <!-- Bottom-Center: Third-Person Mode Switcher & Controls Guide -->
   <footer class="hud hud-bottom-center">
     <div id="hud-controls-hint" class="controls-hint"></div>
-    <nav id="mode-switch" class="panel mode-switch" aria-label="Third-Person Navigation Mode">
+    <nav id="mode-switch" class="panel mode-switch" aria-label="Tryb poruszania się">
       <span class="mode-indicator" aria-hidden="true"></span>
-      <button id="mode-person" class="mode-btn" data-mode="person" type="button" title="Person [1]">
-        <svg class="icon" aria-hidden="true"><use href="#i-walk"/></svg><span class="mode-label">Walk</span><kbd>1</kbd>
+      <button id="mode-person" class="mode-btn" data-mode="person" type="button" title="Spacer [1]">
+        <svg class="icon" aria-hidden="true"><use href="#i-walk"/></svg><span class="mode-label">Spacer</span><kbd>1</kbd>
       </button>
-      <button id="mode-car" class="mode-btn active" data-mode="car" type="button" title="Car · Taxi [2]">
-        <svg class="icon" aria-hidden="true"><use href="#i-car"/></svg><span class="mode-label">Drive</span><kbd>2</kbd>
+      <button id="mode-car" class="mode-btn active" data-mode="car" type="button" title="Jazda [2]">
+        <svg class="icon" aria-hidden="true"><use href="#i-car"/></svg><span class="mode-label">Jazda</span><kbd>2</kbd>
       </button>
-      <button id="mode-cyclist" class="mode-btn" data-mode="cyclist" type="button" title="Cyclist [3]">
-        <svg class="icon" aria-hidden="true"><use href="#i-bike"/></svg><span class="mode-label">Cycle</span><kbd>3</kbd>
+      <button id="mode-cyclist" class="mode-btn" data-mode="cyclist" type="button" title="Rower [3]">
+        <svg class="icon" aria-hidden="true"><use href="#i-bike"/></svg><span class="mode-label">Rower</span><kbd>3</kbd>
       </button>
-      <button id="mode-helicopter" class="mode-btn" data-mode="helicopter" type="button" title="Helicopter [4]">
-        <svg class="icon" aria-hidden="true"><use href="#i-heli"/></svg><span class="mode-label">Fly</span><kbd>4</kbd>
+      <button id="mode-helicopter" class="mode-btn" data-mode="helicopter" type="button" title="Lot [4]">
+        <svg class="icon" aria-hidden="true"><use href="#i-heli"/></svg><span class="mode-label">Lot</span><kbd>4</kbd>
       </button>
     </nav>
   </footer>
 
   <!-- Bottom-Right: Speed Cluster & Camera Switcher -->
   <div class="hud hud-bottom-right">
-    <section id="hud-cluster" class="panel cluster" aria-label="Vehicle telemetry and camera">
+    <section id="hud-cluster" class="panel cluster" aria-label="Telemetria pojazdu i kamera">
       <div class="gauge">
         <div class="gauge-top">
-          <span id="hud-active-mode" class="gauge-label">Poznań Taxi</span>
-          <span class="gauge-alt"><span class="gauge-alt-label">Alt</span> <span id="hud-altitude">0</span> m</span>
+          <span id="hud-active-mode" class="gauge-label">Jazda</span>
+          <span class="gauge-alt"><span class="gauge-alt-label">Wys.</span> <span id="hud-altitude">0</span> m</span>
         </div>
         <div class="gauge-speed"><span id="hud-speed">0</span><span class="gauge-unit">km/h</span></div>
         <div class="gauge-meter" aria-hidden="true"><span id="hud-speed-meter"></span></div>
       </div>
       <div id="camera-switch" class="camera-switch">
-        <button id="cam-prev" class="icon-btn" type="button" title="Previous camera" aria-label="Previous camera">
+        <button id="cam-prev" class="icon-btn" type="button" title="Poprzednia kamera" aria-label="Poprzednia kamera">
           <svg class="icon" aria-hidden="true"><use href="#i-chevron-left"/></svg>
         </button>
-        <button id="cam-menu-btn" class="camera-current" type="button" popovertarget="camera-popover" title="All cameras [V cycles]">
-          <svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg><span id="hud-active-camera">3rd-Person Chase</span><kbd>V</kbd>
+        <button id="cam-menu-btn" class="camera-current" type="button" popovertarget="camera-popover" title="Wszystkie kamery [V: następna]">
+          <svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg><span id="hud-active-camera">Kamera za graczem</span><kbd>V</kbd>
         </button>
-        <button id="cam-next" class="icon-btn" type="button" title="Next camera [V]" aria-label="Next camera">
+        <button id="cam-next" class="icon-btn" type="button" title="Następna kamera [V]" aria-label="Następna kamera">
           <svg class="icon" aria-hidden="true"><use href="#i-chevron-right"/></svg>
         </button>
       </div>
@@ -229,48 +229,48 @@
   </div>
 
   <!-- Touch input stays available in clean view; the map temporarily suspends it. -->
-  <section id="touch-controls" aria-label="Touch controls" hidden>
+  <section id="touch-controls" aria-label="Sterowanie dotykowe" hidden>
     <div class="touch-movement">
-      <div id="touch-stick" role="group" aria-label="Movement joystick: drag up or down to move, left or right to turn">
+      <div id="touch-stick" role="group" aria-label="Drążek ruchu: przeciągnij w górę lub w dół, aby się poruszać, w lewo lub w prawo, aby skręcać">
         <span class="touch-stick-axis" aria-hidden="true"></span>
         <span id="touch-stick-knob" aria-hidden="true"></span>
       </div>
-      <span class="touch-caption">Move &amp; steer</span>
+      <span class="touch-caption">Ruch i sterowanie</span>
     </div>
-    <p class="touch-look-hint">Drag to look · Pinch to zoom</p>
-    <div class="touch-actions" role="group" aria-label="Hold to perform an action">
-      <button class="touch-action" data-touch-action="up" type="button" aria-label="Jump" aria-pressed="false" hidden>
-        <span aria-hidden="true">↑</span><span data-touch-label="up">Jump</span>
+    <p class="touch-look-hint">Przeciągnij, aby się rozejrzeć · Rozsuń palce, aby przybliżyć</p>
+    <div class="touch-actions" role="group" aria-label="Przytrzymaj, aby wykonać akcję">
+      <button class="touch-action" data-touch-action="up" type="button" aria-label="Skok" aria-pressed="false" hidden>
+        <span aria-hidden="true">↑</span><span data-touch-label="up">Skok</span>
       </button>
-      <button class="touch-action" data-touch-action="down" type="button" aria-label="Descend" aria-pressed="false" hidden>
-        <span aria-hidden="true">↓</span><span data-touch-label="down">Descend</span>
+      <button class="touch-action" data-touch-action="down" type="button" aria-label="W dół" aria-pressed="false" hidden>
+        <span aria-hidden="true">↓</span><span data-touch-label="down">W dół</span>
       </button>
-      <button class="touch-action touch-boost" data-touch-action="boost" type="button" aria-label="Boost" aria-pressed="false">
-        <span aria-hidden="true">↟</span><span data-touch-label="boost">Boost</span>
+      <button class="touch-action touch-boost" data-touch-action="boost" type="button" aria-label="Turbo" aria-pressed="false">
+        <span aria-hidden="true">↟</span><span data-touch-label="boost">Turbo</span>
       </button>
     </div>
   </section>
 
   <!-- All Cameras: 3 Follow Cameras + 8 Scenic Poznań Places + Auto-Director Drone (ids: cameras.js CAMERA_PRESETS) -->
-  <div id="camera-popover" class="popover" popover data-side="above" data-anchor="hud-cluster" data-align="hud-cluster" aria-label="Multiple Camera Angles">
-    <div class="pop-title">Follow</div>
-    <button id="cam-chase" class="pop-item cam-btn active" data-camera="chase" type="button"><span class="pop-name">3rd-Person Chase</span><kbd>5</kbd></button>
-    <button id="cam-action" class="pop-item cam-btn" data-camera="action" type="button"><span class="pop-name">Low-Angle Action</span><kbd>6</kbd></button>
-    <button id="cam-pov" class="pop-item cam-btn" data-camera="pov" type="button"><span class="pop-name">First-Person / Cockpit</span><kbd>7</kbd></button>
-    <div class="pop-title">Scenic</div>
-    <button id="cam-rynek" class="pop-item cam-btn" data-camera="rynek" type="button"><span class="pop-name">Stary Rynek &amp; Ratusz</span><kbd>8</kbd></button>
-    <button id="cam-katedra" class="pop-item cam-btn" data-camera="katedra" type="button"><span class="pop-name">Ostrów Tumski from Most Jordana</span><kbd>9</kbd></button>
-    <button id="cam-zamek" class="pop-item cam-btn" data-camera="zamek" type="button"><span class="pop-name">Zamek Cesarski from Św. Marcin</span><kbd>0</kbd></button>
+  <div id="camera-popover" class="popover" popover data-side="above" data-anchor="hud-cluster" data-align="hud-cluster" aria-label="Kamery">
+    <div class="pop-title">Śledzenie</div>
+    <button id="cam-chase" class="pop-item cam-btn active" data-camera="chase" type="button"><span class="pop-name">Kamera za graczem</span><kbd>5</kbd></button>
+    <button id="cam-action" class="pop-item cam-btn" data-camera="action" type="button"><span class="pop-name">Ujęcie z niskiego kąta</span><kbd>6</kbd></button>
+    <button id="cam-pov" class="pop-item cam-btn" data-camera="pov" type="button"><span class="pop-name">Pierwsza osoba / kokpit</span><kbd>7</kbd></button>
+    <div class="pop-title">Widokowe</div>
+    <button id="cam-rynek" class="pop-item cam-btn" data-camera="rynek" type="button"><span class="pop-name">Stary Rynek i Ratusz</span><kbd>8</kbd></button>
+    <button id="cam-katedra" class="pop-item cam-btn" data-camera="katedra" type="button"><span class="pop-name">Ostrów Tumski z Mostu Jordana</span><kbd>9</kbd></button>
+    <button id="cam-zamek" class="pop-item cam-btn" data-camera="zamek" type="button"><span class="pop-name">Zamek Cesarski z ul. Św. Marcin</span><kbd>0</kbd></button>
     <button id="cam-cytadela" class="pop-item cam-btn" data-camera="cytadela" type="button"><span class="pop-name">Park Cytadela</span></button>
     <button id="cam-malta" class="pop-item cam-btn" data-camera="malta" type="button"><span class="pop-name">Jezioro Maltańskie</span></button>
-    <button id="cam-warta" class="pop-item cam-btn" data-camera="warta" type="button"><span class="pop-name">Warta Riverside</span></button>
-    <button id="cam-baltyk" class="pop-item cam-btn" data-camera="baltyk" type="button"><span class="pop-name">Bałtyk Terrace</span></button>
-    <button id="cam-dworzec" class="pop-item cam-btn" data-camera="dworzec" type="button"><span class="pop-name">Poznań Główny &amp; Avenida</span></button>
-    <button id="cam-drone" class="pop-item cam-btn" data-camera="drone" type="button"><span class="pop-name">Auto-Director Aerial</span></button>
+    <button id="cam-warta" class="pop-item cam-btn" data-camera="warta" type="button"><span class="pop-name">Bulwary nad Wartą</span></button>
+    <button id="cam-baltyk" class="pop-item cam-btn" data-camera="baltyk" type="button"><span class="pop-name">Taras Bałtyku</span></button>
+    <button id="cam-dworzec" class="pop-item cam-btn" data-camera="dworzec" type="button"><span class="pop-name">Poznań Główny i Avenida</span></button>
+    <button id="cam-drone" class="pop-item cam-btn" data-camera="drone" type="button"><span class="pop-name">Dron automatyczny</span></button>
   </div>
 
   <!-- Full-Screen Interactive Poznań Street Map ([M]) -->
-  <section id="fullmap-modal" class="fullmap-modal hidden" role="dialog" aria-modal="true" aria-label="Full Poznań Interactive Street Map">
+  <section id="fullmap-modal" class="fullmap-modal hidden" role="dialog" aria-modal="true" aria-label="Plan ulic Poznania">
     <div id="fullmap-canvas-wrap" class="fullmap-canvas-wrap">
       <canvas id="fullmap-canvas"></canvas>
     </div>
@@ -279,21 +279,21 @@
       <div class="panel fullmap-title">
         <span class="badge" aria-hidden="true">PZ</span>
         <div>
-          <h2>Poznań Street Atlas</h2>
-          <p id="fullmap-player-info" class="fullmap-subtitle">You are at Stary Rynek</p>
+          <h2>Plan ulic Poznania</h2>
+          <p id="fullmap-player-info" class="fullmap-subtitle">Jesteś: Stary Rynek</p>
         </div>
       </div>
       <label class="panel fullmap-search-wrap">
         <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
-        <input id="fullmap-search" class="fullmap-search" type="text" placeholder="Search streets &amp; landmarks — Św. Marcin, Głogowska, Stary Rynek…" aria-label="Search street or landmark" autocomplete="off" spellcheck="false" />
+        <input id="fullmap-search" class="fullmap-search" type="text" placeholder="Szukaj ulic i miejsc — Św. Marcin, Głogowska, Stary Rynek…" aria-label="Szukaj ulicy lub miejsca" autocomplete="off" spellcheck="false" />
       </label>
-      <button id="close-fullmap-btn" class="panel tool-btn fullmap-close" type="button" title="Close map [M / Esc]">
-        <svg class="icon" aria-hidden="true"><use href="#i-close"/></svg><span class="tool-label">Close</span><kbd>Esc</kbd>
+      <button id="close-fullmap-btn" class="panel tool-btn fullmap-close" type="button" title="Zamknij plan [M / Esc]">
+        <svg class="icon" aria-hidden="true"><use href="#i-close"/></svg><span class="tool-label">Zamknij</span><kbd>Esc</kbd>
       </button>
     </div>
 
     <div class="map-controls">
-      <div id="map-compass" class="panel map-compass" title="True north">
+      <div id="map-compass" class="panel map-compass" title="Północ geograficzna">
         <svg viewBox="0 0 44 44" aria-hidden="true">
           <g id="map-compass-needle">
             <path d="M22 9.5 25.6 22h-7.2z" fill="#f05a4f"/>
@@ -303,28 +303,28 @@
         </svg>
       </div>
       <div class="panel map-zoom">
-        <button id="map-zoom-in" class="icon-btn" type="button" title="Zoom in" aria-label="Zoom in"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
-        <button id="map-zoom-out" class="icon-btn" type="button" title="Zoom out" aria-label="Zoom out"><svg class="icon" aria-hidden="true"><use href="#i-minus"/></svg></button>
+        <button id="map-zoom-in" class="icon-btn" type="button" title="Przybliż" aria-label="Przybliż"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
+        <button id="map-zoom-out" class="icon-btn" type="button" title="Oddal" aria-label="Oddal"><svg class="icon" aria-hidden="true"><use href="#i-minus"/></svg></button>
       </div>
       <div class="panel map-zoom">
-        <button id="map-center-player" class="icon-btn" type="button" title="Street view around you" aria-label="Center on player"><svg class="icon" aria-hidden="true"><use href="#i-locate"/></svg></button>
-        <button id="map-view-all" class="icon-btn" type="button" title="All of central Poznań" aria-label="Fit all of central Poznań"><svg class="icon" aria-hidden="true"><use href="#i-fit"/></svg></button>
+        <button id="map-center-player" class="icon-btn" type="button" title="Widok ulic wokół Ciebie" aria-label="Wyśrodkuj na graczu"><svg class="icon" aria-hidden="true"><use href="#i-locate"/></svg></button>
+        <button id="map-view-all" class="icon-btn" type="button" title="Cały centralny Poznań" aria-label="Dopasuj cały centralny Poznań"><svg class="icon" aria-hidden="true"><use href="#i-fit"/></svg></button>
       </div>
     </div>
 
     <div class="fullmap-footer">
       <div class="panel fullmap-status">
-        <span id="fullmap-hover-info">Click anywhere to teleport &amp; set your GPS route · Drag to pan · Scroll to zoom</span>
+        <span id="fullmap-hover-info">Kliknij w dowolnym miejscu, aby się teleportować i wyznaczyć trasę GPS · Przeciągnij, aby przesunąć · Przewiń, aby przybliżyć</span>
       </div>
     </div>
 
     <div id="fullmap-legend" class="panel fullmap-legend">
-      <span class="legend-item"><span class="legend-swatch player-swatch"></span>You</span>
-      <span class="legend-item"><span class="legend-swatch landmark-swatch"></span>Landmark</span>
-      <span class="legend-item"><span class="legend-swatch gps-swatch"></span>GPS route</span>
-      <span class="legend-item"><span class="legend-swatch bridge-swatch"></span>Bridge</span>
-      <span class="legend-item"><span class="legend-swatch tram-swatch"></span>Tram</span>
-      <span class="legend-item"><span class="legend-swatch rail-swatch"></span>Rail</span>
+      <span class="legend-item"><span class="legend-swatch player-swatch"></span>Ty</span>
+      <span class="legend-item"><span class="legend-swatch landmark-swatch"></span>Miejsce</span>
+      <span class="legend-item"><span class="legend-swatch gps-swatch"></span>Trasa GPS</span>
+      <span class="legend-item"><span class="legend-swatch bridge-swatch"></span>Most</span>
+      <span class="legend-item"><span class="legend-swatch tram-swatch"></span>Tramwaj</span>
+      <span class="legend-item"><span class="legend-swatch rail-swatch"></span>Kolej</span>
       <span id="fullmap-counts" class="legend-counts"></span>
     </div>
   </section>

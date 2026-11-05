@@ -2560,13 +2560,34 @@ function buildCityBlocks(scene) {
   group.add(awningInst);
 
   const signThemes = [
-    { bg: '#161210', border: '#c89d54', text: 'PIEKARNIA · CUKIERNIA · OD 1928', color: '#ffe4a8' },
-    { bg: '#0c3a22', border: '#3ccf6e', text: 'APTEKA', color: '#ffffff' },
-    { bg: '#142b20', border: '#d4af37', text: 'KSIĘGARNIA & KAWIARNIA', color: '#fff2cc' },
-    { bg: '#280a10', border: '#ff5252', text: 'BAR MLECZNY · OBIADY', color: '#ffd180' },
-    { bg: '#101318', border: '#e0e6ed', text: 'ZEGARMISTRZ · JUBILER', color: '#f5f9ff' }
+    { bg: '#1c130c', border: '#d49b52', text: 'PIEKARNIA', color: '#ffecbe', light: new THREE.Color(0xffd896) },
+    { bg: '#2b1018', border: '#f092a5', text: 'CUKIERNIA', color: '#fff0f3', light: new THREE.Color(0xffe4e8) },
+    { bg: '#08331d', border: '#2ecc71', text: 'APTEKA', color: '#ffffff', light: new THREE.Color(0xd8ffe8) },
+    { bg: '#13281e', border: '#d4af37', text: 'KSIĘGARNIA', color: '#fff4cc', light: new THREE.Color(0xffeebb) },
+    { bg: '#18110d', border: '#c79c6e', text: 'KAWIARNIA', color: '#f7ede2', light: new THREE.Color(0xffedd8) },
+    { bg: '#290c12', border: '#ff6b4a', text: 'BAR MLECZNY', color: '#ffe2b8', light: new THREE.Color(0xffcfa8) },
+    { bg: '#101419', border: '#c0c8d4', text: 'ZEGARMISTRZ', color: '#f2f6fc', light: new THREE.Color(0xeef4ff) },
+    { bg: '#0d1527', border: '#e6c35c', text: 'JUBILER', color: '#fff9e6', light: new THREE.Color(0xfff5cc) },
+    { bg: '#142617', border: '#70c976', text: 'KWIACIARNIA', color: '#e8fae8', light: new THREE.Color(0xe2ffe8) },
+    { bg: '#121820', border: '#e74c3c', text: 'FRYZJER', color: '#ffffff', light: new THREE.Color(0xffffff) },
+    { bg: '#0b2024', border: '#4ecdc4', text: 'OPTYK', color: '#e8ffff', light: new THREE.Color(0xdffffd) },
+    { bg: '#101c2e', border: '#f1c40f', text: 'SKLEP SPOŻYWCZY', color: '#ffffff', light: new THREE.Color(0xfffaed) },
+    { bg: '#2b0b0e', border: '#c0392b', text: 'WĘDLINY', color: '#ffdede', light: new THREE.Color(0xffe0dc) },
+    { bg: '#0e2412', border: '#f39c12', text: 'WARZYWNIAK', color: '#eaffea', light: new THREE.Color(0xecffd8) },
+    { bg: '#2d0e07', border: '#e67e22', text: 'PIZZERIA', color: '#fff2d6', light: new THREE.Color(0xffd2a0) },
+    { bg: '#1a100c', border: '#e74c3c', text: 'KEBAB', color: '#ffdd59', light: new THREE.Color(0xffe090) },
+    { bg: '#121212', border: '#f39c12', text: 'LOMBARD', color: '#f1c40f', light: new THREE.Color(0xffea9f) },
+    { bg: '#0d222d', border: '#3498db', text: 'PRALNIA', color: '#eaf6ff', light: new THREE.Color(0xe0f2ff) },
+    { bg: '#1a1209', border: '#a07855', text: 'SZEWC', color: '#f5e6d3', light: new THREE.Color(0xffeedd) },
+    { bg: '#111822', border: '#ffd200', text: 'KANTOR', color: '#ffffff', light: new THREE.Color(0xfff8c0) },
+    { bg: '#240f22', border: '#e056fd', text: 'DROGERIA', color: '#fff0fd', light: new THREE.Color(0xfbe8ff) },
+    { bg: '#23121d', border: '#f3a683', text: 'KOSMETYKA', color: '#fcedf2', light: new THREE.Color(0xffeaee) },
+    { bg: '#101c2b', border: '#4a90e2', text: 'POCZTA', color: '#f0f6fc', light: new THREE.Color(0xe8f0ff) },
+    { bg: '#2a140d', border: '#e58e26', text: 'PIEROGARNIA', color: '#fff5eb', light: new THREE.Color(0xffe2b8) },
+    { bg: '#1d1128', border: '#9b59b6', text: 'PASMANTERIA', color: '#f5ebff', light: new THREE.Color(0xf2e8ff) },
+    { bg: '#101622', border: '#95a5a6', text: 'KRAWIEC', color: '#ecf0f1', light: new THREE.Color(0xf0f4f8) }
   ];
-  const MAX_SIGNS_PER_THEME = Math.ceil(MAX_AWNINGS / signThemes.length) + 32;
+  const MAX_SIGNS_PER_THEME = Math.max(128, Math.ceil(MAX_AWNINGS / signThemes.length) + 64);
   const signInsts = signThemes.map((st) => {
     const c = document.createElement('canvas');
     c.width = 512;
@@ -2578,10 +2599,10 @@ function buildCityBlocks(scene) {
     ctx.lineWidth = 6;
     ctx.strokeRect(6, 6, 500, 84);
     ctx.fillStyle = st.color;
-    ctx.font = '800 26px Inter, Arial, sans-serif';
+    ctx.font = '800 28px Inter, Arial, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(st.text, 256, 50);
+    ctx.fillText(st.text, 256, 50, 470);
 
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -2613,7 +2634,7 @@ function buildCityBlocks(scene) {
   const wrapThemes = [
     { bg: '#c8102e', fg: '#ffffff', lines: ['ROGALE', 'ŚWIĘTOMARCIŃSKIE', '11 LISTOPADA'] },
     { bg: '#0b3d91', fg: '#ffd400', lines: ['KONCERTY', 'NAD MALTĄ', 'LATO 2026'] },
-    { bg: '#f2f0ea', fg: '#1d1d1b', lines: ['NOWE', 'MIESZKANIA', 'WILDA · 2027'] },
+    { bg: '#f2f0ea', fg: '#1d1d1b', lines: ['NOWE', 'MIESZKANIA', 'WILDA 2027'] },
     { bg: '#1f6b3a', fg: '#ffffff', lines: ['PYRY', 'Z GZIKIEM', 'BAR NA ŁAZARZU'] }
   ].slice(0, WRAP_THEMES);
   const wrapInsts = wrapThemes.map((wt) => {
@@ -2643,14 +2664,6 @@ function buildCityBlocks(scene) {
   const storeLightGroup = new THREE.Group();
   storeLightGroup.name = 'StoreClusteredLights';
   scene.add(storeLightGroup);
-
-  const storeThemeColors = [
-    new THREE.Color(0xffd896), // Bakery warm gold
-    new THREE.Color(0xd8eeff), // Pharmacy crisp cool white
-    new THREE.Color(0xffe4ad), // Bookshop warm amber
-    new THREE.Color(0xffbe88), // Milk bar warm orange-gold
-    new THREE.Color(0xfff2d6)  // Watchmaker warm ivory
-  ];
 
   const STORE_SPOT_POOL = 28;
   const storeSpotPool = [];
@@ -2898,7 +2911,7 @@ function buildCityBlocks(scene) {
         spot.position.set(a.x + outX * 0.45, 4.35, a.z + outZ * 0.45);
         spot.target.position.set(a.x + outX * 1.85, 0.0, a.z + outZ * 1.85);
         spot.target.updateMatrixWorld();
-        spot.color.copy(storeThemeColors[themeIdx % storeThemeColors.length]);
+        spot.color.copy(signThemes[themeIdx % signThemes.length].light);
         spot.intensity = spotIntensity * fade;
       } else {
         spot.intensity = 0;

@@ -1091,7 +1091,7 @@ const LANDMARK_SITES = GEO.landmarks;
 // entry (tests/city-text.test.cjs). The map gives labels out in this order, so the better-known names come first.
 const site = (name, fallback) => LANDMARK_SITES[name] || fallback;
 const CITY_LANDMARKS = [
-  ['ratusz', 'Ratusz & Stary Rynek', 'Ratusz', 'Ratusz', 'Stare Miasto'],
+  ['ratusz', 'Ratusz i Stary Rynek', 'Ratusz', 'Ratusz', 'Stare Miasto'],
   ['fara', 'Fara Poznańska', 'Fara', 'Fara', 'Stare Miasto'],
   ['zamekkrolewski', 'Zamek Królewski', 'Zamek Królewski', 'Zamek Królewski', 'Stare Miasto'],
   ['katedra', 'Archikatedra Poznańska', 'Katedra', 'Katedra', 'Ostrów Tumski'],
@@ -1174,8 +1174,8 @@ const RAISED_GROUND = [];
 const STREET_JOIN = ' / ';
 
 /**
- * Exact street / landmark / water name at any world (x, z), in the " · ", STREET_JOIN and "near " format main.js
- * renderLocation splits on: "Landmark · Road / Road", "Warta · near Road", "Road / Road", "Road", or the district.
+ * Exact street / landmark / water name at any world (x, z), in the " · ", STREET_JOIN and "w pobliżu: " format main.js
+ * renderLocation splits on: "Landmark · Road / Road", "Warta · w pobliżu: Road", "Road / Road", "Road", or the district.
  */
 function getLocationLabel(x, z) {
   // named roads only (OSM leaves many service and link roads unnamed)
@@ -1209,7 +1209,7 @@ function getLocationLabel(x, z) {
   if (isWater(x, z) || (!isLand(x, z) && waterAt(x, z))) {
     const w = waterAt(x, z);
     const name = w && w.name ? w.name : 'Warta';
-    return `${name}${near.length ? ` · near ${near[0].road.name}` : ''}`;
+    return `${name}${near.length ? ` · w pobliżu: ${near[0].road.name}` : ''}`;
   }
   const c = crossing(near, 45);
   if (c) return c;

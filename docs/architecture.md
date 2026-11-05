@@ -193,7 +193,7 @@ Physics notes:
 - Wrap every storage access in `try { } catch { /* reason */ }`. Storage may be unavailable, and that must never block play.
 
 ## HUD, CSS and cache busting
-- `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently `20261028-plate-comment`). When you change
+- `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently `20261105-polish-ui`). When you change
   `style.css`, bump that query in `index.html` in the same commit; GitHub Pages caches it.
 - Colours are tokens on `:root`: `--accent`/`--accent-ink` (yellow, also the map's GPS route in `city-map.js`) mark
   whatever is active; `--sign-graphite` (#3b3d3f) and `--sign-blue` (#1f5bb5, the district strip) are the street plate.

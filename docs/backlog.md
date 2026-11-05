@@ -549,6 +549,9 @@ Both historical open decisions were confirmed by the user on 2026-11-01 and impl
 
 ## Browser checks still outstanding
 
+- Polish UI labels fit the HUD/toolbar/touch layout on desktop and phone; new shop signs render.
+- Shop signs: 26 instanced meshes (+21 draw calls vs. 5) — verify frame rate and draw call budget in browser; atlas texture with per-instance UVs if needed.
+
 Full-scene smoke checks on 2026-10-30 confirmed boot and 60 rendered frames on both WebGPU and WebGL2, with
 no console warnings or errors; the WebGL2 check also recorded no GL errors. The two-frame pedestrian probes
 verified pose updates on both LODs. These checks do not establish detailed appearance, traffic correctness or
@@ -588,7 +591,7 @@ See the [signal observation record](observations/signals-2026-10-30.md) for setu
 - Check load time and frame rate over the enlarged detail box, roof/dormer coverage and pool limits, estate
   slabs and transitions to the outskirts. The balcony pool was close to its limit in the historical scan.
 - Listen to sirens, bells, tram motors/squeal and the noon show; verify their local timing and audible range.
-- Verify map labels/pin clustering, English UI with Polish names and metric readings on both backends. The WebGL2
+- Verify map labels/pin clustering, Polish UI and metric readings on both backends. The WebGL2
   draw-buffer error is fixed; detailed fallback appearance and performance checks remain.
 - 2026-11-03 changes, all verified headless only: park lamps along ulica Za Cytadelą and the lamps stepped onto the
   lawn in narrow-walk parks (e.g. block 212 near `−953, −1928`); trees by Avenida and in park blocks with buildings

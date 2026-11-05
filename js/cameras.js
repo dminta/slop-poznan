@@ -6,18 +6,18 @@ import { LANDMARK_SITES, LL } from './city-config.js';
 // Low-Angle Action Cam, POV/Cockpit Cam, 8 fixed views of Poznań places and the Auto-Director Drone.
 
 const CAMERA_PRESETS = [
-  { id: 'chase',    name: '3rd-Person Chase',                short: 'Chase',       category: 'follow', fov: 56 },
-  { id: 'action',   name: 'Low-Angle Action',                short: 'Action',      category: 'follow', fov: 60 },
-  { id: 'pov',      name: 'First-Person / Cockpit',          short: 'POV / Dash',  category: 'follow', fov: 68 },
-  { id: 'rynek',    name: 'Stary Rynek & Ratusz',            short: 'Stary Rynek', category: 'scenic', fov: 58 },
-  { id: 'katedra',  name: 'Ostrów Tumski from Most Jordana', short: 'Katedra',     category: 'scenic', fov: 50 },
-  { id: 'zamek',    name: 'Zamek Cesarski from Św. Marcin',  short: 'Zamek',       category: 'scenic', fov: 48 },
+  { id: 'chase',    name: 'Kamera za graczem',               short: 'Za graczem',  category: 'follow', fov: 56 },
+  { id: 'action',   name: 'Ujęcie z niskiego kąta',          short: 'Niski kąt',   category: 'follow', fov: 60 },
+  { id: 'pov',      name: 'Pierwsza osoba / kokpit',         short: 'Kokpit',      category: 'follow', fov: 68 },
+  { id: 'rynek',    name: 'Stary Rynek i Ratusz',            short: 'Stary Rynek', category: 'scenic', fov: 58 },
+  { id: 'katedra',  name: 'Ostrów Tumski z Mostu Jordana',   short: 'Katedra',     category: 'scenic', fov: 50 },
+  { id: 'zamek',    name: 'Zamek Cesarski z ul. Św. Marcin', short: 'Zamek',       category: 'scenic', fov: 48 },
   { id: 'cytadela', name: 'Park Cytadela',                   short: 'Cytadela',    category: 'scenic', fov: 52 },
   { id: 'malta',    name: 'Jezioro Maltańskie',              short: 'Malta',       category: 'scenic', fov: 50 },
-  { id: 'warta',    name: 'Warta Riverside',                 short: 'Warta',       category: 'scenic', fov: 50 },
-  { id: 'baltyk',   name: 'Bałtyk Terrace',                  short: 'Bałtyk',      category: 'scenic', fov: 54 },
-  { id: 'dworzec',  name: 'Poznań Główny & Avenida',         short: 'Dworzec',     category: 'scenic', fov: 52 },
-  { id: 'drone',    name: 'Auto-Director Aerial',            short: 'Director',    category: 'scenic', fov: 50 }
+  { id: 'warta',    name: 'Bulwary nad Wartą',               short: 'Bulwary',     category: 'scenic', fov: 50 },
+  { id: 'baltyk',   name: 'Taras Bałtyku',                   short: 'Bałtyk',      category: 'scenic', fov: 54 },
+  { id: 'dworzec',  name: 'Poznań Główny i Avenida',         short: 'Dworzec',     category: 'scenic', fov: 52 },
+  { id: 'drone',    name: 'Dron automatyczny',               short: 'Dron',        category: 'scenic', fov: 50 }
 ];
 
 // A point `y` m up at a landmark's site centre, or at (u, w) in its turned site frame: the frame fitToSite

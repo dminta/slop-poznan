@@ -129,7 +129,7 @@ for (const type of ['pointercancel', 'lostpointercapture']) {
 test('mode changes clear touches and expose the relevant actions', () => {
   const { controls, stick, buttons, labels, input } = harness();
   assert.equal(labels.boost.textContent, 'Sprint');
-  assert.equal(labels.up.textContent, 'Jump');
+  assert.equal(labels.up.textContent, 'Skok');
   assert.equal(buttons.up.hidden, false);
   assert.equal(buttons.down.hidden, true);
   stick.dispatch('pointerdown', { clientY: 20 });
@@ -138,8 +138,8 @@ test('mode changes clear touches and expose the relevant actions', () => {
   assert.equal(Object.values(input).some(Boolean), false);
   assert.equal(stick.hasPointerCapture(1), false);
   assert.equal(buttons.up.hasPointerCapture(2), false);
-  assert.equal(labels.boost.textContent, 'Boost');
-  assert.equal(labels.up.textContent, 'Ascend');
+  assert.equal(labels.boost.textContent, 'Turbo');
+  assert.equal(labels.up.textContent, 'W górę');
   assert.equal(buttons.up.hidden, false);
   assert.equal(buttons.down.hidden, false);
   controls.setMode('car');

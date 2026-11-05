@@ -59,3 +59,43 @@ test('the location label joins two streets with a separator no road or landmark 
   }
   assert.ok(joined > 0, 'some point of the Kiss & Ride lane is at a crossing');
 });
+
+test('shop signs and billboards have short single names without combined " · " slogans, with at least 20 shop themes', () => {
+  const src = readFileSync(join(__dirname, '../js/buildings.js'), 'utf8');
+  const match = src.match(/const signThemes = (\[[\s\S]*?\]);/);
+  assert.ok(match, 'signThemes found');
+  const texts = [...match[1].matchAll(/text:\s*'([^']+)'/g)].map((m) => m[1]);
+  assert.ok(texts.length >= 20, `expected at least 20 shop sign names, got ${texts.length}`);
+  const unique = new Set(texts);
+  assert.ok(unique.size >= 20, `expected at least 20 unique shop sign names, got ${unique.size}`);
+  for (const t of texts) {
+    assert.doesNotMatch(t, / · /, `shop sign "${t}" should not contain " · "`);
+    assert.ok(!t.includes('&'), `shop sign "${t}" should not contain "&"`);
+    assert.ok(!t.includes('/'), `shop sign "${t}" should not contain "/"`);
+    assert.ok(!t.includes(','), `shop sign "${t}" should not contain ","`);
+    assert.doesNotMatch(t, /\bOD \d{4}/, `shop sign "${t}" should not contain "OD YYYY"`);
+    assert.ok(t.length <= 16, `shop sign "${t}" should be at most 16 characters (got ${t.length})`);
+  }
+  const wrapMatch = src.match(/const wrapThemes = \[([\s\S]*?)\]\.slice/);
+  if (wrapMatch) {
+    const wrapLines = [...wrapMatch[1].matchAll(/lines:\s*\[([^\]]+)\]/g)].flatMap((m) =>
+      [...m[1].matchAll(/'([^']+)'/g)].map((lm) => lm[1])
+    );
+    for (const line of wrapLines) {
+      assert.doesNotMatch(line, / · /, `billboard line "${line}" should not contain " · "`);
+      assert.ok(!line.includes('&'), `billboard line "${line}" should not contain "&"`);
+      assert.ok(!line.includes('/'), `billboard line "${line}" should not contain "/"`);
+      assert.ok(!line.includes(','), `billboard line "${line}" should not contain ","`);
+      assert.doesNotMatch(line, /\bOD \d{4}/, `billboard line "${line}" should not contain "OD YYYY"`);
+      assert.ok(line.length <= 16, `billboard line "${line}" should be at most 16 characters (got ${line.length})`);
+    }
+  }
+});
+
+test('water location labels use "w pobliżu:" when near a street, without ungrammatical cases', async () => {
+  const { getLocationLabel, isWater } = await import('../js/city-config.js');
+  assert.equal(isWater(740, -200), true);
+  const label = getLocationLabel(740, -200);
+  assert.ok(label.startsWith('Warta · w pobliżu: '), `expected label to start with "Warta · w pobliżu: ", got "${label}"`);
+  assert.doesNotMatch(label, /\b(obok|near|przy)\b/);
+});

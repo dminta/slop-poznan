@@ -25,7 +25,7 @@ migration paths; check `docs/architecture.md` before changing them.
   indentation. When you rename, re-indent or add free variables there, update the test markers and stubs in the same change.
 - **`js/geodata.js` is generated**: change `tools/` or `tools/data/` and rebuild (`docs/geodata.md`).
 - **CSS**: when `css/style.css` changes, bump its `?v=YYYYMMDD-<slug>` query in `index.html`.
-- **UI text** is English with Polish place names, diacritics kept (Św. Marcin, Łazarz); units are metric (km/h, m).
+- **UI text** is Polish (diacritics kept: Św. Marcin, Łazarz; brand names and landmark proper names stay untranslated); units are metric (km/h, m).
 - **Shared state** flows through constructor injection from `main.js`, static imports and exported singletons
   (`cityUniforms`); keep `window` free of app globals.
 - **Hot paths** (per-frame code) reuse scratch objects and fixed pools; lights and instanced meshes are created at build time

@@ -557,7 +557,7 @@ class ThirdPersonControllerManager {
 
     return {
       type: 'person',
-      label: 'Pedestrian',
+      label: 'Spacer',
       mesh: root,
       crowd,
       rig,
@@ -670,7 +670,7 @@ class ThirdPersonControllerManager {
 
     return {
       type: 'car',
-      label: 'Poznań Taxi',
+      label: 'Jazda',
       mesh: root,
       chassisPivot,
       carState,
@@ -831,7 +831,7 @@ class ThirdPersonControllerManager {
 
     return {
       type: 'cyclist',
-      label: 'Bike Lane Cyclist',
+      label: 'Rower',
       mesh: root,
       leanPivot,
       frontWheel,
@@ -922,7 +922,7 @@ class ThirdPersonControllerManager {
 
     return {
       type: 'helicopter',
-      label: 'Sightseeing Helicopter',
+      label: 'Lot',
       mesh: root,
       tiltPivot,
       mainRotorPivot,
