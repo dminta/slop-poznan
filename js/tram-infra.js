@@ -9,7 +9,7 @@ import { cityUniforms, createCurbMaterial, transparentEffectMRT } from './tsl-ma
 // The static tram infrastructure (docs/poznan-plan.md Phase 9 step 1), built once after the road network so it can keep
 // clear of the car lanes without feeding obstacles back into them:
 // - grooved rails for every tram track of GEO.rail (two 70 mm heads at 1435 mm gauge, flush with the road on
-//   street-running track; ballast and concrete sleepers narrowed or omitted to clear road and junction footprints)
+//   street-running track; ballast beds narrowed or omitted to clear road and junction footprints)
 // - the overhead line: a contact wire 5.8 m over each track, carried every ~30 m by span wires between side poles (or a
 //   centre pole between the tracks), cantilever arms on one-sided poles, or wall rosettes in the narrow streets round
 //   the Old Town
@@ -28,7 +28,7 @@ const GROOVE_W = 0.042;
 const SW_TOP = 0.22; // city-grid.js sidewalk top
 const PIECE = 4; // rails and ballast are laid as straight pieces up to this long, so they follow curbs and bends
 const BED_HALF = 1.45; // off-street ballast, 2.9 m across
-const BED_MIN = 1.2; // narrower beds are flush rather than leaving too little room for sleepers
+const BED_MIN = 1.2; // minimum raised bed width; a bed the roadway would narrow below this is laid flush
 const BED_GAP = 0.05; // ...and this far outside it
 const LANE_HALF = 1.8; // half of road-network.js LANE_W: a lane's paint lines stand this far from its centreline
 const WIRE_Y = 5.8; // contact wire height
@@ -1379,8 +1379,10 @@ function buildTramInfrastructure(scene, network) {
   railMat.metalnessNode = mix(float(0.35), float(0.9), top);
   railMat.roughnessNode = mix(float(0.8), float(0.32), top);
   const grooveMat = new THREE.MeshStandardNodeMaterial({ color: 0x141414, roughness: 0.95 });
-  // Ballast with concrete sleepers every 0.6 m (per-instance `tie` = piece length, phase along the track). sleeperZ: the
-  // sleeper half-length in unit-geometry z; topNy: the normal y above which a face counts as the bed's top
+  // Tram ballast bed: crushed stone (darker sides, lighter top) with no sleepers
+  const ballastMat = new THREE.MeshStandardNodeMaterial({ roughness: 0.95 });
+  ballastMat.colorNode = mix(color(0x5d5850), color(0x77706a), step(0.5, normalGeometry.y));
+  // Mainline bed: grey granite with the sleepers' 2.6 m on its 4 m top (RAIL_BED_W at the foot), slopes below
   const createBallastMaterial = (sleeperZ, topNy, side, topStone, sleeperColor) => {
     const mat = new THREE.MeshStandardNodeMaterial({ roughness: 0.95 });
     mat.colorNode = Fn(() => {
@@ -1396,8 +1398,6 @@ function buildTramInfrastructure(scene, network) {
     })();
     return mat;
   };
-  const ballastMat = createBallastMaterial(0.41, 0.5, 0x5d5850, 0x77706a, 0x9b9890);
-  // Mainline bed: grey granite with the sleepers' 2.6 m on its 4 m top (RAIL_BED_W at the foot), slopes below
   const railBallastMat = createBallastMaterial(RAIL_SLEEPER / 2 / RAIL_BED_W, 0.95, 0x605c57, 0x7a756e, 0xa3a199);
   const endWallMat = new THREE.MeshStandardNodeMaterial({ color: 0x9a958c, roughness: 0.9 }); // concrete end walls
   const steelMat = new THREE.MeshStandardNodeMaterial({ color: 0x4f5650, roughness: 0.55, metalness: 0.7 });
@@ -1422,9 +1422,8 @@ function buildTramInfrastructure(scene, network) {
   const railM = [];
   const grooveM = [];
   const ballastM = [];
-  const ties = [];
   // Off-street track on ballast, narrowed or flush where the roadway comes near (layoutTrackBeds)
-  for (const { s0, ax, az, bx, bz, ground, bed } of layout.beds) {
+  for (const { ax, az, bx, bz, ground, bed } of layout.beds) {
     const mx = (ax + bx) / 2;
     const mz = (az + bz) / 2;
     const len = Math.hypot(bx - ax, bz - az);
@@ -1437,7 +1436,6 @@ function buildTramInfrastructure(scene, network) {
       dummy.rotation.set(0, Math.atan2(-dz, dx), 0);
       dummy.scale.set(len + 0.02, 0.16, 2 * bed);
       ballastM.push(M());
-      ties.push(len, s0);
     }
     for (const sg of [1, -1]) {
       const o = sg * (GAUGE / 2 + HEAD_W / 2);
@@ -1766,7 +1764,7 @@ function buildTramInfrastructure(scene, network) {
   for (const mesh of [
     instanced('TramRails', unitBox, railMat, railM, {}, false),
     instanced('TramRailGrooves', unitBox, grooveMat, grooveM, {}, false),
-    instanced('TramBallast', unitBox, ballastMat, ballastM, { tie: { size: 2, data: ties } }, false)
+    instanced('TramBallast', unitBox, ballastMat, ballastM, {}, false)
   ]) if (mesh) group.add(mesh);
   const poleGeo = mergeGeometries([
     new THREE.CylinderGeometry(0.1, 0.15, 1, 10).toNonIndexed(),

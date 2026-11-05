@@ -593,6 +593,8 @@ See the [signal observation record](observations/signals-2026-10-30.md) for setu
 - 2026-11-03 changes, all verified headless only: park lamps along ulica Za Cytadelą and the lamps stepped onto the
   lawn in narrow-walk parks (e.g. block 212 near `−953, −1928`); trees by Avenida and in park blocks with buildings
   (Park Nad Wartą, Antoninek block 874); the corrected Iglica, Delta, Brama Poznania and Zamek Królewski heights.
+- 2026-11-05 change, verified headless only: tram beds without sleepers (plain stone, no shader errors; the mainline
+  railway still shows its sleepers).
 
 For each implemented fix, record the before/after measurement, run the relevant regression checks, and state
 which browser checks were actually performed. Keep unresolved items here rather than reopening archived phase notes.

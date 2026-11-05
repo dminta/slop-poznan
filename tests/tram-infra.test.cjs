@@ -30,6 +30,53 @@ function inert() {
   });
 }
 
+function createThreeStubs() {
+  const meshes = [];
+  const shaderAttrs = [];
+  const three = inert();
+  three.Group = function () {
+    const g = inert();
+    g.children = [];
+    g.add = (mesh) => { if (mesh) { g.children.push(mesh); meshes.push(mesh); } };
+    return g;
+  };
+  three.InstancedBufferAttribute = function (data, size) {
+    const attr = inert();
+    attr.data = data;
+    attr.size = size;
+    return attr;
+  };
+  three.InstancedMesh = function (geometry, material, count) {
+    const mesh = inert();
+    mesh.geometry = geometry;
+    mesh.material = material;
+    mesh.count = count;
+    return mesh;
+  };
+  three.BoxGeometry = function (...args) {
+    const b = inert();
+    b.attributes = { position: inert() };
+    b.setAttribute = (name, attr) => { b.attributes[name] = attr; };
+    b.clone = () => {
+      const c = three.BoxGeometry();
+      c.attributes = { ...b.attributes };
+      return c;
+    };
+    return b;
+  };
+  const tsl = inert();
+  tsl.attribute = (name, type) => {
+    shaderAttrs.push({ name, type });
+    const node = inert();
+    node._isAttribute = true;
+    node._attrName = name;
+    node._attrType = type;
+    return node;
+  };
+  tsl.Fn = (fn) => () => fn();
+  return { three, tsl, meshes, shaderAttrs };
+}
+
 test('tram stops, platforms, poles and railway masts keep clear of the car lanes', async () => {
   const config = await import('../js/city-config.js');
   const { GEO } = await import('../js/geodata.js');
@@ -57,10 +104,11 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
       document: inert() },
     filename: 'street-details.js'
   });
+  const { three, tsl, meshes, shaderAttrs } = createThreeStubs();
   const { layoutTramInfrastructure, layoutRailInfrastructure, buildTramInfrastructure, stopFurnitureColliders } =
     loadModule(readFileSync(join(__dirname, '../js/tram-infra.js'), 'utf8'), {
       imports: {
-        'three/webgpu': inert(), 'three/tsl': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert(),
+        'three/webgpu': three, 'three/tsl': tsl, 'three/addons/utils/BufferGeometryUtils.js': inert(),
         './geodata.js': { GEO }, './city-config.js': config, './tsl-materials.js': inert()
       },
       globals: { Math, Object, Array, Set, Map, Number, Infinity, JSON, Symbol, Float32Array, Float64Array, Promise,
@@ -137,6 +185,20 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
       assert.ok(blocked('person', 0.01, px, y, pz), `${st.name}: the end panel blocks`);
     }
     assert.ok(diagonal >= 100, `${diagonal} diagonal shelters probed`);
+  }
+
+  // Tram ballast carries no sleepers and no per-instance tie attribute; mainline railway ballast retains both.
+  {
+    const tramBallast = meshes.find((m) => m.name === 'TramBallast');
+    const railBallast = meshes.find((m) => m.name === 'RailBallast');
+    assert.ok(tramBallast && tramBallast.count > 0, `${tramBallast?.count} tram ballast instances`);
+    assert.ok(railBallast && railBallast.count > 0, `${railBallast?.count} rail ballast instances`);
+    assert.equal(tramBallast.geometry.attributes.tie, undefined, 'TramBallast geometry carries no tie attribute');
+    assert.ok(railBallast.geometry.attributes.tie, 'RailBallast geometry carries tie attribute');
+    assert.equal(railBallast.geometry.attributes.tie.size, 2, 'RailBallast tie attribute has size 2');
+    assert.equal(railBallast.geometry.attributes.tie.data.length, railBallast.count * 2, 'RailBallast tie data covers all instances');
+    const tieShaderAttrs = shaderAttrs.filter((a) => a.name === 'tie');
+    assert.equal(tieShaderAttrs.length, 1, 'only mainline railway ballast material requests the tie attribute');
   }
 
   // Stop furniture colliders follow the turned shelter (an OBB), not its world AABB: the old AABB flattened the
@@ -524,3 +586,4 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
   assert.ok(withTrams.edges.length >= network.edges.length - 20, `${network.edges.length} -> ${withTrams.edges.length} edges`);
   assert.ok(km(withTrams) > 0.995 * km(network), `${km(network).toFixed(1)} -> ${km(withTrams).toFixed(1)} km`);
 });
+
