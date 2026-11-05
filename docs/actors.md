@@ -128,8 +128,14 @@ Exit reservations use one transitive approach order and the same `mergeFirst` or
 and waited over 10 s remains eligible if the green entrant is estimated to reach a non-green downstream signal.
 The estimate uses a scratch signal plan, leaving the live signal unchanged. This can hold green traffic before an
 empty link if the estimated travel time is pessimistic, but lets it through when the predicted signal is green.
-Between signalised junctions, a follower stopped over 15 s by merge braking may close up behind its own lane lead;
-the lead still obeys merge priority. Without that exception the follower can stay far back through repeated merges.
+At a short link (under 12 m), a follower stopped over 15 s by merge braking may close up behind its own lane lead;
+the lead still obeys merge priority. The exemption applies at unsignalised give-ways as well as between signals: a
+give-way merging into a short exit (e.g. Kaponiera's 10 m exit at −1497, 198, 87–95% merge and 80–139 s maximum
+wait) starves the same way. The lead is found with `ahead(list, v.s, v)`, not `leadOf(list)`: `leadOf` skips a predecessor
+still in the connector unless its s is negative, so a queue head whose lead had entered the connector counted as
+having no lead and kept yielding to the merging lane. Counting that lead as present only bypasses merge priority;
+`mayEnter` still checks room, alongside, oncoming, cross traffic, pedestrians and trams. See
+[observations/long-holds-2026-11-05.md](observations/long-holds-2026-11-05.md) for the decomposition.
 
 Trams reserve space for their full length plus 2 m beyond switches, track crossings, mapped road/mainline crossings
 and occupied platforms. A tram already inside continues through. A tram held before entry records `waitReason: 'room'`

@@ -1169,10 +1169,15 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   function mergingAhead(v, f, j) {
     const e = v.edge;
     merger.v = null;
-    const lead = leadOf(e.occ[v.lane]);
-    // At adjacent signals a follower can be held metres behind its own lead by an endless stream of other-lane
-    // mergers. After a long stop, let it follow that lead toward the line; the lead still obeys merge priority.
-    if (f.len < 12 && e.to.signal && f.to.signal && v.wait > 15 && v.waitReason === 'merge' &&
+    // The lane's own lead can already be in the connector ahead: leadOf then returns v itself and the long-held
+    // follower would keep yielding to the other lane's endless stream. Look ahead of v on the lane instead.
+    const lead = ahead(e.occ[v.lane], v.s, v);
+    // At a short link a follower can be held metres behind its own lead by an endless stream of other-lane mergers.
+    // After a long stop, let it follow that lead toward the line (a queue head whose lead is in the connector too:
+    // only merge priority is skipped, mayEnter still checks room, cross traffic, pedestrians and trams). A give-way
+    // merging into a short exit can block the whole chain upstream too (Kaponiera's 10 m exit at -1497, 198 held
+    // 148 s at 95% merge), so the exemption covers unsignalised short links as well as those between signals.
+    if (f.len < 12 && v.wait > 15 && v.waitReason === 'merge' &&
       lead && lead.v !== v) return null;
     for (let i = 0; i < e.lanes.length; i++) {
       const o = i === v.lane ? null : leadOf(e.occ[i]);

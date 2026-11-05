@@ -147,6 +147,7 @@ test('a newcomer stopping centimetres farther forward cannot repeatedly pass an 
   const newcomer = { edge, lane: 1, s: 7.2, half: 2.3, mergeArrival: 151, move: { to: exit, out: [-1, 0] } };
   edge.occ = [[{ v: old, s: old.s }], [{ v: newcomer, s: newcomer.s }]];
   const context = { merger: {}, connector: () => ({ len: 30 }), besideTail: () => false, leadOf: (list) => list.at(-1),
+    ahead: (list, s, v) => { for (const o of list) if (o.s > s && o.v !== v) return o; return null; },
     precedence: (v, s) => s + v.half };
   context.mergeFirst = trafficFunction('mergeFirst', context);
   const mergingAhead = trafficFunction('mergingAhead', context);
@@ -164,7 +165,9 @@ test('a long-held follower can close up behind its own lane lead at a short merg
   const rival = car(1, 23, 0, '');
   edge.occ = [[{ v: follower, s: follower.s }, { v: lead, s: lead.s }], [{ v: rival, s: rival.s }]];
   const context = { merger: {}, connector: () => ({ len: 20 }), besideTail: () => false,
-    leadOf: (list) => list.at(-1), precedence: (v, s) => s + v.half };
+    leadOf: (list) => list.at(-1),
+    ahead: (list, s, v) => { for (const o of list) if (o.s > s && o.v !== v) return o; return null; },
+    precedence: (v, s) => s + v.half };
   context.mergeFirst = trafficFunction('mergeFirst', context);
   const mergingAhead = trafficFunction('mergingAhead', context);
   assert.equal(mergingAhead(follower, exit, 0), null, 'the car follows its own leader up to the line');
@@ -178,7 +181,57 @@ test('a long-held follower can close up behind its own lane lead at a short merg
   assert.equal(mergingAhead(follower, exit, 0).v, rival, 'normal merge braking applies at a longer exit');
   exit.len = 9.43;
   exit.to.signal = false;
-  assert.equal(mergingAhead(follower, exit, 0).v, rival, 'ordinary unsignalised links keep normal merge braking');
+  assert.equal(mergingAhead(follower, exit, 0), null, 'an unsignalised short link also lets the follower close up');
+});
+
+test('a long-held follower closes up at an unsignalised short link before the stop line', () => {
+  // Kaponiera's 10 m give-way exit at (-1497, 198) merges 3 lanes into 2 and starved the minor approach for 148 s:
+  // the follower sat behind its own moving lead, yielding to the other lane's endless stream. The exemption used to
+  // require signals at both ends of the short link, so it never fired at an unsignalised give-way.
+  const exit = { len: 10, lanes: [0], to: { signal: true } };
+  const edge = { len: 20.7, lanes: [0, 1, 2], occ: [], to: { signal: false } };
+  const car = (lane, s, wait, reason) => ({ edge, lane, s, wait, waitReason: reason, half: 2.2,
+    move: { to: exit, out: [0, 0, 0] } });
+  const follower = car(1, 12, 16, 'merge');
+  const lead = car(1, 18, 0, '');
+  const rival = car(2, 19, 0, '');
+  edge.occ = [[], [{ v: follower, s: follower.s }, { v: lead, s: lead.s }], [{ v: rival, s: rival.s }]];
+  const context = { merger: {}, connector: () => ({ len: 10 }), besideTail: () => false,
+    leadOf: (list) => list.at(-1),
+    ahead: (list, s, v) => { for (const o of list) if (o.s > s && o.v !== v) return o; return null; },
+    precedence: (v, s) => s + v.half };
+  context.mergeFirst = trafficFunction('mergeFirst', context);
+  const mergingAhead = trafficFunction('mergingAhead', context);
+  assert.equal(mergingAhead(follower, exit, 0), null, 'the follower follows its own lead through the give-way');
+  follower.wait = 15;
+  assert.equal(mergingAhead(follower, exit, 0).v, rival, 'normal merge braking applies before the long wait');
+});
+
+test('a queue head counts its lead in the connector as a lead at a short link', () => {
+  // leadOf skips a predecessor still in the connector unless its s is negative, so a queue head whose lead had
+  // entered the connector counted as having no lead and kept yielding to the merging lane. ahead counts it.
+  const exit = { len: 9.43, lanes: [0], to: { signal: true } };
+  const edge = { len: 25, lanes: [0, 1], occ: [], to: { signal: true } };
+  const car = (lane, s, wait, reason, conn = null) => ({ edge, lane, s, wait, waitReason: reason, half: 2.2,
+    conn, move: { to: exit, out: [0, 0] } });
+  const follower = car(0, 10, 16, 'merge');
+  const lead = car(0, 30, 0, '', {}); // its centre is past the edge end, in the connector
+  const rival = car(1, 23, 0, '');
+  edge.occ = [[{ v: follower, s: follower.s }, { v: lead, s: lead.s }], [{ v: rival, s: rival.s }]];
+  const leadOf = (list) => {
+    for (let k = list.length - 1; k >= 0; k--) if (!list[k].v.conn || list[k].s < 0) return list[k];
+    return null;
+  };
+  const context = { merger: {}, connector: () => ({ len: 10 }), besideTail: () => false, leadOf,
+    ahead: (list, s, v) => { for (const o of list) if (o.s > s && o.v !== v) return o; return null; },
+    precedence: (v, s) => s + v.half };
+  context.mergeFirst = trafficFunction('mergeFirst', context);
+  const mergingAhead = trafficFunction('mergingAhead', context);
+  assert.equal(leadOf(edge.occ[0]).v, follower, 'leadOf skips the connector lead');
+  assert.equal(context.ahead(edge.occ[0], follower.s, follower).v, lead, 'ahead finds the connector lead');
+  assert.equal(mergingAhead(follower, exit, 0), null, 'the connector lead counts, so the follower closes up');
+  follower.wait = 15;
+  assert.equal(mergingAhead(follower, exit, 0).v, rival, 'normal merge braking applies before the long wait');
 });
 
 test('a long-waiting red approach can reserve the next opening in a short exit', () => {
