@@ -161,8 +161,13 @@ under 2.3 m for at least 5 m; the total on stderr counts directed runs and disti
 changes the 5 m cutoff. It uses the benchmark network and `mapTramsToRoads` runs, samples them every metre, and classifies
 direction from each mapped run, so short encounters and unsampled gaps are not covered. The counts are not lengths of
 unique physical streets where track runs overlap. The scene omissions above apply. It takes a few seconds. At `1eff3b4`
-it listed 65 runs on 61 lanes (753 m); the Półwiejska lane correction leaves 64 runs on 60 lanes (668 m).
-`tests/opposing-tram-audit.test.mjs` runs it, checks the row and total format and that edge 7500 no longer appears.
+it listed 65 runs on 61 lanes (753 m). The Półwiejska lane correction left 64 runs on 60 lanes (668 m); the 2026-11-05
+general pass against the real street-track pair leaves **62 runs on 58 lanes (626 m)**. `tests/opposing-tram-audit.test.mjs`
+runs it, checks the row and total format, that edge 7500 and the two newly corrected edges do not appear, and the
+remaining lane and length totals. `tests/shared-tram-lanes.test.cjs` slices `alignSharedTramLane` and removes both
+`for (const e of edges) alignSharedTramLane(e);` and the `clearOpposingTracks();` call for its pre-fix control, so keep
+those calls on their own lines. It also rebuilds the curbs/medians network with and without the correction and asserts
+that no new straight connector becomes steeper than 15°.
 
 ## Tram edge queue benchmark
 

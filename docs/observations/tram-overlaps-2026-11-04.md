@@ -282,4 +282,105 @@ The 52 pairs of the oncoming-exemption build (before the Kaponiera fix above; th
 10 m links at `−1386, −217` and `−1125, 143`; 27 cars already stopped in or near the tram envelope (Jeżyce mostly buses);
 and the Jeżyce `−2050, −450` bus cluster. The short-link blind spot for cars needs a solution that does not hold the
 upstream junction box; the forecast and hard-stop variants above all traded the collisions for long Kaponiera holds or
-deadlocks. The 60 opposing close lanes (64 runs, 668 m) from `tools/audit-tram-opposing-lanes.mjs` are unchanged.
+deadlocks. The 60 opposing close lanes (64 runs, 668 m) from `tools/audit-tram-opposing-lanes.mjs` are unchanged at this point; the next section corrects them.
+
+## Opposing-lane clearance against the real track pair (2026-11-05)
+
+`tools/audit-tram-opposing-lanes.mjs` at HEAD `7566c2a` listed **64 runs on 60 lanes (668 m)** where a car-lane
+centreline runs under 2.3 m from a tram track used by trams in the opposite direction. The Półwiejska correction
+(edge 7500) was the only earlier fix. This pass adds `clearOpposingTracks` in `js/road-network.js`, run after stop
+lines are placed, and then places the moved edges at their bends and those neighbours again so the new offsets get the
+bend setbacks they need.
+
+- On right-hand running the left track of a parallel pair is oncoming; a one-way piece pointing against the edge is
+  oncoming; a two-way piece with no partner may be either way.
+- Where a lane stays within 2.3 m of such a track for at least 10 m, all lanes of the edge move together, keeping
+  their spacing, by the least delta that clears every oncoming track over its close run. A directed edge on a two-way
+  link keeps its lanes on its own side of the centreline. The result must stay on the car part of the carriageway (a
+  tram strip is not road for cars) and pass `laneOpen` for every shifted lane.
+- The re-check also rejects a lane that lands on or beside a same-direction track on a tram-strip road (not a shared
+  tram lane), a move on an edge 12 m or shorter, and a move that would make a straight connector steeper than the
+  base's.
+
+### Classification at the repaired base `a302005`
+
+| Group | Runs | Lanes | Length | Examples (world metres) |
+|---|---:|---:|---:|---|
+| Moved by the rule | 2 | 2 | 42 m | Głogowska 3015 (+0.66 m), Małopolska 3201 (−0.11) |
+| Remaining: short junction/shared-tram stubs | 42 | 40 | 284 m | 305 at `−1823, −3`; 4336/4337 at `−2051, −459`; 5758 at `−2043, −433`; Fredry 197/424 at `−850, 0…30`; Centrum 6020/6034 at `−1137, 154` |
+| Remaining: track curving across the straight run | 3 | 3 | 41 m | Roosevelta 1840 at `−1363, −341 → −1352, −380`; Winogrady 4100 at `−708, −1476 → −696, −1500` |
+| Remaining: a constant shift cannot work | 3 | 3 | 104 m | Głogowska 4257; the 4677 link at `−35, 520`; Wierzbięcice 7930 |
+| Remaining: off-street / grade-separated track | 8 | 8 | 161 m | Most Chrobrego 3096/3097/3098 at `481, 623 / 466, 613 / 455, 600`; 6273 at `−1274, −533`; 8178 at `891, −2156` |
+| Remaining: track no route uses | 6 | 4 | 36 m | Kraszewskiego 5757; Głogowska 3422 at `−2707, 2062`; Głogowska 4227 at `−2869, 2299` |
+
+The short-stub group is left to the junction curves and tram proxies: the remaining excursions are 5–9 m at junctions
+where the tracks fork too ambiguously to choose a safe direction. The off-street pieces have their own formation
+(`street: 0`), and the six unserved pieces are depot/junction track no `route=tram` relation uses.
+
+The constant-shift cases are left listed rather than forced:
+
+- **4257, Głogowska at `−2987, 2475`, 20 m.** The edge bends at both ends; the +2.34 m shift needed to clear the
+  opposing track makes a 22.4° straight connector in the review's curbs/medians network, against 19.3° at the base.
+  Re-placing the stop lines does not absorb it, so the lane stays where it is.
+- **4677, `−35, 520`, 13 m.** This is a tram-strip road; the +0.44 m shift would leave the lane within 2.3 m of the
+  same-direction track, which the re-check rejects.
+- **7930, Wierzbięcice at `−865, 978`, 71 m.** The merged one-way pair is skewed about 3.3° against the corridor: the
+  opposing track runs from −0.8 to +3.6 m across the edge, the same-direction track from +1.9 to +7.0 m, and the right
+  curb drifts from about +7.5 to +11.2 m. A constant +4.12 m shift clears the opposing track but sits on the
+  same-direction track from s ≈ 55 m and only about 1.6 m from the right curb at s = 0. Fixing it needs the source
+  centreline/skew or a per-station lateral offset, not a constant lane offset; it stays in the audit.
+
+### Lane moves
+
+| Edge | Place | Before | After | Delta |
+|---:|---|---|---|---:|
+| 3015 | Głogowska, `−1601, 653` | [−5.40, −1.80, 1.80, 5.40] | [−4.74, −1.14, 2.46, 6.06] | +0.66 |
+| 3201 | Małopolska, `−2080, −1625` | [−1.45] | [−1.56] | −0.11 |
+
+No edge or lane is lost: the furnished headless network stays at 8,707 edges, 11,568 lanes and 442.1 directed lane-km,
+and `paintEdges` carries the new lane arrays (the paint regression checks this). The curbs/medians check finds 165
+straight moves over 15° before and after, with no new connector; `tests/shared-tram-lanes.test.cjs` pins that.
+
+### Rejected Rynek Jeżycki moves
+
+Moving the two-way shared stubs 4336/5758 would fix more of the audit, but on `a302005` it trades lane clearance for
+traffic. Jeżyce over the eight seeds (sum longest hold / held over 60 s / over 120 s / deadlocks / pairs [moving >1]):
+
+| Variant | Jeżyce result | Total |
+|---|---|---|
+| Base `a302005` | 670 / 51 / 1 / 0 / 20 (7) | 3560 / 211 / 13 / 0 / 55 (32) |
+| 4336 + 5758 | 546 / 21 / 0 / 1 / 21 (13) | 3433 / 181 / 12 / 1 / 56 (38) |
+| 5758 only | 546 / 21 / 0 / 1 / 21 (13) | not run for all districts |
+| 4336 only | 687 / 55 / 3 / 0 / 17 (9) | not run for all districts |
+| 4336 + 5757 + 5758 | 494 / 6 / 0 / 0 / 27 (17) | not run for all districts |
+
+The first two cut Jeżyce's mean hold but raise its overlap pairs from 20 to 21 and moving pairs from 7 to 13, and add
+a deadlock. 4336 alone makes the holds worse. All three make the pairs worse. None is in the code; the two lanes that
+remain are documented in the classification table.
+
+### Eight-seed results at `a302005`
+
+Seeds 1 / 4242 / 7 / 99 / 2 / 3 / 5 / 11, five simulated minutes per district at 15 fps, same headless world and
+update order as `tools/bench-traffic.mjs` and `tools/audit-tram-overlaps.mjs`. Each cell is the mean longest car hold
+over the eight seeds (s) / cars held over 60 s / over 120 s / deadlocks / overlapping car–tram pairs, summed over the
+eight seeds.
+
+| District | Base `a302005` | With the lane moves |
+|---|---|---|
+| Jeżyce | 83.8 / 51 / 1 / 0 / 20 | 83.8 / 51 / 1 / 0 / 20 |
+| Łazarz | 31.9 / 0 / 0 / 0 / 0 | 31.5 / 0 / 0 / 0 / 0 |
+| Centrum | 77.5 / 13 / 2 / 0 / 7 | 77.5 / 13 / 2 / 0 / 7 |
+| Kaponiera | 114.9 / 138 / 8 / 0 / 11 | 114.9 / 138 / 8 / 0 / 11 |
+| Stare Miasto | 26.9 / 0 / 0 / 0 / 16 | 26.9 / 0 / 0 / 0 / 16 |
+| Rataje | 71.1 / 9 / 2 / 0 / 1 | 71.1 / 9 / 2 / 0 / 1 |
+| Wilda | 39.0 / 0 / 0 / 0 / 0 | 39.0 / 0 / 0 / 0 / 0 |
+| **Sum** | **3560 / 211 / 13 / 0 / 55** (32 moving) | **3557 / 211 / 13 / 0 / 55** (32 moving) |
+
+Only Łazarz changes (mean 31.9 → 31.5 s); the other six districts are identical, and the overlap pairs and their
+moving subset are unchanged. The earlier 62-pair baseline at `7566c2a` is not comparable to the repaired base.
+
+Limits: this is the headless benchmark world; it omits the city-grid sidewalks, buildings, landmarks and bridge
+colliders, and no browser check was run. The lane paint follows the corrected offsets in `paintEdges`, but the rendered
+markings and lane positions at Głogowska and Małopolska still need a visual check. The lane-direction inference in
+`road-network.js` is geometric and can disagree with the tram graph at a fork; the audit and its regression are the
+backstop.

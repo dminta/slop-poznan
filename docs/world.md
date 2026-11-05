@@ -133,8 +133,34 @@ Per frame: `cityBlocks.update(camX, camZ)` (detail streaming), `cityBlocks.updat
     stays `LANE_CLEAR` inside the roadway and `laneOpen` passes (`clearOpposingStripTrack`, road-network.js). Of the 61
     opposing close lanes `tools/audit-tram-opposing-lanes.mjs` listed at `1eff3b4`, this moves only Półwiejska's
     southbound inner lane (edge 7500, offset 1.45 → 2.34 m: it ran within 1.62 m of track 275 over 85 m and now keeps
-    over the audit's 2.3 m; 60 lanes, 668 m remain).
-    `shared-tram-lanes.test.cjs` checks its clearance, lane spacing and paint.
+    over the audit's 2.3 m). `shared-tram-lanes.test.cjs` checks its clearance, lane spacing and paint.
+  - **Opposing tracks against the real pair.** `clearOpposingTracks` (road-network.js) runs after the stop lines are
+    placed and resolves lanes against the mapped street tracks instead of the nominal `TRAM_W` strip. On right-hand
+    running the left track of a parallel pair is the oncoming one; a one-way piece pointing against the edge is
+    oncoming, and a two-way piece with no partner can be. Where a lane stays under 2.3 m of such a track for 10 m or
+    more, all of the edge's lanes move together (their spacing stays, and a two-way link's directed edge keeps its lanes
+    on its own side of the centreline) by the least amount that clears it, on the car part of the carriageway and with
+    `laneOpen` passing. A strip road must not leave a lane on a same-direction track; a track no `route=tram` relation
+    uses is not moved for. Stop lines are placed again for moved edges at their bends and those neighbours, because the
+    move changes the bend setbacks. On the 2026-11-05 HEAD (`7566c2a`) the audit stood at 64 runs / 60 lanes / 668 m;
+    at the repaired base (`a302005`) with this change it is **62 runs / 58 lanes / 626 m**: only Głogowska 3015
+    (+0.66 m) and Małopolska 3201 (−0.11) move.
+    No edge or lane is lost (8,707 edges, 11,568 lanes, 442.1 lane-km; paint keeps the new offsets). A connector check
+    keeps 165 steep (>15°) straight moves in the curbs/medians network before and after. The remaining 62 runs are 42
+    short junction/shared-tram stubs (284 m, including 305, 4336/4337, 5758 and the Fredry and Centrum stubs),
+    three tracks curving across a straight run at junctions (41 m: Roosevelta 1840 and Winogrady 4100), three
+    constant-shift cases (104 m: 4257, 4677 and the skewed Wierzbięcice 7930), eight off-street/grade-separated pieces
+    (161 m, mostly Most Chrobrego) and six on track no route uses (36 m, including 5757). 4257 needs a +2.34 m shift
+    that makes a 22.4° bend connector (base 19.3°); 4677 and 7930 would land on or beside the same-direction track on a
+    strip road. Wierzbięcice 7930 is a skewed merged one-way pair: its opposing track runs from −0.8 to +3.6 m across
+    the 78 m edge while the same-direction track runs +1.9 to +7.0 m, so a constant +4.12 m shift sits on that track
+    from s ≈ 55 m and only ~1.6 m from the right curb at s = 0; it stays listed. The Rynek Jeżycki stubs 4336/5758 were
+    measured too: moving them cuts Jeżyce's mean hold but raised its overlap pairs 20 → 21, its moving pairs 7 → 13 and
+    added a deadlock, so those moves are not in the code. `tests/opposing-tram-audit.test.mjs` pins the two corrected
+    edges and the remaining total; `tests/shared-tram-lanes.test.cjs` checks that the correction adds no steep straight
+    connector. On the repaired base (`a302005`) the 7 × 8 benchmark is **3560 / 211 / 13 / 0 / 55 (32 moving) before
+    and 3557 / 211 / 13 / 0 / 55 (32 moving) after**; only Łazarz's mean longest hold moves, 31.9 → 31.5 s. The audit
+    is unchanged at 55 pairs; the variants that lowered it all raised moving pairs or deadlocks (observation record).
   - **Lane count changes at bends.** One-way lanes are centred on their roadway, so where OSM splits a way to change its
     lane count every lane shifts sideways. Both edges then end `1 + 3 × shift` m before the bend (up to `SHIFT_BACK`
     7 m) instead of 1 m, so the S-bend runs at ~8° rather than a 2 m kink at ~40°.
@@ -144,9 +170,10 @@ Per frame: `cityBlocks.update(camX, camZ)` (detail streaming), `cityBlocks.updat
     car's width over a curb or median 3.4% → 2.3%, the outer lane over 5 m from its curb 5.4% → 3.0%, straight moves
     steeper than 15° 7.0% → 2.0%. Święty Marcin: off 4.3% (up to 7 m, on the tracks by the Kaponiera) → 0.3%, steep
     7 of 38 → 2 of 60. Franklina Roosevelta: off 1.4% (up to 6.7 m) → 0.2%, outer lane far from its curb 5.6% → 1.8%,
-    steep 12 of 118 → 0 of 124. Still open: lanes within 2.3 m of tram track whose OSM carriageway is further off (1.0%,
-    Most Królowej Jadwigi, Jana Pawła II: OSM draws the carriageway that close to the tracks), and two-way streets with
-    the tracks down the middle, whose lanes stay on the tracks.
+    steep 12 of 118 → 0 of 124. Still open: the 62 close runs left by `clearOpposingTracks` (short junction/shared stubs,
+    off-street tracks, tracks curving across a junction run and skewed strip corridors; see the opposing-track bullet
+    above). Two-way streets with the tracks down the middle are included there; the pass moves their lanes where a 10 m
+    close run leaves room and the move does not raise the measured overlaps.
 - **Curbs:** city-grid passes rect islands as they are and irregular islands as their **ungrown** lot rects. The 4.4 m-grown rect cover (`sidewalkBlocks`, for rect consumers) reaches into the roadway on turned blocks; passed as curbs, it cut the largest strongly connected set from ~3150 to ~1660 edges.
 - `buildRoadNetwork` returns `{ nodes, edges, paintEdges, connector, curvePoint, walkable, isRoadClear, configureCrosswalks }`.
   `configureCrosswalks` precomputes compound-crossing connector and rear-clearance reservations after pedestrian

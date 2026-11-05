@@ -265,9 +265,11 @@ current position, so a fast crossing car was detected after the bodies met. A 10
 car–tram wait cycle. Exempting a vehicle whose last leader is a tram proxy was tried (it can be waiting for the very
 tram the gate holds) and measured as a no-op: reverting it left all 16 Jeżyce/Kaponiera runs bit-identical, so the
 exemption is not in the code and the car-in-the-box release comes from the stopped-body sweep below.
-`tools/audit-tram-overlaps.mjs` finds 55 car–tram body overlaps over 8 seeds × 7 districts (from 62 at the previous
-HEAD; 52 at 907b555); the [investigation](observations/tram-overlaps-2026-11-04.md) records the runs, rejected
-variants and remaining clusters.
+`tools/audit-tram-overlaps.mjs` finds 55 car–tram body overlaps over 8 seeds × 7 districts (32 with the car moving
+over 1 m/s), from 62 at the previous HEAD and 52 at 907b555; the [investigation](observations/tram-overlaps-2026-11-04.md)
+records the runs, rejected variants and remaining clusters. The 2026-11-05 opposing-lane pass moves only Głogowska 3015
+and Małopolska 3201, outside the sampled districts, so these pairs are unchanged; moving the Rynek Jeżycki stubs would
+lower holds but raise the pairs and add a deadlock, so it is not in the code.
 
 **Car in the box, tram waiting for it.** A lane proxy on a crossing must keep a stopped car's nose outside the tram's
 body too: `pad` is (tram 1.2 + car 0.92 m) times the crossing's sine plus 0.5 m, so a car stopped at the proxy edge

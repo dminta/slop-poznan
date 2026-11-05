@@ -314,7 +314,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
       const ends = stops.length - 1;
       const geo = stops.map((q, i) => (i === 0 ? port(A, q, stops[1]) : i === ends ? port(B, q, stops[ends - 1]) : stations[i]));
       const lanes = lanesOf(l);
-      for (let k = 0; k + 1 < stations.length; k++) runs.push({ from: stations[k], to: stations[k + 1], p0: geo[k], p1: geo[k + 1], ...lanes, bus: l.bus, busWay: l.busWay });
+      for (let k = 0; k + 1 < stations.length; k++) runs.push({ from: stations[k], to: stations[k + 1], p0: geo[k], p1: geo[k + 1], ...lanes, strip: l.strip, bus: l.bus, busWay: l.busWay });
     }
     return runs;
   }
@@ -331,7 +331,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
     return true;
   };
   // From p0 to p1, the run's ports (2.), which lie off the junction nodes `from` and `to` by offFrom / offTo to the right
-  function addEdge(from, to, p0, p1, axis, major, lanes, half, divided, limit, sharedTram, busVector, busWay) {
+  function addEdge(from, to, p0, p1, axis, major, lanes, half, divided, limit, sharedTram, strip, busVector, busWay) {
     const x0 = p0.x;
     const z0 = p0.z;
     const span = Math.hypot(p1.x - x0, p1.z - z0);
@@ -342,7 +342,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
     if (!open.length) return;
     const offFrom = (x0 - from.x) * -dz + (z0 - from.z) * dx;
     const offTo = (p1.x - to.x) * -dz + (p1.z - to.z) * dx;
-    edges.push({ from, to, axis, major, x0, z0, dx, dz, rx: -dz, rz: dx, span, half, lanes: open.sort((p, q) => p - q), moves: [], cand: lanes, divided: !!divided, limit, offFrom, offTo, sharedTram, busVector, busWay });
+    edges.push({ from, to, axis, major, x0, z0, dx, dz, rx: -dz, rz: dx, span, half, lanes: open.sort((p, q) => p - q), moves: [], cand: lanes, divided: !!divided, limit, offFrom, offTo, sharedTram, strip, busVector, busWay });
   }
   // A divided road drawn as two one-way roadways between the same two junctions: each keeps its own line (their ports,
   // 2.), and the road counts as major by both roadways' width. Only roadways drawn within PAIR_SEP of each other (on
@@ -382,8 +382,8 @@ function buildRoadNetwork(sidewalks, obstacles) {
     r.half = o.half = r.half + o.half;
   }
   for (const r of genRuns) {
-    if (r.fwd.length) addEdge(r.from, r.to, r.p0, r.p1, r.axis, r.major, r.fwd, r.half, r.divided, r.limit, r.sharedTram, r.bus && r.bus[0], r.busWay);
-    if (r.back.length) addEdge(r.to, r.from, r.p1, r.p0, r.axis, r.major, r.back, r.half, r.divided, r.limit, r.sharedTram, r.bus && r.bus[1], r.busWay);
+    if (r.fwd.length) addEdge(r.from, r.to, r.p0, r.p1, r.axis, r.major, r.fwd, r.half, r.divided, r.limit, r.sharedTram, r.strip, r.bus && r.bus[0], r.busWay);
+    if (r.back.length) addEdge(r.to, r.from, r.p1, r.p0, r.axis, r.major, r.back, r.half, r.divided, r.limit, r.sharedTram, r.strip, r.bus && r.bus[1], r.busWay);
   }
   // Two edges from one node to the same next one (a service road whose ends were drawn onto its main road's junctions)
   // would drive through each other: keep the one with the most lanes
@@ -472,16 +472,18 @@ function buildRoadNetwork(sidewalks, obstacles) {
   // put eastbound cars into the westbound trams at Rynek Jeżycki. Use an unambiguous parallel pair's right-hand
   // track, only when the lane overlaps the opposing track and the corrected lane remains clear inside the curbs.
   const streetTracks = [];
-  for (const r of GEO.rail || []) {
-    if (r.kind !== 'tram' || !r.street) continue;
+  (GEO.rail || []).forEach((r, chain) => {
+    if (r.kind !== 'tram' || !r.street) return;
+    let chainLen = 0;
+    for (let k = 2; k < r.pts.length; k += 2) chainLen += Math.hypot(r.pts[k] - r.pts[k - 2], r.pts[k + 1] - r.pts[k - 1]);
     for (let k = 2; k < r.pts.length; k += 2) {
       const ax = r.pts[k - 2], az = r.pts[k - 1], bx = r.pts[k], bz = r.pts[k + 1];
       const len = Math.hypot(bx - ax, bz - az);
       if (len > 0) {
-        streetTracks.push({ ax, az, bx, bz, len, ux: (bx - ax) / len, uz: (bz - az) / len, oneway: !!r.oneway });
+        streetTracks.push({ ax, az, bx, bz, len, ux: (bx - ax) / len, uz: (bz - az) / len, oneway: !!r.oneway, used: !!(r.routes && r.routes.length), chain });
       }
     }
-  }
+  });
   function alignSharedTramLane(e) {
     if (!e.sharedTram || e.lanes.length !== 1) return;
     const offsets = [];
@@ -726,6 +728,178 @@ function buildRoadNetwork(sidewalks, obstacles) {
     e.len = e.span - b0 - b1;
   }
   for (const e of edges) place(e);
+  const moved = new Set();
+  function clearOpposingTracks() {
+    // A lane can still sit over the track used by oncoming trams after the two corrections above: the nominal TRAM_W
+    // strip is wider than a real single-track formation, a one-way street can carry both tracks down its middle, and
+    // the OSM line can run off-centre from the real pair. Resolve the lanes against the mapped street tracks instead.
+    // On right-hand running the left track of a parallel pair is the oncoming one; a one-way piece pointing against the
+    // edge is oncoming, and a two-way piece with no partner can be. Move all lanes of an edge together (their spacing
+    // stays) by the least amount that clears every such track over its close run, on the car part of the carriageway
+    // and with laneOpen passing; strip roads must not leave a lane on a same-direction track. Place the stop lines
+    // again afterwards for moved edges at bends and their neighbours, since the move changes the bend setbacks. Runs
+    // under 10 m are junction stubs (49 of the baseline 64), left to the junction curves and tram proxies; a move on
+    // an edge 12 m or shorter is not applied. A move that would make a straight connector steeper than the base's
+    // (a bend at both ends with a > 2 m shift) is not applied; short two-way shared stubs are left to the proxies too.
+    const OPPOSING_CLEAR = 2.3; // car half 0.92 + tram half 1.2 + 0.2 margin (tools/audit-tram-opposing-lanes.mjs)
+    const OPPOSING_RUN = 10;
+    const TRACK_CELL = 32;
+    const trackGrid = new Map();
+    const trackKey = (ix, iz) => (ix + 4096) * 8192 + iz + 4096;
+    for (let i = 0; i < streetTracks.length; i++) {
+      const t = streetTracks[i];
+      const reach = OPPOSING_CLEAR + 2;
+      for (let ix = Math.floor((Math.min(t.ax, t.bx) - reach) / TRACK_CELL); ix <= Math.floor((Math.max(t.ax, t.bx) + reach) / TRACK_CELL); ix++) {
+        for (let iz = Math.floor((Math.min(t.az, t.bz) - reach) / TRACK_CELL); iz <= Math.floor((Math.max(t.az, t.bz) + reach) / TRACK_CELL); iz++) {
+          const k = trackKey(ix, iz);
+          const list = trackGrid.get(k);
+          if (list) list.push(i);
+          else trackGrid.set(k, [i]);
+        }
+      }
+    }
+    // The street-track pieces within reach of an edge (a lane can lie half a carriageway out)
+    function tracksNear(e) {
+      const ids = new Set();
+      const reach = e.half + OPPOSING_CLEAR + 1;
+      for (let s = 0; s <= e.len + 8; s += 8) {
+        const x = e.sx + e.dx * s;
+        const z = e.sz + e.dz * s;
+        for (let ix = Math.floor((x - reach) / TRACK_CELL); ix <= Math.floor((x + reach) / TRACK_CELL); ix++) {
+          for (let iz = Math.floor((z - reach) / TRACK_CELL); iz <= Math.floor((z + reach) / TRACK_CELL); iz++) {
+            const list = trackGrid.get(trackKey(ix, iz));
+            if (list) for (const i of list) ids.add(i);
+          }
+        }
+      }
+      return [...ids];
+    }
+    // Contiguous runs (sampled at 1 m) where a lane is under OPPOSING_CLEAR from an oncoming track
+    function opposingRuns(e, lanes, ids, all = false) {
+      const runs = [];
+      const active = new Map();
+      for (let s = 0; s <= e.len; s += 1) {
+        const x = e.sx + e.dx * s;
+        const z = e.sz + e.dz * s;
+        const nearby = new Map(); // chain -> its nearest parallel piece at this station
+        for (const i of ids) {
+          const t = streetTracks[i];
+          const along = (x - t.ax) * t.ux + (z - t.az) * t.uz;
+          if (along < 0 || along > t.len) continue;
+          const lat = (t.ax + t.ux * along - x) * e.rx + (t.az + t.uz * along - z) * e.rz;
+          const dot = t.ux * e.dx + t.uz * e.dz;
+          if (Math.abs(dot) < 0.95 || Math.abs(lat) > e.half + OPPOSING_CLEAR) continue;
+          if (!t.used) continue;
+        const q = nearby.get(t.chain);
+          if (!q || Math.abs(lat) < Math.abs(q.lat)) nearby.set(t.chain, { chain: t.chain, lat, dot, oneway: t.oneway });
+        }
+        const tracks = [...nearby.values()];
+        for (const t of tracks) {
+          const partners = tracks.filter((q) => q !== t && Math.abs(q.lat - t.lat) >= 1.8 && Math.abs(q.lat - t.lat) <= 6.5);
+          t.opposing = all || (partners.length === 1 ? partners[0].lat > t.lat
+            : partners.length === 0 && (!t.oneway || t.dot < -0.95));
+        }
+        for (const t of tracks) {
+          if (!t.opposing) continue;
+          for (let i = 0; i < lanes.length; i++) {
+            if (Math.abs(t.lat - lanes[i]) >= OPPOSING_CLEAR) continue;
+            const key = i * 100000 + t.chain;
+            let r = active.get(key);
+            if (r && s - r.s1 > 2) {
+              runs.push(r);
+              r = null;
+            }
+            if (!r) {
+              r = { lane: i, chain: t.chain, s0: s, s1: s, latMin: t.lat, latMax: t.lat };
+              active.set(key, r);
+            }
+            r.s1 = s;
+            r.latMin = Math.min(r.latMin, t.lat);
+            r.latMax = Math.max(r.latMax, t.lat);
+          }
+        }
+        for (const [key, r] of active) {
+          if (s - r.s1 > 2) {
+            runs.push(r);
+            active.delete(key);
+          }
+        }
+      }
+      for (const r of active.values()) runs.push(r);
+      return runs.filter((r) => r.s1 - r.s0 >= OPPOSING_RUN);
+    }
+    for (const e of edges) {
+      if (!e.lanes.length || e.len < OPPOSING_RUN) continue;
+      const ids = tracksNear(e);
+      if (!ids.length) continue;
+      const close = opposingRuns(e, e.lanes, ids);
+      if (!close.length) continue;
+      // 10 m is the audit's minimum, but a 10 m edge is a junction stub: its inbound connector jog would grow
+      // without a bend setback to absorb it, so leave those to the junction curves and tram proxies.
+      if (e.len < 12) continue;
+      // The lane body must stay on the car part of the carriageway: a tram strip is not road for cars.
+      const carHalf = e.half - (e.strip ? TRAM_W / 2 : 0);
+      const center = e.lanes.reduce((a, b) => a + b, 0) / e.lanes.length;
+      const low = center - carHalf + LANE_CLEAR;
+      const high = center + carHalf - LANE_CLEAR;
+      let parts = [[low - Math.min(...e.lanes), high - Math.max(...e.lanes)]];
+      for (const r of close) {
+        const lane = e.lanes[r.lane];
+        const left = r.latMin - OPPOSING_CLEAR - lane; // with all lanes moved left of this track
+        const right = r.latMax + OPPOSING_CLEAR - lane; // ...or all of them right of it
+        const next = [];
+        for (const [p, q] of parts) {
+          if (p <= left) next.push([p, Math.min(q, left)]);
+          if (q >= right) next.push([Math.max(p, right), q]);
+        }
+        parts = next.filter(([p, q]) => p <= q + 1e-6);
+        if (!parts.length) break;
+      }
+      const choices = [];
+      for (const [p, q] of parts) {
+        if (p <= 0 && 0 <= q) choices.push(0);
+        choices.push(p, q);
+      }
+      choices.sort((p, q) => Math.abs(p) - Math.abs(q));
+      // A two-way link's directed edge keeps its lanes on its own side of the centreline; a one-way edge may use both.
+      const rightSide = e.lanes.every((o) => o >= -1e-6);
+      const leftSide = e.lanes.every((o) => o <= 1e-6);
+      for (const delta of choices) {
+        if (Math.abs(delta) < 0.01) continue;
+        // A large shift on an edge that bends at both ends cannot be absorbed by both setbacks: its straight
+        // connector gets steeper (Głogowska 4257, 22.4° against 19.3° at the base). Leave that lane as it is.
+        if (e.from.shape && e.to.shape && Math.abs(delta) > 2) continue;
+        const lanes = e.lanes.map((o) => o + delta);
+        if ((rightSide && lanes.some((o) => o < -1e-6)) || (leftSide && lanes.some((o) => o > 1e-6))) continue;
+        if (lanes.some((o) => o < low - 1e-6 || o > high + 1e-6)) continue;
+        if (!lanes.every((o) => laneOpen(e.x0, e.z0, e.dx, e.dz, e.span, o))) continue;
+        if (opposingRuns(e, lanes, ids).length) continue;
+        // A strip road has its track on its own formation; do not leave a lane on or beside any track there.
+        if (!e.sharedTram && opposingRuns(e, lanes, ids, true).length) continue;
+        e.lanes = lanes;
+        moved.add(e);
+        break;
+      }
+    }
+  }
+  clearOpposingTracks();
+  // The lane moves change the bend shifts and stop-line setbacks, so place the moved edges and their neighbours again
+  // from the new offsets. Re-placing the whole graph would move unrelated stop lines and change distant traffic.
+  if (moved.size) {
+    const redo = new Set();
+    for (const e of moved) {
+      if (e.from.shape) {
+        redo.add(e);
+        for (const q of edges) if (q.from === e.from || q.to === e.from) redo.add(q);
+      }
+      if (e.to.shape) {
+        redo.add(e);
+        for (const q of edges) if (q.from === e.to || q.to === e.to) redo.add(q);
+      }
+    }
+    for (const e of redo) place(e);
+  }
+
   const placed = edges; // (see 5.)
   const created = edges.length;
   edges = edges.filter((e) => e.len > 4);

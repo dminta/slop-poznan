@@ -70,7 +70,10 @@ test('Rynek Jeżycki eastbound cars clear opposing trams without losing lanes or
   const build = (text) => loadModule(text, {
     imports: { './city-config.js': config, './geodata.js': { GEO } }, globals: { console: { info() {} } }
   }).buildRoadNetwork([], []);
-  const before = build(source.replace('  for (const e of edges) alignSharedTramLane(e);', ''));
+  const withoutLaneFixes = (text) => text
+    .replace('  for (const e of edges) alignSharedTramLane(e);', '')
+    .replace('  clearOpposingTracks();\n', '');
+  const before = build(withoutLaneFixes(source));
   const after = build(source);
   assert.ok(opposingClearance(before, GEO) < 1.6, 'the control reproduces the opposing-track overlap');
   const clearance = opposingClearance(after, GEO);
@@ -106,4 +109,51 @@ test('the two-lane carriageway at -590, 102 clears the opposing tram without los
   assert.ok(clearance >= 2.4, `${clearance.toFixed(2)} m leaves clearance for a tram and car`);
   assert.ok(e.lanes[1] - e.lanes[0] >= 2.6, 'the two shifted lane bodies remain clear');
   assert.ok(network.paintEdges.some((paint) => paint.lanes === e.lanes), 'paint uses the corrected lane offsets');
+});
+
+test('the opposing-lane correction adds no steep straight connector', async () => {
+  const config = await import('../js/city-config.js');
+  const { GEO } = await import('../js/geodata.js');
+  const curbs = [];
+  const medians = [];
+  for (const b of config.BLOCKS) {
+    if (b.park > 0.6 && !b.median && b.area > 250) continue;
+    if (b.median) medians.push({ minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ });
+    else for (const [x0, x1, z0, z1] of b.rects) curbs.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1 });
+  }
+  const build = (text) => loadModule(text, {
+    imports: { './city-config.js': config, './geodata.js': { GEO } }, globals: { console: { info() {} } }
+  }).buildRoadNetwork(curbs, medians);
+  const before = build(source.replace('  clearOpposingTracks();\n', ''));
+  const after = build(source);
+  const point = { x: 0, z: 0, dx: 0, dz: 1 };
+  const steep = (net) => {
+    const out = new Map();
+    for (const e of net.edges) {
+      for (const m of e.moves) {
+        const f = m.to;
+        if (m.turn !== 'S' || e.dx * f.dx + e.dz * f.dz < 0.94) continue;
+        m.out.forEach((j, i) => {
+          if (j < 0) return;
+          const c = net.connector(e, i, f, j);
+          let max = 0;
+          for (let k = 1; k < 16; k++) {
+            net.curvePoint(c, (c.len * k) / 16, point);
+            max = Math.max(max, Math.min(Math.abs(point.dx * e.dz - point.dz * e.dx),
+              Math.abs(point.dx * f.dz - point.dz * f.dx)));
+          }
+          if (max > Math.sin((15 * Math.PI) / 180)) {
+            out.set(`${e.x0.toFixed(1)},${e.z0.toFixed(1)},${f.x0.toFixed(1)},${f.z0.toFixed(1)},${i},${j}`, max);
+          }
+        });
+      }
+    }
+    return out;
+  };
+  const a = steep(before);
+  const b = steep(after);
+  const added = [...b].filter(([key]) => !a.has(key));
+  assert.deepEqual(added, [], added.map(([key, v]) =>
+    `${key} ${((Math.asin(v) * 180) / Math.PI).toFixed(1)}°`).join(', '));
+  assert.ok(b.size <= a.size, `${b.size} steep straight moves after, ${a.size} before`);
 });
