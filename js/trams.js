@@ -43,6 +43,10 @@ import { HEADLIGHTS, tramLightSpec, createVehicleHeadlight, placeVehicleHeadligh
 
 const NUM_TRAMS = 24;
 const TRAM_HALF_WIDTH = 1.2;
+// Widest car body half width (see ROAD_OVERLAP). A lane proxy on a crossing must keep a stopped car's nose this far
+// clear of the tram's body too: holding it only by the tram's width let a car's corner into the swept envelope, where
+// the tram braked for it while it waited for the tram's own proxy (a car-in-the-box ↔ tram cycle at Kaponiera).
+const CAR_HALF_WIDTH = 0.92;
 const SWITCH_TURN = (38 * Math.PI) / 180; // widest kink a tram takes from one edge onto the next
 const STOP_SNAP = 6; // metres from a tram_stop node to its track
 const SIGNAL_REACH = 9; // metres from a signalised junction's centre to a track that obeys it
@@ -65,9 +69,10 @@ const TRAM_RADIUS = 900; // trams further than this from the camera are respawne
 const SPAWN_MIN = 120;
 const SPAWN_VIEW = 300; // no spawning in view this close
 const SPAWN_SPACING = 70;
-// Spawns on the last 200 m of a buffer approach are the ones that join the queue immediately. A wider gate
+// Spawns on the last 200 m of a detail-box buffer approach are the ones that join the queue immediately. A wider gate
 // (measured at 500 m and 900 m) kept the queue down but emptied the edges: trams within 400 m of an edge focus fell
-// from 6.7–10.2 to 0–3.7 and the pool could not fill at the SE focus. Keep only this short gate.
+// from 6.7–10.2 to 0–3.7 and the pool could not fill at the SE focus. Keep only this short gate, and only for the
+// free-ending stubs (endPad 1). The check must not take numbers from the tram random sequence (see spawn()).
 const SPAWN_BUFFER_CLEAR = 200;
 // A tram queued behind a buffer-held tram is retired after 2 s only while slow/stopped and out of the frustum and
 // render range: otherwise the queue behind the front counts `stuck` (90 s out of view, 240 s in view) and drains one
@@ -629,7 +634,7 @@ function mapTramsToRoads(graph, network, gap = ROAD_OVERLAP) {
     for (const run of te.lanes) {
       const cos = run.cos / run.n;
       run.dir = cos > 0.5 ? 1 : cos < -0.5 ? -1 : 0;
-      run.pad = TRAM_HALF_WIDTH * Math.sqrt(Math.max(0, 1 - cos * cos)) + 0.5;
+      run.pad = (TRAM_HALF_WIDTH + CAR_HALF_WIDTH) * Math.sqrt(Math.max(0, 1 - cos * cos)) + 0.5;
       run.s0 = Math.max(0, run.s0 - 0.5);
       run.s1 = Math.min(te.len, run.s1 + 0.5);
     }
@@ -1051,6 +1056,26 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     t.destination = r ? r.to : '';
   }
 
+  // Is a free-ending buffer (endPad 1: the detail-box stubs) within `ahead` metres of this spawn? Walk the track
+  // ahead with a fixed branch choice, not `rand`: taking numbers here shifted the whole tram sequence for every
+  // spawn, and with that gate Kaponiera's 7 × 8 mean longest hold rose from 118.6 s to 163.5 s (the gate itself is
+  // wanted for the edge queues; only its side effect on the sequence was not).
+  const spawnBranch = () => 0.5;
+  function bufferAhead(path, ahead) {
+    let last = path.edges[path.n - 1];
+    let at = path.start[path.n - 1] + last.len;
+    let route = path.route;
+    for (let k = 0; k < 16; k++) {
+      if (!last.next.length) return last.endPad < 2 && at - path.u < ahead;
+      if (at - path.u >= ahead) return false;
+      const next = pickBranch(last.next, route, spawnBranch);
+      if (route >= 0 && lines.length && !routeAhead(next, route, ROUTE_REJOIN)) route = turnRoute(next, route, lines);
+      last = next;
+      at += next.len;
+    }
+    return false;
+  }
+
   // Try to put tram t on the track near the focus: false if this attempt found no free spot
   function spawn(t, fx, fz, minD, protectView) {
     if (!nearEdges.length) return false;
@@ -1070,8 +1095,9 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     const path = t.path;
     path.route = route;
     path.reset(e, s, t.length + 10, rand);
-    path.extend(SPAWN_BUFFER_CLEAR, rand);
-    if (path.end - path.u < SPAWN_BUFFER_CLEAR) return false; // not on a buffer approach (the edge queue)
+    path.extend(LOOKAHEAD, rand);
+    if (path.end - path.u < 80) return false; // not just before a buffer stop
+    if (bufferAhead(path, SPAWN_BUFFER_CLEAR)) return false; // nor on the last 200 m of a detail-box stub
     for (let i = 0; i < path.n; i++) {
       const e = path.edges[i];
       if (e.run < 0) continue;
@@ -1347,9 +1373,10 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
   }
   // Gap from the front to a body (centre x, z, heading, half width & length) in the swept path, or Infinity when it is
   // clear of it (or already beside the tram: a collision, not something to brake for; or, with `oncoming` false,
-  // facing the tram). Sets _obsV, its speed along the track there.
+  // facing the tram). Sets _obsV, its speed along the track there. A `stopped` body counts only where it actually
+  // reaches the tram's corridor (see below).
   let _obsV = 0;
-  function obstacleGap(x, z, heading, halfW, halfL, vx, vz, oncoming) {
+  function obstacleGap(x, z, heading, halfW, halfL, vx, vz, oncoming, stopped = false) {
     const r = halfL + 2;
     if (sweepN === 0 || x < sx0 - r || x > sx1 + r || z < sz0 - r || z > sz1 + r) return Infinity;
     let k = 0;
@@ -1369,6 +1396,33 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     const dz = z - sweepZ[k];
     const cs = Math.sin(heading) * tx + Math.cos(heading) * tz;
     if (!oncoming && cs < -0.5) return Infinity;
+    // A stopped body only blocks where it actually reaches the corridor: the projection below keeps a moving car's
+    // whole length in the way, which is right for braking, but it let a stopped car or bus at a crossing hold a tram
+    // that it was itself waiting for (Kaponiera: the line 10 tram waited for a car in the box whose corner was 0.1 m
+    // inside that projection and about 1 m clear of the tram's body, while the car waited for the tram's proxy). Walk
+    // the sweep in half-metre steps and test the car's rectangle against each point.
+    if (stopped) {
+      const reach = TRAM_HALF_WIDTH + 0.15;
+      const sn = Math.sin(heading);
+      const cn = Math.cos(heading);
+      for (let i = 0; i < sweepN; i++) {
+        const j = Math.min(i + 1, sweepN - 1);
+        const steps = j > i ? 4 : 1;
+        for (let sub = 0; sub < steps; sub++) {
+          const f = sub / steps;
+          const px = sweepX[i] + (sweepX[j] - sweepX[i]) * f;
+          const pz = sweepZ[i] + (sweepZ[j] - sweepZ[i]) * f;
+          const ax = px - x;
+          const az = pz - z;
+          const du = Math.abs(ax * sn + az * cn) - halfL;
+          const dw = Math.abs(ax * cn - az * sn) - halfW;
+          if (du > reach || dw > reach || (du > 0 && dw > 0 && du * du + dw * dw > reach * reach)) continue;
+          _obsV = 0;
+          return Math.max(0.1, i * SWEEP_STEP + f * SWEEP_STEP);
+        }
+      }
+      return Infinity;
+    }
     const c = Math.abs(cs);
     const sn = Math.sqrt(Math.max(0, 1 - c * c));
     if (Math.abs(dx * tz - dz * tx) > TRAM_HALF_WIDTH + halfW * c + halfL * sn + 0.05) return Infinity;

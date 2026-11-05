@@ -209,9 +209,76 @@ the clear change is the Stare Miasto oncoming cluster.
   districts go 46 → 33–35 pairs, but Kaponiera's mean stays 124–125 s and held over 120 s rises 6 → 10. The close gate
   is what keeps the hold metrics at baseline.
 
+## Kaponiera regression and fix (2026-11-05)
+
+The buffer spawn gate of `7566c2a` was measured again over the same 8 seeds and 7 districts (5 min, 15 fps). It was
+the gate's side effect on the tram random sequence, not its edge-queue purpose, that hurt: extending every spawn's
+path to 200 m with `rand` shifted every later spawn. Reverting only the gate restored Kaponiera in the verifier's
+bisect; varying the tram seed at `7566c2a` also moved Kaponiera's longest hold per seed between 107 and 138 s, while
+`907b555` has no injectable tram seed (always 1922). The gate is now limited to free-ending detail-box stubs and peeks
+without drawing tram random numbers (see [tram-edge-jams](tram-edge-jams-2026-11-04.md#v3-fix-2026-11-05-the-gate-only-where-it-is-needed)).
+
+The new tram mix exposed a real car-in-the-box ↔ tram cycle at Kaponiera's `-1468, 118` link (line 10 at
+`(-1469, 136)`, car at `(-1468, 118)`) in seeds 1, 7 and 5, ~90 s each, plus exit-signal pairs at `-1503, 224`. The
+root fix, all in `js/trams.js` / `js/traffic.js`:
+
+- **Crossing proxy pad**: a lane proxy on a crossing is (tram 1.2 + car 0.92 m) × sin + 0.5 m long, so a car stopped
+  at its edge clears the tram body; it was stopping 0.1 m inside it.
+- **Stopped or slow cars in a crossing stretch** (< 1 m/s, or already past the tram's body part) get no proxy, so they
+  can clear; the tram brakes for their bodies. A moving car entering keeps the proxy: the first version dropped it for
+  every overlap and cars at 3.5–8.7 m/s drove into a tram leaving its stop at `-1469, 114` (seeds 99, 3 and 11).
+- **Stopped vehicles in the tram sweep** are tested against their actual rectangle in 0.5 m steps, not the moving-car
+  projection; a stopped car or bus standing clear no longer holds the tram. Reverting it brings back the seed 5 and
+  seed 3 Kaponiera cycles and raises the per-seed holds.
+- A **stopped tram** (`speed < 0.1`) reaches only 0.5 m past its nose in lanes running its way, not the usual 4 m +
+  1 s, so a left-turner finishing in the box is not held by a phantom stretch of tram. It matters at Kaponiera:
+  reverting only it gives 137.8 s mean and 17 cars over 120 s; Jeżyce is bit-identical.
+- **Rejected**: exempting a vehicle whose last leader is a tram proxy from `_roadCarGate`. Reverting it left all 16
+  Jeżyce/Kaponiera runs bit-identical, so it was dropped; the release comes from the stopped-body sweep.
+
+`tools/bench-traffic.mjs` now follows the actual held conflict for a `'tram'` wait: a tram that is itself waiting for
+the car (`t.obstacle === v`) is exempt in `mayEnter`, and only conflicts stamped in the current frame count. Without
+that, a car blocked by a third tram's body was reported as a cycle with the tram waiting for the car. The change moves
+no baseline deadlock count (907b555 0, 7566c2a 3). The skip is the `heldByTram` exemption only; `tramRefusedClose`, the
+short-link bus guard in `enter`/`mayEnter`, calls `heldByTram` with `exempt = false`, so a bus cycle through that guard
+would still be followed (and would be a real cycle).
+
+Eight seeds (1, 4242, 7, 99, 2, 3, 5, 11), five minutes, 15 fps, all seven districts; same benchmark world as above.
+Cells are mean longest hold (s) / cars held over 60 s / over 120 s / deadlocks / overlapping car–tram pairs (pairs with
+the car moving over 1 m/s at first contact in brackets), summed over the eight seeds. Baselines re-measured with the
+corrected deadlock follower.
+
+| District | 907b555 | 7566c2a | Fixed |
+|---|---|---|---|
+| Jeżyce | 74.4 / 31 / 0 / 0 / 18 (4) | 72.3 / 32 / 2 / 0 / 22 (7) | 83.8 / 51 / 1 / 0 / 20 (7) |
+| Łazarz | 31.9 / 0 / 0 / 0 / 0 (0) | 30.1 / 0 / 0 / 0 / 0 (0) | 31.9 / 0 / 0 / 0 / 0 (0) |
+| Centrum | 81.0 / 24 / 1 / 0 / 9 (5) | 82.5 / 30 / 0 / 0 / 8 (7) | 77.5 / 13 / 2 / 0 / 7 (3) |
+| Kaponiera | 118.6 / 119 / 6 / 0 / 10 (8) | 163.5 / 205 / 49 / 3 / 20 (10) | 114.9 / 138 / 8 / 0 / 11 (9) |
+| Stare Miasto | 27.4 / 0 / 0 / 0 / 14 (8) | 25.6 / 0 / 0 / 0 / 9 (6) | 26.9 / 0 / 0 / 0 / 16 (13) |
+| Rataje | 71.1 / 9 / 2 / 0 / 1 (0) | 80.3 / 15 / 1 / 0 / 3 (0) | 71.1 / 9 / 2 / 0 / 1 (0) |
+| Wilda | 39.0 / 0 / 0 / 0 / 0 (0) | 39.0 / 0 / 0 / 0 / 0 (0) | 39.0 / 0 / 0 / 0 / 0 (0) |
+| **Sum** | **3547 / 183 / 9 / 0 / 52 (25)** | **3946 / 282 / 52 / 3 / 62 (30)** | **3560 / 211 / 13 / 0 / 55 (32)** |
+
+Kaponiera is better than `7566c2a` on every hold count and has no deadlocks; against 907b555 it is 3.7 s lower on the
+mean and has 2 more cars over 120 s. The new Kaponiera cluster at `-1470, 114` (cars at 3.5–8.7 m/s into the line 10
+tram leaving its stop) is gone: the 1 m/s rule leaves only cars already at 0.5 m/s there. Pairs with a car moving over
+1 m/s are 32 against 25 at 907b555. The extra seven are not the new crossing rule (it did not change any moving pair
+outside Kaponiera): Stare Miasto 8 → 13 and Jeżyce 4 → 7 are more occurrences of the same pre-existing sites, e.g.
+Stare Miasto `-187, 305` (four seeds), `-128, -278` (two), `-295…-298, -174` and `284…296, -245`, some of them cars
+entering a curve the tram is not holding (the short-link blind spot). They are phase-shifted by the load-bearing pad and
+stopped-body changes: reverting only the pad leaves Stare Miasto at 10 moving pairs, only the `near` rule at 11, only
+the stopped-body test at 12, but each of those brings back Kaponiera deadlocks or long holds.
+
+The remaining per-seed outliers are not this change: Jeżyce 99 (129 s) and 5 (103 s) are a tram → car → pedestrian →
+tram gridlock (tram 20 waits for bus #210 and tram 2 for car #4, both wait for people frozen mid-crosswalk at v = 0 by
+`tramRoom`/`tramNear` next to the two stopped trams; it clears only when the tram respawns after 90 s). The same paired
+line 20 / line 2 holds of 70–89 s at `-2105…-2040` occur in 907b555 seeds 4242 and 2 and 7566c2a seeds 2, 3 and 99, so
+it predates this work; the Jeżyce aggregate shift is phase divergence. Centrum 3 (182 s) is the known merge queue at
+`-1117, 132` (the open merge-hold work), and Rataje 4242 (186 s) is unchanged from both baselines.
+
 ## What remains after 2026-11-05
 
-The 52 pairs still split into: Kaponiera 10 and Centrum 4 of the 17 moving entries into a held curve, almost all on the
+The 52 pairs of the oncoming-exemption build (before the Kaponiera fix above; the current audit finds 55) split into: Kaponiera 10 and Centrum 4 of the 17 moving entries into a held curve, almost all on the
 10 m links at `−1386, −217` and `−1125, 143`; 27 cars already stopped in or near the tram envelope (Jeżyce mostly buses);
 and the Jeżyce `−2050, −450` bus cluster. The short-link blind spot for cars needs a solution that does not hold the
 upstream junction box; the forecast and hard-stop variants above all traded the collisions for long Kaponiera holds or

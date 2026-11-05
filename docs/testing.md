@@ -131,7 +131,12 @@ v only waits its turn). Then the junctions by stopped car-seconds with their thr
 and root causes, deadlocks (cycles in that graph whose members all stood over 30 s), junction boxes with a car stopped
 inside over 20 s, and trams stopped over 60 s off a stop (with the pedestrian holding one). Last, a Markdown table of
 every district. `tramsHeld60` retains the total continuous stop across all reasons; its text records the reason at
-the longest sample. Separately, `switchHeld60`, `maxSwitchWait` and `switchSeconds` measure the actual switch reason
+the longest sample. A car refused by a held tram curve follows the conflict actually held this frame and skips a tram
+that is itself waiting for that car, matching `heldByTram`'s exemption; without that, a third tram's body covering the
+junction made the car and the waiting tram look like a cycle (Kaponiera `-1468, 118`). That skip is `heldByTram`'s
+exemption only; `tramRefusedClose` (the short-link bus guard in `enter`/`mayEnter`) calls it with `exempt = false`, so a
+bus cycle through that guard is still followed and would be a real cycle. Separately, `switchHeld60`,
+`maxSwitchWait` and `switchSeconds` measure the actual switch reason
 every frame while speed is below 0.5 m/s, excluding boarding dwells. A long red followed by a short switch wait is
 therefore distinguishable from a tram blocking a switch for over a minute. `tests/traffic-flow.test.mjs` runs the
 benchmark for 5 simulated minutes at Jeżyce and Centrum as a regression test.
@@ -171,7 +176,8 @@ is no camera, so every tram is out of view; with it, a fake camera at the focus 
 within `TRAM_CULL` 1,500 m counts as on screen: a 360° worst case, not the browser frustum. Tram seeds 1922/77/4242 and limits are in
 [observations/tram-edge-jams-2026-11-04.md](observations/tram-edge-jams-2026-11-04.md). No test runs the benchmark;
 `tests/tram-buffers.test.cjs` covers the spawn gate, moving-tram clock, render-range visibility, seed injection and
-hidden queue retirement on synthetic track.
+hidden queue retirement on synthetic track, and `tests/tram-road-proxies.test.cjs` covers the crossing proxy pad
+(a stopped car's nose clear of the tram body) and the gate's 200 m look-ahead without the tram random sequence.
 
 ## Tram route membership benchmark
 

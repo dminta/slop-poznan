@@ -1801,7 +1801,11 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       // curves ahead of a tram that can't go kept the cars of a green approach waiting behind it, and on a busy tram
       // junction (Most Teatralny) the cars there waited for a tram on their green and their red alike, 240 s
       const held = t.waitReason === 'car' || t.atStop || (t.speed < 1 && t.waitReason !== '' && t.waitReason !== 'curve');
-      const near = path.u + 4 + t.speed;
+      // A stopped tram need not keep cars back from its nose: a car already past its front (say, a left-turner
+      // finishing in the box) waited for a phantom 4 m of tram that could not move, while the tram waited for that
+      // car's body (Jeżyce -2023, -448 held a car and the line 2 tram for 52 s). Keep the body and the 4 m + 1 s
+      // reach only while the tram moves; the obstacle sweep still brakes for any body in front.
+      const near = path.u + (t.speed < 0.1 ? 0.5 : 4 + t.speed);
       const far = path.u + (held ? 2 : Math.min(TRAM_REACH, 8 + t.speed * 6));
       // Conflict spans already include the tram's width. A stopped nose 0.5 m before a keep-clear gate must leave
       // its crossing free; the lane proxy's extra 2 m otherwise reserves it through the whole opposing green.
@@ -1841,19 +1845,26 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
             bhi = Math.max(la, lc) + r.pad;
           }
           // a car already in the stretch ahead (or on the track the tram comes up to) keeps its place: the stretch
-          // ends short of it
+          // ends short of it. A stopped or slow car crossing the track that is already in the stretch gets no proxy
+          // at all: it must be able to clear, and the tram brakes for its body. Leaving a proxy while the car
+          // overlapped the mapped body part froze the car in the box at Kaponiera while the tram waited for it.
+          // A moving car entering keeps the proxy: dropping it for every overlap let cars at 3.5-8.7 m/s drive into
+          // a tram leaving its stop at Kaponiera -1469, 114 (car #13, seed 99). A car already past the tram's body
+          // part is released too.
           const list = r.edge.occ[r.lane];
+          const crossing = r.dir === 0;
           let skip = false;
           for (const o of list) {
             if (o.v.tram) continue;
             const cLo = o.s - o.v.half;
             const cHi = o.s + o.v.half;
-            if (cHi < lo || cLo > hi || (cHi >= blo && cLo <= bhi)) continue;
+            if (cHi < lo || cLo > hi) continue;
+            if (crossing && (o.v.speed < 1 || cLo >= bhi)) {
+              skip = true;
+              break;
+            }
+            if (cHi >= blo && cLo <= bhi) continue;
             if (blo > bhi) {
-              if (r.dir === 0) {
-                skip = true;
-                break;
-              }
               if (r.l1 >= r.l0) hi = Math.min(hi, cLo - 0.3);
               else lo = Math.max(lo, cHi + 0.3);
             } else if (cLo > bhi) hi = Math.min(hi, cLo - 0.3);

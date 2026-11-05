@@ -4,6 +4,39 @@ Updated 2026-11-04. The port and documentation cleanup are implemented; the rema
 Implementation details live in the [topic docs](../AGENTS.md#docs). Original phase numbers refer to the
 [archived port plan](archive/poznan-plan.md), which retains historical measurements and decisions.
 
+## Kaponiera tram-box regression fixed (2026-11-05)
+
+The buffer spawn gate of `7566c2a` ("Clear tram queues at the detail-box buffers without emptying the edges") raised the
+7 × 8 traffic aggregates from 3547 s mean longest hold / 183 held > 60 s / 9 > 120 s / 0 deadlocks / 52 car–tram pairs
+at `907b555` to 3946 / 282 / 52 / 3 / 62. The gate extended every spawn's path to 200 m with `rand`, shifting the whole
+tram random sequence; its edge-queue purpose did not need that. The gate now runs only for free-ending detail-box stubs
+and peeks ahead with a fixed branch choice, so central spawns are unchanged. The new tram phase also exposed a real
+car-in-the-box ↔ tram cycle at Kaponiera `-1468, 118`: the crossing lane proxy's pad kept only the tram's width (a car
+stopped 0.1 m inside the tram body), a car already in a crossing stretch still got a proxy, stopped vehicles were
+judged by the moving-car projection, and `_roadCarGate` held for a car waiting on a tram proxy. Those are fixed in
+`js/trams.js` / `js/traffic.js`, and `tools/bench-traffic.mjs` now follows the conflict actually held for a `'tram'`
+wait.
+
+Result: **3560 / 211 / 13 / 0 / 55** over the same 8 seeds, with Kaponiera 163.5 → 114.9 s and its 3 deadlocks gone; the
+edge benchmark's stopped queues stay at zero and the pool stays full. The remaining outliers are the pre-existing Jeżyce
+tram → car → pedestrian → tram crosswalk gridlock (seeds 5 and 99; see below), the open merge-hold queue at Centrum
+`-1117, 132`, and Rataje seed 4242, not this change. Car–tram pairs with the car moving over 1 m/s are 32 (907b555 25,
+`7566c2a` 30): the new Kaponiera `-1470, 114` cluster is gone, and the rest are phase-shifted occurrences at sites that
+already collide in the baselines (Stare Miasto `-187, 305`, `-128, -278`, `-295…-298, -174`, `284…296, -245`). See
+[tram-overlaps-2026-11-04.md](observations/tram-overlaps-2026-11-04.md#kaponiera-regression-and-fix-2026-11-05) and
+[tram-edge-jams-2026-11-04.md](observations/tram-edge-jams-2026-11-04.md#v3-fix-2026-11-05-the-gate-only-where-it-is-needed).
+Browser check remains: watch a tram passing a car stopped at a crossing and a left-turner completing in the box at
+Kaponiera, and confirm no visible clipping or stopping in the simulation's ~1 s forecast gap.
+
+## Jeżyce crosswalk gridlock (known, not fixed)
+
+A tram → car → pedestrian → tram cycle at `-2105…-2040`: tram 20 waits for bus #210 and tram 2 for car #4, and both
+vehicles wait for pedestrians frozen mid-crosswalk at v = 0 by `tramRoom`/`tramNear` next to the two stopped trams. It
+clears only when a tram respawns after 90 s. Paired line 20 / line 2 holds of 70–89 s appear in 907b555 seeds 4242 and 2
+and `7566c2a` seeds 2, 3 and 99, so it predates the Kaponiera work; the current 7 × 8 total carries 1 car over 120 s
+and 51 over 60 s in Jeżyce (seeds 99 and 5; 907b555: 0 / 31). Deliberately not changed here: a pedestrian agent is
+reworking crosswalk queues in `traffic.js` in another worktree.
+
 ## Most Chrobrego tram deck fixed
 
 The user reported that Most Bolesława Chrobrego is too narrow and its tram track overlaps the span/deck. The bridge links

@@ -65,7 +65,15 @@ function blocker(o, box) {
   switch (v.waitReason) {
     case 'car': return !v.leader ? null : v.leader.tram ? v.leader.tram : v.leader.edge ? v.leader : null;
     case 'tram': {
-      for (const c of n.tramConflicts || []) if (c.e === e && c.i === v.lane && c.by && c.by.active !== false) return c.by;
+      // A car is refused by the union of the curves held over its way. A tram that is itself waiting for this car
+      // is exempt in mayEnter (heldByTram: `t.obstacle === v`), so it is not the vehicle the queue waits for;
+      // following it invented a car <-> tram cycle while a third tram's body still covered the junction (Kaponiera
+      // -1468, 118). Only conflicts stamped this frame count: the largest `held` is the frame occupyTrams wrote.
+      let frame = -1;
+      for (const c of n.tramConflicts || []) if (c.held > frame) frame = c.held;
+      for (const c of n.tramConflicts || []) {
+        if (c.held === frame && c.e === e && c.i === v.lane && c.by && c.by.active !== false && c.by.obstacle !== v) return c.by;
+      }
       return null;
     }
     case 'turner': {

@@ -230,14 +230,18 @@ Trams follow the associated road signal phase; dedicated tram signal heads are n
 - **Population**: 24 pooled trams (~12% Combino, ~29% Tramino, ~58% Gamma), kept within 900 m of the camera focus and respawned
   120–800 m away, never within 300 m in view or 70 m from another tram. After a camera jump of more than 140 m they are
   all respawned. `createTramSystem` takes an optional `seed` (default 1922, passed through as `buildWorld({ tramSeed })`
-  in the benchmarks) so runs can vary the tram sequence. A spawn is rejected inside the last 200 m of a buffer approach
-  (`SPAWN_BUFFER_CLEAR`), which stops a new tram joining the buffer queue directly without emptying the edge approaches.
+  in the benchmarks) so runs can vary the tram sequence. A spawn is rejected inside the last 200 m of a free-ending
+  detail-box stub (endPad 1, `SPAWN_BUFFER_CLEAR`), which stops a new tram joining the buffer queue directly without
+  emptying the edge approaches. That check walks the track ahead with a fixed branch choice instead of `rand`:
+  extending every spawn's path to 200 m shifted the whole tram random sequence and, from that alone, moved the
+  Kaponiera 7 × 8 mean longest hold from 118.6 s to 163.5 s (see the [observation record](observations/tram-edge-jams-2026-11-04.md)).
   A tram queued behind a buffer end (`bufferQueueAhead`, following its leader chain because the path only sees 160 m
   ahead) accumulates `bufferWait` only while it is under 2 m/s. After 2 s it is respawned when `outOfView` says it is
   not rendered: no camera, beyond `TRAM_CULL` 1 500 m, or outside the frustum. A tram in the frustum inside the render
-  range is never retired by that rule, and a moving tram never accrues the clock. A free-ending buffer (`endPad` 1, mostly at the
-  detail-box edge; a stub ending on another track has 19 and keeps 8 s) lets a stopped front go after 2 s out of view instead of 8 s; in view the existing 40 s wait
-  stays, so no new popping is added. On 2026-11-05, over tram seeds 1922/77/4242, no edge count within 400 m or 250 m
+  range is never retired by that rule, and a moving tram never accrues the clock. A free-ending buffer (`endPad` 1,
+  mostly at the detail-box edge; a stub ending on another track has 19 and keeps 8 s) lets a stopped front go after
+  2 s out of view instead of 8 s; in view the existing 40 s wait stays, so no new popping is added. On 2026-11-05,
+  over tram seeds 1922/77/4242, no edge count within 400 m or 250 m
   fell below the old base minus its stopped queue; most were within about ±2 trams of the old base and every edge pool
   filled (16.5–23.5 of 24). With the camera elsewhere no edge had a stopped buffer queue (max 0). A camera that sees
   every direction still sees the front's 40 s wait and its queue: that is the no-visible-popping trade-off. See the
@@ -258,9 +262,25 @@ forecast while a car or bus committed to that curve. Before restarting it holds 
 is 0.2–5 m ahead while a vehicle (not itself waiting for a tram) is committed to the curve, on it, or still has its tail
 on it after leaving (`_roadCarGate` keeps the gate until the vehicle clears). The ordinary sweep sees only a vehicle's
 current position, so a fast crossing car was detected after the bodies met. A 10 m window held more trams and added a
-car–tram wait cycle. `tools/audit-tram-overlaps.mjs` still finds car–tram body overlaps (52 pairs over 8 seeds × 7
-districts, from 65 at the previous HEAD); the [investigation](observations/tram-overlaps-2026-11-04.md) records the
-runs, rejected variants and remaining clusters.
+car–tram wait cycle. Exempting a vehicle whose last leader is a tram proxy was tried (it can be waiting for the very
+tram the gate holds) and measured as a no-op: reverting it left all 16 Jeżyce/Kaponiera runs bit-identical, so the
+exemption is not in the code and the car-in-the-box release comes from the stopped-body sweep below.
+`tools/audit-tram-overlaps.mjs` finds 55 car–tram body overlaps over 8 seeds × 7 districts (from 62 at the previous
+HEAD; 52 at 907b555); the [investigation](observations/tram-overlaps-2026-11-04.md) records the runs, rejected
+variants and remaining clusters.
+
+**Car in the box, tram waiting for it.** A lane proxy on a crossing must keep a stopped car's nose outside the tram's
+body too: `pad` is (tram 1.2 + car 0.92 m) times the crossing's sine plus 0.5 m, so a car stopped at the proxy edge
+clears the 1.2 m body. Before that, a car stopped 0.1 m inside it held the line 10 tram at Kaponiera's `-1468, 118`
+link while the car waited for the tram's own proxy. Two more rules complete the release: a **stopped or slow car**
+(under 1 m/s) already in a crossing stretch, or one already past the tram's body part, gets no proxy at all (it must
+clear; the tram brakes for its body), while a moving car entering keeps the proxy — dropping it for every overlap let
+cars at 3.5–8.7 m/s drive into a tram leaving its stop at `-1469, 114`; and the tram's sweep tests a stopped vehicle
+against its actual rectangle in 0.5 m steps instead of the moving-car projection (which keeps a long bus's whole length
+in the way). Taken together, the 8-seed Kaponiera mean longest hold falls from 163.5 s to 114.9 s, cars held over 120 s
+from 49 to 8 and deadlocks from 3 to 0, while the edge-queue results are kept. The stopped-tram `near` rule in
+`occupyTrams` (below) is part of that: reverting only it gives Kaponiera 137.8 s mean and 17 cars over 120 s (Jeżyce is
+identical).
 
 **Oncoming cars at a held curve.** `heldByTram` exempts a car the tram is following (its `obstacle`, a car right in
 front of the nose, or one ahead in a lane the tram runs along), so that the tram does not hold its own leader. The
@@ -325,19 +345,27 @@ chosen over driving into a tram; watch it at Kaponiera.
   `TRAM_REACH` 70 m) and stands still, so cars stop short of the track. A tram standing held by anything but a curve
   (at a stop, a red, behind another tram, at a switch, for a car) limits opposite/across-lane proxies to 2 m past
   its front; a stationary held tram reserves junction curves only up to its actual nose: holding the curves ahead of a tram that can't go kept the cars of a green approach waiting, and at a
-  busy tram junction (Most Teatralny) cars waited 240 s through green and red. The reach never covers a car already there
-  (it ends 0.3 m short of it; a crossing with a car on it gets no proxy). Junction curves within the same reach are
-  marked `held = tramFrame, by = tram`. For a signal approach shorter than 12 m, a tram's junction forecast ends at
-  `tram.clearance` only if it can stop before that gate at 3 m/s². Gates include signals, switches, single-track blocks,
-  downstream queues and occupied platforms; its actual body remains reserved. Cars can use the gap while the tram
-  brakes; the tram itself still brakes for any car in its swept path.
+  busy tram junction (Most Teatralny) cars waited 240 s through green and red. A stopped tram (`speed < 0.1`) also
+  stops reaching for cars that are already past its nose: the usual 4 m + 1 s made a left-turner finishing in the box
+  wait for a phantom stretch of tram that could not move. Reverting only this rule gives Kaponiera 137.8 s mean longest
+  hold and 17 cars over 120 s (Jeżyce is bit-identical). The reach never covers a car already there (it ends 0.3 m
+  short of it); a lane crossing the track gets no proxy while a stopped or slow car (< 1 m/s) or a car already past the
+  tram's body part is in the stretch, but a moving car entering keeps it. A crossing proxy's `pad` is (tram 1.2 + car
+  0.92 m) times the crossing's sine plus 0.5 m, so a car stopped at its edge clears the tram's body. Junction curves
+  within the same reach are marked `held = tramFrame, by = tram`. For a signal approach shorter than 12 m, a tram's
+  junction forecast ends at `tram.clearance` only if it can stop before that gate at 3 m/s². Gates include signals,
+  switches, single-track blocks, downstream queues and occupied platforms; its actual body remains reserved. Cars can
+  use the gap while the tram brakes; the tram itself still brakes for any car in its swept path.
   `mayEnter` refuses a held curve through `tramBlocks(v, n, f, j)`, except for
   the car the tram waits for (`tram.obstacle`), a car right in front of the front, or one ahead in a lane the tram
   runs along (`inTramLane`).
   `spawnVehicle` rejects places within 3 m of a tram body (`nearTram`); tram spawns reject track with a car on it.
 - **Trams brake** (`drive()`): the path ahead is sampled every 2 m up to the braking distance + 12 m (≤ 70 m); cars,
   buses and the player whose OBB reaches into that swept corridor are IDM leaders at their speed along the track
-  (`waitReason 'car'` / `'player'`), and so are pedestrians within `TRAM_HALF_WIDTH + PED_REACH` (1.7–1.9 m) of the centreline (`traffic.peds`, `'pedestrian'`, no bell). Bodies already beside the tram (gap < -1 m) are collisions, not leaders. Cars
+  (`waitReason 'car'` / `'player'`), and so are pedestrians within `TRAM_HALF_WIDTH + PED_REACH` (1.7–1.9 m) of the centreline (`traffic.peds`, `'pedestrian'`, no bell). For a moving body the test keeps the whole rectangle in the way
+  (a long bus's length projects onto the track normal); a stopped body (`speed < 0.3`) is tested in half-metre steps
+  against the actual rectangle and the 1.35 m corridor, so a stationary car or bus standing clear of the tram body no
+  longer freezes it. Bodies already beside the tram (gap < -1 m) are collisions, not leaders. Cars
   facing the tram are ignored: where a lane runs against the track a car can't back out, so waiting would deadlock (the
   proxies keep cars out of the tram's way there instead). The historical Phase 9 headless 10-minute run on the real
   network found no car or pedestrian overlapping a tram body after the first frame (3665 / 49 overlap samples without the interactions), no

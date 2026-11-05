@@ -125,6 +125,33 @@ No stopped buffer queue remains at any edge with the camera elsewhere. The all-t
 approaches) can still show 3–4 trams within 160 m of a buffer, but their speed is above 0.5 m/s and they leave in
 sequence; no tram waits there.
 
+## v3 fix (2026-11-05): the gate only where it is needed
+
+The v2 gate extended every spawn's path to 200 m with `rand`. That took extra random numbers from every spawn, so the
+whole tram sequence shifted; over 7 districts × 8 seeds the Kaponiera mean longest hold rose from 118.6 s to 163.5 s
+while the edge queues were gone. The gate now runs only for free-ending detail-box stubs (`endPad` 1) and peeks ahead
+with a fixed branch choice, without touching the tram random sequence (`bufferAhead` in `js/trams.js`). Two edge
+buffers are stubs ending on another track (`endPad` 19); they keep the older 8 s front wait and are not gated.
+
+Re-measured against v2 with the same method and three tram seeds (headless; active/400 m/250 m):
+
+- **Population** is lower at some edge foci: SW 9.8/5.31/3.83 → 9.0/4.19/2.77, S (625,3124)
+  22.5/12.76/7.58 → 21.9/10.61/6.94, S (-1889,3597) 19.2/8.45/5.16 → 18.4/7.74/4.40 and Centrum
+  23.9/8.93/4.16 → 23.9/7.82/3.78; the northern and eastern foci are within ±0.3. Active trams are within 0.9 of v2
+  everywhere. The v2 400 m counts included trams queued at the buffer; v3 keeps the pool full (active 18.3–23.9 of
+  24) without them.
+- **Stopped queues out of view**: 0 at every one of the 11 edge buffers (max 0, final 0), as in v2.
+- **In view (360° worst case)**: the front's 40 s wait and its queue remain, as designed; most buffers stay within
+  one tram of v2. The two endPad-19 stubs (S (-1889,3597), S (214,2995)) are not gated, so their queues can be
+  larger (up to 5 stopped trams, against 1–5 at v2 depending on the seed); with the camera elsewhere they are empty.
+- **Gate scope**: the 200 m gate now covers only endPad-1 stubs, so spawns heading for the endPad-19 stub ends
+  80–200 m ahead are accepted. Spawns whose path reaches a buffer within 900 m rose from 0 to 11 at S (-1889,3597),
+  9 at S (625,3124) and 3 at S (214,2995) over the three seeds; none formed a stopped queue.
+
+The traffic tables in [tram-overlaps-2026-11-04.md](tram-overlaps-2026-11-04.md#kaponiera-regression-and-fix-2026-11-05)
+use this gate with the car-in-the-box fixes; the 7 × 8 aggregates are within 13 s of 907b555 on the summed mean hold
+and have no deadlocks.
+
 ## Limits and trade-off
 
 - The `--in-view` camera is deliberately 360°, so it is a worst case. In the browser the frustum is narrower and a
