@@ -57,7 +57,7 @@ function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSe
     },
     globals: { ...G, document: inert() }, filename: 'street-details.js'
   });
-  const { footprints } = buildStreetDetails(inert());
+  const { footprints, roadNetwork } = buildStreetDetails(inert());
   const routes = loadModule(js('pedestrian-routes.js'), { imports: { './road-network.js': rn }, globals: G });
   const actors = loadModule(js('actor-models.js'), {
     imports: { ...three, './tsl-materials.js': inert() },
@@ -97,7 +97,7 @@ function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSe
     },
     globals: { ...G, performance: { now: () => 0 }, document: inert() }, filename: 'traffic.js'
   });
-  const traffic = createTrafficSystem(inert(), [], footprints);
+  const traffic = createTrafficSystem(inert(), [], footprints, roadNetwork);
   const { layoutTramInfrastructure } = loadModule(js('tram-infra.js'), {
     imports: { ...three, './geodata.js': { GEO }, './city-config.js': config, './tsl-materials.js': inert() },
     globals: G, filename: 'tram-infra.js'

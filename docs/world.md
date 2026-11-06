@@ -90,7 +90,8 @@ furnished-network lanes, furniture footprints and crossing endpoints. Generated 
 4. `cityBlocks.populateLeftoverSlabs()` places trees on leftover lot slabs now that `parkTreeSites` is populated.
 5. `buildOutskirts(scene)`, then `buildBridges(scene, { sidewalks: cityGrid.sidewalks })`.
 6. `buildStreetDetails(scene, { buildingColliders: allColliders })`: it needs the building colliders for the corner name plates. Its own `colliders` join `allColliders` only after step 8, since its footprints already go to the network; so do `cityGrid.propColliders` (square & park furniture and trees).
-7. `createTrafficSystem(scene, cityGrid.sidewalks, obstacles)` → `buildRoadNetwork`. The obstacles are `cityGrid.footprints`, `streetDetails.footprints` and the colliders with no `obb` and `minY < 3.5`.
+7. `createTrafficSystem(scene, cityGrid.sidewalks, obstacles, streetDetails.roadNetwork)` reuses the furnished network
+   built during street-tree placement; omitted fourth arguments retain the `buildRoadNetwork` fallback. The obstacles are `cityGrid.footprints`, `streetDetails.footprints` and the colliders with no `obb` and `minY < 3.5`.
 8. `buildRoadPaint(scene, trafficSystem.network, trafficSystem.crosswalks, railClearance)`, then
    `buildTramInfrastructure(scene, trafficSystem.network)`: it needs the lanes to keep clear of, so none of it is a traffic obstacle; its colliders join `allColliders`.
 9. `createTramSystem` gets the road network, infrastructure stops and traffic system, then
@@ -335,6 +336,24 @@ non-park cells clear of park rings (`parkFreeCells`), while purely unmapped park
   counts for extra vertex work and shader complexity. Instance buffers use static usage: DynamicDrawUsage re-uploads
   in every pass of every frame. Street trees (placed by street-details.js) also carry player trunk colliders now:
   `0.28 × scale` m half-width, top at base + 3.0 m; they add no traffic footprints.
+  Street-tree placement now checks that all four trunk corners remain on the same curb island, keeps the trunk box
+  outside crosswalk landing and zebra bands, and keeps at least max(1.2 m, 0.9 m car half-width + projected trunk
+  half-width) from car-lane centrelines. A build-time furnished-network snapshot supplies actual shifted lanes and
+  squeezed crossing positions; traffic reuses that same network instead of building it again. The earlier `clearOfCrosswalks` guide remains an additional exclusion. Crossing
+  exclusions conservatively include every non-shape arm before pedestrian-route pruning, a 2.15 m zebra half-band,
+  and landing radius `r × √2`: deliberately stricter than the audit's retained 2 m zebra bands and landing radius `r`.
+  Of 1,099 changed sites in the smaller fixture, 410 had no audit violation; these move/drop under the stricter rule. Invalid trees try stable 0.4 m
+  steps along the same curb, nearest first, up to ±6 m, rechecking walls, poles, plazas, rails and island corners.
+  Unchanged sites are reserved first; moved sites keep 3.5 m from unchanged and already moved trees, including those
+  on other curb edges. The minimum neighbour distance remains 0.373 m on existing close pairs; moved trees keep at
+  least 3.551 m. All four trunk corners are checked with `blockAt` on every candidate, since an overlapping block can
+  take priority at a corner inside a block's bounds.
+  On 2026-11-06 the full headless scene keeps 18,056 of 18,109 street trees (1,045 moved, 53 dropped); landing/zebra/
+  lane/island violations fall from **655 / 5 / 25 / 8 to 0 / 0 / 0 / 0**. Park sites, park colliders and furniture
+  traffic footprints are unchanged; no per-frame work is added. The smaller tree-test fixture keeps 18,101 of 18,153
+  (1,047 moved, 52 dropped). Run `node tools/audit-street-tree-clearance.mjs --full` for the full fixture, or omit
+  `--full` for the tree-test fixture. Measurement definitions, historical differences and changed test pins are in
+  [the clearance record](observations/street-tree-clearance-2026-11-06.md).
 - **Scene culling** is automatic for anything under the seven named roots; thresholds and opt-outs are in [`rendering.md`](rendering.md#culling-scene-cullingjs-registering-new-static-geometry).
 
 ## Batching

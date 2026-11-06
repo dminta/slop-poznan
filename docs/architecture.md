@@ -24,7 +24,7 @@
 2. City builders, in this order: `buildLandmarks`, `buildCityBlocks`, `buildCityGrid` (with injected building footprints
    and colliders), `populateLeftoverSlabs`, `buildOutskirts`, `buildBridges`, `buildStreetDetails`, `createTrafficSystem`,
    `buildRoadPaint`, `buildTramInfrastructure`, `createTramSystem`, then `trafficSystem.setTrams(tramSystem)`. After
-   traffic builds and configures the road network, street details add vehicle heads on existing or newly placed poles,
+   traffic configures the road network, street details add vehicle heads on existing or newly placed poles,
    after checking the materialised pedestrian routes and before colliders reach the player and the scene is culled. The
    order matters because of constructor injection and the live `let` exports below
    ([`world.md`](world.md#build-order-mainjs-initapp-and-why-it-is-fixed)).
@@ -34,6 +34,11 @@
    SSR/post-processing pipeline, `GamepadControls`, UI wiring and `CityMapSystem`.
 5. `precompileShaders()`, then one warm-up frame. The loading overlay hides and `audioSystem.ready` is set only after
    `onSubmittedWorkDone`.
+- `buildStreetDetails` builds the furnished `roadNetwork` after its last traffic footprint and uses it for street-tree
+  clearance. Trees add player colliders only, so the network's inputs are final at this point. `main.js` passes that
+  exact object as `createTrafficSystem`'s optional fourth argument. Without it, the factory builds a network from its
+  sidewalk/obstacle arguments; existing reduced headless callers retain that fallback. Keep both builders' obstacle
+  inputs/order aligned when adding furniture. This avoids a second main-thread network build during browser boot.
 - `markInit(label)` logs phase timings once as `[init] ...`. Add a `markInit` call for any new heavy boot phase.
 
 ## How modules share state

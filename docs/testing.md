@@ -26,6 +26,11 @@ Know which one covers the code you are editing. Two of them are coupled to the e
    - `traffic*.test.cjs` match `^  function NAME(` through `\n  }` (two-space indent) in `js/traffic.js`.
      `traffic-population` also captures the vehicle-pool declaration and cursor state to run the full update with
      real placement and local density selection, stubbing rendering/driving and seeding the available roads.
+   - `traffic-network-reuse.test.cjs` slices `createTrafficSystem` from its function declaration to
+     `  // Sides of an intersection`, stubbing the initial mesh/material setup to check supplied-network identity
+     and the default builder call. Keep this marker after the network destructuring.
+   - `tree-distribution.test.cjs` captures the street landing checker at `const TREE_SP = 15;` and moved
+     positions at `treePlacement.moved++;` to run the clearance audit against its existing furnished fixture.
    - `signal-display.test.cjs` captures the head group before `      const half = a.w / 2;` in street-details.js, then
      compares the rendered groups with real incoming road lanes. It also checks the shared texture and crossing audio.
    - `dworzec-crossings.test.cjs` exposes the internal `links` function by replacing the literal

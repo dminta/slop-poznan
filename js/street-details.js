@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import { Fn, float, color, uniform, mod, fract, step, smoothstep, mix, uv, texture, attribute, vec2, floor, sin, positionWorld } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { SIGNAL_SITES, SIGNAL_PLANS, updateSignal, JUNCTIONS, blockAt, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES, createTreeWallChecker } from './city-config.js';
-import { CROSSWALK, CROSSWALK_REACH, STOP_SETBACK } from './road-network.js';
+import { buildRoadNetwork, CROSSWALK, CROSSWALK_REACH, STOP_SETBACK } from './road-network.js';
 import { cityUniforms, createTreeGrateMaterial } from './tsl-materials.js';
 import { createTreeField, SPECIES_CROWN_R } from './trees.js';
 import { pavedPlazaRects, parkTreeSites, parkLampSites, clearOfRails } from './city-grid.js';
@@ -1332,8 +1332,9 @@ function buildStreetDetails(scene, opts = {}) {
   //    missing trees and the odd unplanted edge; sparse in Stare Miasto's narrow lanes. Never in plazas or parks.
   const sidewalkTreePositions = [];
   const SIDEWALK_Y = 0.22;
+  const treeBlockAt = blockAt;
   const onSidewalk = (x, z) => {
-    const b = blockAt(x, z);
+    const b = treeBlockAt(x, z);
     return !!b && !(b.park > 0.6) && !b.median;
   };
   // Street trees turn in 90° steps with the crown squeezed across the sidewalk, away from the facades
@@ -1351,8 +1352,64 @@ function buildStreetDetails(scene, opts = {}) {
     const c = addCollider(x, z, 0.28 * scale, 0.28 * scale, SIDEWALK_Y + 3.0);
     c.isTrunk = true;
   }
+  const treePlacement = { moved: 0, dropped: 0 };
+  // Build-time only: trees add no traffic footprints, so this furnished network is the one traffic will use.
+  // The guide envelope alone misses lanes shifted over curb islands and squeezed short-link crossing bands.
+  const treeNetwork = buildRoadNetwork(grid?.sidewalks || [], [
+    ...(grid?.footprints || []), ...footprints,
+    ...buildingColliders.filter((c) => !c.obb && (c.minY ?? 0) < 3.5)
+  ]);
+  const treeKeepouts = new Map();
+  const TREE_LANE_CELL = 64;
+  const fileTreeKeepout = (s, pad) => {
+    for (let ix = Math.floor((Math.min(s.ax, s.bx) - pad) / TREE_LANE_CELL); ix <= Math.floor((Math.max(s.ax, s.bx) + pad) / TREE_LANE_CELL); ix++) {
+      for (let iz = Math.floor((Math.min(s.az, s.bz) - pad) / TREE_LANE_CELL); iz <= Math.floor((Math.max(s.az, s.bz) + pad) / TREE_LANE_CELL); iz++) {
+        const key = ix * 100000 + iz;
+        if (!treeKeepouts.has(key)) treeKeepouts.set(key, []);
+        treeKeepouts.get(key).push(s);
+      }
+    }
+  };
+  for (const e of treeNetwork.edges) {
+    for (const lane of e.lanes) fileTreeKeepout({
+      ax: e.x0 + e.rx * lane, az: e.z0 + e.rz * lane,
+      bx: e.x0 + e.dx * e.span + e.rx * lane, bz: e.z0 + e.dz * e.span + e.rz * lane
+    }, 1.5);
+    // Enclose every possible zebra and landing before route pruning, including squeezed crossing setbacks.
+    for (const [node, along] of [[e.from, -e.setbackFrom - CROSSWALK / 2],
+      [e.to, e.len + e.setbackTo + CROSSWALK / 2]]) {
+      if (node.shape) continue;
+      const x = e.sx + e.dx * along, z = e.sz + e.dz * along;
+      const half = e.half + CROSSWALK_REACH + 2.6;
+      fileTreeKeepout({ ax: x - e.rx * half, az: z - e.rz * half,
+        bx: x + e.rx * half, bz: z + e.rz * half, zebra: true }, CROSSWALK / 2 + 0.4);
+    }
+  }
+  const clearStreetTree = (x, z, scale) => {
+    const r = 0.28 * scale;
+    const b = treeBlockAt(x, z);
+    if (!b || b.median || b.underpass) return false;
+    // Every trunk corner must stay on the centre's block: a different island can take priority at a corner even
+    // inside this block's bounds (overlapping blocks), so the check runs for every candidate.
+    for (const ox of [-r, r]) for (const oz of [-r, r]) {
+      if (treeBlockAt(x + ox, z + oz) !== b) return false;
+    }
+    if (!clearOfCrosswalks(x, z, r * Math.SQRT2)) return false;
+    for (const s of treeKeepouts.get(Math.floor(x / TREE_LANE_CELL) * 100000 + Math.floor(z / TREE_LANE_CELL)) || []) {
+      const dx = s.bx - s.ax, dz = s.bz - s.az, len = Math.hypot(dx, dz);
+      const along = ((x - s.ax) * dx + (z - s.az) * dz) / len;
+      const side = Math.abs((x - s.ax) * dz - (z - s.az) * dx) / len;
+      const pad = r * (Math.abs(dx) + Math.abs(dz)) / len;
+      if (s.zebra) {
+        if (along > -pad && along < len + pad && side < CROSSWALK / 2 + pad) return false;
+      } else if (Math.hypot(Math.max(0, -along, along - len), side) < Math.max(1.2, 0.9 + pad)) return false;
+    }
+    return true;
+  };
+  const streetTreeCandidates = [];
   const TREE_SP = 15;
-  for (const { b, p0, dx, dz, len, inx, inz, outX, outZ } of curbEdges) {
+  for (const edge of curbEdges) {
+    const { b, p0, dx, dz, len, inx, inz, outX, outZ } = edge;
     if (hashPos(p0.x, 4.2, p0.z) < 0.22) continue;
     const thin = b.district === 'Stare Miasto' ? 0.6 : 0.32;
     const mx = p0.x + dx * 0.5;
@@ -1395,10 +1452,58 @@ function buildStreetDetails(scene, opts = {}) {
         if (!placed) continue;
       }
 
-      addStreetTree(x, z, scale, species, acrossX, {
-        tier, pitRot, grate: !narrow, pitS: narrow ? 0.7 : 1, squeeze
-      });
+      streetTreeCandidates.push({ x, z, scale, species, acrossX, tier, pitRot, narrow, squeeze,
+        p0, dx, dz, len, inx, inz, inset, u });
     }
+  }
+  const placedTreeCells = new Map();
+  const treeCellKey = (x, z) => Math.floor(x / 4) * 100000 + Math.floor(z / 4);
+  const reserveTree = (t) => {
+    const key = treeCellKey(t.x, t.z);
+    if (!placedTreeCells.has(key)) placedTreeCells.set(key, []);
+    placedTreeCells.get(key).push(t);
+  };
+  const clearOfTrees = (x, z) => {
+    const ix = Math.floor(x / 4), iz = Math.floor(z / 4);
+    for (let i = ix - 1; i <= ix + 1; i++) for (let j = iz - 1; j <= iz + 1; j++) {
+      for (const t of placedTreeCells.get(i * 100000 + j) || []) {
+        if ((x - t.x) ** 2 + (z - t.z) ** 2 < 3.5 ** 2) return false;
+      }
+    }
+    return true;
+  };
+  // Reserve unchanged trees first, including those later in the curb iteration. Existing close pairs stay intact;
+  // a replacement must keep 3.5 m from every unchanged or already moved tree, even on a different curb edge.
+  for (const t of streetTreeCandidates) {
+    t.clear = clearStreetTree(t.x, t.z, t.scale);
+    if (t.clear) reserveTree(t);
+  }
+  for (const t of streetTreeCandidates) {
+    let { x, z } = t;
+    const { scale, species, acrossX, tier, pitRot, narrow, squeeze, p0, dx, dz, len, inx, inz, inset, u } = t;
+    if (!t.clear) {
+      let placed = false;
+      // Nearest first, stable negative-side tie break; every replacement checks both curb clearance and spacing.
+      for (let step = 1; step <= 15 && !placed; step++) for (const sign of [-1, 1]) {
+        const su = u + sign * step * 0.4 / len;
+        if (su < 0.02 || su > 0.98) continue;
+        const sx = p0.x + dx * su + inx * inset;
+        const sz = p0.z + dz * su + inz * inset;
+        if (!clearOfTrees(sx, sz) || !clearStreetTree(sx, sz, scale) || !onSidewalk(sx, sz) || inPlaza(sx, sz, 1.5) ||
+            !isClearOfPoles(sx, sz, 2.2) || !clearOfRails(sx, sz, 0.4 * scale) ||
+            !isClearOfWalls(sx, sz, scale, species, squeeze, SIDEWALK_Y, tier)) continue;
+        x = sx;
+        z = sz;
+        placed = true;
+        reserveTree({ x, z });
+        break;
+      }
+      if (!placed) { treePlacement.dropped++; continue; }
+      treePlacement.moved++;
+    }
+    addStreetTree(x, z, scale, species, acrossX, {
+      tier, pitRot, grate: !narrow, pitS: narrow ? 0.7 : 1, squeeze
+    });
   }
   console.info(`[streetDetails] ${treePositions.length} trees (${sidewalkTreePositions.length} street trees)`);
 
@@ -1850,7 +1955,7 @@ function buildStreetDetails(scene, opts = {}) {
     return matrices.length;
   }
   scene.add(group);
-  const result = { group, footprints, colliders, signalClock, audioSignals,
+  const result = { group, footprints, colliders, signalClock, audioSignals, treePlacement, roadNetwork: treeNetwork,
     vehicleHeads: s1Matrices.length, runtimeHeads: [], addRuntimeSignalHeads, auditRuntimeSignalHeads, update };
   return result;
 }

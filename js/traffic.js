@@ -123,7 +123,7 @@ function createBusDestinationTexture() {
 
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 
-function createTrafficSystem(scene, sidewalks, obstacles) {
+function createTrafficSystem(scene, sidewalks, obstacles, network = buildRoadNetwork(sidewalks, obstacles)) {
   const group = new THREE.Group();
   group.name = 'TrafficAndPedestrians';
   let collisionListener = null;
@@ -151,7 +151,6 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // =========================================================================
   // 0. ROAD NETWORK
   // =========================================================================
-  const network = buildRoadNetwork(sidewalks, obstacles);
   const { nodes, edges, connector, curvePoint } = network;
 
   // Sides of an intersection (road-network.js step 7) are its arms, numbered from 0. Where lane i of edge e meets the

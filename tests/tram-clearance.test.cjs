@@ -47,7 +47,9 @@ test.before(async () => {
   const streetDetails = (grid) => loadModule(readFileSync(join(__dirname, '../js/street-details.js'), 'utf8'), {
     imports: {
       'three/webgpu': inert(), 'three/tsl': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert(),
-      './city-config.js': config, './road-network.js': { CROSSWALK: 4.3, CROSSWALK_REACH: 3, STOP_SETBACK: 1.5 },
+      './city-config.js': config, './road-network.js': loadModule(readFileSync(join(__dirname, '../js/road-network.js'), 'utf8'), {
+        imports: { './city-config.js': config, './geodata.js': { GEO } }
+      }),
       './tsl-materials.js': inert(),
       './trees.js': { createTreeField: (_scene, sites) => { trees = sites; return { group: inert() }; } },
       './city-grid.js': grid

@@ -22,6 +22,7 @@ function inert() {
 
 test('signal display uploads local plans and follows a pedestrian request after the heads have been built', async () => {
   const config = await import('../js/city-config.js');
+  const { GEO } = await import('../js/geodata.js');
   let display;
   const indices = [];
   const three = inert();
@@ -45,7 +46,9 @@ test('signal display uploads local plans and follows a pedestrian request after 
     imports: {
       'three/webgpu': three, 'three/tsl': tsl, 'three/addons/utils/BufferGeometryUtils.js': inert(),
       './city-config.js': config,
-      './road-network.js': { CROSSWALK: 4.3, CROSSWALK_REACH: 3, STOP_SETBACK: 1.75 },
+      './road-network.js': loadModule(readFileSync(join(__dirname, '../js/road-network.js'), 'utf8'), {
+        imports: { './city-config.js': config, './geodata.js': { GEO } }
+      }),
       './tsl-materials.js': inert(), './trees.js': { createTreeField: () => ({ group: inert() }) },
       './city-grid.js': { clearOfRails: () => true, pavedPlazaRects: [], parkTreeSites: [], parkLampSites: [] }
     },
@@ -61,7 +64,6 @@ test('signal display uploads local plans and follows a pedestrian request after 
   }
   assert.ok(details.audioSignals.length > 100);
   assert.ok(details.audioSignals.every((s) => config.SIGNAL_PLANS.includes(s.signalTiming)));
-  const { GEO } = await import('../js/geodata.js');
   const network = loadModule(readFileSync(join(__dirname, '../js/road-network.js'), 'utf8'), {
     imports: { './city-config.js': config, './geodata.js': { GEO } },
     globals: { console: { info() {} } }, filename: 'road-network.js'

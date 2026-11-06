@@ -37,13 +37,14 @@ function inert() {
   });
 }
 
-async function runAudit() {
+async function runAudit({ worldOnly = false, streetSource = source('street-details'), capture = () => {} } = {}) {
   const startTime = Date.now();
   console.log('1. Loading configurations and building world models...');
   const config = await import('../js/city-config.js');
   const { GEO } = await import('../js/geodata.js');
   const stub = inert();
   const globals = {
+    capture,
     console: { info() {}, warn() {}, log() {} },
     Math, Map, Set, WeakMap, Object, Array, Number, JSON,
     Infinity, NaN, Float32Array, Uint8Array, Uint16Array, Uint32Array, Int32Array
@@ -202,17 +203,20 @@ async function runAudit() {
   // Step 4: Street details (trees)
   console.log('4. Building street trees and collecting all tree sites...');
   let sites = [];
-  let streetSrc = source('street-details');
+  let streetSrc = streetSource;
   streetSrc = streetSrc.replace(
     /addStreetTree\(x, z, scale, species, acrossX, \{[\s\S]*?\}\);/,
     'addStreetTree(x, z, scale, species, acrossX, { tier, pitRot, grate: !narrow, pitS: narrow ? 0.7 : 1, squeeze, source: narrow ? "street trees narrow" : "street trees wide" });'
   );
 
-  loadModule(streetSrc, {
+  const streetStart = Date.now();
+  const details = loadModule(streetSrc, {
     imports: {
       ...gridRendering,
       './city-config.js': config,
-      './road-network.js': { CROSSWALK: 4.3, CROSSWALK_REACH: 3, STOP_SETBACK: 1.5 },
+      './road-network.js': loadModule(source('road-network'), {
+        imports: { './city-config.js': config, './geodata.js': { GEO } }
+      }),
       './city-grid.js': liveGrid,
       './trees.js': {
         ...treesMod,
@@ -221,6 +225,9 @@ async function runAudit() {
     },
     globals: { ...globals, document: stub }
   }).buildStreetDetails(stub, { buildingColliders: allBuildingColliders, grid: cityGridBuilt });
+
+  if (worldOnly) return { sites, details, grid: cityGridBuilt, gridModule, liveGrid,
+    buildingColliders: allBuildingColliders, buildMs: Date.now() - streetStart };
 
   const keptColliders = new Set(sites.map((s) => s.collider).filter(Boolean));
   const remainingTrunkColliders = cityGridBuilt.propColliders.filter((c) => c.isTrunk);

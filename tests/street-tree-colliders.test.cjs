@@ -25,6 +25,9 @@ const source = (name) => readFileSync(join(__dirname, '../js', `${name}.js`), 'u
 test('street trees carry player colliders, including Rybaki', async () => {
   const config = await import('../js/city-config.js');
   const { GEO } = await import('../js/geodata.js');
+  const road = loadModule(source('road-network'), {
+    imports: { './city-config.js': config, './geodata.js': { GEO } }
+  });
   const stub = inert();
   const globals = { document: stub, console: { info() {}, warn() {}, log() {} } };
   const rendering = { 'three/webgpu': stub, 'three/tsl': stub,
@@ -39,15 +42,15 @@ test('street trees carry player colliders, including Rybaki', async () => {
     './city-config.js': config, './geodata.js': { GEO }, './city-grid.js': liveGrid }, globals }).buildCityBlocks(stub);
   let sites;
   const details = loadModule(source('street-details'), { imports: { ...rendering, './city-config.js': config,
-    './road-network.js': { CROSSWALK: 4.3, CROSSWALK_REACH: 3, STOP_SETBACK: 1.5 }, './city-grid.js': liveGrid,
+    './road-network.js': road, './city-grid.js': liveGrid,
     './trees.js': { createTreeField: (_scene, trees) => { sites = trees; return { group: stub }; } } }, globals
   }).buildStreetDetails(stub, { buildingColliders: bld.colliders, grid });
 
   // Street trees are the tree sites on the raised sidewalks. The colliders array now carries their trunk boxes.
-  // Before 2026-11-04 all of these had no player collider; now every one does. The full audit build drops 40 more
-  // trees near landmark and bridge walls (18,112 citywide), which this headless build omits.
+  // Before 2026-11-04 all of these had no player collider; now every one does. This fixture omits landmark and
+  // bridge walls; the default clearance audit uses the same scope.
   const streetTrees = sites.filter((t) => t.tier === 2 || t.tier === 1 && t.pitRot !== undefined);
-  assert.equal(streetTrees.length, 18152, 'street trees in the headless build');
+  assert.equal(streetTrees.length, 18101, 'street trees in the headless build');
 
   const colliders = details.colliders;
   const trunkColliders = colliders.filter((c) => c.isTrunk);
