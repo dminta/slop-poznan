@@ -37,6 +37,26 @@ and `7566c2a` seeds 2, 3 and 99, so it predates the Kaponiera work; the current 
 and 51 over 60 s in Jeżyce (seeds 99 and 5; 907b555: 0 / 31). Deliberately not changed here: a pedestrian agent is
 reworking crosswalk queues in `traffic.js` in another worktree.
 
+## Pedestrian overlap clusters fixed
+
+The reported piles of pedestrians standing on each other are fixed in `js/pedestrian-routes.js` and `js/traffic.js`.
+The causes were crosswalk lines linked back to their own sibling line (5 294 links and 2 458 sampled U-turn choices on
+the bare network), queues with no room behind a crosswalk or split-crossing hold (Wilda 53-74 s with up to 12 peds,
+Rataje up to 140 s, Dworzec 108-115 s with up to 20), and hundreds of dead-end crosswalk landings that sent walkers across,
+back and across again. Routes no longer make those links or choose a crossing into a known dead end; walkers hold a
+0.62 m queue gap along the whole track and at leg entrances, a held strip crossing queues back along its approach, and
+a pedestrian standing with no legitimate wait for 20 s is re-placed. Over seeds 4242/77, 3 minutes at eight focus
+points, clusters of >= 4 overlapping peds over 5 s fall **27 → 20**, longest **145 → 16 s**, biggest **20 → 6**,
+overlapping pairs per second **32.3 → 10.5**; crosswalk entries per minute are **142.6 → 131.7** (the separate flow
+classifier gives 133.1 → 122.8; before the landing connections it was -9.5%, of which about 58% was the removed
+U-turn/dead-end pairs and the rest short queues behind conversations/rests). `traffic.update` is 0.632 → 0.66 ms/frame at Centrum (60 fps). Removing the U-turn also
+exposed empty landings; `links` now fills a landing only within a 5 m block-edge corridor (direct curb links max 5 m),
+connector length <= 32 m, no road lane within half width + 0.8 m, 1.5 m clear of rail/tram centrelines, no building
+lot (2 m pad) and no water, taking crosswalk tracks never entered by routing from **321 to 218** and ends with no links
+from **365 to 230** (old U-turn figures 20 and 208). The remaining clusters are short conversation/queue overlaps
+(<= 16 s, <= 6 peds), not stacks. Details, per-district table and the regression test are in
+[observations/ped-overlaps-2026-11-05.md](observations/ped-overlaps-2026-11-05.md).
+
 ## Most Chrobrego tram deck fixed
 
 The user reported that Most Bolesława Chrobrego is too narrow and its tram track overlaps the span/deck. The bridge links
@@ -467,6 +487,9 @@ remains: walk and drive round a diagonal stop (Dworzec Zachodni or Żniwna) and 
 
 | Topic | Remaining work | Original reference |
 |---|---|---|
+| Pedestrian overlap remnants | Partially fixed 2026-11-05: the long standing stacks are gone (clusters 27 → 20, longest 145 → 16 s, biggest 20 → 6, pairs/s 32.3 → 10.5 over seeds 4242/77 × eight districts × 3 min). Remaining clusters are short (<= 16 s) conversation or blocked-crossing queues, mostly around Dworzec and Droga Dębińska; they are not the multi-minute piles reported. A pedestrian with no legitimate wait is re-placed after 20 s, postponed while in `nearView`; the alternative (recognising every blocked give-way exit) was not pursued. Method and table: [observations/ped-overlaps-2026-11-05.md](observations/ped-overlaps-2026-11-05.md). | Follow-up |
+| Isolated crosswalk landings | 230 crosswalk ends (218 tracks never entered by routing) remain empty after the safe fallback: the landing has no sidewalk/zebra connector within 32 m that stays within a 5 m block-edge corridor, or the nearest one would cross a road lane, rail/tram centreline, building lot (2 m pad), water or exceed the cap. Examples include Okrąglak (both side-1 lines), Miła / Dąbrowskiego, Święty Marcin / Wysoka, Promienista / Grochowska and Wierzbięcice / Górna Wilda. Most are the unused second line of a two-line crossing; the other line or end still works. They are left empty rather than restoring a U-turn or cutting through a block/road/rail line; the generated list is `conn.mjs`'s never-entered output. | Follow-up Follow-up: pass the real building colliders to the route builder, then relax the 5 m corridor and 5 m direct-link limit (round-3 data: about 124 of the 230 ends would connect). |
+| Jeżyce tram → car → pedestrian → tram gridlock | Seen by the verifier around -2105…-2040: pedestrians freeze mid-crosswalk at v = 0 in `tramRoom`/`tramNear`, next to two stopped trams waiting for cars that wait for those pedestrians; it clears only when a tram respawns after 90 s. This is the tram-proxy side another agent is touching. The new pedestrian queue spacing only spreads the queue and the 20 s re-placement does not accumulate while `p.node` is true (a crosswalk wait), so it does not break the cycle; the new landing links can reroute some walkers but were not measured against this exact scenario. | Follow-up |
 | Other missing signal heads | Runtime geometric audit of 167 historical unmatched edges: with up to 300 sampled sites, A/B/C/D before/after placement is **17/74/66/10 → 91/0/66/10**; vehicle heads **903 → 979**, pedestrian heads **1,572 → 1,572**, with six existing and 70 new poles (the previous placement with 60-site sampling: 17/27/113/10 → 47/0/110/10, 933 vehicle heads). Short-circuiting candidate checks reduced runtime placement from 3.52 to 2.89 s; a throwaway exploration of extra positions (0..+6 m forward, medians, arm-aligned reuse) unlocked no Category C edges. C means the sampled sites failed; investigate other positions and visually verify visibility. The fixture omits building, landmark and bridge colliders, which the browser supplies, so actual counts can differ. Run `node tools/audit-signal-heads.mjs`; see [Signals](world.md#street-furniture-street-detailsjs). | 15.5 |
 | Park bounding boxes | Resolved citywide. Exact park polygons (`exact = true`) are enabled for all street furniture and trees in `js/street-details.js`, restoring 4,004 street trees and 4,639 non-signal street furniture footprints while preserving 100% of drivable road network edges (8,512/8,512) and 0 rail clearance violations. | Follow-up |
 | Sparse OSM blocks | Resolved 2026-11-04. Re-audited every block ≥ 2 ha with under 5% OSM building coverage over the current detail box (36 blocks, 7.96 km²) against BDOT10k `OT_BUBD_A` for powiat 3064 and GUGiK orthophotos. No omission was confirmed: BDOT coverage exceeds OSM by at most 0.08 pp, and all sparse blocks are parks, cemeteries, forest, meadows, allotments, brownfield, a railway buffer or a car park. No supplement added; `js/geodata.js` unchanged. Source terms and the per-block table are in [observations/sparse-blocks-2026-11-04.md](observations/sparse-blocks-2026-11-04.md). | 14.3 |

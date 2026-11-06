@@ -48,7 +48,7 @@ function populationHarness(major = true) {
     bodyMeshes: [], lightbarList: [], dirtyPaint: new Set(), dirtyState: new Set(),
     litVehicleCount: 0, wheelCars: 0, visibleCars: 0, visibleBuses: 0, visibleBuses18: 0, updates: 3,
     relateToPlayer() {}, drive() {}, locate() {}, knock() {}, pose() {}, updateBusTrailer() {}, renderBus() {}, renderCar() {},
-    flagRange() {}, updateTrafficLights() {}, walkedNodes: [], meet() {}, gatherCurbs() {},
+    flagRange() {}, updateTrafficLights() {}, walkedNodes: [], meet() {}, gatherCurbs() {}, indexRoutePeds() {},
     pedCrowd: { begin() {}, end() {} }, updateSparks() {}
   };
   for (const name of ['carWheelLeftInst', 'carWheelRightInst', 'carShadowInst', 'busBodyInst',

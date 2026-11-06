@@ -25,7 +25,7 @@ test('the furnished audit classifies historical approaches before and after runt
   const placements = after.summary.placements.map((row) => row.map((v) =>
     typeof v === 'number' ? Number(v.toFixed(3)) : v));
   assert.equal(createHash('sha256').update(JSON.stringify(placements)).digest('hex'),
-    'be49d567069c01af2ff1761385d289f728cfa00b80fa02ffdf8ca032d5f00b3a');
+    '85648549c0f0b637be0834a4844297dcf5e113a4d3ca7a5eed31f74b1c6857e8');
   for (const [x, z] of [[1374.2, 566.1], [-2086.95, 2421.3]]) {
     assert.ok(before.rows.some((r) => Math.hypot(r.node[0] - x, r.node[1] - z) < 0.01 && r.class === 'B'));
     assert.ok(after.rows.some((r) => Math.hypot(r.node[0] - x, r.node[1] - z) < 0.01 && r.class === 'A'));

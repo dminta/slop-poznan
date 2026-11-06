@@ -558,6 +558,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       speed: 1.22 + (i % 5) * 0.1 + hash(i, 3) * 0.08, // preferred walking speed
       v: 0, // current speed, easing up to it and down to stops
       pause: 0,
+      stuck: 0, // s standing with nowhere to wait (a jam or a route sink); long enough and it is re-placed
       route: null,
       nextRoute: null,
       nextLeg: 0,
@@ -2212,6 +2213,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
       p.z = z;
       p.v = crosswalk ? 0 : p.speed;
       p.pause = 0;
+      p.stuck = 0;
       p.nextRoute = null;
       p.nextLeg = 0;
       p.goalTime = 0;
@@ -2349,8 +2351,32 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   const PED_ACCEL = 1.3; // m/s^2 setting off
   const PED_BRAKE = 1.6; // m/s^2 easing to a stop
   const TURN_TIME = 0.85; // s turning round at the end of the track
+  const PED_STUCK_TIME = 20; // s standing with no legitimate wait before the ped is re-placed elsewhere
   const walkedNodes = [];
+  // Peds by their current track, refreshed once per frame so the same-line following check scans only a handful of
+  // people instead of all 340 per walker. Lists and the map are reused; a walker that changes track this frame is
+  // skipped by the route identity check until the next refresh.
+  const routePeds = new Map();
+  const routeLists = [];
+  const NO_PEDS = [];
+  function indexRoutePeds() {
+    for (const list of routeLists) list.length = 0;
+    routeLists.length = 0;
+    for (const p of peds) {
+      if (!p.placed || !p.route) continue;
+      let list = routePeds.get(p.route);
+      if (!list) routePeds.set(p.route, list = []);
+      if (!list.length) routeLists.push(list);
+      list.push(p);
+    }
+  }
   function walk(p, dt) {
+    // Removing a ped is popping too: postpone a re-placement while the camera can see where it stands (the new spot is
+    // already protected by spawnPed). Keep counting, so it leaves as soon as it is out of view.
+    if (p.stuck > PED_STUCK_TIME && !nearView(p.x, p.z, 2, PED_SPAWN_DISTANCE)) {
+      p.stuck = 0;
+      if (spawnPed(p, 60, 280, true)) return;
+    }
     if (p.pause > 0) p.pause = Math.max(0, p.pause - dt);
     const ahead = p.dir > 0 ? p.len - p.t : p.t;
     if (clock >= p.goalTime || Math.hypot(p.x - p.goalX, p.z - p.goalZ) < 25) {
@@ -2371,6 +2397,40 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     let vMax = p.pause > 0 || p.conversation ? 0 : p.speed;
     if (!p.nextRoute) vMax = Math.min(vMax, Math.sqrt(2 * PED_BRAKE * ahead));
     let room = Infinity;
+    // Hold the queue gap behind anyone ahead on the same line and in the same direction, all along the track and not
+    // only at a curb: a faster walker who closes up on a leader that then stops has no room to back off and the two
+    // overlap (the sidewalk clusters in the 2026-11-05 record).
+    if (p.route) {
+      const list = routePeds.get(p.route);
+      if (list) {
+        for (const q of list) {
+          if (q === p || q.route !== p.route || q.dir !== p.dir) continue;
+          const forward = (q.t - p.t) * p.dir;
+          if (forward > 0 && forward < QUEUE_GAP) room = Math.min(room, Math.max(0, forward - QUEUE_GAP));
+        }
+      }
+    }
+    // Keep a leg's entrance clear for people who are not already walking away from it: a queue that reaches the
+    // entrance must back up on the approach, not stack several people on the same first metre. Only the same walking
+    // direction competes for an entrance (the other direction uses the opposite end), and a walker already moving is
+    // clearing it, so it does not block the follower.
+    if (p.nextRoute && p.nextLeg < p.nextRoute.length && ahead < 2 * QUEUE_GAP) {
+      const next = p.nextRoute[p.nextLeg], enterT = next.dir > 0 ? 0 : next.track.len;
+      const capacity = Math.max(2, Math.floor(next.track.len / QUEUE_GAP));
+      let onNext = 0, blocked = false;
+      for (const q of routePeds.get(next.track) || NO_PEDS) {
+        if (q === p || !q.placed || q.route !== next.track) continue;
+        onNext++;
+        if (blocked || q.v >= 0.5) continue;
+        // On a crosswalk the opposite direction shares the line, so someone standing at the entrance holds it too;
+        // elsewhere the other direction enters at the opposite end and does not compete for this one.
+        if (q.dir !== next.dir && !next.track.node) continue;
+        if (Math.abs(q.t - enterT) >= QUEUE_GAP) continue;
+        blocked = true;
+      }
+      // A short corner link or crosswalk holds only so many people; the rest wait on the approach, not on top of it.
+      if (blocked || onNext >= capacity) room = Math.min(room, Math.max(0, ahead - QUEUE_GAP));
+    }
     if (!p.node && p.nextRoute && !onRails(p)) {
       // A queue can reach back onto the sidewalk. Keep clear before entering its track, including short corner
       // segments; actual separation matters where the approach meets the crossing at an angle. Not on the rails
@@ -2390,7 +2450,9 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
           const dx = q.x - p.x, dz = q.z - p.z;
           const forward = (dx * p.ux + dz * p.uz) * p.dir;
           const lateral2 = Math.max(0, dx * dx + dz * dz - forward * forward);
-          if (forward >= 0 && lateral2 < QUEUE_GAP * QUEUE_GAP) {
+          // strictly ahead only: two people who already share a point (a shared curb link, a respawn) must not each
+          // report zero room and lock the pair there for good; letting both walk out separates them by preferred speed
+          if (forward > 0.01 && lateral2 < QUEUE_GAP * QUEUE_GAP) {
             room = Math.min(room, Math.max(0, forward - Math.sqrt(QUEUE_GAP * QUEUE_GAP - lateral2)));
           }
         }
@@ -2425,7 +2487,16 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     // `hold`), wait here, short of the tracks, until the crosswalk over the far roadway may be crossed
     const hold = p.nextRoute && p.nextLeg < p.nextRoute.length ? p.nextRoute[p.nextLeg].hold : null;
     const held = !!hold && !mayCross(hold);
-    if (held) room = Math.min(room, ahead);
+    if (held) {
+      room = Math.min(room, ahead);
+      // A strip crossing that is still shut gets a queue as at any curb: back along this track in queue-gap steps.
+      // Without it everyone reaching the strip stands on the same end point and waits there in a heap.
+      for (const q of routePeds.get(p.route) || NO_PEDS) {
+        if (q === p || q.route !== p.route || q.dir !== p.dir) continue;
+        const qAhead = q.dir > 0 ? q.len - q.t : q.t;
+        if (qAhead < ahead) room = Math.min(room, Math.max(0, ahead - qAhead - QUEUE_GAP));
+      }
+    }
     room = Math.min(room, tramRoom(p));
     vMax = Math.min(vMax, Math.sqrt(2 * PED_BRAKE * room));
     p.v += Math.max(-2 * PED_BRAKE * dt, Math.min(PED_ACCEL * dt, vMax - p.v));
@@ -2461,6 +2532,17 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     p.t = t;
     p.x = p.ax + p.ux * t;
     p.z = p.az + p.uz * t;
+    // A jam or a route sink must not hold a crowd forever. Waiting at a curb or strip hold, a conversation or a pause
+    // is legitimate and resets this; anything else that has not moved in 20 s is re-placed like any other distant ped.
+    // Short tracks (corner links, cramped sidewalks) still count a crossing wait: a blocked exit there is exactly the
+    // bottleneck that piles people up.
+    const shortTrack = p.route && p.route.len < 10;
+    let waitingForCrossing = !!p.node;
+    if (!waitingForCrossing && !shortTrack && p.nextRoute) {
+      for (const leg of p.nextRoute) if (leg.track.node) { waitingForCrossing = true; break; }
+    }
+    if (p.v < 0.05 && p.pause <= 0 && !p.conversation && !p.waiting && !waitingForCrossing) p.stuck += dt;
+    else p.stuck = 0;
     if (p.node && ((t > KERB && t < p.len - KERB) || (p.waiting && walkOn(p)))) {
       p.coord = p.x * p.ux + p.z * p.uz; // along the crosswalk, on laneCoord's scale
       if (!p.node.walkers.length) walkedNodes.push(p.node);
@@ -3131,6 +3213,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     }
     meet(dt);
     gatherCurbs();
+    indexRoutePeds();
     pedCrowd.begin();
     for (let i = 0; i < NUM_PEDS; i++) {
       const p = peds[i];

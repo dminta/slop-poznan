@@ -5,7 +5,9 @@ import { CROSSWALK, CROSSWALK_REACH } from './road-network.js';
 // for the whole network (the zebras road-paint.js paints).
 // `railClearance(x, z, r)` (city-grid.js: the distance to the nearest track centreline, capped at r) keeps the places
 // people wait on a split crossing's strip clear of the trams; without it every strip has room.
-function createPedestrianRoutes({ nodes = [], edges = [], walkable, configureCrosswalks }, blockAt, railClearance = null) {
+function createPedestrianRoutes(
+  { nodes = [], edges = [], walkable, configureCrosswalks }, blockAt, railClearance = null
+) {
   const sidewalks = new Map(), crossings = new Map(), junctions = new Map(), connections = new WeakMap();
   const islandPorts = new Map();
   const point = (track, end) => ({ x: track.ax + track.ux * track.len * end, z: track.az + track.uz * track.len * end });
@@ -191,7 +193,7 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable, configureCro
       if (end1.w < 0 && !roomToWait(b.x - cx * 1.6, b.z - cz * 1.6, cx, cz)) continue;
       if (!clear(a, b)) continue;
       const sides = peer ? [arm, peer].map((side) => ({ side: side.side })) : null;
-      tracks.push(segment(a, b, { node: n, side: arm.side, sides, group: arm.group, line, from: n, to: n }));
+      tracks.push(segment(a, b, { node: n, side: arm.side, sides, group: arm.group, line, from: n, to: n, arm }));
     }
     if (!tracks.length) return null;
     const a = at(lo), b = at(hi);
@@ -415,12 +417,104 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable, configureCro
     return true;
   }
 
-  function links(track, dir) {
-    let ends = connections.get(track);
-    if (!ends) connections.set(track, ends = []);
+  // Clearance for a fallback connector: no road lane within its half width, no rail/tram centreline, no building
+  // footprint and no water. Used only for the sparse crosswalk landings, never for ordinary sidewalk links.
+  const FALLBACK_MAX = 32, FALLBACK_CORRIDOR = 5, DIRECT_CORRIDOR = 5, DIRECT_MAX = 5;
+  function segmentDistance(ax, az, bx, bz, cx, cz, dx, dz) {
+    const rx = bx - ax, rz = bz - az, sx = dx - cx, sz = dz - cz;
+    const den = rx * sz - rz * sx;
+    if (Math.abs(den) < 1e-9) return Math.min(Math.hypot(ax - cx, az - cz), Math.hypot(ax - dx, az - dz));
+    const t = Math.max(0, Math.min(1, ((cx - ax) * sz - (cz - az) * sx) / den));
+    const u = Math.max(0, Math.min(1, ((cx - ax) * rz - (cz - az) * rx) / den));
+    return Math.hypot(ax + rx * t - (cx + sx * u), az + rz * t - (cz + sz * u));
+  }
+  let streetCells = null;
+  function indexStreets() {
+    if (streetCells) return streetCells;
+    streetCells = new Map();
+    const CELL = 64;
+    for (const e of edges) {
+      const x1 = e.sx, z1 = e.sz, x2 = x1 + e.dx * e.len, z2 = z1 + e.dz * e.len;
+      const pad = e.half + 1;
+      const ix0 = Math.floor((Math.min(x1, x2) - pad) / CELL), ix1 = Math.floor((Math.max(x1, x2) + pad) / CELL);
+      const iz0 = Math.floor((Math.min(z1, z2) - pad) / CELL), iz1 = Math.floor((Math.max(z1, z2) + pad) / CELL);
+      for (let ix = ix0; ix <= ix1; ix++) for (let iz = iz0; iz <= iz1; iz++) {
+        const key = ix * 100000 + iz;
+        let cell = streetCells.get(key);
+        if (!cell) streetCells.set(key, cell = []);
+        cell.push(e);
+      }
+    }
+    return streetCells;
+  }
+  function clearOfStreets(a, b) {
+    const cells = indexStreets(), seen = new Set();
+    const ix0 = Math.floor(Math.min(a.x, b.x) / 64), ix1 = Math.floor(Math.max(a.x, b.x) / 64);
+    const iz0 = Math.floor(Math.min(a.z, b.z) / 64), iz1 = Math.floor(Math.max(a.z, b.z) / 64);
+    for (let ix = ix0; ix <= ix1; ix++) for (let iz = iz0; iz <= iz1; iz++) {
+      for (const e of cells.get(ix * 100000 + iz) || []) {
+        if (seen.has(e)) continue;
+        seen.add(e);
+        const x = e.sx, z = e.sz, ex = x + e.dx * e.len, ez = z + e.dz * e.len;
+        const margin = e.half + 0.8;
+        if (Math.min(a.x, b.x) > Math.max(x, ex) + margin || Math.max(a.x, b.x) < Math.min(x, ex) - margin ||
+            Math.min(a.z, b.z) > Math.max(z, ez) + margin || Math.max(a.z, b.z) < Math.min(z, ez) - margin) continue;
+        if (segmentDistance(a.x, a.z, b.x, b.z, x, z, ex, ez) < margin) return false;
+      }
+    }
+    return true;
+  }
+  function withinBlockEdge(a, b, block, limit) {
+    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z)));
+    for (let i = 0; i <= steps; i++) {
+      const x = a.x + (b.x - a.x) * i / steps, z = a.z + (b.z - a.z) * i / steps;
+      let distance = Infinity;
+      for (let j = 0, k = block.poly.length - 1; j < block.poly.length; k = j++) {
+        const p = block.poly[j], q = block.poly[k], dx = q.x - p.x, dz = q.z - p.z;
+        const t = Math.max(0, Math.min(1, ((x - p.x) * dx + (z - p.z) * dz) / (dx * dx + dz * dz || 1)));
+        distance = Math.min(distance, Math.hypot(x - p.x - dx * t, z - p.z - dz * t));
+      }
+      if (distance > limit) return false;
+    }
+    return true;
+  }
+  function inLot(x, z, block) {
+    for (const [th, px, pz, rects] of block.frames || [[0, 0, 0, block.rects]]) {
+      const dx = x - px, dz = z - pz;
+      const cs = Math.cos(th), sn = Math.sin(th), lx = dx * cs - dz * sn, lz = dx * sn + dz * cs;
+      for (const [x0, x1, z0, z1] of rects) {
+        if (lx >= x0 - 2 && lx <= x1 + 2 && lz >= z0 - 2 && lz <= z1 + 2) return true;
+        // some mapped/landmark buildings carry world-space rects in their frame block; check those too
+        if (x >= x0 - 2 && x <= x1 + 2 && z >= z0 - 2 && z <= z1 + 2) return true;
+      }
+    }
+    for (const [x0, x1, z0, z1] of block.rects || []) if (x >= x0 - 2 && x <= x1 + 2 && z >= z0 - 2 && z <= z1 + 2) return true;
+    return false;
+  }
+  function clearHazards(a, b) {
+    if (!clearOfStreets(a, b)) return false;
+    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.5));
+    for (let i = 0; i <= steps; i++) {
+      const x = a.x + (b.x - a.x) * i / steps, z = a.z + (b.z - a.z) * i / steps;
+      if (railClearance && railClearance(x, z, 1.5) < 1.5) return false;
+      const block = blockAt(x, z);
+      if (block && inLot(x, z, block)) return false;
+    }
+    return true;
+  }
+  function clearGap(a, b) {
+    const length = Math.hypot(b.x - a.x, b.z - a.z);
+    const steps = Math.max(1, Math.ceil(length / 0.5));
+    for (let i = 0; i <= steps; i++) {
+      const x = a.x + (b.x - a.x) * i / steps, z = a.z + (b.z - a.z) * i / steps;
+      if (!walkable(x - 0.4, x + 0.4, z - 0.4, z + 0.4)) return false;
+    }
+    return clearHazards(a, b);
+  }
+
+  function baseLinks(track, dir) {
     const end = dir > 0 ? 1 : 0;
-    if (ends[end]) return ends[end];
-    const result = ends[end] = [];
+    const result = [];
     const n = end ? track.to : track.from;
     if (!n) return result;
     const a = point(track, end);
@@ -440,7 +534,7 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable, configureCro
     const candidates = ports(n).concat((islandPorts.get(block) || []).filter((p) => p.track.node !== n));
     for (const port of candidates) {
       const next = port.track, nextDir = port.end ? -1 : 1;
-      if (next === track) continue;
+      if (next === track || (track.arm && next.arm === track.arm)) continue;
       const b = point(next, port.end), distance = Math.hypot(b.x - a.x, b.z - a.z);
       if (distance > 32 || blockAt(b.x, b.z) !== block) continue;
       const path = [];
@@ -454,7 +548,8 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable, configureCro
           if (Math.abs(cross) < 0.2) continue;
           const t = ((b.x - a.x) * bz - (b.z - a.z) * bx) / cross;
           const c = { x: a.x + ax * t, z: a.z + az * t };
-          if (t < 0 || t > 20 || (b.x - c.x) * bx + (b.z - c.z) * bz < 0 || Math.hypot(b.x - c.x, b.z - c.z) > 20) continue;
+          if (t < 0 || t > 20 || (b.x - c.x) * bx + (b.z - c.z) * bz < 0 ||
+              Math.hypot(b.x - c.x, b.z - c.z) > 20) continue;
           if (!cornerClear(a, c, block) || !cornerClear(c, b, block)) continue;
           if (t > 0.01) path.push({ track: segment(a, c), dir: 1 });
           if (Math.hypot(b.x - c.x, b.z - c.z) > 0.01) path.push({ track: segment(c, b), dir: 1 });
@@ -466,12 +561,97 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable, configureCro
     return result;
   }
 
+  function fallbackPaths(track, dir) {
+    const end = dir > 0 ? 1 : 0, a = point(track, end), n = end ? track.to : track.from;
+    const block = blockAt(a.x, a.z), result = [];
+    if (!block || !n) return result;
+    const candidates = ports(n).concat((islandPorts.get(block) || []).filter((p) => p.track.node !== n));
+    for (const port of candidates) {
+      const next = port.track, nextDir = port.end ? -1 : 1;
+      if (next === track || (track.arm && next.arm === track.arm)) continue;
+      const b = point(next, port.end), distance = Math.hypot(b.x - a.x, b.z - a.z);
+      const targetBlock = blockAt(b.x, b.z);
+      if (distance <= 0.01 || distance > DIRECT_MAX || !targetBlock) continue;
+      if (targetBlock === block ? !clear(a, b, block) : distance > 16 || !clearGap(a, b)) continue;
+      if (!clearHazards(a, b) || !withinBlockEdge(a, b, block, DIRECT_CORRIDOR)) continue;
+      result.push([{ track: segment(a, b), dir: 1 }, { track: next, dir: nextDir }]);
+    }
+    for (const port of candidates) {
+      const next = port.track, nextDir = port.end ? -1 : 1;
+      if (!next.node || next === track || (track.arm && next.arm === track.arm)) continue;
+      const b = point(next, port.end), distance = Math.hypot(b.x - a.x, b.z - a.z);
+      if (distance <= 0.01 || distance > 32 || !clearGap(a, b)) continue;
+      if (!clearHazards(a, b) || !withinBlockEdge(a, b, block, DIRECT_CORRIDOR)) continue;
+      result.push([{ track: segment(a, b), dir: 1 }, { track: next, dir: nextDir }]);
+    }
+    const near = [], seenEdges = new Set();
+    const cells = indexStreets();
+    const ix0 = Math.floor((a.x - FALLBACK_MAX) / 64), ix1 = Math.floor((a.x + FALLBACK_MAX) / 64);
+    const iz0 = Math.floor((a.z - FALLBACK_MAX) / 64), iz1 = Math.floor((a.z + FALLBACK_MAX) / 64);
+    for (let ix = ix0; ix <= ix1; ix++) for (let iz = iz0; iz <= iz1; iz++) {
+      for (const e of cells.get(ix * 100000 + iz) || []) {
+        if (seenEdges.has(e)) continue;
+        seenEdges.add(e);
+        for (const q of along(e)) {
+          if (q === track || !q.edge) continue;
+          const proj = Math.max(0, Math.min(q.len, (a.x - q.ax) * q.ux + (a.z - q.az) * q.uz));
+          if (proj <= 0.01 || proj >= q.len - 0.01) continue;
+          const x = q.ax + q.ux * proj, z = q.az + q.uz * proj;
+          const distance = Math.hypot(a.x - x, a.z - z);
+          if (distance > FALLBACK_MAX) continue;
+          const targetBlock = blockAt(x, z);
+          if (!targetBlock) continue;
+          near.push({ q, proj, x, z, distance, targetBlock });
+        }
+      }
+    }
+    near.sort((p, q) => p.distance - q.distance);
+    let added = 0;
+    for (const c of near) {
+      if (added >= 4) break;
+      if (c.targetBlock === block) {
+        if (!clear(a, { x: c.x, z: c.z }, block) ||
+            !withinBlockEdge(a, { x: c.x, z: c.z }, block, FALLBACK_CORRIDOR)) continue;
+      } else if (!clearGap(a, { x: c.x, z: c.z })) continue;
+      if (!clearHazards(a, { x: c.x, z: c.z }) ||
+          !withinBlockEdge(a, { x: c.x, z: c.z }, block, FALLBACK_CORRIDOR)) continue;
+      added++;
+      const q = c.q, extra = { edge: q.edge, block: q.block, blockTo: q.blockTo, underpass: q.underpass };
+      const connector = c.distance > 0.01 ? [{ track: segment(a, { x: c.x, z: c.z }), dir: 1 }] : [];
+      if (c.proj > 0.01) {
+        const sub = segment({ x: c.x, z: c.z }, point(q, 0), { ...extra, from: q.from, to: null });
+        result.push([...connector, { track: sub, dir: -1 }]);
+      }
+      if (q.len - c.proj > 0.01) {
+        const sub = segment({ x: c.x, z: c.z }, point(q, 1), { ...extra, from: null, to: q.to });
+        result.push([...connector, { track: sub, dir: 1 }]);
+      }
+    }
+    return result;
+  }
+
+  function links(track, dir) {
+    let ends = connections.get(track);
+    if (!ends) connections.set(track, ends = []);
+    const end = dir > 0 ? 1 : 0;
+    if (ends[end]) return ends[end];
+    const result = ends[end] = baseLinks(track, dir);
+    if (!result.length && track.node) result.push(...fallbackPaths(track, dir));
+    return result;
+  }
+
   function next(track, dir, goalX, goalZ) {
     let best = null, bestScore = -Infinity;
     const a = point(track, dir > 0 ? 1 : 0);
     const gx = goalX - a.x, gz = goalZ - a.z, distance = Math.hypot(gx, gz) || 1;
     for (const path of links(track, dir)) {
       const last = path[path.length - 1], target = last.track;
+      // A crossing whose far end lands on a known block with no way off it (a park edge with no sidewalk track) is no
+      // route: walkers would cross, find nothing, turn round and cross straight back, forever (the Droga Dębińska
+      // sinks in the record). An unknown landing (no block) keeps the old behaviour for sparse or synthetic graphs.
+      const landing = target.node ? point(target, last.dir > 0 ? 1 : 0) : null;
+      if (landing && Array.isArray(target.node.in) && blockAt(landing.x, landing.z) &&
+          !links(target, last.dir).length) continue;
       const ux = target.ux * last.dir, uz = target.uz * last.dir;
       const back = ux * track.ux * dir + uz * track.uz * dir < -0.8;
       const score = (ux * gx + uz * gz) / distance + Math.random() * 0.7 - (back ? 2 : 0);
@@ -530,6 +710,7 @@ function createPedestrianRoutes({ nodes = [], edges = [], walkable, configureCro
   // every crosswalk kept, for road-paint.js: { node, side, group, ax, az, bx, bz (the zebra's ends, at the curbs),
   // ux, uz (out of the junction), span, tracks }
   layOut();
+  indexStreets();
   if (configureCrosswalks) configureCrosswalks(crosswalks);
   return { along, across, next, crosswalks, segments, segmentsNear };
 }

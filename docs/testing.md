@@ -6,7 +6,7 @@ as ESM without a package.json depends on Node's automatic module-syntax detectio
 
 ## Commands (verified)
 
-- Full suite: `node --test tests/`. 296 tests, about 40 s (2026-10-31). Most time is spent in `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`, and the five-minute traffic-flow regression.
+- Full suite: `node --test tests/`. 393 tests, about 50 s (2026-11-05). Most time is spent in `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`, the five-minute traffic-flow regression, and the signal-head and pedestrian-route audits.
 - Quick loop that skips the geodata rebuild: `node --test tests/*.cjs` (about 9 s, most of it `road-network`, `tram-infra` and `tram-clearance` building the network and the street furniture on the real Poznań graph, and `buildings-density` running `buildCityBlocks` twice).
 - One file: `node --test tests/cameras.test.cjs`. Running `node tests/cameras.test.cjs` directly also works.
 - By test name: `node --test --test-name-pattern="police" tests/`
@@ -102,6 +102,19 @@ Behaviour to know when writing a test:
 ## Pedestrian benchmark
 
 `node tools/benchmark-pedestrians.mjs /abs/path/to/three/build/three.core.js` (or set `THREE_CORE_PATH`). You need a local three.js build, because the repo has none (any npm `three` package's `build/three.core.js` works). Verified run: about 7 s. It prints JSON with the ms per frame for 340 rigs, before and after, plus the reduction percentage. It first asserts that deferring the pose solve for hidden rigs gives bit-identical gait and poses, so it doubles as a correctness check after `PersonRig` changes. It loads `js/pedestrians.js` through `loadModule` with stubs only for `'three/webgpu'`, `'three/tsl'` and `'three/addons/utils/BufferGeometryUtils.js'`. It also builds its baseline by replacing the literal `if (updatePose) this.solve();`. If you add an import to `pedestrians.js`, add a stub here. If you change that line, update the replacement.
+
+## Pedestrian overlap audit
+
+`node tools/audit-ped-overlaps.mjs` runs the real pedestrians, traffic and trams headless with the camera parked at
+Centrum, Stare Miasto, Jeżyce, Łazarz, Wilda, Rataje, Rondo Kaponiera and Poznań Główny. Defaults are 3 simulated minutes
+per focus point at 15 fps and seed 4242; the record below also used seed 77 (`--minutes`, `--fps`, `--seeds`, `--only`,
+`--json` override them). After
+20 s it samples once per simulated second: an overlapping pair is two placed peds with centres under 0.5 m apart, a
+cluster is a connected group of at least four such peds lasting over 5 s, and it also reports citywide overlapping pairs
+per second and crosswalk entries per minute so throughput is visible. Each cluster lists its centroid, street name,
+member states, route positions, spawn origins and age. It uses the benchmark's headless world and omissions. Results are
+in [observations/ped-overlaps-2026-11-05.md](observations/ped-overlaps-2026-11-05.md); no test runs the whole audit, but
+`tests/pedestrian-route-sinks.test.cjs` covers the route-side regression on the bare network.
 
 ## Traffic benchmark
 
@@ -214,6 +227,6 @@ and runtime use the same search, including actual lanes, turn samples, crossing 
 sidewalk, corner and refuge segments. The headless fixture uses live park/plaza data but omits building, landmark and
 bridge colliders. The browser includes them, so candidate sites and counts can differ. The audit checks geometry, not
 visual occlusion, and C does not rule out unsampled sites. `tests/signal-audit.test.cjs` checks before and after counts
-(91/0/66/10, hash `be49d567...`); `signal-placement.test.cjs` rebuilds the network with the new footprints and compares
+(91/0/66/10, hash `85648549...`); `signal-placement.test.cjs` rebuilds the network with the new footprints and compares
 lanes, crossings and pedestrian segments and their route connections near the new poles, as well as phase, facing,
 setbacks, reused pole curbside bounds (`lateral <= half + 2.6 m`), colliders and audio registrations.
