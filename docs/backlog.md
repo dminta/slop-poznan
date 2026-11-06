@@ -4,6 +4,29 @@ Updated 2026-11-04. The port and documentation cleanup are implemented; the rema
 Implementation details live in the [topic docs](../AGENTS.md#docs). Original phase numbers refer to the
 [archived port plan](archive/poznan-plan.md), which retains historical measurements and decisions.
 
+## Historic Poznań landmarks added (2026-11-05)
+
+11 characteristic, visually distinctive Poznań buildings/landmarks inside the current detail box modeled in
+`js/landmarks-historic.js`, calibrated against GUGiK ISOK LiDAR DSM − DTM measurements (documented in
+[`docs/observations/landmarks-2026-11-05.md`](observations/landmarks-2026-11-05.md)):
+- **Biblioteka Raczyńskich** (Plac Wolności): classicist palace with 24-column Corinthian colonnade, 18.6 m.
+- **Pałac Działyńskich** (Stary Rynek 78): late Baroque-Classicist palace crowned by pelican sculpture, 22.25 m.
+- **Hotel Bazar** (Al. Marcinkowskiego / Paderewskiego): historic hotel with copper dome rotunda and mansard, 24.4 m.
+- **Muzeum Narodowe** (Al. Marcinkowskiego 9): monumental neo-Renaissance museum with loggia and attic pavilion, 26.0 m.
+- **Teatr Polski** (ul. 27 Grudnia): classicist theatre with Corinthian temple portico and pediment, 23.9 m.
+- **Collegium Maius UAM** (ul. Fredry 10): monumental Neo-baroque former Ansiedlungskommission palace with copper dome, 36.4 m.
+- **Kościół św. Franciszka Serafickiego (Bernardyni)**: twin Baroque towers with copper helms, 44.7 m.
+- **Kościół św. Antoniego Padewskiego (Franciszkanie)**: twin octagonal copper spires and volute facade on Przemysł Hill, 32.6 m.
+- **Kościół Najświętszej Marii Panny in Summo**: 15th-century Gothic brick church on Ostrów Tumski with tracery gables, 28.8 m.
+- **Kościół św. Wojciecha**: Gothic church on Wzgórze św. Wojciecha with Renaissance gable and wooden belfry, 23.9 m.
+- **Kościół Bożego Ciała**: 14th-century Gothic brick basilica with stepped pinnacle gable and copper flèche, 39.5 m.
+
+Each landmark replaces the generic OSM building on its site with player colliders (+17 colliders, 0 generic collisions).
+Flat per-frame cost: buildHistoricLandmarks 0.6–0.7 ms; +1 draw after batching; +3.1k triangles; 0 per-frame allocation.
+Registered in `LANDMARK_SITES` and `CITY_LANDMARKS` with Polish diacritics and district assignment.
+Browser checks open: visual appearance, material finish (sandstone, brick, copper patina, zinc, tiles), silhouette against the sky,
+and player collision around facades and entrances in both WebGPU and WebGL2.
+
 ## Kaponiera tram-box regression fixed (2026-11-05)
 
 The buffer spawn gate of `7566c2a` ("Clear tram queues at the detail-box buffers without emptying the edges") raised the
@@ -620,8 +643,10 @@ See the [signal observation record](observations/signals-2026-10-30.md) for setu
 - 2026-11-03 changes, all verified headless only: park lamps along ulica Za Cytadelą and the lamps stepped onto the
   lawn in narrow-walk parks (e.g. block 212 near `−953, −1928`); trees by Avenida and in park blocks with buildings
   (Park Nad Wartą, Antoninek block 874); the corrected Iglica, Delta, Brama Poznania and Zamek Królewski heights.
-- 2026-11-05 change, verified headless only: tram beds without sleepers (plain stone, no shader errors; the mainline
-  railway still shows its sleepers).
+- 2026-11-05 changes, verified headless only: tram beds without sleepers (plain stone, no shader errors; the mainline
+  railway still shows its sleepers); the 11 new historic landmarks (Biblioteka Raczyńskich, Pałac Działyńskich,
+  Hotel Bazar, Muzeum Narodowe, Teatr Polski, Collegium Maius, Kościół Bernardynów, Kościół Franciszkanów,
+  Kościół NMP in Summo, Kościół św. Wojciecha, Kościół Bożego Ciała).
 
 For each implemented fix, record the before/after measurement, run the relevant regression checks, and state
 which browser checks were actually performed. Keep unresolved items here rather than reopening archived phase notes.

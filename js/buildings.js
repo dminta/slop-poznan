@@ -2248,7 +2248,10 @@ function buildCityBlocks(scene) {
     'Ratusz', 'Wieża Wójtowska', 'Domki Budnicze', 'Fara', 'Zamek Królewski', 'Katedra', 'Brama Poznania',
     'Zamek Cesarski', 'Bałtyk', 'Okrąglak', 'Collegium Minus', 'Teatr Wielki', 'Pomnik Czerwca 1956', 'Poznań Główny',
     'Stary Dworzec', 'Avenida', 'Stary Browar', 'Iglica', 'Collegium Altum', 'Andersia', 'Poznań Financial Centre',
-    'Novotel', 'AND2', 'Nowy Rynek', 'Delta'
+    'Novotel', 'AND2', 'Nowy Rynek', 'Delta',
+    'Biblioteka Raczyńskich', 'Pałac Działyńskich', 'Hotel Bazar', 'Muzeum Narodowe', 'Teatr Polski',
+    'Collegium Maius', 'Kościół Bernardynów', 'Kościół Franciszkanów', 'Kościół Najświętszej Marii Panny',
+    'Kościół św. Wojciecha', 'Kościół Bożego Ciała'
   ].map((name) => {
     const t = LANDMARK_SITES[name];
     if (!t) return null;

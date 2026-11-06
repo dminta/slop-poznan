@@ -6,6 +6,7 @@ import { buildHeritageLandmarks } from './landmarks-heritage.js';
 import { buildCentrumLandmarks } from './landmarks-centrum.js';
 import { buildDworzecLandmarks } from './landmarks-dworzec.js';
 import { buildTowerLandmarks } from './landmarks-towers.js';
+import { buildHistoricLandmarks } from './landmarks-historic.js';
 
 // js/landmarks.js
 // Hand-modelled Poznań landmarks, each fitted onto its real OpenStreetMap lot (city-config.js LANDMARK_SITES). The
@@ -28,7 +29,8 @@ function buildLandmarks(scene) {
     buildHeritageLandmarks(ctx),
     buildCentrumLandmarks(ctx),
     buildDworzecLandmarks(ctx),
-    buildTowerLandmarks(ctx)
+    buildTowerLandmarks(ctx),
+    buildHistoricLandmarks(ctx)
   ].filter(Boolean);
 
   emitFacadeBoxes(group, M.boxLocalTwins);

@@ -48,6 +48,7 @@ function setupTestWorld() {
       './landmarks-heritage.js': loadModule(source('landmarks-heritage'), { imports: { ...rendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
       './landmarks-centrum.js': loadModule(source('landmarks-centrum'), { imports: { ...rendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
       './landmarks-dworzec.js': loadModule(source('landmarks-dworzec'), { imports: { ...rendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
+      './landmarks-historic.js': loadModule(source('landmarks-historic'), { imports: { ...rendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
       './landmarks-towers.js': loadModule(source('landmarks-towers'), { imports: { ...rendering, './city-config.js': config, './landmark-kit.js': kit }, globals })
     },
     globals

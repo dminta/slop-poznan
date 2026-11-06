@@ -106,6 +106,7 @@ async function runAudit() {
       './landmarks-heritage.js': loadModule(source('landmarks-heritage'), { imports: { ...landmarkRendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
       './landmarks-centrum.js': loadModule(source('landmarks-centrum'), { imports: { ...landmarkRendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
       './landmarks-dworzec.js': loadModule(source('landmarks-dworzec'), { imports: { ...landmarkRendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
+      './landmarks-historic.js': loadModule(source('landmarks-historic'), { imports: { ...landmarkRendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
       './landmarks-towers.js': loadModule(source('landmarks-towers'), { imports: { ...landmarkRendering, './city-config.js': config, './landmark-kit.js': kit }, globals })
     },
     globals

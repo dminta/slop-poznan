@@ -204,7 +204,18 @@ const LANDMARK_ELEMENTS = {
   'Novotel': ['way/106179573'],
   'AND2': ['way/934950822'], // building=construction
   'Nowy Rynek': ['way/917582170'], // the 16-storey tower, taken to be Nowy Rynek E
-  'Delta': ['way/106179571'] // the old Delta office block (11 storeys), not Delta 4
+  'Delta': ['way/106179571'], // the old Delta office block (11 storeys), not Delta 4
+  'Biblioteka Raczyńskich': ['way/169874406'],
+  'Pałac Działyńskich': ['way/366976799'],
+  'Hotel Bazar': ['way/363880964'],
+  'Muzeum Narodowe': ['way/35276947'],
+  'Teatr Polski': ['way/104781039'],
+  'Collegium Maius': ['relation/1021065'],
+  'Kościół Bernardynów': ['way/439910263'],
+  'Kościół Franciszkanów': ['way/104781037'],
+  'Kościół Najświętszej Marii Panny': ['way/238040916'],
+  'Kościół św. Wojciecha': ['way/129682752'],
+  'Kościół Bożego Ciała': ['way/106179574']
 };
 // Heights (m) from §9.1 (pl.wikipedia / Wikidata: tower tops, spires, roof tops). These override OSM, whose height tags
 // here are eaves (Ratusz 16 vs a ≈ 61 m tower), a lower wing (Collegium Altum 16 vs 103.35) or junk (Katedra 0.1).
@@ -216,7 +227,10 @@ const LANDMARK_H = {
   'Pomnik Czerwca 1956': 21,
   'Fara': 40, 'Zamek Królewski': 43, 'Brama Poznania': 18, 'Teatr Wielki': 27, 'Collegium Minus': 27,
   'Domki Budnicze': 14.4, 'Wieża Wójtowska': 20.5, 'Poznań Główny': 13.6, 'Stary Dworzec': 19.3, 'Avenida': 25.3,
-  'Stary Browar': 42
+  'Stary Browar': 42,
+  'Biblioteka Raczyńskich': 18.6, 'Pałac Działyńskich': 22.25, 'Hotel Bazar': 24.4, 'Muzeum Narodowe': 26.0,
+  'Teatr Polski': 23.9, 'Collegium Maius': 36.4, 'Kościół Bernardynów': 44.7, 'Kościół Franciszkanów': 32.6,
+  'Kościół Najświętszej Marii Panny': 28.8, 'Kościół św. Wojciecha': 23.9, 'Kościół Bożego Ciała': 39.5
 };
 const LEVEL_H = 3.4;
 // No curated height, no plausible OSM height and no levels: a placeholder until nDSM heights

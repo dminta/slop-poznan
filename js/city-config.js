@@ -1115,7 +1115,18 @@ const CITY_LANDMARKS = [
   ['nowyrynek', 'Nowy Rynek', 'Nowy Rynek', 'Nowy Rynek', 'Wilda'],
   ['avenida', 'Avenida Poznań', 'Avenida', 'Avenida', 'Łazarz'],
   ['starydworzec', 'Stary Dworzec', 'Stary Dworzec', 'Stary Dworzec', 'Łazarz'],
-  ['delta', 'Biurowiec Delta', 'Delta', 'Delta', 'Centrum']
+  ['delta', 'Biurowiec Delta', 'Delta', 'Delta', 'Centrum'],
+  ['bibliotekaraczynskich', 'Biblioteka Raczyńskich', 'Biblioteka Raczyńskich', 'Biblioteka Raczyńskich', 'Stare Miasto'],
+  ['palacdzialynskich', 'Pałac Działyńskich', 'Pałac Działyńskich', 'Pałac Działyńskich', 'Stare Miasto'],
+  ['hotelbazar', 'Hotel Bazar', 'Bazar', 'Hotel Bazar', 'Stare Miasto'],
+  ['muzeumnarodowe', 'Muzeum Narodowe', 'Muzeum Narodowe', 'Muzeum Narodowe', 'Stare Miasto'],
+  ['teatrpolski', 'Teatr Polski', 'Teatr Polski', 'Teatr Polski', 'Centrum'],
+  ['collegiummaius', 'Collegium Maius UAM', 'Collegium Maius', 'Collegium Maius', 'Centrum'],
+  ['kosciolbernardynow', 'Kościół św. Franciszka Serafickiego (Bernardyni)', 'Kościół Bernardynów', 'Kościół Bernardynów', 'Stare Miasto'],
+  ['kosciolfranciszkanow', 'Kościół św. Antoniego Padewskiego (Franciszkanie)', 'Kościół Franciszkanów', 'Kościół Franciszkanów', 'Stare Miasto'],
+  ['kosciolnmp', 'Kościół Najświętszej Marii Panny', 'Kościół NMP', 'Kościół Najświętszej Marii Panny', 'Ostrów Tumski'],
+  ['kosciolswwojciecha', 'Kościół św. Wojciecha', 'Św. Wojciech', 'Kościół św. Wojciecha', 'Stare Miasto'],
+  ['kosciolbozegociala', 'Kościół Bożego Ciała', 'Boże Ciało', 'Kościół Bożego Ciała', 'Centrum']
 ].filter((r) => LANDMARK_SITES[r[3]]).map(([id, name, short, osm, district]) => {
   const s = site(osm, { x: 0, z: 0 });
   return { id, name, short, x: s.x, z: s.z, district };
