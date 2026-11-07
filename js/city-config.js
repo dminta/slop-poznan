@@ -583,8 +583,8 @@ function nearestRoads(x, z, radius = 60) {
 //   parkland, parkName, rect: the island is an axis-aligned rectangle (none is in Poznań's unturned frame),
 //   frames: lots laid out along the streets they front, [[θ, px, pz, rects], ...] (rects in a frame turned by θ about
 //   (px, pz): world = p + R_y(θ)·(local − p)), or null; built: share of the island under real OSM building footprints
-//   (0..1), levels: area-weighted median building:levels of its OSM buildings (0 if none tagged), buildings: their count
-//   (GEO.blockStats)
+//   (0..1), levels: area-weighted median building:levels of its OSM buildings (0 if none tagged), buildings: their count,
+//   program: 0 none, 1 hospital/clinic campus, 2 university campus (GEO.blockStats, from OSM building tags)
 // ---------------------------------------------------------------------------------------------------------------------
 const BLOCKS = GEO.blocks.map(([flat, rects, park, parkName, isRect, frames], id) => {
   const poly = toPts(flat);
@@ -597,9 +597,9 @@ const BLOCKS = GEO.blocks.map(([flat, rects, park, parkName, isRect, frames], id
   }
   a *= 0.5;
   const area = Math.abs(a);
-  const [built, levels, buildings] = GEO.blockStats[id];
+  const [built, levels, buildings, program = 0] = GEO.blockStats[id];
   return {
-    id, poly, rects, frames: frames || null, park, parkName, rect: !!isRect, area, built, levels, buildings,
+    id, poly, rects, frames: frames || null, park, parkName, rect: !!isRect, area, built, levels, buildings, program,
     minX, maxX, minZ, maxZ,
     cx: a ? cx / (6 * a) : (minX + maxX) / 2,
     cz: a ? cz / (6 * a) : (minZ + maxZ) / 2,

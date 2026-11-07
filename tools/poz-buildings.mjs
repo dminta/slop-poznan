@@ -11,8 +11,9 @@
 // - Each building belongs to the block under its area centroid; when that falls off every block (on a sidewalk cut, a
 //   service lane or outside the box), to the block holding most of its cells.
 //
-// Exports: blockStats [[built share, median levels, buildings], ...] aligned with poz-blocks `blocks`; buildingMask
-// (Uint8Array over blockRaster, 1 = under a counted footprint); buildings [{ id, levels, cells, cx, cz, label }].
+// Exports: blockStats [[built share, median levels, buildings, program], ...] aligned with poz-blocks `blocks` (program
+// 0 none, 1 hospital/clinic campus, 2 university campus, from building tags and names); buildingMask (Uint8Array over
+// blockRaster, 1 = under a counted footprint); buildings [{ id, levels, use, cells, cx, cz, label }].
 import { load, log, toWorld } from './poz-base.mjs';
 import { elemRings, ringArea, scanRings } from './geo-util.mjs';
 import { blocks, blockRaster as R, blockLabels as lab } from './poz-blocks.mjs';
@@ -31,6 +32,19 @@ const parseLevels = (v) => {
   if (!v) return 0;
   const n = Math.max(...String(v).split(/[;,-]/).map((s) => parseFloat(s)).filter((x) => x > 0 && x < 100));
   return Number.isFinite(n) ? n : 0;
+};
+
+// Building use for the campus profile: 1 hospital/clinic, 2 university/college, 0 other. OSM tags the large hospital
+// campuses either as building=hospital or by name (Szpital, Klinika, Collegium); a block with a single hospital
+// building still counts when it is a large, sparsely built campus (see the program threshold below)
+const HOSPITAL_NAME = /szpital|klinik|przychodni|centrum medyczne|ambulator|sanatori/i;
+const UNIVERSITY_NAME = /collegium|uniwers|uczel|akadem|politechnik|instytut/i;
+const buildingUse = (t) => {
+  const name = `${t.name || ''} ${t['name:pl'] || ''}`;
+  if (t.building === 'hospital' || t.amenity === 'hospital' || t.healthcare === 'hospital' || HOSPITAL_NAME.test(name)) return 1;
+  if (t.building === 'university' || t.building === 'college' || t.building === 'dormitory' ||
+    t.amenity === 'university' || t.amenity === 'college' || t.office === 'university' || UNIVERSITY_NAME.test(name)) return 2;
+  return 0;
 };
 
 const W = R.w, H = R.h;
@@ -71,7 +85,8 @@ for (const e of osm.elements) {
     let best = 0;
     for (const [L, n] of byLabel) if (n > best) { best = n; label = L; }
   }
-  buildings.push({ id: e.id, levels, cells, area: Math.abs(outer.reduce((t, r) => t + ringArea(r), 0)), cx, cz, label });
+  buildings.push({ id: e.id, levels, use: buildingUse(e.tags || {}), cells,
+    area: Math.abs(outer.reduce((t, r) => t + ringArea(r), 0)), cx, cz, label });
 }
 
 // --- Per-block stats -----------------------------------------------------------------------------------------------
@@ -95,7 +110,15 @@ const medianLevels = (list) => {
 };
 const blockStats = blocks.map((b) => {
   const list = inBlock.get(b.label) || [];
-  return [Math.min(1, Math.round(((builtByLabel.get(b.label) || 0) / b.area) * 100) / 100), medianLevels(list), list.length];
+  const built = Math.min(1, Math.round(((builtByLabel.get(b.label) || 0) / b.area) * 100) / 100);
+  const hospitals = list.filter((x) => x.use === 1).length;
+  const universities = list.filter((x) => x.use === 2).length;
+  // A campus needs two tagged public buildings, or one hospital building on a 4-40 ha block that is otherwise
+  // sparsely built (some Poznań hospitals tag only one wing). University blocks in the fairground keep FAIRGROUND
+  const program = hospitals >= 2 || (hospitals === 1 && b.area >= 40000 && b.area <= 400000 && built <= 0.25 && list.length >= 30)
+    ? 1
+    : universities >= 2 ? 2 : 0;
+  return [built, medianLevels(list), list.length, program];
 });
 
 const emitted = new Set(blocks.map((b) => b.label));

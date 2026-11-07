@@ -32,7 +32,7 @@ GEO_DATA=/some/dir node ... tools/build-poznan.mjs                # read inputs 
 
 ## Output shape and consumers
 - `GEO` has these keys: `version` (2), `frame{bearingDeg, origin, lat0, lon0, units, strip, sidewalk, detailBox, ll}`, `land`, `landHoles`, `water`, `outskirts`, `outskirtsHoles`, `districts`, `labels`, `roads`, `roadGraph`, `rail`, `levelCrossings`, `tramRoutes`, `tramStops`, `plazas`, `blocks`, `blockStats`, `parks`, `landmarks`. The positional tuple layouts of `roads`, `roadGraph.links`, `blocks` and `blockStats` are documented in comments next to the `GEO` literal in `build-poznan.mjs`. Keep those comments in sync when you change a layout.
-- `js/city-config.js` is the main consumer. It turns `GEO` into `{x, z}` rings and named exports: `LAND_RINGS`/`LAND_HOLES`, `WATER`, `OUTSKIRTS`/`OUTSKIRTS_HOLES`, `RAIL`, `PLAZAS`, `DISTRICTS` (`districtAt`), `BRIDGES` (the bridge-flagged graph links chained per name), `SIGNAL_SITES` (from `roadGraph.signals`, with each junction's arms), `roadClearance` (distance outside the road graph's runs, for street furniture), `ROADS`, `BLOCKS` (each with `built`, `levels` and `buildings` from `GEO.blockStats`), `LANDMARK_SITES`, and the land raster behind `isLand`/`isWater`/`distToWater`/`clampToLand` (2 m cells; bridge decks count as land). Prefer those exports in runtime code. A few modules read `GEO` directly:
+- `js/city-config.js` is the main consumer. It turns `GEO` into `{x, z}` rings and named exports: `LAND_RINGS`/`LAND_HOLES`, `WATER`, `OUTSKIRTS`/`OUTSKIRTS_HOLES`, `RAIL`, `PLAZAS`, `DISTRICTS` (`districtAt`), `BRIDGES` (the bridge-flagged graph links chained per name), `SIGNAL_SITES` (from `roadGraph.signals`, with each junction's arms), `roadClearance` (distance outside the road graph's runs, for street furniture), `ROADS`, `BLOCKS` (each with `built`, `levels`, `buildings` and `program` from `GEO.blockStats`), `LANDMARK_SITES`, and the land raster behind `isLand`/`isWater`/`distToWater`/`clampToLand` (2 m cells; bridge decks count as land). Prefer those exports in runtime code. A few modules read `GEO` directly:
   - `road-network.js`: `roadGraph`
   - `city-grid.js`, `buildings.js`, `city-map.js`: `parks`, `plazas`, `frame`
   - `city-map.js`: `labels` (area names, placed by `kind`)
@@ -171,8 +171,10 @@ The build reads only the committed `poz_*.json` snapshots. The current output co
     the 2026-10-28 enlargement). The nearest-edge loop of `blockFrames` uses a bbox prefilter.
   - `poz-buildings.mjs`: the building footprints rasterised on the block raster (outer minus inner rings), giving
     `blockStats`: per block the built share of the curb island, the area-weighted median `building:levels` of the
-    buildings whose centroid lies in it (else the block holding most of their cells), and their count. `building=roof`
-    (555 canopies) and `building=no` are skipped, and a way that is also a building relation's outer is counted once.
+    buildings whose centroid lies in it (else the block holding most of their cells), their count, and `program`
+    (0 none, 1 hospital/clinic campus, 2 university campus, from `building`, `amenity`, `healthcare`, `office` and
+    names such as Szpital, Klinika, Collegium or Uniwersytet). `building=roof` (555 canopies) and `building=no` are
+    skipped, and a way that is also a building relation's outer is counted once.
     The footprints are not emitted. Historical measurement on 2026-10-28 over the 8.2 × 5.7 km box: 23,527 footprints (1,038 roof/no skipped),
     `building:levels` on 85 %; 20,142 in a block, 800 of 1,422 blocks held one at that measurement; 6.60 km² built of 39.88 km² of block
     land (17 %). (6.1 × 3.7 km box: 14,287 footprints, 10,401 in a block, 480 of 796 blocks; 3.67 of 18.75 km², 20 %.)

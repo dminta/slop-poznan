@@ -56,23 +56,20 @@ Implementation details and completed measurements live in the [topic docs](../AG
 - **Building accuracy (4.4, 7):** the Fara front gable/cross and the Teatr Wielki portico/Pegasus now use GUGiK
   NMPT − NMT sub-heights; only the four Fara niche statues (below the 1 m DSM resolution) remain visual estimates.
   [Height audit](observations/landmark-heights-2026-11-03.md#2026-11-07--refined-fara-and-teatr-sub-heights).
-- **Building density and campus/pavilion complexes (Bukowska, hospital/academic grounds):** building density along
-  Bukowska, Marcelińska and parts of Grunwald/Jeżyce appears noticeably lower than satellite and OSM data.
-  Five underlying causes:
-  1. Giant campus blocks: `poz-blocks.mjs` drops unnamed `highway=service`, so large hospital and university campuses
-     (e.g. Block 666 Szpital Święcickiego: 16.2 ha, 77 OSM buildings; Block 577 Szpital Jonschera: 8.6 ha, 54 buildings;
-     Block 427/476 Ogrody/UMP: 9.9/9.3 ha; Block 770 MTP: 29.8 ha) form single massive blocks without interior streets.
-  2. Lot rect coverage: `maskRects` caps at 8 rects, covering only 60–75% of irregular campus interiors; the rest
-     stays empty.
-  3. Perimeter kamienice mismatch: `blockProfile` defaults Jeżyce/Łazarz to `RES_KAMIENICE`. For blocks with built
-     share under 22.4% ($q < 0.8$), `steerProfile` sets `out.noCore = true` and `inner = [['yard', 1]]`, turning the
-     entire 100–150 m deep block interior into flat bare yards instead of generating hospital pavilions or clinics.
-  4. Detail box boundary: `detailBox` ends at $x = -3675.4$ (Bukowska / Bułgarska / Polska). Everything west (King
-     Cross Marcelin, Business Garden, Ławica airport terminal) lies in `outskirts`, with a 90 m buffer where no
-     buildings spawn.
-  5. OSM vs BDOT10k: verify if campus footprints or storeys are under-mapped in OSM against GUGiK BDOT10k (`OT_BUBD_A`).
-  Follow-up: introduce a pavilion/campus profile for hospital and university grounds, allow named/major service cuts
-  or inner-lot rect grids in blocks > 5 ha, and evaluate the western detail box transition.
+- **Building density and campus/pavilion complexes (Bukowska, hospital/academic grounds):** the campus profile and the
+  graduated core for large blocks are in (2026-11-07): blocks 666, 577, 427 and 476 now sit within ±20% of their OSM
+  built share (666 14.9 → 20.6% against 21%, 577 47.7 → 36.4% against 37%, 427 23.8 → 22.5% against 22%, 476 15.4 →
+  14.5% against 15%), and real hospital blocks 807 and 1121 land at 19.7/21 and 16.7/18%. Remaining:
+  1. Unnamed `highway=service` cuts: still dropped globally (stamping all cut 1,154 blocks against 802, mostly slivers);
+     a named/major-service rule inside blocks over 5 ha is untried and needs a block-raster rebuild.
+  2. `maskRects` still caps at 8 lot rects; the uncovered share of irregular campus interiors after the profile change
+     was not measured, and a higher cap would alter lot rectangles and block-based clearance tests.
+  3. The western `detailBox` edge at x = −3,675.4 still leaves King Cross, Business Garden and Ławica in the coarse
+     outskirts; moving it needs new snapshots and an outskirts re-check.
+  4. OSM vs BDOT10k is closed for the current snapshot: the 36 large sparse blocks show no omission (BDOT exceeds OSM
+     by at most 0.08 pp), and the Bukowska campuses are not sparse blocks.
+  [Density record and measurements](observations/building-density-2026-11-07.md),
+  [sparse-block BDOT audit](observations/sparse-blocks-2026-11-04.md),
   [Density test harness](tests/buildings-density.test.cjs),
   [Phase 14 archive](archive/poznan-plan.md#phase-14-real-building-density-from-osm).
 - **Merge starvation and short-link left turns:** the 2026-11-07 Centrum seed 99 10-minute hold (`waitMax`/`longestHeld`

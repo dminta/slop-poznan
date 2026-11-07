@@ -1699,6 +1699,125 @@ function buildCityBlocks(scene) {
     }
   }
 
+  // Hospital and university campuses: institutional blocks along the streets and a loose grid of clinics and
+  // institutes inside, with 12-18 m service alleys between them. `cfg.share` is the block's real OSM built share over
+  // its lot area (steerProfile), so each lot rect builds its target: the frontage takes up to 60% of that budget and
+  // the core pavilions the rest. Before this, a 16 ha hospital block in Łazarz/Grunwald built 14.9% against 21% real.
+  function campusBuilding(blk, r, cfg) {
+    const b = building(blk, pickW(cfg.mats), r);
+    const floors = irange(cfg.floors[0], cfg.floors[1]);
+    const body = mass(b, [r], 0, floors);
+    if (chance(cfg.pitched || 0)) pitch(body, pickW([['gable', 2], ['hip', 1]]), pickW([['tile', 2], ['slate', 1]]),
+      rectW(r) >= rectD(r) ? 'x' : 'z', range(32, 40));
+    commit(blk, b, { cornice: !chance(cfg.pitched || 0), hvac: 'small', hvacH: range(2.4, 3.2), skylights: true,
+      shops: 'none', awnings: false, freestanding: true, balconies: cfg.program === 2 && chance(0.5) });
+  }
+  // Pavilions on a 12-18 m alley grid over C, filling at most `budget` m² of footprint; returns the area built
+  function campusPavilions(blk, C, cfg, budget) {
+    const W = rectW(C);
+    const D = rectD(C);
+    if (Math.min(W, D) < 8 || budget <= 0) return 0;
+    const alongX = W >= D;
+    const len = alongX ? W : D;
+    const wid = alongX ? D : W;
+    const alley = Math.min(16, Math.max(9, wid * 0.2));
+    const rows = Math.max(1, Math.min(4, Math.floor((wid + alley) / (20 + alley))));
+    const dep = Math.min(30, (wid - (rows - 1) * alley) / rows);
+    if (dep < 7) return 0;
+    const at = (u0, u1, v0, v1) => (alongX
+      ? rect(C.x0 + u0, C.x0 + u1, C.z0 + v0, C.z0 + v1)
+      : rect(C.x0 + v0, C.x0 + v1, C.z0 + u0, C.z0 + u1));
+    const v0 = (wid - rows * dep - (rows - 1) * alley) * 0.5;
+    const minW = Math.min(16, Math.max(8, wid * 0.8));
+    let spent = 0;
+    for (let k = 0; k < rows && spent < budget; k++) {
+      const v = v0 + k * (dep + alley);
+      let u = range(1, 6);
+      while (len - u >= minW && spent < budget) {
+        let w = range(24, 48);
+        if (len - u - w < minW) w = len - u - range(1, 5);
+        if (w < minW) break;
+        if (spent + w * dep > budget) {
+          const fit = (budget - spent) / dep;
+          if (fit < minW) break;
+          w = fit;
+        }
+        campusBuilding(blk, at(u, u + w, v, v + dep), cfg);
+        spent += w * dep;
+        u += w + range(10, 16);
+      }
+    }
+    return spent;
+  }
+  // One small clinic, hall or workshop on a sliver, sized to exactly the remaining campus budget
+  function campusShed(blk, C, cfg, budget) {
+    const W = rectW(C), D = rectD(C);
+    if (budget < 40 || Math.min(W, D) < 6) return 0;
+    const alongX = W >= D;
+    const len = alongX ? W : D;
+    const wid = alongX ? D : W;
+    let w = Math.min(len, Math.max(6, Math.min(14, budget / 6)));
+    let dep = Math.min(wid, budget / w);
+    if (dep < 5) {
+      dep = Math.min(wid, 5);
+      w = Math.min(len, budget / dep);
+    }
+    if (w < 5 || dep < 5) return 0;
+    const u = (len - w) * 0.5;
+    const v = (wid - dep) * 0.5;
+    const r = alongX
+      ? rect(C.x0 + u, C.x0 + u + w, C.z0 + v, C.z0 + v + dep)
+      : rect(C.x0 + v, C.x0 + v + dep, C.z0 + u, C.z0 + u + w);
+    const b = building(blk, pickW([[F.brick, 2], [F.cream, 2], [F.greyGreen, 1]]), r);
+    mass(b, [r], 0, irange(1, 2));
+    commit(blk, b, { cornice: false, skylights: true, shops: 'none', awnings: false, walls: WALL_KINDS.rear });
+    return w * dep;
+  }
+  function campusBlock(blk, cfg) {
+    const R = blockRect(blk);
+    blk.yards.push(insetAll(R, 1.5));
+    const W = rectW(R), D = rectD(R);
+    const budget = Math.max(0, (cfg.share || 0.25) * W * D);
+    // The frontage frames leave many 12-30 m slivers around a campus; the full alley grid cannot hold a pavilion
+    // there, but a single small clinic or hall can, as long as it fits in that piece's share of the campus budget
+    if (Math.min(W, D) < 24 || W * D < 2500) {
+      const core = insetAll(R, 1);
+      if (campusPavilions(blk, core, cfg, budget) === 0) campusShed(blk, core, cfg, budget);
+      return;
+    }
+    const fronts = SIDES.filter((s) => blk.front[s]).sort((a, b) => sideLen(R, b) - sideLen(R, a));
+    const depth = { n: 0, s: 0, w: 0, e: 0 };
+    for (const s of fronts) depth[s] = Math.min(sideDepth(R, s) * 0.55, range(16, 24));
+    const builtDepth = { n: 0, s: 0, w: 0, e: 0 };
+    let spent = 0;
+    const frontBudget = budget * 0.6;
+    const ns = fronts.includes('n') || fronts.includes('s');
+    for (const s of fronts) {
+      if (spent >= frontBudget || frontBudget < 16 * depth[s]) continue;
+      const along = s === 'n' || s === 's';
+      const a0 = along || !ns ? 0 : depth.n;
+      const a1 = along || !ns ? (along ? W : D) : D - depth.s;
+      let a = a0;
+      while (a1 - a >= 16 && spent < frontBudget) {
+        let w = range(24, 48);
+        if (a1 - a - w < 16) w = a1 - a - range(1, 5);
+        if (w < 16) break;
+        if (spent + w * depth[s] > frontBudget) {
+          const fit = (frontBudget - spent) / depth[s];
+          if (fit < 16) break;
+          w = fit;
+        }
+        campusBuilding(blk, sideRect(R, s, a, a + w, 0, depth[s]), cfg);
+        spent += w * depth[s];
+        builtDepth[s] = Math.max(builtDepth[s], depth[s]);
+        a += w + range(2, 6);
+      }
+    }
+    const core = rect(R.x0 + (builtDepth.w ? builtDepth.w + 8 : 3), R.x1 - (builtDepth.e ? builtDepth.e + 8 : 3),
+      R.z0 + (builtDepth.n ? builtDepth.n + 8 : 3), R.z1 - (builtDepth.s ? builtDepth.s + 8 : 3));
+    campusPavilions(blk, core, cfg, budget - spent);
+  }
+
   const LAYOUTS = {
     res: residentialBlock,
     rynek: residentialBlock, // with cfg.rynekRows on the frontages facing the square
@@ -1708,7 +1827,8 @@ function buildCityBlocks(scene) {
     projects: projectsBlock,
     lowrise: lowriseBlock,
     fair: fairBlock,
-    villas: villaBlock
+    villas: villaBlock,
+    campus: campusBlock
   };
 
   // ============================================================================
@@ -1803,6 +1923,13 @@ function buildCityBlocks(scene) {
   // Międzynarodowe Targi Poznańskie: exhibition halls 11-18 m tall in a grid of 12-18 m alleys, glass foyers on some,
   // 8 m forecourts along the streets. The fairground is one 29 ha curb island (the block under the Iglica)
   const FAIRGROUND = { kind: 'fair', hall: [45, 95], span: [35, 70], alley: [12, 18], h: [11, 18], forecourt: 8 };
+  // Hospital and university campuses (GEO.blockStats program, from OSM building tags): 2-5 storey clinics, institutes
+  // and halls of residence, flat roofs with plant rooms, a minority of the university buildings under tile or slate.
+  // The campus layout fills the whole block, not just its perimeter (see campusBlock)
+  const HOSPITAL = { kind: 'campus', program: 1, floors: [2, 5], pitched: 0.08,
+    mats: [[F.cream, 3], [F.greyGreen, 2], [F.glassSilver, 2], [F.sandstone, 1]] };
+  const UNIVERSITY = { kind: 'campus', program: 2, floors: [2, 4], pitched: 0.3,
+    mats: [[F.cream, 3], [F.sandstone, 2], [F.greyGreen, 2], [F.brick, 1]] };
 
   // Areas inside the osiedla, anchored on landmark sites (world metres)
   const siteAt = (name) => LANDMARK_SITES[name] || null;
@@ -1837,7 +1964,8 @@ function buildCityBlocks(scene) {
   // panel estates whose block is denser or lower than a slab estate take the kamienica profile. Before this, the generator built Główna at 2.5x
   // its real share and Rataje at 0.6x
   const KIND_SHARE = {
-    res: 0.28, rynek: 0.4, cesarska: 0.4, offices: 0.29, loft: 0.57, projects: 0.1, lowrise: 0.48, fair: 0.45, villas: 0.15
+    res: 0.28, rynek: 0.4, cesarska: 0.4, offices: 0.29, loft: 0.57, projects: 0.1, lowrise: 0.48, fair: 0.45, villas: 0.15,
+    campus: 0.3
   };
   const RES_KINDS = new Set(['res', 'rynek', 'cesarska']);
   // Villa layouts are steered exactly (villaBlock builds cfg.share of its lot rects): the block's real share over the
@@ -1859,6 +1987,12 @@ function buildCityBlocks(scene) {
       const lv = Math.round(b.levels);
       const villa = !lv ? cfg.kf.villa : lv <= 1 ? [1, 2] : lv === 2 ? [2, 2] : [2, 3];
       return { ...cfg, kf: { villa }, share: Math.min(VILLA_MAX, (T * b.area) / Math.max(1, srcLotArea)) };
+    }
+    // Campuses steer exactly like the villas: the block's real built share over the area of its lot rects. The layout
+    // spends that budget on the street frontage first, then on interior pavilions, so a 21% hospital block is not
+    // forced to 30% or left at the perimeter-only share the kamienica profile gave it
+    if (cfg.kind === 'campus') {
+      return { ...cfg, share: Math.min(0.55, (T * b.area) / Math.max(1, srcLotArea)), skipP: 0 };
     }
     const L = b.levels >= 2 ? Math.round(b.levels) : 0;
     let base = cfg;
@@ -1885,11 +2019,18 @@ function buildCityBlocks(scene) {
         // tighter light courts, yards 3 m wide
         if (q >= 1.3) out.dense = true;
       } else {
-        // Thinned from the inside out, so the streets keep their frontages: bare yards and no core buildings first;
-        // war gaps and vacant lots on the frontage only below 0.6 of the typical share (gaps first, the measured
+        // Thinned from the inside out, so the streets keep their frontages. Only very sparse blocks lose the core;
+        // between 0.5 and 0.8 the core keeps low pavilions and rear houses (the 100-150 m hospital and campus
+        // interiors of Bukowska and Marcelińska stayed bare yards when the cut was 0.8), and a quarter of it stays
+        // green. War gaps and vacant lots on the frontage only below 0.6 of the typical share (gaps first, the measured
         // shares came out the same but Św. Marcin and Kaponiera read as empty from the street)
-        out.inner = q < 0.8 ? [['yard', 1]] : [['yard', 3], ...(base.inner || INNER_RES).filter(([k]) => k !== 'yard')];
-        out.noCore = q < 0.8;
+        const fillCore = q >= 0.5 && q < 0.8 && b.area >= 50000 && b.buildings >= 20 && b.park <= 0.3;
+        out.inner = fillCore
+          ? [['pavilion', 2], ['rear', 1.5], ['works', 1], ['yard', 2]]
+          : q < 0.8
+            ? [['yard', 1]]
+            : [['yard', 3], ...(base.inner || INNER_RES).filter(([k]) => k !== 'yard')];
+        out.noCore = q < 0.8 && !fillCore;
         if (q < 0.6) {
           const f = Math.min(0.6, 0.6 - q);
           const w = others.reduce((t, [, x]) => t + x, 0);
@@ -1923,6 +2064,7 @@ function buildCityBlocks(scene) {
     const L = srcBlock && srcBlock.levels >= 2 ? srcBlock.levels : 0;
     const lv = srcBlock ? srcBlock.levels : 0;
     if (FAIR_BLOCK && srcBlock === FAIR_BLOCK) return FAIRGROUND;
+    if (srcBlock && srcBlock.program && srcBlock.park <= 0.5) return srcBlock.program === 2 ? UNIVERSITY : HOSPITAL;
     if (OFFICE_SITES.some((t) => Math.hypot(t.x - wx, t.z - wz) < OFFICE_REACH)) return OFFICES;
     if (inBox(CESARSKA_BOX, wx, wz)) return CESARSKA;
     if (blk.rynekSides) return RYNEK;

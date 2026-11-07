@@ -109,7 +109,7 @@ function districtShares(config, gen, district) {
   return { real: real / land, gen: ours / land };
 }
 
-test('villa districts and Chartowo come out near their real built share', async () => {
+test('villa districts, Chartowo and the hospital campuses come out near their real built share', async () => {
   const { config, city } = await buildCity();
   const gen = generatedByBlock(config, city);
   // Measured (generated / real, buildable blocks): Sołacz 12.7 / 12.9 %, Winiary 17.4 / 17.0, Ogrody 17.1 / 15.9,
@@ -120,6 +120,16 @@ test('villa districts and Chartowo come out near their real built share', async 
     const s = districtShares(config, gen, district);
     assert.ok(s.gen > s.real * 0.8 && s.gen < s.real * 1.2,
       `${district}: generated ${(100 * s.gen).toFixed(1)}% vs real ${(100 * s.real).toFixed(1)}%`);
+  }
+  // The campus blocks named in the backlog: 666 Szpital Święcickiego (21% real), 577 Szpital Jonschera (37%),
+  // 427/476 Ogrody/UMP (22/15%). The campus layout steers each to its block's real share instead of the
+  // perimeter-only kamienica/villa share: before it 666 was 14.9% and 577 47.7%
+  for (const id of [666, 577, 427, 476]) {
+    const b = config.BLOCKS[id];
+    assert.equal(b.program, 1, `block ${id} is a hospital campus`);
+    const share = (gen.get(id) || 0) / b.area;
+    assert.ok(share > b.built * 0.8 && share < b.built * 1.2,
+      `campus ${id}: generated ${(100 * share).toFixed(1)}% vs real ${(100 * b.built).toFixed(1)}%`);
   }
 });
 
@@ -241,8 +251,10 @@ test('balcony stacks city-wide count and distribution', async () => {
     stacks += b.balconies.length;
     for (const bal of b.balconies) landings += bal.landings;
   }
-  assert.ok(stacks > 15000 && stacks < 18000, `Expected ~16.5k stacks, got ${stacks}`);
-  assert.ok(landings > 45000 && landings < 52000, `Expected ~48k landings, got ${landings}`);
+  // Campus blocks replace kamienice with clinics and halls (balconies only on some university buildings), so the
+  // city-wide total sits a little below the pre-campus ~16.5k / 48k
+  assert.ok(stacks > 15000 && stacks < 18000, `Expected ~15-18k stacks, got ${stacks}`);
+  assert.ok(landings > 43000 && landings < 52000, `Expected ~44-52k landings, got ${landings}`);
 });
 
 test('streamed balcony stacks never exceed MAX_STACKS (2400) and keep comfortable margin', async () => {

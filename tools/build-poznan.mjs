@@ -95,7 +95,8 @@ const GEO = {
   blocks: blocks.map((b) => [flat(b.poly), b.rects.map((r) => r.map(q)), b.park || 0, b.parkName || '', b.rect ? 1 : 0,
     b.frames ? b.frames.map(([th, px, pz, rs]) => [Math.round(th * 1e4) / 1e4, q(px), q(pz), rs.map((r) => r.map(q))]) : 0]),
   // One per blocks entry, same order: [built share of the curb island under OSM building footprints (0..1), area-weighted
-  // median building:levels of the buildings centred in it (0 if none tagged), building count] (poz-buildings.mjs)
+  // median building:levels of the buildings centred in it (0 if none tagged), building count, program (0 none, 1
+  // hospital/clinic campus, 2 university campus)] (poz-buildings.mjs)
   blockStats,
   parks,
   // { name: { x, z, w, d, h, area, ring, ang } }: w and d along the turned axes (ang, radians)
