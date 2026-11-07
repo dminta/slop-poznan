@@ -25,16 +25,21 @@ Implementation details and completed measurements live in the [topic docs](../AG
   crosswalks unchanged at 3,270, `laneHits` 0, rail hits 0 and building hits 0. The bare network leaves 109/98.
   `node tools/audit-crosswalk-landings.mjs` reproduces the counts and re-checks every fallback leg.
   Still isolated are the key nodes the backlog named: **Okrąglak** (`-841.5, 30.6`; the 351 m² tram-cut
-  island has no sidewalk track at all, and its only sidewalk ports are 15.6-16.7 m away across the roadway),
-  **Okrąglak / Święty
-  Marcin** (`-1120.1, 112`), **Miła / Dąbrowskiego** (`-3269.1, -884.3`), **Promienista / Grochowska** (both lines at
-  `-3541.4, 1448.4` and `-3540.3, 1449.4`; only sibling/self ports within 11 m, the nearest sidewalk is 23 m across
-  the road), and **Wierzbięcice / Górna Wilda** (both lines at `-851.4, 1662.7/1664.2`; nearest sidewalk 17.8 m away
-  across the roadway). Święty Marcin / Wysoka has no empty end in the audit. Connecting these would need a new
-  sidewalk track on the island/curb, not a fallback connector: every existing candidate crosses a lane or is farther
-  than the 16 m corridor. A 40/48 m `FALLBACK_MAX` adds only 6/7 ends, and a corridor beyond 16 m connects no other
-  key node, so both stay. Still open: a production full-scene count (the benchmark omits landmark and bridge
-  colliders and city-grid curbs). [Routing observations](observations/ped-overlaps-2026-11-05.md).
+  island has no sidewalk track at all, and its only ports are 15.6-16.7 m across the roadway, crossing a lane and
+  coming within 0.13 m of a rail), **Okrąglak / Święty Marcin** (`-1120.1, 112`; 12.5-21.3 m across the roadway),
+  **Miła / Dąbrowskiego** (`-3269.1, -884.3`; 19.2 m through a building lot or 26 m across a lane and 0.10 m from a
+  rail), **Promienista / Grochowska** (both lines at `-3541.4, 1448.4` and `-3540.3, 1449.4`; only sibling/self ports
+  within 11 m, the nearest sidewalk 23-25 m across the road) and **Wierzbięcice / Górna Wilda** (both lines at
+  `-851.4, 1662.7/1664.2`; nearest sidewalk 17.7-19.2 m across a lane and 0.10 m from a rail). Święty Marcin /
+  Wysoka has no empty end in the audit. Connecting these would need a new sidewalk track on the island/curb, not a
+  fallback connector: every existing candidate crosses a lane, a building lot or a rail, or lies beyond the 16 m
+  corridor. The audit's `reasonCounts` (overlapping, one per remaining end) are lane 138, length 70, lot 51, walkable
+  32, rail 14, corridor 14, building 8, block 4 and none 2. A 40/48 m `FALLBACK_MAX` adds only 6/7 ends, and a corridor
+  beyond 16 m connects no other key node, so both stay. Follow-up: extend `next()`'s dead-end guard to sidewalk tracks
+  (`target.edge`); the long fallback now leaves 346 path ends on a sidewalk track with no further link (333 before),
+  and one of a projection sub-track's `from`/`to` is not geometric, so the guard needs a sampled test. Still open: a
+  production full-scene count (the benchmark omits landmark and bridge colliders and city-grid curbs).
+  [Routing observations](observations/ped-overlaps-2026-11-05.md).
 - **Other missing signal heads (15.5):** investigate alternative mounting positions for the 66 historical
   Category C approaches and verify visibility. Sampled curbside sites, forward positions up to 6 m, medians and
   arm-aligned pole reuse found no suitable sites. Run `node tools/audit-signal-heads.mjs` with attention to the

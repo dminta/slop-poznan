@@ -51,8 +51,9 @@ test('pedestrian routes do not U-turn over a crossing line or cross into a dead 
   }
   assert.ok(ends > 5000, `the whole network has crosswalk ends (${ends})`);
   // The 2026-11-07 landing work (sidewalk track ends in the long fallback, a 16 m corner corridor with a courtyard
-  // sight line) leaves 109 empty ends / 98 tracks on this bare network, down from 230 / 218. No building or rail input
-  // here, so the furnished world can only be better; a regression that reopens dead ends trips these ceilings.
+  // sight line) leaves 109 empty ends / 98 tracks on this bare network, down from 230 / 218. With no building or rail
+  // input the bare network is more permissive than the furnished world (156 / 143), so these ceilings only catch a
+  // regression that reopens dead ends on this graph.
   assert.ok(emptyEnds <= 120, `the bare network leaves isolated crosswalk ends (${emptyEnds})`);
   assert.ok(emptyTracks <= 110, `the bare network leaves tracks with an empty end (${emptyTracks})`);
 

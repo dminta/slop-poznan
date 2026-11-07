@@ -202,8 +202,9 @@ wall, no closed courtyard and no water. Reproduce with:
 The tool builds the same world as `tools/bench-world.mjs` (street furniture and city-block colliders, no city-grid
 curbs, landmarks or bridges), counts both directions of every crosswalk track, and independently re-checks every
 fallback connector leg with the exact segment-to-segment lane margin (`edge.half + 0.8 m`), the 2 m rail keep and the
-building colliders. `diagnoseFallback` reports the first rule that rejects each candidate, so `--json` carries the
-reason for every remaining end.
+building colliders. `diagnoseFallback` mirrors the direct and long loops separately (the long loop has no 16 m
+cross-block rule) and names the first rejection: `walk`, `block`, `lane`, `rail`, `building`, `lot`, `corridor`,
+`length` or `noBlock`. `--json` carries the reason for every remaining end and a per-end `reasonCounts` summary.
 
 ### Mechanisms
 
@@ -219,15 +220,19 @@ reason for every remaining end.
    synthetic wall behind the 8 m band trips the new guard (`tests/pedestrian-route-buildings.test.cjs`).
 3. **The remaining key nodes have no same-block sidewalk to reach.** Okrąglak's landing at `-841.5, 30.6` sits on a
    351 m² block cut by tram tracks; it has no sidewalk track of its own, and its only ports are two tracks 15.6/16.7 m
-   away on the far side of the roadway. Miła/Dąbrowskiego (`-3269.1, -884.3`), Promienista/Grochowska
-   (`-3541.4, 1448.4`, `-3540.3, 1449.4`) and Wierzbięcice/Górna Wilda (`-851.4, 1662.7/1664.2`) are similar: the
-   only non-sibling candidates are 17-26 m across a lane, so the lane and corridor rules reject them. Okrąglak /
-   Święty Marcin at `-1120.1, 112` has candidates 12-21 m across the roadway and 39-45 m around it. A corridor beyond
-   16 m gains no other key node, and 40/48 m `FALLBACK_MAX` adds only 6/7 ends; both limits stay. Length rejects a
-   candidate at 72 of the 212 ends, so the fallback radius is not the main limiter. Building lots reject candidates at
-   28 ends and walls at 7 (the 2 m lot pad and the 0.4 m body pad are unchanged, and neither is relaxed by the wider
-   corridor). Święty Marcin / Wysoka has no empty end in this world. A production full-scene count is still open
-   because the benchmark omits landmark/bridge colliders and city-grid curbs.
+   away across the roadway, where they cross a lane (the 15.6 m candidate also comes within 0.13 m of a rail). Miła /
+   Dąbrowskiego (`-3269.1, -884.3`) has a same-block candidate 19.2 m away through a building lot and a cross-block
+   one 26 m away across a lane (0.10 m from a rail). Promienista / Grochowska (`-3541.4, 1448.4`, `-3540.3, 1449.4`)
+   and Wierzbięcice / Górna Wilda (`-851.4, 1662.7/1664.2`) are similar: their only non-sibling candidates are
+   17-26 m across a lane (Wierzbięcice's 17.7 m candidate also comes within 0.10 m of a rail), with the rest at 36-46 m.
+   Okrąglak / Święty Marcin at `-1120.1, 112` has candidates 12.5-21.3 m across the roadway and 39.8-45 m around it.
+   A corridor beyond 16 m gains no other key node, and 40/48 m `FALLBACK_MAX` adds only 6/7 ends, so both stay.
+   The audit's per-end `reasonCounts` (overlapping categories) put lane at 138 of the 156 remaining ends, length at
+   70, lot 51, walkable 32, rail 14, corridor 14, building 8 and block 4; 2 ends have no candidate beyond their own
+   or sibling lines. Length is therefore not the main limiter, and building lots/walls are behind the lane rule. The
+   2 m lot pad and 0.4 m body pad are unchanged and neither is relaxed by the wider corridor. Święty Marcin / Wysoka
+   has no empty end in this world. A production full-scene count is still open because the benchmark omits
+   landmark/bridge colliders and city-grid curbs.
 
 ### Before / after
 
@@ -247,3 +252,11 @@ On the bare `buildRoadNetwork([], [])` network (`tests/pedestrian-route-sinks.te
 scans a wider 32 m box only when an end has no base link, and the result is cached per end.
 
 `node --test tests/*.cjs` passes (415 tests: the original 413 plus the two new landing tests).
+
+### Remaining follow-up
+
+The long fallback can now end on a sidewalk track, whose `node` is null. `next()`'s dead-end guard only checks
+`target.node`, so on this world 346 path ends land on a sidewalk track with no further link (333 before, +13); a
+walker can then reverse and walk the same short track back. Extending the guard to `target.edge` is not part of this
+change because the fallback's projection sub-tracks also carry `edge` and one of their `from`/`to` is not geometric;
+the backlog keeps it as a follow-up with a sampled test.

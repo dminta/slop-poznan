@@ -1,7 +1,8 @@
 // Count the isolated crosswalk landings of the furnished pedestrian network and re-check every fallback connector's
 // clearance. An "empty end" is one direction of one crosswalk track with no link out of it; a "track with an empty
 // end" is never entered by the full routing. The route factory is shared with the traffic benchmark, source-sliced to
-// expose its lazy `links`/`fallbackPaths` (docs/testing.md).
+// expose its lazy `links`/`fallbackPaths` (docs/testing.md). The JSON `empty` list is one record per track and carries
+// every empty end in `ends` (a track whose first empty direction flips must not look like a new end in a diff).
 //
 //   node tools/audit-crosswalk-landings.mjs [--json out.json] [--list] [--near x,z,r]...
 //
@@ -78,11 +79,16 @@ for (const track of tracks) {
   }
   if (!ends.length) continue;
   tracksWithEmpty++;
-  const p = { x: track.ax + track.ux * track.len * (ends[0] > 0 ? 1 : 0),
-    z: track.az + track.uz * track.len * (ends[0] > 0 ? 1 : 0) };
+  // One record per track; `ends` keeps both empty ends so a before/after diff cannot mistake a track whose first
+  // empty direction flipped for a newly opened or closed end.
+  const endsAt = ends.map((dir) => {
+    const p = { x: track.ax + track.ux * track.len * (dir > 0 ? 1 : 0),
+      z: track.az + track.uz * track.len * (dir > 0 ? 1 : 0) };
+    return { x: +p.x.toFixed(1), z: +p.z.toFixed(1), dir };
+  });
   empty.push({
-    x: +p.x.toFixed(1), z: +p.z.toFixed(1), dirs: ends, line: track.line, side: track.side,
-    location: getLocationLabel(p.x, p.z), why: ends.map((dir) => routes.diagnoseFallback(track, dir))
+    x: endsAt[0].x, z: endsAt[0].z, ends: endsAt, dirs: ends, line: track.line, side: track.side,
+    location: getLocationLabel(endsAt[0].x, endsAt[0].z), why: ends.map((dir) => routes.diagnoseFallback(track, dir))
   });
 }
 
@@ -136,6 +142,18 @@ for (const track of tracks) {
   }
 }
 
+// One count per empty end: every non-base reason any candidate or nearby track offers. `none` marks an end with no
+// candidate at all beyond its own/sibling lines. The categories overlap, so the counts sum above `emptyEnds`.
+const reasonCounts = {};
+for (const e of empty) {
+  for (const w of e.why) {
+    const reasons = new Set();
+    for (const c of w.candidates) if (!['self', 'sibling', 'zero'].includes(c.why)) reasons.add(c.why);
+    for (const c of w.near) reasons.add(c.why);
+    if (!reasons.size) reasons.add('none');
+    for (const reason of reasons) reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
+  }
+}
 const summary = {
   crosswalks: routes.crosswalks.length,
   tracks: tracks.size,
@@ -148,7 +166,8 @@ const summary = {
   laneHits,
   railHits,
   buildingHits,
-  laneExamples
+  laneExamples,
+  reasonCounts
 };
 console.log(JSON.stringify(summary, null, 2));
 

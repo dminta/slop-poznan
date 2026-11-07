@@ -69,6 +69,28 @@ function loadPedestrianRoutes(rn) {
   if (pedestrianRoutesModule) return pedestrianRoutesModule;
   if (!rn) throw new Error('loadPedestrianRoutes: call buildWorld first or pass the road-network module');
   const diagnose = `
+  function walkWhy(a, b) {
+    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.5));
+    for (let i = 0; i <= steps; i++) {
+      const x = a.x + (b.x - a.x) * i / steps, z = a.z + (b.z - a.z) * i / steps;
+      if (!walkable(x - 0.4, x + 0.4, z - 0.4, z + 0.4)) return 'walk';
+    }
+    return null;
+  }
+  // The exact clear body: variable 1 m steps, and walkable tested over the box swept between consecutive samples.
+  // A plain 0.5 m point test can miss a narrow footprint and report a same-block candidate as accepted.
+  function clearWhy(a, b, block) {
+    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z)));
+    let x = a.x, z = a.z;
+    for (let i = 0; i <= steps; i++) {
+      const nx = a.x + (b.x - a.x) * i / steps, nz = a.z + (b.z - a.z) * i / steps;
+      if (!walkable(Math.min(x, nx) - 0.4, Math.max(x, nx) + 0.4,
+        Math.min(z, nz) - 0.4, Math.max(z, nz) + 0.4)) return 'walk';
+      if (blockAt(nx, nz) !== block) return 'block';
+      x = nx; z = nz;
+    }
+    return null;
+  }
   function hazardWhy(a, b) {
     if (!clearOfStreets(a, b)) return 'lane';
     const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.5));
@@ -80,6 +102,36 @@ function loadPedestrianRoutes(rn) {
       if (blk && inLot(x, z, blk)) return 'lot';
     }
     return null;
+  }
+  // Mirror fallbackPaths' two loops: the direct loop owns ports within DIRECT_MAX (and requires a target block);
+  // the long loop owns the rest up to FALLBACK_MAX and has no 16 m cross-block limit. clearGap already contains
+  // clearHazards, so the walkable reason is tested first and the hazard reason (lane/rail/building/lot) next.
+  function candidateWhy(a, b, block, direct) {
+    const targetBlock = blockAt(b.x, b.z);
+    if (direct) {
+      if (!targetBlock) return 'noBlock';
+      if (targetBlock === block) {
+        const why = clearWhy(a, b, block);
+        if (why) return why;
+      } else if (!clearGap(a, b)) {
+        return walkWhy(a, b) || hazardWhy(a, b) || 'gap';
+      }
+    } else if (!clearGap(a, b)) {
+      return walkWhy(a, b) || hazardWhy(a, b) || 'gap';
+    }
+    if (hazardWhy(a, b)) return hazardWhy(a, b);
+    return withinBlockEdge(a, b, block, direct ? DIRECT_CORRIDOR : FALLBACK_CORRIDOR) ? 'ok' : 'corridor';
+  }
+  function nearWhy(a, b, block, sameBlock) {
+    if (sameBlock) {
+      const why = clearWhy(a, b, block);
+      if (why) return why;
+      if (!withinBlockEdge(a, b, block, FALLBACK_CORRIDOR)) return 'corridor';
+    } else if (!clearGap(a, b)) {
+      return walkWhy(a, b) || hazardWhy(a, b) || 'gap';
+    }
+    if (hazardWhy(a, b)) return hazardWhy(a, b);
+    return withinBlockEdge(a, b, block, FALLBACK_CORRIDOR) ? 'ok' : 'corridor';
   }
   function diagnoseFallback(track, dir) {
     const end = dir > 0 ? 1 : 0, a = point(track, end), n = end ? track.to : track.from;
@@ -95,12 +147,7 @@ function loadPedestrianRoutes(rn) {
       else if (track.arm && next.arm === track.arm) r.why = 'sibling';
       else if (distance <= 0.01) r.why = 'zero';
       else if (distance > FALLBACK_MAX) r.why = 'length';
-      else if (targetBlock === block && !clear(a, b, block)) r.why = 'clear';
-      else if (targetBlock !== block && distance > 16) r.why = 'span';
-      else if (targetBlock !== block && !clearGap(a, b)) r.why = 'gap';
-      else if (hazardWhy(a, b)) r.why = hazardWhy(a, b);
-      else if (!withinBlockEdge(a, b, block, FALLBACK_CORRIDOR)) r.why = 'corridor';
-      else r.why = 'ok';
+      else r.why = candidateWhy(a, b, block, distance <= DIRECT_MAX);
       out.candidates.push(r);
     }
     const seen = new Set(), near = [];
@@ -128,16 +175,7 @@ function loadPedestrianRoutes(rn) {
     for (const c of near.slice(0, 8)) {
       const r = { x: +c.x.toFixed(1), z: +c.z.toFixed(1), distance: +c.distance.toFixed(1),
         sameBlock: c.targetBlock === block };
-      if (c.targetBlock === block) {
-        if (!clear(a, { x: c.x, z: c.z }, block)) r.why = 'clear';
-        else if (hazardWhy(a, { x: c.x, z: c.z })) r.why = hazardWhy(a, { x: c.x, z: c.z });
-        else if (!withinBlockEdge(a, { x: c.x, z: c.z }, block, FALLBACK_CORRIDOR)) r.why = 'corridor';
-        else r.why = 'ok';
-      } else if (c.distance > 16) r.why = 'span';
-      else if (!clearGap(a, { x: c.x, z: c.z })) r.why = 'gap';
-      else if (hazardWhy(a, { x: c.x, z: c.z })) r.why = hazardWhy(a, { x: c.x, z: c.z });
-      else if (!withinBlockEdge(a, { x: c.x, z: c.z }, block, FALLBACK_CORRIDOR)) r.why = 'corridor';
-      else r.why = 'ok';
+      r.why = nearWhy(a, { x: c.x, z: c.z }, block, c.targetBlock === block);
       out.near.push(r);
     }
     return out;
