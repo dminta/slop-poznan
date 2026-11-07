@@ -4,7 +4,7 @@
 // (v.waitReason), cycles of vehicles waiting on each other (deadlocks), cars stuck inside a junction box and trams held
 // a long time. Usage and the output are in docs/testing.md.
 //   node tools/bench-traffic.mjs [--minutes 5] [--fps 15] [--seed 4242] [--only jezyce,lazarz] [--top 8] [--dump]
-//                                [--json out.json]
+//                                [--json out.json] [--ped-rooms]
 import { writeFileSync } from 'node:fs';
 import { buildWorld } from './bench-world.mjs';
 
@@ -21,6 +21,7 @@ const DUMP = args.includes('--dump');
 const NO_PEDS = args.includes('--no-peds'); // experiments: run without pedestrians, or without trams
 const NO_TRAMS = args.includes('--no-trams');
 const NO_SIGNALS = args.includes('--no-signals');
+const PED_ROOMS = args.includes('--ped-rooms'); // audit which walk() room term holds a standing pedestrian
 const JSON_OUT = opt('json', null);
 const WATCH = opt('watch', null); // x,z: print the junction nearest there every 30 s
 const WARMUP = 20; // s before sampling starts: the first frame scatters cars anywhere, mid-lane
@@ -144,7 +145,8 @@ function runDistrict(d) {
     samples: 0, longestHeld: 0, speed: 0, moving: 0, movingSpeed: 0, stopped: 0, queue: 0, queueAt: null,
     waits: [], held60: new Set(), held120: new Set(), reasons: {}, rootReasons: {},
     junctions: new Map(), deadlocks: new Map(), boxStuck: new Map(), tramHeld: new Map(),
-    switchHeld: new Set(), maxSwitchWait: 0, switchSeconds: 0, worstSnapshot: null
+    switchHeld: new Set(), maxSwitchWait: 0, switchSeconds: 0, worstSnapshot: null,
+    pedRooms: { samples: 0, stuck: 0, maxStuck: 0, cause: '', where: null, causes: {} }
   };
   const J = (n) => {
     let j = r.junctions.get(n);
@@ -237,6 +239,25 @@ function runDistrict(d) {
         }
       }
     }
+    // The retained pedestrian room audit: `stuck` counts only walkers standing with no legitimate wait (not a curb or
+    // split hold, pause, conversation or crosswalk), and `roomCause` is the walk() term that capped their room
+    // (queue, entrance, approach, merge, curb, hold or tram). Sampling once a second reports ped-seconds per cause.
+    if (PED_ROOMS) {
+      const rooms = r.pedRooms;
+      for (const p of traffic.peds) {
+        if (!p.placed || Math.hypot(p.x - d.x, p.z - d.z) > RADIUS) continue;
+        rooms.samples++;
+        if (p.stuck <= 0) continue;
+        rooms.stuck++;
+        const cause = p.roomCause || 'none';
+        rooms.causes[cause] = (rooms.causes[cause] || 0) + 1;
+        if (p.stuck > rooms.maxStuck) {
+          rooms.maxStuck = p.stuck;
+          rooms.cause = cause;
+          rooms.where = where(p);
+        }
+      }
+    }
     // deadlocks: cycles in the wait-for graph of vehicles (and trams) all stopped over 30 s
     for (const v of near) {
       if (v.wait < 30) continue;
@@ -325,6 +346,12 @@ for (const d of districts) {
     tramsHeld60: r.tramHeld.size, switchHeld60: r.switchHeld.size,
     maxSwitchWait: round(r.maxSwitchWait), switchSeconds: round(r.switchSeconds)
   };
+  if (PED_ROOMS) {
+    row.pedRoomSamples = r.pedRooms.samples;
+    row.pedRoomStuck = r.pedRooms.stuck;
+    row.pedRoomLongest = round(r.pedRooms.maxStuck);
+    row.pedRoomCauses = r.pedRooms.causes;
+  }
   report.push(row);
   console.log(`\n== ${d.name} ${where(d)}  (${round((Date.now() - t0) / 1000, 0)} s)`);
   console.log(`  cars ${row.cars}  mean ${row.meanKmh} km/h (moving ${row.movingKmh})  stopped ${row.stoppedPct}%  longest queue ${row.longestQueue}` +
@@ -332,6 +359,11 @@ for (const d of districts) {
   console.log(`  waits p50 ${row.waitP50} s  p90 ${row.waitP90} s  max ${row.waitMax} s  held >60 s ${row.held60}  >120 s ${row.held120}`);
   console.log(`  stopped because: ${fmtShares(r.reasons, r.stopped)}`);
   console.log(`  queue heads (root cause): ${fmtShares(r.rootReasons, r.stopped)}`);
+  if (PED_ROOMS) {
+    const rooms = r.pedRooms;
+    console.log(`  pedestrian room freezes: ${rooms.stuck} ped-s of ${rooms.samples} sampled, longest ${round(rooms.maxStuck)} s ` +
+      `${rooms.cause || 'none'} at ${rooms.where || '-'}; causes ${fmtShares(rooms.causes, Math.max(1, rooms.stuck)) || 'none'}`);
+  }
   const top = [...r.junctions.values()].sort((a, b) => b.stuck - a.stuck).slice(0, TOP);
   console.log('  junctions by stopped car-seconds:');
   for (const j of top) {

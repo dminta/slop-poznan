@@ -131,8 +131,16 @@ for real through `loadModule`). It parks the camera in turn at Jeżyce (Rynek Je
 `--minutes` (default 5) at `--fps` (15) with `Math.random` seeded (`--seed`, 4242: a run is reproducible), and samples
 the vehicles within 300 m once a second after 20 s. About 12–17 s per district. Options: `--only jezyce,lazarz` (keys
 `jezyce lazarz centrum kaponiera stare rataje wilda`), `--top N` junctions, `--dump` (the longest wait as text: every
-vehicle, tram and walker at its junction), `--watch x,z` (that junction every 30 s), `--json file`, and the experiments
-`--no-peds`, `--no-trams`, `--no-signals` (they patch `traffic.js` by exact text and throw if it changed).
+vehicle, tram and walker at its junction), `--watch x,z` (that junction every 30 s), `--json file`, `--ped-rooms` (the
+room audit below), and the experiments `--no-peds`, `--no-trams`, `--no-signals` (they patch `traffic.js` by exact text
+and throw if it changed).
+
+`--ped-rooms` samples pedestrians once a second and reports `ped-s` with `stuck > 0`, grouped by the `roomCause` that
+`walk()` recorded: `queue`, `entrance`, `approach`, `merge`, `curb`, `curbQueue`, `hold`, `holdQueue`, `tram` or
+`none`. `stuck` already excludes legitimate curb waits, split holds, pauses, conversations and crosswalk waits, so the
+count is the retained check of the non-tram `room` terms; it does not replace the full pedestrian-overlap audit. The
+cause and longest hold are also written to the `--json` row as `pedRoomSamples`, `pedRoomStuck`, `pedRoomLongest` and
+`pedRoomCauses`.
 
 This is a benchmark variant, not the complete browser scene: it does not build city-grid's sidewalks or square/park
 furniture, passes empty plaza/park site lists to street-details, and omits landmark and bridge colliders. It builds the
