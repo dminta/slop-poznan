@@ -4,7 +4,7 @@
 // (v.waitReason), cycles of vehicles waiting on each other (deadlocks), cars stuck inside a junction box and trams held
 // a long time. Usage and the output are in docs/testing.md.
 //   node tools/bench-traffic.mjs [--minutes 5] [--fps 15] [--seed 4242] [--only jezyce,lazarz] [--top 8] [--dump]
-//                                [--json out.json]
+//                                [--watch x,z] [--trace x,z] [--trace-min s] [--json out.json]
 import { writeFileSync } from 'node:fs';
 import { buildWorld } from './bench-world.mjs';
 
@@ -23,6 +23,8 @@ const NO_TRAMS = args.includes('--no-trams');
 const NO_SIGNALS = args.includes('--no-signals');
 const JSON_OUT = opt('json', null);
 const WATCH = opt('watch', null); // x,z: print the junction nearest there every 30 s
+const TRACE = opt('trace', null); // x,z: print that junction once a second, with every lane queue
+const TRACE_MIN = Number(opt('trace-min', 0)); // only print a trace line when a car there has waited this long
 const WARMUP = 20; // s before sampling starts: the first frame scatters cars anywhere, mid-lane
 const RADIUS = 300; // m around the camera that is sampled (cars are kept within 380 m)
 
@@ -154,6 +156,16 @@ function runDistrict(d) {
   const lastConn = new Map();
   const switchWait = new Map();
   const box = new Map();
+  let traceNode = null;
+  let traceHere = false;
+  if (TRACE) {
+    const [tx, tz] = TRACE.split(',').map(Number);
+    for (const n of world.network.nodes) {
+      if (!traceNode || Math.hypot(n.x - tx, n.z - tz) < Math.hypot(traceNode.x - tx, traceNode.z - tz)) traceNode = n;
+    }
+    // print only in the district that actually samples this junction, so a full run does not repeat the same trace
+    traceHere = Math.hypot(traceNode.x - d.x, traceNode.z - d.z) < RADIUS;
+  }
   let time = 0;
   for (let frame = 0; time < seconds; frame++) {
     time += dt;
@@ -180,6 +192,9 @@ function runDistrict(d) {
       if (sampling && near && v.speed >= 0.5 && v.benchWait > 1) r.waits.push(v.benchWait);
       v.benchWait = v.wait;
       lastConn.set(v, v.conn);
+    }
+    if (traceHere && sampling && frame % FPS === 0) {
+      traceJunction(traceNode, time, NO_TRAMS ? [] : trams.trams, TRACE_MIN);
     }
     if (!sampling || frame % FPS) continue;
     // once a second
@@ -215,7 +230,10 @@ function runDistrict(d) {
       j.stuck++;
       j.reasons[root] = (j.reasons[root] || 0) + 1;
       j.maxWait = Math.max(j.maxWait, v.wait);
-      if (v.conn && v.wait > 20) {
+      // "Inside" means the body centre is past the stop line: a car still standing on its approach with only a
+      // bumper (or a bus longer than the short link) over the line is not a box blockage. Without this, a 36 s red
+      // wait (seed 1) and an 18 m bus on a 7.8 m link (seed 1) looked like junction-box stoppages.
+      if (v.conn && v.cs > 0 && v.wait > 20) {
         const k = v.edge.to;
         r.boxStuck.set(k, Math.max(r.boxStuck.get(k) || 0, v.wait));
       }
@@ -305,6 +323,28 @@ function snapshot(v, vehicles, time, tramList) {
   }
   for (const p of n.walkers) lines.push(`  walker side ${p.side} ${p.waiting ? 'waiting' : 'crossing'} at ${where(p)} v ${round(p.v)} t ${round(p.t)}/${round(p.len)} dir ${p.dir}${p.conversation ? ' talking' : ''}${p.pause > 0 ? ' pause' : ''}`);
   return lines.join('\n');
+}
+
+// One compact line a second around a traced junction: signal phases, the box, every lane queue on its arms, and the
+// trams near it. The 30 s --watch snapshot hides the per-second reservation chain; this keeps it (2026-11-07).
+function traceJunction(n, time, tramList, minWait) {
+  const phase = n.signal ? `g0 ${n.signalTiming.phase0} g1 ${n.signalTiming.phase1}` : 'give-way';
+  const cars = [];
+  const arms = n.in.concat(n.out || []).map((e) => {
+    const lanes = e.occ.map((list, j) => `l${j}[${list.map((o) => {
+      const v = o.v;
+      cars.push(v);
+      return `#${v.benchId}${v.bus ? 'b' : ''}@${round(o.s)}${v.speed < 0.5 ? 'S' : 'm'}w${round(v.wait, 0)}` +
+        `:${v.waitReason || '-'}${v.held ? '/' + v.held : ''}${v.move ? '>' + v.move.turn : ''}`;
+    }).join(' ')}]`);
+    return `${where(e.from)}->${where(e.to)} ${lanes.join(' ')}`;
+  });
+  if (minWait > 0 && !cars.some((v) => v.wait >= minWait)) return;
+  const trams = tramList.filter((t) => Math.hypot(t.x - n.x, t.z - n.z) < 60).map((t) =>
+    `tram ${t.line || t.id}@${where(t)} ${t.waitReason || '-'}${t.stuck >= 1 ? ` stuck ${round(t.stuck, 0)}` : ''}` +
+    `${t.obstacle && t.obstacle.benchId !== undefined ? ` for #${t.obstacle.benchId}` : ''}`);
+  console.log(`T${round(time, 0)} ${where(n)} ${phase} box ${n.box.join('/')} cross ${n.crossing.join('/')} | ` +
+    arms.join(' | ') + (trams.length ? ` | ${trams.join(' ')}` : ''));
 }
 
 const fmtShares = (obj, total) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, 6)

@@ -35,3 +35,16 @@ are not measured departures and cannot establish a headway. The simulation has n
 [line 13 timetable](https://www.ztm.poznan.pl/rozklad-jazdy/?data=20261027&kierunek=1&linia=13&przystanek=199)
 lists ten-minute intervals in the 15:00 hour at Starołęka PKM, not a measured headway at this junction.
 
+
+## Follow-up, 2026-11-07
+
+The 9.4 m link's left turn no longer waits on the link itself. When `mayEnter` refuses a left turn from an edge under
+12 m whose ends are both signals, `accelerate()` retries once with a straight (or other non-left) move the same lane
+can make. The turn still happens when the way is clear; no movement was removed and no protected signal phase was
+added. Tram-body reservations are untouched, so the timetable/reservation table above remains the mechanism that
+keeps a left turn out while a tram body covers its way.
+
+Together with the blocked-lead reservation fix in
+[merge-starvation-2026-11-07.md](merge-starvation-2026-11-07.md), the Centrum seed 99 10-minute `waitMax` fell from
+184 to 52 s. In the retained trace the same link's left-turner had held its only usable lane for 26 s at t = 416–435;
+after the change no car waits 20 s at the junction in that window.

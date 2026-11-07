@@ -131,7 +131,9 @@ for real through `loadModule`). It parks the camera in turn at Jeżyce (Rynek Je
 `--minutes` (default 5) at `--fps` (15) with `Math.random` seeded (`--seed`, 4242: a run is reproducible), and samples
 the vehicles within 300 m once a second after 20 s. About 12–17 s per district. Options: `--only jezyce,lazarz` (keys
 `jezyce lazarz centrum kaponiera stare rataje wilda`), `--top N` junctions, `--dump` (the longest wait as text: every
-vehicle, tram and walker at its junction), `--watch x,z` (that junction every 30 s), `--json file`, and the experiments
+vehicle, tram and walker at its junction), `--watch x,z` (that junction every 30 s), `--trace x,z` (that junction every
+second: signal phases, box, every lane queue on its arms and nearby trams; `--trace-min s` suppresses lines until a car
+there has waited that long), `--json file`, and the experiments
 `--no-peds`, `--no-trams`, `--no-signals` (they patch `traffic.js` by exact text and throw if it changed).
 
 This is a benchmark variant, not the complete browser scene: it does not build city-grid's sidewalks or square/park
@@ -156,7 +158,7 @@ held curve is in the way, the cross traffic in the box, the last car in a full e
 follows its `obstacle` or `leader` (including an exit-room reservation's leader)) to the vehicle the queue really waits for (`queue moving`: the queue ahead is moving,
 v only waits its turn). Then the junctions by stopped car-seconds with their throughput (cars entering a junction curve)
 and root causes, deadlocks (cycles in that graph whose members all stood over 30 s), junction boxes with a car stopped
-inside over 20 s, and trams stopped over 60 s off a stop (with the pedestrian holding one). Last, a Markdown table of
+inside (its body centre past the stop line) over 20 s, and trams stopped over 60 s off a stop (with the pedestrian holding one). Last, a Markdown table of
 every district. `tramsHeld60` retains the total continuous stop across all reasons; its text records the reason at
 the longest sample. A car refused by a held tram curve follows the conflict actually held this frame and skips a tram
 that is itself waiting for that car, matching `heldByTram`'s exemption; without that, a third tram's body covering the

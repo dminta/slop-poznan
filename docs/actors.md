@@ -174,6 +174,17 @@ Exit reservations use one transitive approach order and the same `mergeFirst` or
 and waited over 10 s remains eligible if the green entrant is estimated to reach a non-green downstream signal.
 The estimate uses a scratch signal plan, leaving the live signal unchanged. This can hold green traffic before an
 empty link if the estimated travel time is pessimistic, but lets it through when the predicted signal is green.
+On an exit shorter than 12 m whose start node is a signal, a lead that is stopped and held by a physical obstruction
+(`box`, `tram`, `oncoming`, `crossing`, `pedestrian`, `turner`, `bus` or `lane`) no longer reserves space. At the
+9.4 m Św. Marcin link a police car held by a tram kept its only usable lane reserved through the whole cross green
+(seed 99: 184 s); the rule cut that to 52 s with no junction-box stop or cycle (2026-11-07). Give-way short exits keep
+the old reservation. A left turn that `mayEnter` refuses on a short link between signals is retried once as the first
+straight or other non-left move from the same lane (`straightFallback`), so it does not wait on the link; the turn is
+still taken when the way is clear, and no movement or protected phase was added. On a long exit (20 m or more) that
+feeds such a short signal-to-signal link, a car that cannot stop (not a bus, which the short-link bus guard covers)
+also checks the space behind the rearmost car rather
+than the sum of all gaps, so a committed entrant does not stop in the upstream box behind a full approach queue
+(the Św. Marcin approach backed into `(-1074, 129)` for 53 s, seed 5, 2026-11-07).
 At a short link (under 12 m), a follower stopped over 15 s by merge braking may close up behind its own lane lead;
 the lead still obeys merge priority. The exemption applies at unsignalised give-ways as well as between signals: a
 give-way merging into a short exit (e.g. Kaponiera's 10 m exit at −1497, 198, 87–95% merge and 80–139 s maximum
