@@ -80,7 +80,10 @@ test.before(async () => {
   const tramInfra = loadModule(source('tram-infra'), {
     imports: { ...rendering, './geodata.js': { GEO }, './city-config.js': config }, globals
   });
-  world = { createPedestrianRoutes, network, config, GEO, road, gridModule, grid, street, heads, baseline, facings, runtimeHeads, meshRecords, meshTypes, testInternals, attributeRecords, buildingColliders, tramInfra };
+  world = {
+    createPedestrianRoutes, network, config, GEO, road, gridModule, grid, street, heads, baseline, facings,
+    runtimeHeads, meshRecords, meshTypes, testInternals, attributeRecords, buildingColliders, tramInfra
+  };
 });
 
 test('the live Krucza approaches have correctly facing heads without changing the furnished road network', () => {

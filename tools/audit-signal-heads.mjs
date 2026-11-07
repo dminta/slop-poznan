@@ -147,7 +147,11 @@ console.log(JSON.stringify({ counts, total: initial.length, vehicleHeads: street
   overheadFallbackAlong: fallbackAlong.map((v) => Number(v.toFixed(3))),
   overheadFallbackSupportMin: fallback.length ? Number(Math.min(...fallback.map(supportDistance)).toFixed(3)) : null,
   overheadArmMax: overhead.length ? Number(Math.max(...armLengths).toFixed(4)) : null,
-  overheadArmMean: overhead.length ? Number((armLengths.reduce((sum, v) => sum + v, 0) / armLengths.length).toFixed(4)) : null,
+  overheadArmMean: overhead.length
+    ? Number((armLengths.reduce((sum, v) => sum + v, 0) / armLengths.length).toFixed(4)) : null,
+  pedestrianApproaches: analysis.entries.filter((entry) => entry.node.signalTiming &&
+    entry.node.signalTiming.pedestrian && !entry.node.signalTiming.disabled)
+    .map((entry) => ({ node: [entry.node.x, entry.node.z], class: entry.class })),
   overheadFootRailMin: overhead.length ? Math.min(...overhead.map((h) =>
     gridModule.railClearance(h.pole.x, h.pole.z, 20))) : null,
   overheadArmRailMin: overhead.length ? Math.min(...overhead.map(armRail)) : null,

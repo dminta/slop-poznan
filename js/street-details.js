@@ -1927,8 +1927,9 @@ function buildStreetDetails(scene, opts = {}) {
             const t = Math.max(-15, Math.min(maxAlong, along));
             return { x: x + edge.dx * t + edge.rx * lane, z: z + edge.dz * t + edge.rz * lane, along: t };
           };
-          // Tram and railway masts stand at least 2.6 m from every track centreline. A foot at least 3.1 m from
-          // every track is therefore at least 0.5 m from any mast; the later tram/rail layouts cannot be read here.
+          // Keep the mast foot 3.1 m from every track as a conservative buffer above the 1.75 m tram-pole and
+          // 2.6 m railway-mast setbacks. The later layouts cannot be read here; signal-placement.test.cjs builds
+          // them and checks every arm, foot and head against the real poles and masts (closest 7.26 m).
           const mastClear = (px, pz) => clearOfRails(px, pz, 1.1);
           const search = (maxAlong, band, strict = false) => {
             let best = null;

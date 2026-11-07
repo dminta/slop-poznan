@@ -37,6 +37,13 @@ test('the furnished audit classifies historical approaches before and after runt
     'the closest fallback support misses the 12 m arm');
   assert.ok(after.summary.overheadArmMax > 11.7 && after.summary.overheadArmMax <= 12,
     'the longest overhead arm stays within the 12 m reach');
+  for (const [x, z] of [[-359.7, -887.7], [2848.05, -1512.5], [1169.4, -2431.9],
+    [-3513.4, 2170.5], [2024.63, 1666.8]]) {
+    const row = after.summary.pedestrianApproaches.find((r) =>
+      Math.hypot(r.node[0] - x, r.node[1] - z) < 0.01);
+    assert.ok(row, `active pedestrian approach at ${x}, ${z}`);
+    assert.equal(row.class, 'A', `pedestrian approach at ${x}, ${z} has its own-phase head`);
+  }
   const placements = after.summary.placements.map((row) => row.map((v) =>
     typeof v === 'number' ? Number(v.toFixed(3)) : v));
   assert.equal(createHash('sha256').update(JSON.stringify(placements)).digest('hex'),

@@ -270,12 +270,14 @@ Built before the road network, so everything that stands near a lane is checked 
   fallback; C has no such site; D is inactive. The audit reports each failed constraint's count over up to 300 samples, the
   fewest failures at any one sample, and each A head's raw `group0`/`axis0`/`swap` inputs. An overhead fallback now
   recovers 26 of those 66 C edges: when the ordinary curbside search finds no candidate, a head is hung from an
-  existing signal pole or a new 6.2 m mast within 12 m, over the nearest real lane. Supports may stand on medians, on sidewalk points 6–12 m behind the curb that the ordinary search never
-  samples, or up to 10 m ahead of the stop line. The arm and head keep **2.22 m** from every track axis at each
+  existing signal pole or a new 6.2 m mast within 12 m, over the nearest real lane. Supports may stand on medians,
+  on sidewalk points 6–12 m behind the curb that the ordinary search never samples, or up to 10 m ahead of the
+  stop line. The arm and head keep **2.22 m** from every track axis at each
   0.5 m sample; the three first-pass arms whose closest arm or head approach was 0.05, 0.10 and 1.88 m from a track
-  axis are rejected. The mast foot keeps **3.1 m** from every track centreline, i.e. 0.5 m beyond the 2.6 m tram and
-  railway mast setback; the closest overhead foot measures 7.67 m. A separate check of the built tram and railway
-  layouts found every overhead arm, foot and head at least **7.26 m** from a tram pole or railway mast.
+  axis are rejected. The mast foot keeps a conservative **3.1 m** from every track centreline, above the 1.75 m
+  tram-pole and 2.6 m railway-mast setbacks; the closest overhead foot measures 7.67 m. The built tram and railway
+  layouts are checked separately: every overhead arm, foot and head is at least **7.26 m** from a tram pole or
+  railway mast.
   C does not exclude other, unsampled sites. This is geometric visibility, without occlusion checks.
 
   `addRuntimeSignalHeads` uses the configured runtime edges, phase and facing. It prefers an unused existing pole on

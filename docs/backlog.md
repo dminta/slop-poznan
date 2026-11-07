@@ -43,9 +43,9 @@ Implementation details and completed measurements live in the [topic docs](../AG
 - **Other missing signal heads (15.5):** the overhead fallback now serves 26 of the 66 historical Category C
   approaches from 12 new 6.2 m masts and 14 reused signal poles (arm ≤ 11.717 m, mean 9.282 m); the audit is
   117/0/40/10 (was 91/0/66/10). The arm, head and foot keep 2.22 m from every track axis at 0.5 m samples, and the
-  foot keeps 3.1 m (0.5 m beyond the 2.6 m tram/rail mast setback); the built tram and railway layouts put every
-  arm, foot and head at least 7.26 m from a pole or mast. Three first-pass arms crossed a tram envelope and are
-  rejected. 10 heads reach the stricter ≥ 10.5 m band and one more the ≥ 8 m band; 15 use the stop-line fallback
+  foot keeps a conservative 3.1 m from every track (above the 1.75 m tram-pole and 2.6 m railway-mast setbacks);
+  the built tram and railway layouts put every arm, foot and head at least 7.26 m from a pole or mast. Three
+  first-pass arms crossed a tram envelope and are rejected. 10 heads reach the stricter ≥ 10.5 m band and one more the ≥ 8 m band; 15 use the stop-line fallback
   (13 at 1.75 m past P-14, two reused poles at 0.03 and −0.82 m). A 0.5 × 0.4 m sweep of the −15…−8 m corridor
   found 12,510 candidate mast feet, none clear; the closest existing support was 12.96 m from an −8 m head, so no
   fallback head can reach either band without a gantry or span wire. The remaining 40 have no clear mast foot
