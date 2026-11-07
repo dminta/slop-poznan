@@ -103,7 +103,8 @@ Implementation details and completed measurements live in the [topic docs](../AG
   `−953, −1928`); check trees by Avenida and in park blocks with buildings (Park Nad Wartą, Antoninek block 874).
   [Tree/building clearance](observations/tree-building-clearance-2026-11-03.md).
 - Check the corrected heights of Iglica, Delta, Brama Poznania and Zamek Królewski.
-- Check tram beds without sleepers for appearance and shader errors; mainline railway sleepers should remain visible.
+- Check tram rails without a track bed for appearance and shader errors (flush heads on road, grass and curb islands);
+  mainline railway sleepers should remain visible.
 - Inspect P-22 BUS markings on WebGPU and WebGL2. [Placement scope](world.md).
 - Inspect black locust foliage, bark, LOD and wind. [Tree models](world.md).
 

@@ -21,14 +21,14 @@ function inert() {
   });
 }
 
-// Clip a rendered marking quad to a bed's box in the bed's local frame. Positive area means the bed occludes paint;
-// testing whole quads is stricter than testing white stripes alone, and catches narrow overlaps between samples.
-function overlapArea(quad, bed) {
-  const len = Math.hypot(bed.bx - bed.ax, bed.bz - bed.az);
-  const dx = (bed.bx - bed.ax) / len, dz = (bed.bz - bed.az) / len;
-  let poly = quad.map(([x, z]) => [(x - bed.ax) * dx + (z - bed.az) * dz,
-    -(x - bed.ax) * dz + (z - bed.az) * dx]);
-  for (const [axis, bound, sign] of [[0, -0.01, 1], [0, len + 0.01, -1], [1, -bed.bed, 1], [1, bed.bed, -1]]) {
+// Clip a rendered marking quad to a track corridor in the corridor's local frame. Positive area means paint reaches the
+// tramway; testing whole quads is stricter than testing white stripes alone, and catches narrow overlaps between samples.
+function overlapArea(quad, corridor) {
+  const len = Math.hypot(corridor.bx - corridor.ax, corridor.bz - corridor.az);
+  const dx = (corridor.bx - corridor.ax) / len, dz = (corridor.bz - corridor.az) / len;
+  let poly = quad.map(([x, z]) => [(x - corridor.ax) * dx + (z - corridor.az) * dz,
+    -(x - corridor.ax) * dz + (z - corridor.az) * dx]);
+  for (const [axis, bound, sign] of [[0, -0.01, 1], [0, len + 0.01, -1], [1, -corridor.half, 1], [1, corridor.half, -1]]) {
     const next = [];
     for (let i = 0; i < poly.length; i++) {
       const a = poly[i], b = poly[(i + 1) % poly.length];
@@ -49,7 +49,7 @@ function overlapArea(quad, bed) {
   return Math.abs(twiceArea) / 2;
 }
 
-test('rendered zebra quads stay clear of raised tram ballast on the furnished Poznań network', async (t) => {
+test('rendered zebra quads stay clear of the tram trackways on the furnished Poznań network', async (t) => {
   const config = await import('../js/city-config.js');
   const { GEO } = await import('../js/geodata.js');
   const source = (name) => readFileSync(join(__dirname, '../js', name + '.js'), 'utf8');
@@ -78,8 +78,6 @@ test('rendered zebra quads stay clear of raised tram ballast on the furnished Po
   const network = road.buildRoadNetwork(grid.sidewalks, [...grid.footprints, ...street.footprints]);
   const routes = load('pedestrian-routes', { './road-network.js': road })
     .createPedestrianRoutes(network, config.blockAt, gridModule.railClearance);
-  const { beds } = load('tram-infra', { ...rendering, './city-config.js': config, './geodata.js': { GEO } })
-    .layoutTramInfrastructure(network);
   class Attribute { constructor(array) { this.array = array; } }
   class FloatAttribute extends Attribute { constructor(array) { super(new Float32Array(array)); } }
   class Geometry {
@@ -116,15 +114,23 @@ test('rendered zebra quads stay clear of raised tram ballast on the furnished Po
     assert.deepEqual(mesh.geometry.attributes[key].array, oldMesh.geometry.attributes[key].array,
       `existing ${key} markings are unchanged`);
   }
-  // tram-infra renders each bed as a box lengthened by 0.02 m, 2 × bed wide, with its top at ground + 0.14 m.
-  const ballast = beds.filter((b) => b.bed > 0);
+  // The rail-clearance cut keeps zebra quads 1.7 m off every track centreline. Use the source polylines, which are the
+  // same segments city-grid.js's railClearance measures; 1.69 m leaves a centimetre for boundary rounding.
+  const corridors = [];
+  for (const r of GEO.rail) {
+    if (r.kind !== 'tram') continue;
+    const p = r.pts;
+    for (let i = 0; i + 3 < p.length; i += 2) {
+      corridors.push({ ax: p[i], az: p[i + 1], bx: p[i + 2], bz: p[i + 3], half: 1.69 });
+    }
+  }
   const cells = new Map();
-  for (const bed of ballast) {
-    for (let x = Math.floor((Math.min(bed.ax, bed.bx) - 2) / 8); x <= Math.floor((Math.max(bed.ax, bed.bx) + 2) / 8); x++) {
-      for (let z = Math.floor((Math.min(bed.az, bed.bz) - 2) / 8); z <= Math.floor((Math.max(bed.az, bed.bz) + 2) / 8); z++) {
+  for (const corridor of corridors) {
+    for (let x = Math.floor((Math.min(corridor.ax, corridor.bx) - 2) / 8); x <= Math.floor((Math.max(corridor.ax, corridor.bx) + 2) / 8); x++) {
+      for (let z = Math.floor((Math.min(corridor.az, corridor.bz) - 2) / 8); z <= Math.floor((Math.max(corridor.az, corridor.bz) + 2) / 8); z++) {
         const k = `${x},${z}`;
         if (!cells.has(k)) cells.set(k, []);
-        cells.get(k).push(bed);
+        cells.get(k).push(corridor);
       }
     }
   }
@@ -141,11 +147,11 @@ test('rendered zebra quads stay clear of raised tram ballast on the furnished Po
       const xs = quad.map((q) => q[0]), zs = quad.map((q) => q[1]);
       for (let x = Math.floor(Math.min(...xs) / 8); x <= Math.floor(Math.max(...xs) / 8); x++) {
         for (let z = Math.floor(Math.min(...zs) / 8); z <= Math.floor(Math.max(...zs) / 8); z++) {
-          for (const bed of cells.get(`${x},${z}`) || []) candidates.add(bed);
+          for (const corridor of cells.get(`${x},${z}`) || []) candidates.add(corridor);
         }
       }
-      for (const bed of candidates) {
-        const area = overlapArea(quad, bed);
+      for (const corridor of candidates) {
+        const area = overlapArea(quad, corridor);
         if (area < 1e-7) continue;
         covered += area;
         if (places.length < 5) places.push(`${quad[0][0].toFixed(1)},${quad[0][1].toFixed(1)}`);
@@ -154,12 +160,12 @@ test('rendered zebra quads stay clear of raised tram ballast on the furnished Po
     return { zebras, covered, places };
   };
   const current = measure(mesh);
-  assert.ok(current.zebras > 2000 && ballast.length > 7000,
-    `${current.zebras} zebra pieces, ${ballast.length} ballast pieces`);
+  assert.ok(current.zebras > 2000 && corridors.length > 3000,
+    `${current.zebras} zebra pieces, ${corridors.length} track corridors`);
   assert.equal(current.covered, 0,
-    `${current.covered.toFixed(6)} m² of zebra quads under ballast near ${current.places.join('; ')}`);
-  // Positive control: without the real rail cuts the same crossings extend under actual ballast. This proves the
-  // overlap assertion reaches the reported failure instead of passing because no painted crossing is near a bed.
+    `${current.covered.toFixed(6)} m² of zebra quads on the trackway near ${current.places.join('; ')}`);
+  // Positive control: without the real rail cuts the same crossings extend onto the tracks. This proves the overlap
+  // assertion reaches the reported failure instead of passing because no painted crossing is near a track.
   const uncut = measure(buildRoadPaint({ add() {} }, network, routes.crosswalks));
   assert.ok(uncut.covered > 1, `${uncut.covered.toFixed(6)} m² covered without rail cuts`);
 });

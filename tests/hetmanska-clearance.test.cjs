@@ -114,11 +114,11 @@ test.before(async () => {
 });
 
 test('Hetmańska/Dmowskiego rails stay at roadway height across the former curb conflict', () => {
-  const beds = world.layout.beds.filter((p) => p.railIndex === 577 && p.s0 > 263 && p.s0 < 272);
-  assert.equal(beds.length, 3, 'the original track pieces remain, including both formerly raised pieces');
-  const raisedLength = beds.reduce((sum, p) => sum + (p.ground ? Math.hypot(p.bx - p.ax, p.bz - p.az) : 0), 0);
+  const pieces = world.layout.pieces.filter((p) => p.railIndex === 577 && p.s0 > 263 && p.s0 < 272);
+  assert.equal(pieces.length, 3, 'the original track pieces remain, including both formerly raised pieces');
+  const raisedLength = pieces.reduce((sum, p) => sum + (p.ground ? Math.hypot(p.bx - p.ax, p.bz - p.az) : 0), 0);
   assert.equal(raisedLength, 0, `${raisedLength.toFixed(3)} m of rail is lifted onto the curb island`);
-  assert.ok(beds.every((p) => p.bed === 0), 'street-running rails remain flush without adding ballast');
+  assert.ok(pieces.every((p) => p.ground === 0), 'street-running rails stay flush without a track bed');
 });
 
 test('the actual Hetmańska/Dmowskiego curb and sidewalk leave both rail heads uncovered', () => {

@@ -2,14 +2,14 @@ import * as THREE from 'three/webgpu';
 import { Fn, attribute, color, float, vec2, mix, smoothstep, step, abs, fract, floor, fwidth, max, clamp, normalGeometry, positionGeometry, screenCoordinate, texture, uv } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GEO } from './geodata.js';
-import { BRIDGES, RAIL_BRIDGES, PLAZAS, JUNCTIONS, blockAt, isLand, isWater, roadClearance } from './city-config.js';
+import { BRIDGES, RAIL_BRIDGES, PLAZAS, blockAt, isLand, isWater, roadClearance } from './city-config.js';
 import { cityUniforms, createCurbMaterial, transparentEffectMRT } from './tsl-materials.js';
 
 // js/tram-infra.js
 // The static tram infrastructure (docs/poznan-plan.md Phase 9 step 1), built once after the road network so it can keep
 // clear of the car lanes without feeding obstacles back into them:
 // - grooved rails for every tram track of GEO.rail (two 70 mm heads at 1435 mm gauge, flush with the road on
-//   street-running track; ballast beds narrowed or omitted to clear road and junction footprints)
+//   street-running track and laid on the ground or the curb islands' paving elsewhere; no tram track bed)
 // - the overhead line: a contact wire 5.8 m over each track, carried every ~30 m by span wires between side poles (or a
 //   centre pole between the tracks), cantilever arms on one-sided poles, or wall rosettes in the narrow streets round
 //   the Old Town
@@ -26,11 +26,7 @@ const GAUGE = 1.435;
 const HEAD_W = 0.07; // grooved rail head (Ri60-ish)
 const GROOVE_W = 0.042;
 const SW_TOP = 0.22; // city-grid.js sidewalk top
-const PIECE = 4; // rails and ballast are laid as straight pieces up to this long, so they follow curbs and bends
-const BED_HALF = 1.45; // off-street ballast, 2.9 m across
-const BED_MIN = 1.2; // minimum raised bed width; a bed the roadway would narrow below this is laid flush
-const BED_GAP = 0.05; // ...and this far outside it
-const LANE_HALF = 1.8; // half of road-network.js LANE_W: a lane's paint lines stand this far from its centreline
+const PIECE = 4; // rails are laid as straight pieces up to this long, so they follow curbs and bends
 const WIRE_Y = 5.8; // contact wire height
 const SPAN_Y = 6.6; // span wires and cantilever arms
 const STATION = 30; // support spacing along the track
@@ -53,7 +49,7 @@ const RAIL_BED_TOP = 0.3;
 const RAIL_HEAD_H = 0.16; // 60E1 rail on its sleeper
 // The railway crosses streets and tram lines on bridges and in underpasses, which the flat world has no levels for: a
 // piece is cut when its centreline comes within RAIL_ROAD_KEEP of a roadway (the 2.5 m half bed + 1 m) or within
-// RAIL_TRAM_KEEP of a tram track centreline (half bed + 1 m + the tram's 1.45 m half ballast)
+// RAIL_TRAM_KEEP of a tram track centreline (half bed + 1 m + the tram's 1.5 m swept body)
 const RAIL_ROAD_KEEP = 3.5;
 const RAIL_TRAM_KEEP = 5;
 // Level crossings (GEO.levelCrossings): a run of road-cut pieces passing within RAIL_LEVEL_NEAR of one keeps its rails,
@@ -221,74 +217,10 @@ function laneDistance(network) {
   };
 }
 
-// Graph points follow the original carriageway axis. The extra tram strip is added on one side, so its
-// centre is shifted by 3.25 m; subtracting that shift returns the carriageway to the original graph points.
-const TRAM_STRIP_W = 6.5; // poz-roads.mjs TRAM_W
-function carriagewayDistance() {
-  const CELL = 32;
-  const cells = new Map();
-  const g = GEO.roadGraph;
-  const segments = [];
-  for (const [a, b, , w, , , inner, flags] of g.links) {
-    const half = Math.max(0.5, (w > 3 ? w : 9.1) / 2 - (flags & 24 ? TRAM_STRIP_W / 2 : 0));
-    const pts = [g.nodes[2 * a], g.nodes[2 * a + 1], ...inner, g.nodes[2 * b], g.nodes[2 * b + 1]];
-    for (let k = 0; k + 3 < pts.length; k += 2) {
-      segments.push([pts[k], pts[k + 1], pts[k + 2], pts[k + 3], half]);
-    }
-  }
-  for (const seg of segments) {
-    const m = seg[4] + 4;
-    const minX = Math.floor((Math.min(seg[0], seg[2]) - m) / CELL);
-    const maxX = Math.floor((Math.max(seg[0], seg[2]) + m) / CELL);
-    const minZ = Math.floor((Math.min(seg[1], seg[3]) - m) / CELL);
-    const maxZ = Math.floor((Math.max(seg[1], seg[3]) + m) / CELL);
-    for (let ix = minX; ix <= maxX; ix++) {
-      for (let iz = minZ; iz <= maxZ; iz++) {
-        const key = ix * 100003 + iz;
-        if (!cells.has(key)) cells.set(key, []);
-        cells.get(key).push(seg);
-      }
-    }
-  }
-  return (x, z, r = 4) => {
-    let best = r;
-    for (const [ax, az, bx, bz, half] of cells.get(Math.floor(x / CELL) * 100003 + Math.floor(z / CELL)) || []) {
-      const ex = bx - ax;
-      const ez = bz - az;
-      const t = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez || 1)));
-      best = Math.min(best, Math.hypot(ax + ex * t - x, az + ez * t - z) - half);
-    }
-    return best;
-  };
-}
-
-// The bed is narrowed or laid flush to clear graph carriageways, lanes and junction turning paths. The inferred
-// tram strip beside a carriageway is separate; street flags alone miss independently mapped on-road tracks.
-// Raised islands and the three surveyed bridge-deck crossings are handled separately.
-function layoutTrackBeds(tracks, laneDist) {
-  const carriageway = carriagewayDistance();
-  // The broad guide includes tram reservations along roads, so use it only inside actual junction centres.
-  const junctions = new Map();
-  for (const j of JUNCTIONS) {
-    if (j.arms.length < 3) continue;
-    const key = `${Math.floor(j.x / 32)},${Math.floor(j.z / 32)}`;
-    if (!junctions.has(key)) junctions.set(key, []);
-    junctions.get(key).push(j);
-  }
-  const junctionRoad = (x, z) => {
-    const ix = Math.floor(x / 32), iz = Math.floor(z / 32);
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dz = -1; dz <= 1; dz++) {
-        for (const j of junctions.get(`${ix + dx},${iz + dz}`) || []) {
-          if (Math.hypot(x - j.x, z - j.z) < 10) return roadClearance(x, z);
-        }
-      }
-    }
-    return Infinity;
-  };
-  const roadwayDist = (x, z) => Math.min(carriageway(x, z, 4), junctionRoad(x, z),
-    laneDist(x, z, 4 + LANE_HALF) - LANE_HALF);
-  const beds = [];
+// Rails are laid as straight pieces up to PIECE long, so they follow curbs and bends. There is no raised tram track
+// bed: each piece sits on the asphalt ground deck, or on a curb island's 0.22 m paving, and its heads stay flush.
+function layoutTrackRails(tracks) {
+  const pieces = [];
   for (const tr of tracks) {
     const count = Math.max(1, Math.ceil(tr.len / PIECE));
     for (let i = 0; i < count; i++) {
@@ -300,27 +232,10 @@ function layoutTrackBeds(tracks, laneDist) {
       const len = Math.hypot(B.x - A.x, B.z - A.z);
       if ((!isLand(mx, mz) && (tr.street !== 1 || !isWater(mx, mz))) || len < 0.01) continue;
       const ground = tr.street === 1 ? 0 : (blockAt(mx, mz) ? SW_TOP : 0);
-      let bed = 0;
-      if (tr.street !== 1 && !ground) {
-        // the roadway's distance from the centreline every 0.5 m along the piece: a box `half` either side of it stays
-        // clear when that is half + 0.25 m (half the step) + BED_GAP
-        let room = Infinity;
-        const underBridgeDeck = (mx > -1570 && mx < -1520 && mz > 535 && mz < 620) ||
-          (mx > -1445 && mx < -1395 && mz > 50 && mz < 135) ||
-          (mx > -1380 && mx < -1345 && mz > -230 && mz < -170);
-        if (!underBridgeDeck) {
-          const n = Math.max(2, Math.ceil(len / 0.5));
-          for (let k = 0; k <= n; k++) {
-            room = Math.min(room, roadwayDist(A.x + (B.x - A.x) * k / n, A.z + (B.z - A.z) * k / n));
-          }
-          const half = Math.min(BED_HALF, room - 0.25 - BED_GAP);
-          if (half >= BED_MIN) bed = half;
-        }
-      }
-      beds.push({ railIndex: tr.railIndex, s0, ax: A.x, az: A.z, bx: B.x, bz: B.z, ground, bed });
+      pieces.push({ railIndex: tr.railIndex, s0, ax: A.x, az: A.z, bx: B.x, bz: B.z, ground });
     }
   }
-  return { beds, roadwayDist };
+  return pieces;
 }
 
 /**
@@ -556,7 +471,7 @@ function layoutTramInfrastructure(network) {
     });
   }
 
-  const { beds, roadwayDist } = layoutTrackBeds(tracks, laneDist);
+  const pieces = layoutTrackRails(tracks);
 
   // Ground footprints of everything placed, as small axis-aligned boxes (platforms sampled every 1.5 m): none goes to
   // the road network (built before this), but tests/tram-infra.test.cjs feeds them to it to prove no lane is crowded
@@ -577,7 +492,7 @@ function layoutTramInfrastructure(network) {
     }
   }
 
-  return { tracks, stops, skipped, poles, spans, arms, rosettes, droppers, footprints, laneDist, trackDist, beds, roadwayDist };
+  return { tracks, pieces, stops, skipped, poles, spans, arms, rosettes, droppers, footprints, laneDist, trackDist };
 }
 
 /**
@@ -1349,7 +1264,7 @@ function stopFurnitureColliders(stops) {
  */
 function buildTramInfrastructure(scene, network) {
   const layout = layoutTramInfrastructure(network);
-  const { tracks, stops, poles, spans, arms, rosettes, droppers } = layout;
+  const { tracks, pieces: tramPieces, stops, poles, spans, arms, rosettes, droppers } = layout;
   const group = new THREE.Group();
   group.name = 'TramInfrastructure';
   const colliders = [];
@@ -1379,9 +1294,6 @@ function buildTramInfrastructure(scene, network) {
   railMat.metalnessNode = mix(float(0.35), float(0.9), top);
   railMat.roughnessNode = mix(float(0.8), float(0.32), top);
   const grooveMat = new THREE.MeshStandardNodeMaterial({ color: 0x141414, roughness: 0.95 });
-  // Tram ballast bed: crushed stone (darker sides, lighter top) with no sleepers
-  const ballastMat = new THREE.MeshStandardNodeMaterial({ roughness: 0.95 });
-  ballastMat.colorNode = mix(color(0x5d5850), color(0x77706a), step(0.5, normalGeometry.y));
   // Mainline bed: grey granite with the sleepers' 2.6 m on its 4 m top (RAIL_BED_W at the foot), slopes below
   const createBallastMaterial = (sleeperZ, topNy, side, topStone, sleeperColor) => {
     const mat = new THREE.MeshStandardNodeMaterial({ roughness: 0.95 });
@@ -1419,37 +1331,28 @@ function buildTramInfrastructure(scene, network) {
   screenMat.colorNode = mix(color(0x1d2a30), color(0x9fd4ff).mul(1.2), smoothstep(0.4, 1.1, cityUniforms.uInteriorGlow));
 
   // --- 1. Rails -----------------------------------------------------------------------------------------------------
+  // There is no tram track bed: each piece lies on the asphalt (head top 0.016, above the 0.012 m road paint) or on a
+  // curb island's 0.22 m paving. The 0.05 m rail is centred 0.025 m below that top, so its foot stays buried in the
+  // ground instead of floating; the 0.014 m groove top sits 2 mm under the head so the two do not z-fight.
   const railM = [];
   const grooveM = [];
-  const ballastM = [];
-  // Off-street track on ballast, narrowed or flush where the roadway comes near (layoutTrackBeds)
-  for (const { ax, az, bx, bz, ground, bed } of layout.beds) {
+  for (const { ax, az, bx, bz, ground } of tramPieces) {
     const mx = (ax + bx) / 2;
     const mz = (az + bz) / 2;
     const len = Math.hypot(bx - ax, bz - az);
     const dx = (bx - ax) / len;
     const dz = (bz - az) / len;
-    const ballast = bed > 0;
-    const headTop = ballast ? ground + 0.27 : ground + 0.016;
-    if (ballast) {
-      dummy.position.set(mx, ground + 0.06, mz);
-      dummy.rotation.set(0, Math.atan2(-dz, dx), 0);
-      dummy.scale.set(len + 0.02, 0.16, 2 * bed);
-      ballastM.push(M());
-    }
+    const headTop = ground + 0.016;
     for (const sg of [1, -1]) {
       const o = sg * (GAUGE / 2 + HEAD_W / 2);
-      const h = ballast ? 0.17 : 0.05;
-      dummy.position.set(mx - dz * o, headTop - h / 2, mz + dx * o);
+      dummy.position.set(mx - dz * o, headTop - 0.025, mz + dx * o);
       dummy.rotation.set(0, Math.atan2(-dz, dx), 0);
-      dummy.scale.set(len + 0.03, h, HEAD_W);
+      dummy.scale.set(len + 0.03, 0.05, HEAD_W);
       railM.push(M());
-      if (!ballast) {
-        const og = sg * (GAUGE / 2 - GROOVE_W / 2);
-        dummy.position.set(mx - dz * og, headTop - 0.002 - 0.02, mz + dx * og);
-        dummy.scale.set(len + 0.03, 0.04, GROOVE_W);
-        grooveM.push(M());
-      }
+      const og = sg * (GAUGE / 2 - GROOVE_W / 2);
+      dummy.position.set(mx - dz * og, headTop - 0.022, mz + dx * og);
+      dummy.scale.set(len + 0.03, 0.04, GROOVE_W);
+      grooveM.push(M());
     }
   }
 
@@ -1763,8 +1666,7 @@ function buildTramInfrastructure(scene, network) {
   }
   for (const mesh of [
     instanced('TramRails', unitBox, railMat, railM, {}, false),
-    instanced('TramRailGrooves', unitBox, grooveMat, grooveM, {}, false),
-    instanced('TramBallast', unitBox, ballastMat, ballastM, {}, false)
+    instanced('TramRailGrooves', unitBox, grooveMat, grooveM, {}, false)
   ]) if (mesh) group.add(mesh);
   const poleGeo = mergeGeometries([
     new THREE.CylinderGeometry(0.1, 0.15, 1, 10).toNonIndexed(),

@@ -187,13 +187,15 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
     assert.ok(diagonal >= 100, `${diagonal} diagonal shelters probed`);
   }
 
-  // Tram ballast carries no sleepers and no per-instance tie attribute; mainline railway ballast retains both.
+  // No tram track bed remains: there is no TramBallast mesh, and every tram rail piece sits at ground level or on a
+  // curb island's paving. The mainline railway keeps its own ballast and per-instance sleeper tie attribute.
   {
-    const tramBallast = meshes.find((m) => m.name === 'TramBallast');
+    assert.equal(meshes.find((m) => m.name === 'TramBallast'), undefined, 'no tram ballast mesh');
+    assert.ok(layout.pieces.length > 0, `${layout.pieces.length} tram rail pieces`);
+    assert.ok(layout.pieces.every((p) => p.ground === 0 || p.ground === 0.22),
+      'tram rail pieces sit on the ground or a curb island');
     const railBallast = meshes.find((m) => m.name === 'RailBallast');
-    assert.ok(tramBallast && tramBallast.count > 0, `${tramBallast?.count} tram ballast instances`);
     assert.ok(railBallast && railBallast.count > 0, `${railBallast?.count} rail ballast instances`);
-    assert.equal(tramBallast.geometry.attributes.tie, undefined, 'TramBallast geometry carries no tie attribute');
     assert.ok(railBallast.geometry.attributes.tie, 'RailBallast geometry carries tie attribute');
     assert.equal(railBallast.geometry.attributes.tie.size, 2, 'RailBallast tie attribute has size 2');
     assert.equal(railBallast.geometry.attributes.tie.data.length, railBallast.count * 2, 'RailBallast tie data covers all instances');
@@ -252,122 +254,6 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
         assert.ok(Math.abs(c.obb.hx - 0.31) < 1e-9 && Math.abs(c.obb.hz - 0.24) < 1e-9, `${st.tag}: ticket machine`);
       }
     }
-  }
-
-  // Independently sample each ballast rectangle against graph carriageways and traffic lanes. The side strip is a
-  // separate reservation; network turning paths are also accounted for by the layout.
-  {
-    const { beds } = layout;
-    // Baseline lengths within 200 m; protect reservations even if road/guide changes widen a flush area.
-    for (const [name, x, z, minimum] of [
-      ['Rondo Rataje north', 1027, 1396, 650], ['Rondo Rataje south', 1083, 1524, 500],
-      ['Plac Bernardyński', 183, 463, 680], ['Most Dworcowy', -1549, 478, 560],
-      ['Dworzec Zachodni', -1696, 751, 690], ['Ostroroga', -3511, 883, 600],
-      ['Rondo Kaponiera', -1445, 100, 540], ['Rondo Nowaka-Jeziorańskiego', -3055, 655, 420]
-    ]) {
-      const length = beds.filter((p) => p.bed && Math.hypot((p.ax + p.bx) / 2 - x, (p.az + p.bz) / 2 - z) < 200)
-        .reduce((sum, p) => sum + Math.hypot(p.bx - p.ax, p.bz - p.az), 0);
-      assert.ok(length > minimum, `${name} retains separate ballast: ${length.toFixed(1)} m`);
-    }
-    const RG = GEO.roadGraph;
-    const C = 16;
-    const file = (g, s, pad) => {
-      for (let ix = Math.floor((Math.min(s.ax, s.bx) - pad) / C); ix <= Math.floor((Math.max(s.ax, s.bx) + pad) / C); ix++) {
-        for (let iz = Math.floor((Math.min(s.az, s.bz) - pad) / C); iz <= Math.floor((Math.max(s.az, s.bz) + pad) / C); iz++) {
-          const k = ix * 100000 + iz;
-          if (!g.has(k)) g.set(k, []);
-          g.get(k).push(s);
-        }
-      }
-    };
-    const segD = (s, x, z) => {
-      const ex = s.bx - s.ax, ez = s.bz - s.az;
-      const t = Math.max(0, Math.min(1, ((x - s.ax) * ex + (z - s.az) * ez) / (ex * ex + ez * ez || 1)));
-      return Math.hypot(s.ax + ex * t - x, s.az + ez * t - z);
-    };
-    const near = (g, x, z) => g.get(Math.floor(x / C) * 100000 + Math.floor(z / C)) || [];
-    const cars = new Map();
-    for (const [a, b, , w, , , inner, flags] of RG.links) {
-      const pts = [RG.nodes[2 * a], RG.nodes[2 * a + 1], ...inner, RG.nodes[2 * b], RG.nodes[2 * b + 1]];
-      const half = (w > 3 ? w : 9.1) / 2 - (flags & 24 ? 3.25 : 0);
-      for (let k = 0; k + 3 < pts.length; k += 2) {
-        file(cars, { ax: pts[k], az: pts[k + 1], bx: pts[k + 2], bz: pts[k + 3], half }, 12);
-      }
-    }
-    const onCarriageway = (x, z) => near(cars, x, z).some((s) => segD(s, x, z) < s.half);
-    const junctions = new Map();
-    for (const j of config.JUNCTIONS) {
-      if (j.arms.length < 3) continue;
-      file(junctions, { ax: j.x, az: j.z, bx: j.x, bz: j.z }, 10);
-    }
-    // The 10 m guide query samples the track centreline; a bed may extend 1.45 m beyond that radius.
-    const atJunction = (x, z) => near(junctions, x, z).some((j) => segD(j, x, z) < 10 - 2);
-    const lanes = new Map();
-    const laneSegs = [];
-    for (const e of network.paintEdges) {
-      for (const o of e.lanes) {
-        const ax = e.x0 + e.rx * o, az = e.z0 + e.rz * o;
-        const s = { ax, az, bx: ax + e.dx * e.span, bz: az + e.dz * e.span };
-        file(lanes, s, 4);
-        laneSegs.push(s);
-      }
-    }
-    const point = { x: 0, z: 0, dx: 0, dz: 0 };
-    for (const e of network.edges) for (const move of e.moves || []) {
-      for (let i = 0; i < move.out.length; i++) {
-        if (move.out[i] < 0) continue;
-        const curve = network.connector(e, i, move.to, move.out[i]);
-        network.curvePoint(curve, 0, point);
-        for (let k = 1; k <= 8; k++) {
-          const ax = point.x, az = point.z;
-          network.curvePoint(curve, curve.len * k / 8, point);
-          file(lanes, { ax, az, bx: point.x, bz: point.z }, 4);
-        }
-      }
-    }
-    const inLane = (x, z) => near(lanes, x, z).some((s) => segD(s, x, z) < 1.8);
-    let overCar = 0, overLane = 0, overJunction = 0, streetOnBallast = 0, ballast = 0;
-    const bedGrid = new Map();
-    for (const p of beds) {
-      const mx = (p.ax + p.bx) / 2, mz = (p.az + p.bz) / 2;
-      if (!p.bed) continue;
-      ballast++;
-      assert.ok(p.bed >= 1.2 && p.bed <= 1.45 && !p.ground && GEO.rail[p.railIndex].street !== 1);
-      const inPstDworcowy = mx > -1570 && mx < -1525 && mz > 535 && mz < 585;
-      if (!inPstDworcowy && onCarriageway(mx, mz)) streetOnBallast++;
-      const len = Math.hypot(p.bx - p.ax, p.bz - p.az);
-      const dx = (p.bx - p.ax) / len, dz = (p.bz - p.az) / len;
-      file(bedGrid, { ax: p.ax, az: p.az, bx: p.bx, bz: p.bz, dx, dz, len, half: p.bed }, 2);
-      for (let u = 0.125; u < len; u += 0.25) {
-        for (let v = -p.bed + 0.125; v < p.bed; v += 0.25) {
-          const x = p.ax + dx * u - dz * v, z = p.az + dz * u + dx * v;
-          if (x > -1570 && x < -1525 && z > 535 && z < 585) continue; // Most Dworcowy elevated bridge over PST trench
-          if (onCarriageway(x, z)) overCar += 0.0625;
-          if (inLane(x, z)) overLane += 0.0625;
-          if (atJunction(x, z) && config.roadClearance(x, z) < 0) overJunction += 0.0625;
-        }
-      }
-    }
-    let laneUnder = 0;
-    for (const s of laneSegs) {
-      const L = Math.hypot(s.bx - s.ax, s.bz - s.az) || 1;
-      for (let d = 0; d <= L; d += 1) {
-        const x = s.ax + (s.bx - s.ax) * d / L, z = s.az + (s.bz - s.az) * d / L;
-        if (x > -1570 && x < -1525 && z > 535 && z < 585) continue; // Most Dworcowy elevated bridge over PST trench
-        if (near(bedGrid, x, z).some((b) => {
-          const u = (x - b.ax) * b.dx + (z - b.az) * b.dz;
-          return u >= 0 && u <= b.len && Math.abs(-(x - b.ax) * b.dz + (z - b.az) * b.dx) < b.half;
-        })) laneUnder++;
-      }
-    }
-    assert.ok(beds.some((p) => p.bed && Math.hypot((p.ax + p.bx) / 2 + 2664.36, (p.az + p.bz) / 2 - 2305.09) < 2),
-      'the separate Górczyn tramway keeps its ballast');
-    assert.ok(ballast > 5000, `${ballast} ballast pieces`);
-    assert.equal(overCar, 0, `${overCar} m² of carriageway under ballast`);
-    assert.equal(overJunction, 0, `${overJunction} m² of junction road under ballast`);
-    assert.equal(overLane, 0, `${overLane} m² of lanes under ballast`);
-    assert.equal(laneUnder, 0, `${laneUnder} lane centre samples under ballast`);
-    assert.equal(streetOnBallast, 0, `${streetOnBallast} ballast pieces centred on a carriageway`);
   }
 
   // Mainline railway: pieces only on land, cut clear of every roadway and tram track with an end wall at each cut,
