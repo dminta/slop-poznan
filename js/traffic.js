@@ -2504,7 +2504,6 @@ function createTrafficSystem(
         // parametrisations, so `t` and `dir` are not comparable between them.
         const hx = p.ux * p.dir, hz = p.uz * p.dir;
         for (const q of list) {
-        for (const q of list) {
           if (q === p) continue;
           const dx = q.x - p.x, dz = q.z - p.z;
           const forward = dx * hx + dz * hz;
@@ -2520,7 +2519,6 @@ function createTrafficSystem(
           } else if (dot < -0.8 && q.v < 0.05 && forward < QUEUE_GAP) {
             oppositeRoom = Math.min(oppositeRoom, Math.max(0, forward - QUEUE_GAP));
           }
-        }
         }
       }
     }
