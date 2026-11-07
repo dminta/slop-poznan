@@ -100,6 +100,19 @@ test('a curb island beside a tram track needs safe waiting room just like an unm
   assert.ok(routes.crosswalks.every((c) => c.side >= 2), 'no queue on the rail beside the east curb');
 });
 
+test('an inset lane keeps RAIL_KEEP on the side away from a nearby tram track', () => {
+  const n = { x: 0, z: 0, signal: false, arms: [] };
+  n.arms.push(arm(n, 0, 1, { half: 5, back: 16, side: 0, group: 0 }));
+  // A rail at x = -8.9: the -6.7 m sidewalk centre line is 2.2 m clear, but its +right inset (toward the rail)
+  // reaches 1.86 m. Only the other side may carry a lane. A track whose centre line is already inside the keep is
+  // a crossing and keeps both sides, as before.
+  const railClearance = (x, _z, r) => Math.min(r, Math.abs(x + 8.9));
+  const routes = routesAround(n, 0, railClearance);
+  const track = routes.along(n.arms[0].out).find((t) => Math.abs(t.ax + 6.7) < 1e-9 && t.uz > 0.99);
+  assert.ok(track, 'the sidewalk track outside the 2 m rail keep exists');
+  assert.equal(track.insetLane, 2, 'the side toward the rail is not marked as a lane');
+});
+
 test('zebras run on to the real curb within CROSSWALK_REACH, and there is none where they would end in the roadway', () => {
   const junction = () => {
     const n = { x: 0, z: 0, signal: false, arms: [] };

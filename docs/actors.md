@@ -77,7 +77,13 @@ length-based capacity), and a walker that is already stopping does not stop insi
 walkers still pass, so crossing throughput does not fall. A queue at a split crossing's `hold` backs along the track in
 queue-gap steps instead of standing on the strip's end point. The corner queue ignores people at exactly the same point
 (`forward > 0.01`), so an overlap left by a shared link or a respawn cannot report zero room to both and lock itself
-for good.
+for good. Every walking track also names which of its two right-hand sides has room for a `LANE_INSET` 0.34 m inset
+(`insetLane`: bit 1 for the +right side, bit 2 for -right; both on ordinary two-way sidewalks, and only the sides
+with room on a one-sided corner link). `walk()` eases each pedestrian's `lane` offset toward the side of its travel
+direction, so opposing flows on a narrow line sit 0.68 m apart instead of stopping on one point. The target fades to
+zero within
+`PED_LANE_RAMP` 1.5 m of either track end, and the stored offset moves no faster than `PED_LANE_RATE` 1.5 m/s, so a
+leg change, a dead-end reversal or a respawn never jumps a walker sideways.
 
 `pedestrian-routes.js` never links the two painted lines of one crosswalk to each other: that 1.5 m step is a U-turn
 back over the zebra just crossed, and at a curb with no sidewalk exit every walker funnelled through that one short
@@ -126,11 +132,17 @@ before the landing connections it was -9.5%, about 58% of which was the removed 
 the rest walkers queueing briefly behind sidewalk conversations (6-12 s) and rests (1.5-4.5 s). `traffic.update`
 measured 0.632 → 0.66 ms/frame at Centrum (60 fps, 1 800 frames, headless); route build 180 → 182 ms and links()
 over all ends 5.1 → 5.33 s (worst call 34 → 33.4 ms). The 2026-11-07 physical-line follow-up, re-measured on the two
-remaining hotspots (Dworzec and Wilda, same seeds and duration), moves clusters **17 → 12**, longest **26 → 24 s**,
-biggest **7 → 8**, overlapping pairs/s **18.8 → 14.1** and crosswalk entries **108.0 → 109.2/min**; `traffic.update`
-stays within run-to-run noise (+3%). Remaining are a 24 s / 5-body corner link at Most Dworcowy when trams block both
-directions, an 8 s / 8-body two-way queue at Droga Dębińska and conversation pairs meeting within a body width of
-another pair, not stacks. Method, counts and the before/after tables are in
+remaining hotspots (Dworzec and Wilda, same seeds and duration), moved clusters **17 → 12**, longest **26 → 24 s**,
+biggest **7 → 8**, overlapping pairs/s **18.8 → 14.1** and crosswalk entries **108.0 → 109.2/min**. The
+direction-inset follow-up (same two districts, seeds 4242/77, 3 min, measured again on this tree, including the
+review fixes) moves clusters **8 → 1**, longest **20 → 9 s**, biggest **6 → 4**, overlapping pairs/s
+**13.25 → 5.68** and crosswalk entries **125.7 → 126.6/min**. The 24 s / 5-body Most Dworcowy two-way knot and the
+8 s / 8-body Droga Dębińska queue are gone. Remaining are a 9 s / 4-body same-direction queue on an 11.8 m Droga
+Dębińska corner link feeding a crosswalk (no longer a two-way knot), crosswalk pairs at Most Dworcowy lasting 7-8 s,
+and conversation pairs meeting within a body width of another pair. `traffic.update` stays at
+**0.789 → 0.780 ms/frame** at Centrum (noise); on the bare network, materialising every walking track rises
+1.23 → 4.81 s and `segments()` 5.69 → 11.81 s (the 0.5 m block/rail sweep runs once at build time), with no
+per-frame allocation. Method, counts and the before/after tables are in
 [the observation record](observations/ped-overlaps-2026-11-05.md).
 
 ## Population around the camera (spawn/despawn)

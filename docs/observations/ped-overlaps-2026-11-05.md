@@ -306,3 +306,72 @@ sampled choice count falls 26,664 → 26,433 because some ends now return no pat
 
 `node --test tests/*.cjs`: 419 pass. The signal-audit fixture is unchanged because the guard only filters `next()`;
 it adds or moves no track.
+
+## Follow-up 2026-11-07: direction-specific inset lanes
+
+The backlog still listed the two-way knots at Most Dworcowy and Droga Dębińska. Two walkers on one physical line
+shared exactly the same metres whether they walked the same way or not: the line's four lateral tracks are chosen by
+`next()` without a direction, and a corner link's reverse direction is another route object on the same corridor.
+When one direction queued, `oppositeRoom` stopped the other inside a body width, and the queue behind it stacked on
+one point. Reproduce with:
+
+`node tools/audit-ped-overlaps.mjs --minutes 3 --fps 15 --seeds 4242,77 --only dworzec,wilda`
+
+### Fix
+
+- `js/pedestrian-routes.js`: every walking track now carries `insetLane`, a bit mask of the right-hand sides that
+  stay walkable, on the same block and clear of `RAIL_KEEP` 2 m at `LANE_INSET` 0.34 m (bit 1 is the track's +right
+  side, bit 2 its -right side; ordinary two-way sidewalks get both, a one-sided corner link only the sides with room).
+  `laneClear()` checks block identity and rail clearance every 0.5 m with no sample cap, and sweeps the walker's body
+  box between 1 m samples; a rail crossing stays allowed only where the centre line itself is already inside
+  `RAIL_KEEP`. It is set on `along()` tracks, direct and rounded corner-link legs, fallback connectors and the
+  projection sub-tracks. The backward projection sub-track runs opposite its parent, so its mask is mirrored
+  (`mirrorLane`) instead of copied. Cross-block direct fallbacks store `0`, not `false`. Geometry, track ends and
+  `links()`/`next()` are unchanged: the bare-network `segments()` still returns the same 383,368 tracks.
+- `js/traffic.js`: each pedestrian keeps a `lane` offset (0 on spawn). `laneOffset(p, dt)` selects the travel
+  direction's bit (`p.dir > 0` asks for bit 1, otherwise bit 2), fades the target to zero within `PED_LANE_RAMP` 1.5 m
+  of either track end, and moves `p.lane` at most `PED_LANE_RATE` 1.5 m/s. The final position is the track point plus
+  `lane` along the right normal (`-uz, ux`), so opposing directions sit 0.68 m apart, just over `QUEUE_GAP` 0.62 m,
+  and a leg change, dead-end reversal or respawn never jumps a walker sideways. No object is allocated in `walk()`.
+
+### Before / after
+
+Seeds 4242 and 77, 3 simulated minutes at each focus point, sampled once per second after 20 s.
+
+| District | seed | clusters | longest s | biggest | pairs/s | entries/min |
+|---|---|---|---|---|---|---|
+| Wilda | 4242 | 1 → 0 | 10 → 0 | 5 → 0 | 12.2 → 4.6 | 152.3 → 142.9 |
+| Wilda | 77 | 1 → 1 | 16 → 9 | 4 → 4 | 12.8 → 5.1 | 153.0 → 150.0 |
+| Poznań Główny | 4242 | 4 → 0 | 20 → 0 | 6 → 0 | 14.6 → 6.0 | 97.5 → 106.9 |
+| Poznań Główny | 77 | 2 → 0 | 17 → 0 | 5 → 0 | 13.4 → 7.0 | 99.8 → 106.5 |
+| **all** | | **8 → 1** | **20 → 9** | **6 → 4** | **13.25 → 5.68** | **125.7 → 126.6** |
+
+The Droga Dębińska stacks (10 s / 5 peds at Henryka Jordana in seed 4242, 16 s / 4 at Ojca Mariana Żelazka in seed
+77) and the Most Dworcowy two-way queue on the Głogowska sidewalk (20 s / 6 and 17 s / 5) are gone. The one remaining
+cluster is a 9 s / 4-body same-direction queue on an 11.8 m Droga Dębińska corner link feeding a crosswalk; it is no
+longer a two-way knot. The longest overlapping pair is 16 s with two bodies at the same link; crosswalk pairs at Most
+Dworcowy stay 7-8 s. Crosswalk throughput does not fall (mean 125.7 → 126.6/min) and the same 1,360 spawns occur,
+109 within 0.5 m of another body in both runs.
+
+`node tools/bench-traffic.mjs --ped-rooms --minutes 3 --fps 15 --seed 4242 --only wilda` reports **5,025 → 4,306**
+frozen pedestrian-seconds of about 50,000 sampled, with the longest freeze staying at 20.1 s but moving from an
+`entrance` cause at `(-79, 1773)` to `merge` at `(-130, 1934)`. The review fixes check one-sided masks and rail keep
+more strictly, so this is slightly above the first inset-lane run (4,008 ped-s) and still 14% below the base.
+
+### Performance and regression test
+
+Per-frame cost stays at **0.789 → 0.780 ms/frame** (Centrum, 1,800 `traffic.update` frames at 60 fps; within
+noise), and `walk()` allocates nothing new. The stricter build-time check costs more: on the bare network,
+materialising every walking track (`along` over all edges) rises **1.23 → 4.81 s** and `segments()`
+**5.69 → 11.81 s**; `createPedestrianRoutes` itself stays 89 ms. The extra cost is the 0.5 m block/rail sweep, paid
+once per track and never in the frame loop.
+
+`tests/pedestrian-inset-lanes.test.cjs` slices `laneOffset` from `traffic.js` and asserts that opposing walkers end
+0.68 m apart, that the offset is small at both track ends, that a reversal moves at most `PED_LANE_RATE * dt` per
+frame, and that unmarked tracks and crosswalks stay centred. It also walks every `along()` track on the bare network
+and re-checks each set `insetLane` bit at **0.5 m** against `blockAt`/`walkable`, so a lane cannot claim a side with
+a wall, a curb of another block or a non-walkable footprint on it. `tests/pedestrian-routes.test.cjs` adds a synthetic
+rail at 2.2 m from a centre line whose 0.34 m inset reaches 1.86 m, and asserts that only the far side is marked.
+`tests/pedestrian-route-buildings.test.cjs` projects a landing onto a one-sided track and asserts that the backward
+sub-track mirrors the parent mask (bit 1 → bit 2). A separate 3-minute jump check found one >1 m same-frame step in
+2,701 frames (worst 3.5 m) versus two (worst 15.3 m) before the change, so the inset does not introduce teleports.
