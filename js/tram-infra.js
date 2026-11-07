@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import { Fn, attribute, color, float, vec2, mix, smoothstep, step, abs, fract, floor, fwidth, max, clamp, normalGeometry, positionGeometry, screenCoordinate, texture, uv } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GEO } from './geodata.js';
-import { BRIDGES, RAIL_BRIDGES, PLAZAS, JUNCTIONS, blockAt, isLand, isWater, roadClearance } from './city-config.js';
+import { BRIDGES, RAIL_BRIDGES, PLAZAS, JUNCTIONS, blockAt, isLand, isWater, roadClearance, pointInPark } from './city-config.js';
 import { cityUniforms, createCurbMaterial, transparentEffectMRT } from './tsl-materials.js';
 
 // js/tram-infra.js
@@ -19,6 +19,9 @@ import { cityUniforms, createCurbMaterial, transparentEffectMRT } from './tsl-ma
 // - the mainline railway (GEO.rail kind 'rail'): ballast beds with concrete sleepers and raised rails, cut with a
 //   concrete end wall wherever a road or tram line crosses (the bridges and underpasses have no levels here) and laid
 //   flush across the road at the level crossings (GEO.levelCrossings), and the 3 kV DC overhead line (contact and messenger wire, masts with cantilevers, portals over the yards)
+// - tram tunnels and the PST cutting (GEO.tramTunnels): portal frames and short walled approaches at the underground
+//   entries, and retaining walls/railings along the open PST cutting (see layoutTramTunnels below); nothing is drawn
+//   on the surface between two portals, where trams.js masks the hidden tram sections
 // layoutTramInfrastructure(network) and layoutRailInfrastructure(network) are the pure placements (no three.js) that
 // tests/tram-infra.test.cjs checks; the tram layout's `stops` list is the public one trams can dwell at.
 
@@ -323,10 +326,584 @@ function layoutTrackBeds(tracks, laneDist) {
   return { beds, roadwayDist };
 }
 
+// --- Tram tunnels and the PST cutting --------------------------------------------------------------------------------
+// The world is flat. Between two tunnel portals nothing is drawn on the surface: the ground, park or street stays as
+// it is, and the rails, beds, wires and catenary supports are left out of the hidden stretch. Each place the line goes
+// underground gets a portal frame (posts, head wall, dark lining, wing walls) and, where it is not already inside the
+// PST cutting, a short parapeted approach; only that approach is a player keep-out. Trams are hidden by the render-side
+// mask in trams.js (the hidden list passed in from main.js), not by a lid. The open PST cutting keeps its retaining
+// parapets, railings and keep-out.
+const TRAM_GRADE_KEEP = 2.05; // distance to a tunnel/cutting centreline used by the tests and pole placement
+const TRAM_TRENCH_HALF = 1.8; // clear inside face of a retaining wall from the track centreline
+const TRAM_WALL_T = 0.2; // open-trench parapet thickness
+const TRAM_TRENCH_WALL_H = 1.15; // parapet above the trackbed
+const TRAM_TRENCH_FENCE_H = 1.05; // welded-mesh railing on the parapet
+const TRAM_HIDDEN_HALF = 2.4; // corridor half width over which a covered tram is hidden and its track drawn out
+const TRAM_APPROACH_LEN = 10; // longest walled approach outside a portal, m
+const TRAM_PORTAL_H = 4.8; // clear height under the head wall
+const TRAM_PORTAL_TOP = 5.55; // top of the portal posts / head wall
+const TRAM_COVER_HALF = 2.5; // portal width beyond a single bore
+const TRAM_GRADE_REACH = 8; // a parallel track this close shares the corridor (no wall between the two)
+const TRAM_STRUCTURE_KEEP = 1.8; // no structure centre this close to a visible tram track centreline
+const TRAM_WALK_MAX = 200; // carry a hidden stretch along the tracks this far to reach a real portal
+
+// Arc-length track helper for the pure layout
+function gradeTrack(p) {
+  const n = p.length / 2;
+  const cum = new Float64Array(n);
+  for (let k = 1; k < n; k++) cum[k] = cum[k - 1] + Math.hypot(p[2 * k] - p[2 * k - 2], p[2 * k + 1] - p[2 * k - 1]);
+  return { p, n, cum, len: cum[n - 1] };
+}
+
+// Nearest point on a polyline, with its arc length
+function nearestOnTrack(tr, x, z) {
+  let best = Infinity;
+  let out = null;
+  for (let i = 0; i + 1 < tr.n; i++) {
+    const ax = tr.p[2 * i], az = tr.p[2 * i + 1];
+    const ex = tr.p[2 * i + 2] - ax, ez = tr.p[2 * i + 3] - az;
+    const L2 = ex * ex + ez * ez || 1;
+    const t = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / L2));
+    const d = Math.hypot(ax + ex * t - x, az + ez * t - z);
+    if (d < best) {
+      best = d;
+      out = { d, x: ax + ex * t, z: az + ez * t, s: tr.cum[i] + t * Math.sqrt(L2) };
+    }
+  }
+  return out;
+}
+
+// Pure layout of the portals, retaining walls, hidden stretches and keep-out raster. No three.js.
+function layoutTramTunnels(laneDist = null) {
+  const grade = (GEO.tramTunnels || []).filter((g) => g.pts && g.pts.length >= 4).map((g, i) => {
+    const tr = gradeTrack(g.pts);
+    return { kind: g.kind, p: g.pts, n: tr.n, cum: tr.cum, len: tr.len, index: i };
+  }).filter((tr) => tr.len > 0.5);
+  const empty = { tracks: grade, portals: [], walls: [], roofs: [], railings: [], openings: [], colliders: [], hidden: [],
+    keepOut: { has: () => false, cells: 0 }, gradeNear: () => false, coveredAt: () => false, hiddenAt: () => false,
+    trenchAt: () => false };
+  if (!grade.length) return empty;
+
+  const grid = segmentGrid(16);
+  for (const tr of grade) {
+    for (let k = 0; k + 1 < tr.n; k++) grid.add(tr.p[2 * k], tr.p[2 * k + 1], tr.p[2 * k + 2], tr.p[2 * k + 3], { tr });
+  }
+  const gradeNear = (x, z, kind = null, r = TRAM_GRADE_KEEP) =>
+    !!grid.nearest(x, z, r, (sg) => !kind || sg.data.tr.kind === kind);
+  const coveredAt = (x, z, r = TRAM_GRADE_KEEP) => gradeNear(x, z, 'covered', r);
+  const trenchAt = (x, z, r = TRAM_GRADE_KEEP) => gradeNear(x, z, 'trench', r);
+  const isPark = (x, z) => {
+    const b = blockAt(x, z);
+    return pointInPark(x, z) || !!(b && b.park > 0.6);
+  };
+  const surfaceClear = (x, z) => isLand(x, z) && roadClearance(x, z) > 0.25 && !isPark(x, z);
+  const medianClear = (x, z) => isLand(x, z) && !isPark(x, z) && !blockAt(x, z);
+  const nearRoad = (x, z) => roadClearance(x, z) < 0.4;
+
+  // Every visible tram track, for bundle widths and the structure clearance test
+  const tramTracks = [];
+  for (const r of GEO.rail || []) {
+    if (r.kind !== 'tram' || !r.pts || r.pts.length < 4) continue;
+    const tr = gradeTrack(r.pts);
+    tramTracks.push({ ...tr, street: r.street ? 1 : 0, railIndex: tramTracks.length });
+  }
+  // A simple point list (flattened) is enough for the bundle extents
+  const tramPoints = [];
+  for (const tr of tramTracks) for (let k = 0; k < tr.n; k++) tramPoints.push(tr.p[2 * k], tr.p[2 * k + 1]);
+  const tramGrid = segmentGrid(16);
+  for (const tr of tramTracks) {
+    for (let k = 0; k + 1 < tr.n; k++) {
+      tramGrid.add(tr.p[2 * k], tr.p[2 * k + 1], tr.p[2 * k + 2], tr.p[2 * k + 3], { tr });
+    }
+  }
+  const tramDist = (x, z, r) => {
+    const h = tramGrid.nearest(x, z, r);
+    return h ? h.d : r;
+  };
+  const structureClear = (x, z) => tramDist(x, z, TRAM_STRUCTURE_KEEP) >= TRAM_STRUCTURE_KEEP;
+  const trackClear = (x, z, keep = 1.75) => tramDist(x, z, keep) >= keep;
+
+  // Lateral distance to the nearest other grade track roughly parallel to (dx, dz), or Infinity
+  const neighbour = (tr, x, z, nx, nz, dx, dz) => {
+    const h = grid.nearest(x + nx * 7, z + nz * 7, 6.5, (sg) => {
+      if (sg.data.tr === tr || sg.data.tr.kind !== tr.kind) return false;
+      const ex = sg.bx - sg.ax;
+      const ez = sg.bz - sg.az;
+      return Math.abs(ex * dx + ez * dz) / (Math.hypot(ex, ez) || 1) >= 0.55;
+    });
+    if (!h) return Infinity;
+    const lat = (h.qx - x) * nx + (h.qz - z) * nz;
+    return lat > 1.4 && lat < TRAM_GRADE_REACH ? lat : Infinity;
+  };
+
+  // --- Hidden stretch: covered ways plus the twin track of a two-track covered section -------------------------------
+  const covered = grade.filter((tr) => tr.kind === 'covered');
+  const hiddenBase = covered.map((tr) => ({ kind: 'covered', pts: Array.from(tr.p) }));
+  // The PST Kaponiera cover is tagged on one track only; the twin is a few metres away. Add a hidden segment on the
+  // nearest parallel off-street tram track so both bores are hidden and one portal can span them. A twin that is
+  // already a covered way (the Franowo bores) is skipped, and the segment must be about as long as the cover.
+  const rawHiddenGrid = segmentGrid(16);
+  for (const h of hiddenBase) {
+    for (let i = 0; i + 3 < h.pts.length; i += 2) rawHiddenGrid.add(h.pts[i], h.pts[i + 1], h.pts[i + 2], h.pts[i + 3], null);
+  }
+  for (const tr of covered) {
+    const mid = pointAt(tr, tr.len / 2);
+    if (rawHiddenGrid.nearest(mid.x, mid.z, 1.0)) continue;
+    let twin = null;
+    let best = 6;
+    for (const tt of tramTracks) {
+      if (tt.street !== 0 || tt.len < 8) continue;
+      const q = nearestOnTrack(tt, mid.x, mid.z);
+      if (!q || q.d < 1.2 || q.d > best) continue;
+      // roughly parallel at both ends
+      const a = nearestOnTrack(tt, tr.p[0], tr.p[1]);
+      const b = nearestOnTrack(tt, tr.p[tr.p.length - 2], tr.p[tr.p.length - 1]);
+      if (!a || !b || a.d > 6 || b.d > 6) continue;
+      const span = Math.hypot(a.x - b.x, a.z - b.z);
+      if (span < tr.len * 0.35 || span > tr.len * 1.6) continue;
+      best = q.d;
+      twin = { tt, a, b };
+    }
+    if (twin) hiddenBase.push({ kind: 'covered', pts: [twin.a.x, twin.a.z, twin.b.x, twin.b.z] });
+  }
+  // --- Portals: every free end of the hidden stretch; the frame spans the whole bundle -----------------------------
+  const hiddenTracks = hiddenBase.map((h) => gradeTrack(h.pts));
+  const freeEnd = (tr, x, z) => !hiddenTracks.some((o) => o !== tr &&
+    (Math.hypot(o.p[0] - x, o.p[1] - z) < 0.75 ||
+     Math.hypot(o.p[o.p.length - 2] - x, o.p[o.p.length - 1] - z) < 0.75));
+  const ends = [];
+  for (const tr of hiddenTracks) {
+    const A = pointAt(tr, 0);
+    const B = pointAt(tr, tr.len);
+    if (freeEnd(tr, A.x, A.z)) ends.push({ x: A.x, z: A.z, dx: -A.dx, dz: -A.dz });
+    if (freeEnd(tr, B.x, B.z)) ends.push({ x: B.x, z: B.z, dx: B.dx, dz: B.dz });
+  }
+  // Lateral extents of all tram tracks crossing the portal plane, centred on the bundle
+  const bundleAt = (x, z, dx, dz) => {
+    const lx = -dz, lz = dx;
+    let min = 0, max = 0;
+    for (let i = 0; i < tramPoints.length; i += 2) {
+      const rx = tramPoints[i] - x, rz = tramPoints[i + 1] - z;
+      if (Math.abs(rx * dx + rz * dz) > 2.5) continue;
+      const o = rx * lx + rz * lz;
+      if (Math.abs(o) > 12) continue;
+      min = Math.min(min, o);
+      max = Math.max(max, o);
+    }
+    return { min, max, width: Math.max(4.8, max - min + 2 * TRAM_COVER_HALF) };
+  };
+  const trackPos = (tr, s) => {
+    let lo = 0, hi = tr.n - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (tr.cum[m] <= s) lo = m; else hi = m; }
+    const t = (s - tr.cum[lo]) / (tr.cum[hi] - tr.cum[lo] || 1);
+    return { x: tr.p[2 * lo] + (tr.p[2 * hi] - tr.p[2 * lo]) * t, z: tr.p[2 * lo + 1] + (tr.p[2 * hi + 1] - tr.p[2 * lo + 1]) * t };
+  };
+  const trackDir = (tr, s) => {
+    let lo = 0, hi = tr.n - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (tr.cum[m] <= s) lo = m; else hi = m; }
+    const ex = tr.p[2 * hi] - tr.p[2 * lo], ez = tr.p[2 * hi + 1] - tr.p[2 * lo + 1];
+    const L = Math.hypot(ex, ez) || 1;
+    return { x: ex / L, z: ez / L };
+  };
+  // A whole portal at (x,z) facing (dx,dz), or null. Posts must stay off every roadway, in the clear, and outside
+  // every visible tram track's structure gauge; the frame may grow to cover its bundle.
+  const portalAt = (x, z, dx, dz, count, minApproach = 2, minWidth = 0) => {
+    const lx = -dz, lz = dx;
+    const bundle = bundleAt(x, z, dx, dz);
+    const baseCx = x + lx * (bundle.min + bundle.max) / 2;
+    const baseCz = z + lz * (bundle.min + bundle.max) / 2;
+    // A shifted frame can put both posts on the median/curb while its opening still covers the tracks. Try the
+    // smallest width and shift first.
+    for (let width = Math.max(bundle.width, minWidth); width <= 30; width += 1.5) {
+      const half = width / 2 - 0.3;
+      for (let mag = 0; mag <= 12 && mag <= half - 0.5; mag += 0.75) {
+        for (const sg of mag === 0 ? [1] : [1, -1]) {
+          const cx = baseCx + lx * mag * sg;
+          const cz = baseCz + lz * mag * sg;
+          if (!surfaceClear(cx, cz) || roadClearance(cx, cz) <= 0.3) continue;
+          if (!surfaceClear(cx + lx * half, cz + lz * half) || roadClearance(cx + lx * half, cz + lz * half) <= 0.3 ||
+            !surfaceClear(cx - lx * half, cz - lz * half) || roadClearance(cx - lx * half, cz - lz * half) <= 0.3 ||
+            !structureClear(cx + lx * half, cz + lz * half) || !structureClear(cx - lx * half, cz - lz * half)) continue;
+          let approach = 0;
+          const outer = width / 2 - 0.25;
+          for (let s = 1; s <= TRAM_APPROACH_LEN; s += 1) {
+            const qx = cx + dx * s, qz = cz + dz * s;
+            if (!surfaceClear(qx, qz) || !surfaceClear(qx + lx * outer, qz + lz * outer) ||
+              !surfaceClear(qx - lx * outer, qz - lz * outer)) break;
+            approach = s;
+          }
+          if (approach < minApproach) continue;
+          return { x: cx, z: cz, dx, dz, width, height: TRAM_PORTAL_H, approach, ends: count, posts: true, median: false };
+        }
+      }
+    }
+    return null;
+  };
+  // Carry a hidden stretch along the actual tram tracks from a free end that has no room for a frame, until a clear
+  // portal fits (or an existing portal is reached).
+  const walkOutward = (end, known) => {
+    let cur = null, best = 6, s = 0;
+    for (const tt of tramTracks) {
+      const q = nearestOnTrack(tt, end.x, end.z);
+      if (q && q.d < best) { best = q.d; cur = tt; s = q.s; }
+    }
+    if (!cur) return { portal: null, path: [] };
+    const d0 = trackDir(cur, s);
+    let sign = d0.x * end.dx + d0.z * end.dz >= 0 ? 1 : -1;
+    let x = end.x, z = end.z;
+    const path = [x, z];
+    for (let travelled = 0; travelled < TRAM_WALK_MAX; travelled += 2) {
+      if (travelled > 2) {
+        const dir = trackDir(cur, s);
+        const p = portalAt(x, z, dir.x * sign, dir.z * sign, 1, 0);
+        if (p) {
+          if (p.width > 22) {
+            return { portal: { kind: 'ramp', x, z, dx: dir.x * sign, dz: dir.z * sign, width: 4.8, height: 0.16,
+              approach: 0, posts: false, median: true, ends: 1 }, path };
+          }
+          return { portal: p, path };
+        }
+        for (const q of known) if (Math.hypot(q.x - x, q.z - z) < 4) return { portal: null, path };
+      }
+      s += sign * 2;
+      if (s < 0 || s > cur.len) {
+        let next = null, nb = 1e9;
+        for (const o of tramTracks) {
+          if (o === cur) continue;
+          for (const at of [0, o.len]) {
+            const ox = at === 0 ? o.p[0] : o.p[o.p.length - 2], oz = at === 0 ? o.p[1] : o.p[o.p.length - 1];
+            const d = Math.hypot(ox - x, oz - z);
+            if (d > 2 || d > nb) continue;
+            const sd = trackDir(o, at === 0 ? 0.01 : o.len - 0.01);
+            const outx = at === 0 ? sd.x : -sd.x, outz = at === 0 ? sd.z : -sd.z;
+            if (outx * end.dx + outz * end.dz > 0.4) { next = { o, at }; nb = d; }
+          }
+        }
+        if (!next) break;
+        cur = next.o;
+        sign = next.at === 0 ? 1 : -1;
+        s = next.at === 0 ? 0 : cur.len;
+      }
+      const p = trackPos(cur, s);
+      x = p.x; z = p.z;
+      path.push(x, z);
+    }
+    return { portal: null, path };
+  };
+
+  const used = new Uint8Array(ends.length);
+  const gotPortal = new Uint8Array(ends.length);
+  const portals = [];
+  const hidden = hiddenBase.slice();
+  for (let i = 0; i < ends.length; i++) {
+    if (used[i]) continue;
+    const group = [i];
+    used[i] = 1;
+    for (let j = i + 1; j < ends.length; j++) {
+      if (used[j]) continue;
+      if (Math.hypot(ends[j].x - ends[i].x, ends[j].z - ends[i].z) < 25) { group.push(j); used[j] = 1; }
+    }
+    let dx = ends[i].dx, dz = ends[i].dz;
+    for (const k of group.slice(1)) {
+      if (dx * ends[k].dx + dz * ends[k].dz < 0) { ends[k].dx = -ends[k].dx; ends[k].dz = -ends[k].dz; }
+    }
+    let ax = 0, az = 0;
+    for (const k of group) if (dx * ends[k].dx + dz * ends[k].dz > 0.25) { ax += ends[k].dx; az += ends[k].dz; }
+    const AL = Math.hypot(ax, az) || 1;
+    dx = ax / AL; dz = az / AL;
+    const lx = -dz, lz = dx;
+    let minO = 0, maxO = 0;
+    for (const k of group) {
+      const o = (ends[k].x - ends[i].x) * lx + (ends[k].z - ends[i].z) * lz;
+      minO = Math.min(minO, o);
+      maxO = Math.max(maxO, o);
+    }
+    const cx0 = ends[i].x + lx * (minO + maxO) / 2;
+    const cz0 = ends[i].z + lz * (minO + maxO) / 2;
+    let portal = null;
+    for (let d = 0; d <= 30 && !portal; d += 0.5) {
+      portal = portalAt(cx0 + dx * d, cz0 + dz * d, dx, dz, group.length, 2, maxO - minO + 2 * TRAM_COVER_HALF);
+    }
+    if (portal && portal.width > 22) {
+      // Too wide for a frame over the street: the real line descends in the tram median. One low ramp mouth per
+      // hidden end, inside the tram strip, with no head wall and no surface approach.
+      for (const k of group) {
+        const e = ends[k];
+        portals.push({ kind: 'ramp', x: e.x, z: e.z, dx: e.dx, dz: e.dz, width: 4.8, height: 0.16,
+          approach: 0, posts: false, median: true, ends: 1 });
+        gotPortal[k] = 1;
+      }
+      continue;
+    }
+    if (portal) {
+      portals.push(portal);
+      for (const k of group) gotPortal[k] = 1;
+      for (const k of group) {
+        const e = ends[k];
+        const t = (portal.x - e.x) * portal.dx + (portal.z - e.z) * portal.dz;
+        const px = e.x + portal.dx * t;
+        const pz = e.z + portal.dz * t;
+        if (Math.hypot(px - e.x, pz - e.z) > 0.4) hidden.push({ kind: 'covered', pts: [e.x, e.z, px, pz] });
+      }
+      continue;
+    }
+    // A mouth on a roadway gets a low median ramp instead of a street-spanning frame; no carry along unrelated lines.
+    if (group.every((k) => roadClearance(ends[k].x, ends[k].z) < -0.5)) {
+      for (const k of group) {
+        const e = ends[k];
+        portals.push({ kind: 'ramp', x: e.x, z: e.z, dx: e.dx, dz: e.dz, width: 4.8, height: 0.16,
+          approach: 0, posts: false, median: true, ends: 1 });
+        gotPortal[k] = 1;
+      }
+      continue;
+    }
+    // No frame at the mouth: follow the actual tracks and carry the hidden stretch to the first clear portal.
+    for (const k of group) {
+      if (gotPortal[k]) continue;
+      const walk = walkOutward(ends[k], portals);
+      if (walk.path.length >= 4) hidden.push({ kind: 'covered', pts: walk.path });
+      if (walk.portal) {
+        if (walk.portal.kind === 'ramp') {
+          const e = ends[k];
+          portals.push({ kind: 'ramp', x: e.x, z: e.z, dx: e.dx, dz: e.dz, width: 4.8, height: 0.16,
+            approach: 0, posts: false, median: true, ends: 1 });
+        } else {
+          portals.push(walk.portal);
+        }
+        gotPortal[k] = 1;
+      }
+    }
+  }
+  // Two branches can find the same wide frame; keep one at each position.
+  for (let i = portals.length - 1; i >= 0; i--) {
+    for (let j = 0; j < i; j++) {
+      if (Math.hypot(portals[i].x - portals[j].x, portals[i].z - portals[j].z) < 2.5) {
+        portals.splice(i, 1);
+        break;
+      }
+    }
+  }
+
+  // Close any hidden-way end that sits just short of a portal plane (internal junction nodes included), following the
+  // nearest visible tram track towards the plane so the mask joins the next graph edge.
+  const hiddenSnapshot = hidden.slice();
+  for (const h of hiddenSnapshot) {
+    const p = h.pts;
+    for (const e of [[p[0], p[1]], [p[p.length - 2], p[p.length - 1]]]) {
+      let best = null;
+      for (const q of portals) {
+        const along = Math.abs((e[0] - q.x) * q.dx + (e[1] - q.z) * q.dz);
+        const lat = Math.abs((e[0] - q.x) * -q.dz + (e[1] - q.z) * q.dx);
+        const d = Math.hypot(e[0] - q.x, e[1] - q.z);
+        if (along < 20 && lat < q.width / 2 + 2 && d < 12 && (!best || d < best.d)) best = { q, d };
+      }
+      if (!best || best.d < 0.4) continue;
+      let cur = null, s = 0, bd = 5;
+      for (const tt of tramTracks) {
+        const q = nearestOnTrack(tt, e[0], e[1]);
+        if (q && q.d < bd) { bd = q.d; cur = tt; s = q.s; }
+      }
+      if (!cur) continue;
+      const d0 = trackDir(cur, s);
+      let sign = d0.x * (best.q.x - e[0]) + d0.z * (best.q.z - e[1]) >= 0 ? 1 : -1;
+      const path = [e[0], e[1]];
+      let x = e[0], z = e[1];
+      for (let k = 0; k < 15; k++) {
+        s += sign * 2;
+        if (s < 0 || s > cur.len) break;
+        const q = trackPos(cur, s);
+        x = q.x; z = q.z;
+        path.push(x, z);
+        const along = (x - best.q.x) * best.q.dx + (z - best.q.z) * best.q.dz;
+        if (Math.abs(along) < 0.6) break;
+      }
+      const reached = Math.abs((x - best.q.x) * best.q.dx + (z - best.q.z) * best.q.dz) < 1.5;
+      if (reached && path.length >= 4) hidden.push({ kind: 'covered', pts: path });
+    }
+  }
+  const hiddenGrid = segmentGrid(16);
+  for (const h of hidden) {
+    for (let i = 0; i + 3 < h.pts.length; i += 2) hiddenGrid.add(h.pts[i], h.pts[i + 1], h.pts[i + 2], h.pts[i + 3], null);
+  }
+  const hiddenAt = (x, z, r = TRAM_HIDDEN_HALF) => !!hiddenGrid.nearest(x, z, r);
+
+  // --- Walls and keep-out: the open cutting and each portal's short approach -----------------------------------------
+  const walls = [];
+  const railings = [];
+  const openings = [];
+  const colliders = [];
+  const half = TRAM_TRENCH_HALF + TRAM_WALL_T / 2;
+  const wallBox = (ax, az, bx, bz, h, t) => {
+    const len = Math.hypot(bx - ax, bz - az);
+    if (len < 0.05) return;
+    const dx = (bx - ax) / len;
+    const dz = (bz - az) / len;
+    const mx = (ax + bx) / 2;
+    const mz = (az + bz) / 2;
+    const ex = Math.abs(dx) * len / 2 + Math.abs(dz) * t / 2;
+    const ez = Math.abs(dz) * len / 2 + Math.abs(dx) * t / 2;
+    colliders.push({ minX: mx - ex, maxX: mx + ex, minZ: mz - ez, maxZ: mz + ez, maxY: h,
+      obb: { cx: mx, cz: mz, hx: len / 2, hz: t / 2, cs: dx, sn: -dz } });
+  };
+  // The PST cutting keeps its retaining parapet and railing on every outer side, broken at roadways and other tracks
+  for (const tr of grade) {
+    if (tr.kind !== 'trench') continue;
+    const steps = Math.max(1, Math.ceil(tr.len / 6));
+    for (let i = 0; i < steps; i++) {
+      const A = pointAt(tr, (i * tr.len) / steps);
+      const B = pointAt(tr, ((i + 1) * tr.len) / steps);
+      const len = Math.hypot(B.x - A.x, B.z - A.z);
+      if (len < 0.05) continue;
+      const dx = (B.x - A.x) / len;
+      const dz = (B.z - A.z) / len;
+      const nx = -dz, nz = dx;
+      const mx = (A.x + B.x) / 2;
+      const mz = (A.z + B.z) / 2;
+      const reachR = neighbour(tr, mx, mz, nx, nz, dx, dz);
+      const reachL = neighbour(tr, mx, mz, -nx, -nz, dx, dz);
+      for (const sg of [1, -1]) {
+        const nb = sg > 0 ? reachR : reachL;
+        if (nb < Infinity) continue;
+        const o = sg > 0 ? half : -half;
+        const wx = mx + nx * o;
+        const wz = mz + nz * o;
+        if (nearRoad(wx, wz) || nearRoad(A.x + nx * o, A.z + nz * o) || nearRoad(B.x + nx * o, B.z + nz * o)) continue;
+        const ax0 = A.x + nx * o, az0 = A.z + nz * o;
+        const bx0 = B.x + nx * o, bz0 = B.z + nz * o;
+        if (!trackClear(wx, wz) || !trackClear(ax0, az0) || !trackClear(bx0, bz0) ||
+          !trackClear((ax0 + bx0) / 2, (az0 + bz0) / 2)) continue;
+        const ax = A.x + nx * o;
+        const az = A.z + nz * o;
+        const bx = B.x + nx * o;
+        const bz = B.z + nz * o;
+        walls.push({ ax, az, bx, bz, h: TRAM_TRENCH_WALL_H, t: TRAM_WALL_T, kind: 'trench' });
+        railings.push({ ax, az, bx, bz, y: TRAM_TRENCH_WALL_H, h: TRAM_TRENCH_FENCE_H });
+        wallBox(ax, az, bx, bz, TRAM_TRENCH_WALL_H, TRAM_WALL_T);
+      }
+    }
+  }
+  // Each portal: posts, head wall, dark lining, wing walls and (unless in a road/median or the cutting) an approach
+  for (const p of portals) {
+    const lx = -p.dz, lz = p.dx;
+    if (p.kind === 'ramp') {
+      openings.push({ x: p.x, z: p.z, dx: p.dx, dz: p.dz, width: p.width, height: 0.16, median: true, ramp: true });
+      // Low parapets only inside the tram strip (no head wall, no posts, no approach)
+      for (const sg of [1, -1]) {
+        const o = sg * 2.35;
+        const ax = p.x + lx * o;
+        const az = p.z + lz * o;
+        const bx = ax + p.dx * 3.5;
+        const bz = az + p.dz * 3.5;
+        if (blockAt(ax, az) || blockAt(bx, bz) || !trackClear(ax, az) || !trackClear(bx, bz)) continue;
+        if (!laneDist || laneDist(ax, az) < 1.5 || laneDist(bx, bz) < 1.5) continue;
+        walls.push({ ax, az, bx, bz, h: 0.45, t: 0.18, kind: 'ramp' });
+        wallBox(ax, az, bx, bz, 0.45, 0.18);
+      }
+      continue;
+    }
+    const inTrench = trenchAt(p.x, p.z, TRAM_HIDDEN_HALF);
+    if (inTrench || p.median) p.approach = 0;
+    const yaw = Math.atan2(-p.dz, p.dx);
+    for (const sg of [1, -1]) {
+      const x = p.x + lx * sg * (p.width / 2 - 0.3);
+      const z = p.z + lz * sg * (p.width / 2 - 0.3);
+      colliders.push({ minX: x - 0.35, maxX: x + 0.35, minZ: z - 0.35, maxZ: z + 0.35, maxY: TRAM_PORTAL_TOP,
+        obb: { cx: x, cz: z, hx: 0.3, hz: 0.275, cs: Math.cos(yaw), sn: Math.sin(yaw) } });
+      const ex = x + lx * sg * 2.2 + p.dx * 1.8;
+      const ez = z + lz * sg * 2.2 + p.dz * 1.8;
+      if (surfaceClear(ex, ez) && surfaceClear((x + ex) / 2, (z + ez) / 2) && !blockAt(ex, ez) &&
+        trackClear(ex, ez) && trackClear((x + ex) / 2, (z + ez) / 2)) {
+        walls.push({ ax: x, az: z, bx: ex, bz: ez, h: 1.3, t: 0.3, kind: 'wing' });
+        const wl = Math.hypot(ex - x, ez - z) || 1;
+        colliders.push({ minX: Math.min(x, ex) - 0.2, maxX: Math.max(x, ex) + 0.2, minZ: Math.min(z, ez) - 0.2,
+          maxZ: Math.max(z, ez) + 0.2, maxY: 1.3,
+          obb: { cx: (x + ex) / 2, cz: (z + ez) / 2, hx: wl / 2, hz: 0.15, cs: (ex - x) / wl, sn: -(ez - z) / wl } });
+      }
+      if (p.approach > 0) {
+        const outer = Math.max(half, p.width / 2 - 0.25);
+        const ax = p.x + lx * sg * outer;
+        const az = p.z + lz * sg * outer;
+        const bx = ax + p.dx * p.approach;
+        const bz = az + p.dz * p.approach;
+        if (!trackClear(ax, az) || !trackClear(bx, bz) || !trackClear((ax + bx) / 2, (az + bz) / 2)) continue;
+        walls.push({ ax, az, bx, bz, h: TRAM_TRENCH_WALL_H, t: TRAM_WALL_T, kind: 'approach' });
+        railings.push({ ax, az, bx, bz, y: TRAM_TRENCH_WALL_H, h: TRAM_TRENCH_FENCE_H });
+        wallBox(ax, az, bx, bz, TRAM_TRENCH_WALL_H, TRAM_WALL_T);
+      }
+    }
+    openings.push({ x: p.x - p.dx * 0.22, z: p.z - p.dz * 0.22, dx: p.dx, dz: p.dz,
+      width: Math.max(2.2, p.width - 1.0), height: TRAM_PORTAL_H - 0.2, median: p.median });
+  }
+
+  // --- Player keep-out: the cutting interior and the walled approaches, never a roadway ------------------------------
+  const tiles = new Map();
+  const tileKey = (tx, tz) => (tx + 512) * 1024 + (tz + 512);
+  let cells = 0;
+  const fillRect = (ax, az, dx, dz, len, o0, o1) => {
+    const nx = -dz, nz = dx;
+    const xs = [ax + nx * o0, ax + nx * o1, ax + nx * o0 + dx * len, ax + nx * o1 + dx * len];
+    const zs = [az + nz * o0, az + nz * o1, az + nz * o0 + dz * len, az + nz * o1 + dz * len];
+    for (let iz = Math.floor(Math.min(...zs)); iz <= Math.floor(Math.max(...zs)); iz++) {
+      for (let ix = Math.floor(Math.min(...xs)); ix <= Math.floor(Math.max(...xs)); ix++) {
+        const cx = ix + 0.5 - ax;
+        const cz = iz + 0.5 - az;
+        const u = cx * dx + cz * dz;
+        const o = cx * nx + cz * nz;
+        if (u < -0.5 || u > len + 0.5 || o < o0 - 0.5 || o > o1 + 0.5) continue;
+        const wx = ix + 0.5, wz = iz + 0.5;
+        if (!isLand(wx, wz) || roadClearance(wx, wz) < 0.35) continue;
+        const k = tileKey(ix >> 6, iz >> 6);
+        let tile = tiles.get(k);
+        if (!tile) tiles.set(k, (tile = new Uint8Array(KEEPOUT_TILE * KEEPOUT_TILE)));
+        const c = (ix & 63) + ((iz & 63) << 6);
+        if (!tile[c]) cells++;
+        tile[c] = 1;
+      }
+    }
+  };
+  for (const tr of grade) {
+    if (tr.kind !== 'trench') continue;
+    const steps = Math.max(1, Math.ceil(tr.len / 6));
+    for (let i = 0; i < steps; i++) {
+      const A = pointAt(tr, (i * tr.len) / steps);
+      const B = pointAt(tr, ((i + 1) * tr.len) / steps);
+      const len = Math.hypot(B.x - A.x, B.z - A.z);
+      if (len < 0.05) continue;
+      const dx = (B.x - A.x) / len;
+      const dz = (B.z - A.z) / len;
+      const nx = -dz, nz = dx;
+      const mx = (A.x + B.x) / 2;
+      const mz = (A.z + B.z) / 2;
+      const reachR = neighbour(tr, mx, mz, nx, nz, dx, dz);
+      const reachL = neighbour(tr, mx, mz, -nx, -nz, dx, dz);
+      const rR = reachR < Infinity ? Math.min(reachR, TRAM_GRADE_REACH) + TRAM_GRADE_KEEP : TRAM_GRADE_KEEP;
+      const rL = reachL < Infinity ? Math.min(reachL, TRAM_GRADE_REACH) + TRAM_GRADE_KEEP : TRAM_GRADE_KEEP;
+      fillRect(A.x, A.z, dx, dz, len, -rL, rR);
+    }
+  }
+  for (const p of portals) {
+    if (p.approach > 0) {
+      const outer = Math.max(half, p.width / 2 - 0.25) + 0.05;
+      fillRect(p.x, p.z, p.dx, p.dz, p.approach, -outer, outer);
+    }
+  }
+  const keepOut = {
+    cells,
+    has(x, z) {
+      const ix = Math.floor(x);
+      const iz = Math.floor(z);
+      const tile = tiles.get(tileKey(ix >> 6, iz >> 6));
+      return !!tile && tile[(ix & 63) + ((iz & 63) << 6)] === 1;
+    }
+  };
+  return { tracks: grade, portals, walls, roofs: [], railings, openings, colliders, hidden, keepOut,
+    gradeNear, coveredAt, hiddenAt, trenchAt };
+}
+
 /**
  * Placement of the tram infrastructure against a built road network (road-network.js buildRoadNetwork; only its
  * paintEdges / edges lanes are read). Returns
- * { tracks, stops, poles, spans, arms, rosettes, droppers }:
+ * { tracks, stops, poles, spans, arms, rosettes, droppers, footprints, tunnels }:
  * - stops: [{ name, x, z, heading, railIndex, s, dir, side, kind: 'island'|'curb', platform, shelter, sign, machine }]
  *   x, z, s: the stop point on the track (s = arc length along GEO.rail[railIndex].pts), dir: +1 when trams run along
  *   the points, heading: their travel heading (0 = +z), side: +1 when the platform is right of the points' direction.
@@ -335,20 +912,22 @@ function layoutTrackBeds(tracks, laneDist) {
  */
 function layoutTramInfrastructure(network) {
   const tracks = loadTracks();
+  const laneDist = laneDistance(network);
+  const tunnels = layoutTramTunnels(laneDist);
   const trackGrid = segmentGrid();
   for (const tr of tracks) {
     for (let k = 0; k + 1 < tr.n; k++) {
       trackGrid.add(tr.p[2 * k], tr.p[2 * k + 1], tr.p[2 * k + 2], tr.p[2 * k + 3], { tr, k });
     }
   }
-  const laneDist = laneDistance(network);
   const trackDist = (x, z, r = 4, except = null) => {
     const h = trackGrid.nearest(x, z, r, except ? (sg) => sg.data.tr !== except : null);
     return h ? h.d : r;
   };
   // Poles keep 2 m from a lane centreline: the road network tests obstacles by box overlap, so a pole is clear of its
   // 1.2 m only beyond 1.2 + 0.16 m along both axes (up to 1.92 m diagonally)
-  const clearSpot = (x, z, keep = TRACK_KEEP) => isLand(x, z) && laneDist(x, z) >= 2.0 && trackDist(x, z) >= keep;
+  const clearSpot = (x, z, keep = TRACK_KEEP) => isLand(x, z) && laneDist(x, z) >= 2.0 && trackDist(x, z) >= keep &&
+    !tunnels.hiddenAt(x, z, 3.0) && !tunnels.trenchAt(x, z, 2.6);
   const onCurb = (x, z) => {
     const b = blockAt(x, z);
     return !!(b && !b.median);
@@ -398,6 +977,7 @@ function layoutTramInfrastructure(network) {
     for (let i = 0; i < count; i++) {
       const s = (i + 0.5) * tr.len / count;
       const P = pointAt(tr, s);
+      if (tunnels.hiddenAt(P.x, P.z, 2.5)) continue; // no catenary support over a hidden stretch
       if (supported.nearest(P.x, P.z, STATION * 0.4, (sg) => sg.data === tr)) continue;
       const nx = -P.dz;
       const nz = P.dx;
@@ -552,11 +1132,15 @@ function layoutTramInfrastructure(network) {
       platform: stop.platform,
       shelter: stop.shelter,
       sign: stop.sign,
-      machine: stop.machine
+      machine: stop.machine,
+      hidden: tunnels.hiddenAt(P.x, P.z, 3)
     });
   }
 
   const { beds, roadwayDist } = layoutTrackBeds(tracks, laneDist);
+  // Rail/bed pieces inside a hidden tunnel stretch are not drawn (and no wire or pole goes there either)
+  const hiddenBeds = beds.filter((b) => tunnels.hiddenAt((b.ax + b.bx) / 2, (b.az + b.bz) / 2) ||
+    tunnels.hiddenAt(b.ax, b.az) || tunnels.hiddenAt(b.bx, b.bz)).length;
 
   // Ground footprints of everything placed, as small axis-aligned boxes (platforms sampled every 1.5 m): none goes to
   // the road network (built before this), but tests/tram-infra.test.cjs feeds them to it to prove no lane is crowded
@@ -564,6 +1148,7 @@ function layoutTramInfrastructure(network) {
   const box = (x, z, h) => footprints.push({ minX: x - h, maxX: x + h, minZ: z - h, maxZ: z + h });
   for (const q of poles) box(q.x, q.z, 0.16);
   for (const st of stops) {
+    if (st.hidden) continue;
     for (const f of [st.shelter, st.sign, st.machine]) if (f) box(f.x, f.z, 0.4);
     if (!st.platform) continue;
     const tr = tracks.find((t) => t.railIndex === st.railIndex);
@@ -577,7 +1162,11 @@ function layoutTramInfrastructure(network) {
     }
   }
 
-  return { tracks, stops, skipped, poles, spans, arms, rosettes, droppers, footprints, laneDist, trackDist, beds, roadwayDist };
+  const visibleSpans = spans.filter((sp) => !tunnels.hiddenAt((sp.ax + sp.bx) / 2, (sp.az + sp.bz) / 2, 2));
+  const visibleArms = arms.filter((a) => !tunnels.hiddenAt(a.bx, a.bz, 2));
+  const visibleDroppers = droppers.filter((d) => !tunnels.hiddenAt(d.x, d.z, 2));
+  return { tracks, stops, skipped, poles, spans: visibleSpans, arms: visibleArms, rosettes, droppers: visibleDroppers,
+    footprints, laneDist, trackDist, beds, hiddenBeds, roadwayDist, tunnels };
 }
 
 /**
@@ -1325,6 +1914,7 @@ function stopFurnitureColliders(stops) {
     colliders.push({ minX: x - ex, maxX: x + ex, minZ: z - ez, maxZ: z + ez, maxY, obb: { cx: x, cz: z, hx, hz, cs, sn } });
   };
   for (const st of stops) {
+    if (st.hidden) continue;
     if (st.shelter) {
       const { x, y, z, yaw, len } = st.shelter;
       box(x, z, len / 2, 0.7, yaw, y + 2.6);
@@ -1345,11 +1935,11 @@ function stopFurnitureColliders(stops) {
  * Builds the rails, overhead line and stops into a `TramInfrastructure` group (a scene-culling root, main.js) and
  * returns { group, colliders, stops, railCorridor } (colliders: poles, masts, shelters, signs, machines, end walls and
  * the corridor boundary, for the player only; built after the road network, so nothing here closes a lane;
- * railCorridor(x, z): true inside the railway corridor, which ground players may not enter).
+ * railCorridor(x, z): true inside the railway corridor or a tram tunnel/cutting, which ground players may not enter).
  */
 function buildTramInfrastructure(scene, network) {
   const layout = layoutTramInfrastructure(network);
-  const { tracks, stops, poles, spans, arms, rosettes, droppers } = layout;
+  const { tracks, stops, poles, spans, arms, rosettes, droppers, tunnels } = layout;
   const group = new THREE.Group();
   group.name = 'TramInfrastructure';
   const colliders = [];
@@ -1424,6 +2014,8 @@ function buildTramInfrastructure(scene, network) {
   const ballastM = [];
   // Off-street track on ballast, narrowed or flush where the roadway comes near (layoutTrackBeds)
   for (const { ax, az, bx, bz, ground, bed } of layout.beds) {
+    // Between two tunnel portals nothing is drawn on the surface: no bed, rails or grooves in the hidden stretch
+    if (tunnels.hiddenAt((ax + bx) / 2, (az + bz) / 2) || tunnels.hiddenAt(ax, az) || tunnels.hiddenAt(bx, bz)) continue;
     const mx = (ax + bx) / 2;
     const mz = (az + bz) / 2;
     const len = Math.hypot(bx - ax, bz - az);
@@ -1479,7 +2071,8 @@ function buildTramInfrastructure(scene, network) {
     rosetteM.push(M());
   }
   for (const d of droppers) wireM.push(beam(d.x, WIRE_Y, d.z, d.x, d.y0 + 0.15, d.z + 0.0001, 0.012, 0.012));
-  // Contact wire: straight runs along each track, one piece per polyline segment (split at ~STATION)
+  // Contact wire: straight runs along each track, clipped to the visible part of every polyline segment (split at
+  // ~STATION). The hidden stretch under a tunnel keeps its geometry, but no wire is drawn over it.
   for (const tr of tracks) {
     for (let k = 0; k + 1 < tr.n; k++) {
       const ax = tr.p[2 * k];
@@ -1488,12 +2081,26 @@ function buildTramInfrastructure(scene, network) {
       const bz = tr.p[2 * k + 3];
       const L = Math.hypot(bx - ax, bz - az);
       if (L < 0.05 || !isLand((ax + bx) / 2, (az + bz) / 2)) continue;
-      const parts = Math.max(1, Math.ceil(L / STATION));
-      for (let j = 0; j < parts; j++) {
-        const t0 = j / parts;
-        const t1 = (j + 1) / parts;
-        wireM.push(beam(ax + (bx - ax) * t0, WIRE_Y, az + (bz - az) * t0, ax + (bx - ax) * t1, WIRE_Y, az + (bz - az) * t1, 0.022, 0.022));
+      const pushRun = (t0, t1) => {
+        const runLen = L * (t1 - t0);
+        if (runLen < 0.1) return;
+        const parts = Math.max(1, Math.ceil(runLen / STATION));
+        for (let j = 0; j < parts; j++) {
+          const u0 = t0 + (t1 - t0) * j / parts;
+          const u1 = t0 + (t1 - t0) * (j + 1) / parts;
+          wireM.push(beam(ax + (bx - ax) * u0, WIRE_Y, az + (bz - az) * u0,
+            ax + (bx - ax) * u1, WIRE_Y, az + (bz - az) * u1, 0.022, 0.022));
+        }
+      };
+      const n = Math.max(2, Math.ceil(L));
+      let start = -1;
+      for (let j = 0; j <= n; j++) {
+        const t = j / n;
+        const hidden = tunnels.hiddenAt(ax + (bx - ax) * t, az + (bz - az) * t);
+        if (!hidden && start < 0) start = t;
+        else if (hidden && start >= 0) { pushRun(start, t); start = -1; }
       }
+      if (start >= 0) pushRun(start, 1);
     }
   }
 
@@ -1785,6 +2392,64 @@ function buildTramInfrastructure(scene, network) {
     instanced('RailViaductGirders', unitBox, steelMat, viaductGirderM)
   ]) if (mesh) group.add(mesh);
 
+  // Tram tunnels and the PST cutting: portal posts/head walls, approach and cutting parapets (one instanced mesh),
+  // dark portal linings and the railings on the parapets. They reuse the rail end-wall, rail-groove and fence materials,
+  // so the whole set adds three draw calls.
+  const tunnelConcreteM = [];
+  for (const w of tunnels.walls) {
+    tunnelConcreteM.push(beam(w.ax, w.h / 2, w.az, w.bx, w.h / 2, w.bz, w.t, w.h));
+  }
+  for (const p of tunnels.portals) {
+    if (p.kind === 'ramp') continue;
+    const lx = -p.dz, lz = p.dx;
+    const yaw = Math.atan2(-p.dz, p.dx);
+    for (const sg of [1, -1]) {
+      const x = p.x + lx * sg * (p.width / 2 - 0.3);
+      const z = p.z + lz * sg * (p.width / 2 - 0.3);
+      dummy.position.set(x, TRAM_PORTAL_TOP / 2, z);
+      dummy.rotation.set(0, yaw, 0);
+      dummy.scale.set(0.6, TRAM_PORTAL_TOP, 0.55);
+      tunnelConcreteM.push(M());
+    }
+    const a = { x: p.x + lx * p.width / 2, z: p.z + lz * p.width / 2 };
+    const b = { x: p.x - lx * p.width / 2, z: p.z - lz * p.width / 2 };
+    tunnelConcreteM.push(beam(a.x, (TRAM_PORTAL_H + TRAM_PORTAL_TOP) / 2, a.z,
+      b.x, (TRAM_PORTAL_H + TRAM_PORTAL_TOP) / 2, b.z, 0.6, TRAM_PORTAL_TOP - TRAM_PORTAL_H));
+  }
+  const tunnelOpeningM = [];
+  for (const o of tunnels.openings) {
+    dummy.rotation.set(0, Math.atan2(-o.dz, o.dx), 0);
+    if (o.ramp) {
+      dummy.position.set(o.x, 0.04, o.z);
+      dummy.scale.set(0.08, 0.08, o.width);
+    } else {
+      dummy.position.set(o.x, o.height / 2 + 0.1, o.z);
+      dummy.scale.set(0.08, o.height, o.width);
+    }
+    tunnelOpeningM.push(M());
+  }
+  const tunnelRailM = [];
+  const tunnelFenceAttr = [];
+  let tunnelS = 0;
+  for (const r of tunnels.railings) {
+    const len = Math.hypot(r.bx - r.ax, r.bz - r.az);
+    if (len < 0.05) continue;
+    const dx = (r.bx - r.ax) / len;
+    const dz = (r.bz - r.az) / len;
+    dummy.position.set((r.ax + r.bx) / 2, r.y + r.h / 2, (r.az + r.bz) / 2);
+    dummy.rotation.set(0, Math.atan2(-dz, dx), 0);
+    dummy.scale.set(len, r.h, 1);
+    tunnelRailM.push(M());
+    tunnelFenceAttr.push(len, tunnelS);
+    tunnelS += len;
+  }
+  for (const mesh of [
+    instanced('TramTunnelStructures', unitBox, endWallMat, tunnelConcreteM),
+    instanced('TramTunnelOpenings', unitBox, grooveMat, tunnelOpeningM, {}, false),
+    instanced('TramTrenchRailings', new THREE.PlaneGeometry(1, 1), fenceMat, tunnelRailM,
+      { fence: { size: 2, data: tunnelFenceAttr } }, false)
+  ]) if (mesh) group.add(mesh);
+
   // --- 2c. Level crossings (barriers & warning signals) -------------------------------------------------------------
   const barrierCabinetM = [];
   const barrierBoomM = [];
@@ -1886,6 +2551,7 @@ function buildTramInfrastructure(scene, network) {
   const atlas = createPlateAtlas(names);
   const trackByRail = new Map(tracks.map((tr) => [tr.railIndex, tr]));
   for (const st of stops) {
+    if (st.hidden) continue;
     if (st.platform) {
       const tr = trackByRail.get(st.railIndex);
       const { s0, s1, o0, o1 } = st.platform;
@@ -1942,6 +2608,7 @@ function buildTramInfrastructure(scene, network) {
     }
   }
   colliders.push(...stopFurnitureColliders(stops));
+  colliders.push(...tunnels.colliders);
   // Shelter (local: 4.4 m along x, open front facing +z, back wall at z = -0.6): four posts, a roof slab, a glass back
   // wall and end panels, one end holding a lit advert, and a bench
   const shelterFrameGeo = mergeGeometries([
@@ -1991,9 +2658,13 @@ function buildTramInfrastructure(scene, network) {
     `${rosettes.length} rosettes; ${stops.length} stops (${stops.filter((s) => s.kind === 'island').length} islands) ` +
     `of ${GEO.tramStops.length} stop nodes; rail: ${rail.tracks.length} tracks, ${railBedM.length} bed pieces, ` +
     `${rail.ends.length} end walls, ${fenceM.length} boundary segments, ${rail.masts.length} masts, ${rail.arms.length} cantilevers, ${rail.portals.length} portals, ` +
-    `${rail.viaducts.length} viaduct spans (${rail.crossings.length} level crossings)`);
-  // railCorridor(x, z): the ground players' keep-out (controllers.js), true inside the railway corridor
-  return { group, colliders, stops: publicStops, railCorridor: rail.corridor.has };
+    `${rail.viaducts.length} viaduct spans (${rail.crossings.length} level crossings); ` +
+    `tram tunnels: ${tunnels.portals.length} portals, ${tunnels.walls.length} walls, ` +
+    `${tunnels.railings.length} railings, ${tunnels.hidden.length} hidden ways, ${tunnels.keepOut.cells} keep-out cells`);
+  // railCorridor(x, z): the ground players' keep-out (controllers.js), true inside the railway corridor or a tram
+  // trench/tunnel. The two rasters stay separate and are OR-ed per query.
+  const railCorridor = rail.corridor.has;
+  return { group, colliders, stops: publicStops, tunnels, railCorridor: (x, z) => railCorridor(x, z) || tunnels.keepOut.has(x, z) };
 }
 
-export { layoutTramInfrastructure, layoutRailInfrastructure, buildTramInfrastructure, stopFurnitureColliders };
+export { layoutTramInfrastructure, layoutRailInfrastructure, layoutTramTunnels, buildTramInfrastructure, stopFurnitureColliders };

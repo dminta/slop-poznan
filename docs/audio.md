@@ -104,7 +104,7 @@ freezes. If you rename or remove any of these, update `audio-sources.js` in the 
   `rig`, plus `controllerManager.keys`, `getActiveEntity()`, `getGroundHeight()`. `helicopterVerticalSpeed` clamps at
   y 0.25 / 380 to mirror the controller's altitude clamp. If you change those limits in `controllers.js`, update it.
 - trams (`tramSystem.trams`): `id`, `x`, `z`, `heading`, `speed`, `acc`, `atStop`, `waitReason` (`'player'` rings the
-  bell), `length`, `sections[k].heading`.
+  bell), `length`, `sections[k].heading`, `hidden` (front inside a covered tunnel; no traction loop or bell at the surface).
 - `streetDetails.audioSignals`: pedestrian head positions (one per built pole; see the dated
   [furniture counts](world.md#street-furniture-street-detailsjs)) with `isAvenue` (true when the head walks with
   group 0's traffic) and `signalTiming`, shared with the road node.

@@ -205,7 +205,91 @@ function rightHandDirection(r, others) {
   return 0;
 }
 
-function buildTrackGraph(rail, maxTurn = SWITCH_TURN) {
+// Per-edge covered intervals in arc length, or null. Filled once when the graph is built by projecting the hidden
+// polylines onto each directed edge, so an interval ends exactly at a portal plane (no radial overshoot). The render
+// loop then only tests a section's midpoint against a tiny flat array.
+const TRAM_HIDDEN_HALF = 2.6;
+function markCoveredIntervals(edges, ways) {
+  const hidden = (ways || []).filter((h) => h.kind === 'covered' && h.pts && h.pts.length >= 4);
+  if (!hidden.length) return;
+  const near = { d: 0, s: 0, tx: 0, tz: 1 };
+  for (const e of edges) {
+    const found = [];
+    for (const h of hidden) {
+      const p = h.pts;
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (let i = 0; i < p.length; i += 2) {
+        minX = Math.min(minX, p[i]); maxX = Math.max(maxX, p[i]);
+        minZ = Math.min(minZ, p[i + 1]); maxZ = Math.max(maxZ, p[i + 1]);
+      }
+      if (maxX < e.box[0] - 6 || minX > e.box[1] + 6 || maxZ < e.box[2] - 6 || minZ > e.box[3] + 6) continue;
+      let lo = Infinity, hi = -Infinity, hits = 0, worst = 0;
+      for (let i = 0; i < p.length; i += 2) {
+        nearestOnEdge(e, p[i], p[i + 1], near);
+        if (near.d > TRAM_HIDDEN_HALF) continue;
+        hits++;
+        lo = Math.min(lo, near.s);
+        hi = Math.max(hi, near.s);
+        worst = Math.max(worst, near.d);
+      }
+      if (hits >= 2 && hi - lo >= Math.min(5, 0.35 * e.len + 1) && worst <= TRAM_HIDDEN_HALF) {
+        // Only a hidden way running along the edge is a tunnel stretch; one crossing at a node is not
+        edgePoint(e, (lo + hi) / 2, near);
+        const hx = p[p.length - 2] - p[0], hz = p[p.length - 1] - p[1];
+        const hl = Math.hypot(hx, hz) || 1;
+        if (Math.abs((hx * near.tx + hz * near.tz) / hl) >= 0.6) found.push([lo, hi]);
+      }
+    }
+    // An edge endpoint that lies on the hidden geometry joins the interval to the node, so a junction inside the
+    // tunnel has no 4 m pinhole between two edges.
+    const nearPoint = (x, z) => hidden.some((h) => {
+      const p = h.pts;
+      for (let i = 0; i + 3 < p.length; i += 2) {
+        const ex = p[i + 2] - p[i], ez = p[i + 3] - p[i + 1];
+        const L2 = ex * ex + ez * ez || 1;
+        const t = Math.max(0, Math.min(1, ((x - p[i]) * ex + (z - p[i + 1]) * ez) / L2));
+        if (Math.hypot(p[i] + ex * t - x, p[i + 1] + ez * t - z) <= TRAM_HIDDEN_HALF) return true;
+      }
+      return false;
+    });
+    if (found.length) {
+      edgePoint(e, 0, near);
+      if (nearPoint(near.x, near.z)) {
+        found.sort((a, b) => a[0] - b[0]);
+        if (found[0][0] < 8) found[0][0] = 0;
+      }
+      edgePoint(e, e.len, near);
+      if (nearPoint(near.x, near.z)) {
+        found.sort((a, b) => a[0] - b[0]);
+        const last = found[found.length - 1];
+        if (last[1] > e.len - 8) last[1] = e.len;
+      }
+    }
+    found.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    for (const [a, b] of found) {
+      if (merged.length && a <= merged[merged.length - 1][1] + 0.5) merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], b);
+      else merged.push([a, b]);
+    }
+    if (merged.length) {
+      e.covered = [];
+      for (const [a, b] of merged) e.covered.push(a, b);
+    }
+  }
+}
+
+function edgeCovered(e, s) {
+  const c = e && e.covered;
+  if (!c) return false;
+  for (let i = 0; i < c.length; i += 2) if (s >= c[i] - 0.01 && s <= c[i + 1] + 0.01) return true;
+  return false;
+}
+function pathCovered(path, u) {
+  const i = path.indexAt(u);
+  return edgeCovered(path.edges[i], u - path.start[i]);
+}
+
+function buildTrackGraph(rail, maxTurn = SWITCH_TURN, hidden = []) {
   const nodes = [];
   const nodeAt = new Map();
   const node = (x, z) => {
@@ -249,7 +333,7 @@ function buildTrackGraph(rail, maxTurn = SWITCH_TURN) {
       stx: (pts[2] - pts[0]) / s0, stz: (pts[3] - pts[1]) / s0,
       etx: (pts[2 * n - 2] - pts[2 * n - 4]) / s1, etz: (pts[2 * n - 1] - pts[2 * n - 3]) / s1,
       vmax: new Float32Array(n).fill(Infinity), stops: [], signals: [], crossings: [], endPad: 1, routes: NO_ROUTES,
-      foulStart: FOUL_MIN, foulEnd: FOUL_MIN, box
+      foulStart: FOUL_MIN, foulEnd: FOUL_MIN, box, covered: null
     };
     e.from.out.push(e);
     e.to.in.push(e);
@@ -406,6 +490,7 @@ function buildTrackGraph(rail, maxTurn = SWITCH_TURN) {
       for (const f of e.prev) link(f, e.runDir);
     }
   }
+  markCoveredIntervals(edges, hidden);
   return { nodes, edges, runs };
 }
 
@@ -863,6 +948,9 @@ function poseSections(path, u, model, out) {
     o.heading = Math.atan2(dx, dz);
     o.x = (_pf.x + _pr.x) * 0.5;
     o.z = (_pf.z + _pr.z) * 0.5;
+    const ei = path.indexAt(uf - len / 2);
+    o.edge = path.edges[ei];
+    o.s = uf - len / 2 - path.start[ei];
     o.halfLength = len * 0.5;
     o.halfWidth = TRAM_HALF_WIDTH;
     // The rigid body's ends, along the chord
@@ -879,12 +967,12 @@ function poseSections(path, u, model, out) {
 // The tram system
 // ---------------------------------------------------------------------------------------------------------------------
 function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.tramStops, routes = GEO.tramRoutes,
-  levelCrossings = GEO.levelCrossings, traffic = null, seed = 1922 } = {}) {
+  levelCrossings = GEO.levelCrossings, traffic = null, hidden = [], seed = 1922 } = {}) {
   const group = new THREE.Group();
   group.name = 'Trams';
   scene.add(group);
 
-  const graph = buildTrackGraph(rail || []);
+  const graph = buildTrackGraph(rail || [], SWITCH_TURN, hidden);
   mapTramsToRoads(graph, network);
   // Mainline level crossings have no tram-graph node. Cache their position along nearby tram track once, just as
   // road-junction conflicts are cached, so a downstream queue cannot leave a tram standing across either crossing.
@@ -947,7 +1035,8 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       active: false, path: new TramPath(lines),
       x: 0, z: 0, heading: 0, speed: 0, acc: 0, v0: 0, v0Factor: 0.9 + rand() * 0.1,
       frontX: 0, frontZ: 0,
-      sections: model.sections.map(() => ({ x: 0, z: 0, heading: 0, halfLength: 0, halfWidth: TRAM_HALF_WIDTH, fx: 0, fz: 0, rx: 0, rz: 0 })),
+      sections: model.sections.map(() => ({ x: 0, z: 0, heading: 0, halfLength: 0, halfWidth: TRAM_HALF_WIDTH, fx: 0, fz: 0, rx: 0, rz: 0,
+        edge: null, s: 0, hidden: false })),
       atStop: false, stopName: '', dwell: 0, doorsOpen: false, nextStop: null, lastStop: null,
       leader: null, gap: Infinity, waitReason: '', obstacle: null, _roadCarGate: false,
       route: -1, line: '', destination: '',
@@ -955,7 +1044,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       _signalTime: 0, _signalCommitN: 0, _signalCommits: new Array(PATH_CAP).fill(null),
       // per-frame occupancy: the path edges under the body, local [s0, s1] on each
       occN: 0, occEdge: new Array(PATH_CAP).fill(null), occS0: new Float64Array(PATH_CAP), occS1: new Float64Array(PATH_CAP),
-      _frontMatrix: new THREE.Matrix4(), _effDist: 0, _visible: false
+      _frontMatrix: new THREE.Matrix4(), _effDist: 0, _visible: false, _frontHidden: false, hidden: false
     });
   }
   const trams = [];
@@ -1541,7 +1630,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
         }
       }
     }
-    if (player.active) {
+    if (player.active && !t.hidden) {
       const gap = obstacleGap(player.x, player.z, player.heading, player.halfW, player.halfL, player.vx, player.vz, true);
       if (gap !== Infinity) {
         gapMin = Math.min(gapMin, gap);
@@ -1846,14 +1935,35 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     const brake = t.acc < -0.6 || t.speed < 0.3 ? 1 : 0;
     const doors = t.doorsOpen ? 1 : 0;
     const sign = t.route + 1;
+    t._frontHidden = false;
+    let prevHidden = true;
     for (let k = 0; k < secs.length; k++) {
       const s = secs[k];
+      // Render-side tunnel mask only: the simulation keeps driving the hidden sections. `covered` is a flat list of
+      // arc-length intervals precomputed per edge, so this is a handful of comparisons, no allocation.
+      let hidden = false;
+      const cov = s.edge && s.edge.covered;
+      if (cov) for (let i = 0; i < cov.length; i += 2) if (s.s >= cov[i] - 0.01 && s.s <= cov[i + 1] + 0.01) { hidden = true; break; }
+      s.hidden = hidden;
       const mesh = meshes.get(spec.sections[k].kind);
+      if (hidden) {
+        if (k === 0) {
+          const e = t._frontMatrix.elements;
+          const c = Math.cos(s.heading), sn = Math.sin(s.heading);
+          e[0] = c; e[1] = 0; e[2] = -sn; e[3] = 0;
+          e[4] = 0; e[5] = 1; e[6] = 0; e[7] = 0;
+          e[8] = sn; e[9] = 0; e[10] = c; e[11] = 0;
+          e[12] = s.x; e[13] = 0.02; e[14] = s.z; e[15] = 1;
+          t._frontHidden = true;
+        }
+        prevHidden = true;
+        continue;
+      }
       const slot = mesh.count++;
       writeMatrix(mesh, slot, s.x, s.z, s.heading, 1);
       writeState(mesh, slot, brake, doors, sign);
       if (k === 0) t._frontMatrix.fromArray(mesh.instanceMatrix.array, slot * 16);
-      if (k > 0) {
+      if (k > 0 && !prevHidden) {
         // Bellows over the joint, along the mean heading, stretched over the gap (wider on the outside of curves)
         const p = secs[k - 1];
         const jx = (p.rx + s.fx) * 0.5;
@@ -1864,6 +1974,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
         const gap = Math.hypot(p.rx - s.fx, p.rz - s.fz);
         writeMatrix(bellows, bellows.count++, jx, jz, s.heading + dh * 0.5, Math.max(1, gap + 0.6 + Math.abs(dh) * 1.2));
       }
+      prevHidden = false;
     }
   }
 
@@ -1966,8 +2077,10 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       const dx = t.x - camX;
       const dz = t.z - camZ;
       const d2 = dx * dx + dz * dz;
+      t.hidden = pathCovered(t.path, t.path.u);
+      for (const sec of t.sections) sec.hidden = edgeCovered(sec.edge, sec.s);
       t._visible = d2 < TRAM_CULL * TRAM_CULL && visible(t.x, t.z, t.length * 0.5 + 6);
-      if (!t._visible) continue;
+      if (!t._visible) { t._frontHidden = t.hidden; continue; }
       render(t);
       const fdx = t.frontX - camX;
       const fdz = t.frontZ - camZ;
@@ -2006,6 +2119,7 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     if (beamScale > 0.001) {
       for (let i = 0; i < litCount && used + 2 <= TRAM_SPOT_POOL; i++) {
         const t = lit[i];
+        if (t._frontHidden) continue;
         const k = Math.min(1, Math.max(0, (TRAM_LIGHT_DIST - t._effDist) / (TRAM_LIGHT_DIST * 0.38)));
         const fade = k * k * (3 - 2 * k);
         if (fade <= 0.001) continue;

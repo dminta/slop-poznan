@@ -625,6 +625,10 @@ function coverRects(ring) {
 // track (half the 1435 mm gauge, the 70 mm heads and 1.5 m of clearance), so the rails, laid flush on the deck by
 // tram-infra.js, stay in sight instead of under the 0.24 m slab.
 const RAIL_PROP_KEEP = 2.0;
+// The PST cutting (GEO.tramTunnels kind 'trench'): its parapet's inner face sits 1.8 m from the track centreline, so
+// street furniture keeps 2.3 m clear (docs/world.md). Covered stretches are not included: nothing is drawn on the
+// surface there, so the ground stays as it is. This is only checked here, at placement; the built geometry is unchanged.
+const TRAM_GRADE_PROP_KEEP = 2.3;
 const TRAM_CUT = 0.7175 + 0.07 + 1.5;
 const RAIL_CELL = 32;
 let _railCells = null;
@@ -666,7 +670,48 @@ function railClearance(x, z, r = 8) {
 
 /** Is a prop whose footprint reaches `radius` from (x, z) at least RAIL_PROP_KEEP from every track? */
 function clearOfRails(x, z, radius) {
-  return railClearance(x, z, RAIL_PROP_KEEP + radius + 1) >= RAIL_PROP_KEEP + radius;
+  if (railClearance(x, z, RAIL_PROP_KEEP + radius + 1) < RAIL_PROP_KEEP + radius) return false;
+  return tramGradeClearance(x, z, TRAM_GRADE_PROP_KEEP) >= TRAM_GRADE_PROP_KEEP;
+}
+
+// PST cutting centrelines (GEO.tramTunnels kind 'trench'), a separate small grid because most of the city has none.
+// Covered ways are left out: nothing is drawn on the surface there, so street furniture may stay over them.
+let _gradeCells = null;
+function gradeCells() {
+  if (_gradeCells) return _gradeCells;
+  _gradeCells = new Map();
+  for (const g of GEO.tramTunnels || []) {
+    if (g.kind !== 'trench') continue;
+    const p = g.pts;
+    for (let i = 0; i + 3 < p.length; i += 2) {
+      const seg = { ax: p[i], az: p[i + 1], bx: p[i + 2], bz: p[i + 3] };
+      for (let ix = Math.floor(Math.min(seg.ax, seg.bx) / RAIL_CELL); ix <= Math.floor(Math.max(seg.ax, seg.bx) / RAIL_CELL); ix++) {
+        for (let iz = Math.floor(Math.min(seg.az, seg.bz) / RAIL_CELL); iz <= Math.floor(Math.max(seg.az, seg.bz) / RAIL_CELL); iz++) {
+          const k = ix * 100003 + iz;
+          if (!_gradeCells.has(k)) _gradeCells.set(k, []);
+          _gradeCells.get(k).push(seg);
+        }
+      }
+    }
+  }
+  return _gradeCells;
+}
+
+/** Distance from (x, z) to the nearest PST cutting centreline, capped at `r` */
+function tramGradeClearance(x, z, r = 8) {
+  const cells = gradeCells();
+  let best = r;
+  for (let ix = Math.floor((x - r) / RAIL_CELL); ix <= Math.floor((x + r) / RAIL_CELL); ix++) {
+    for (let iz = Math.floor((z - r) / RAIL_CELL); iz <= Math.floor((z + r) / RAIL_CELL); iz++) {
+      for (const s of cells.get(ix * 100003 + iz) || []) {
+        const ex = s.bx - s.ax, ez = s.bz - s.az;
+        const L2 = ex * ex + ez * ez;
+        const t = L2 > 0 ? Math.min(1, Math.max(0, ((x - s.ax) * ex + (z - s.az) * ez) / L2)) : 0;
+        best = Math.min(best, Math.hypot(s.ax + ex * t - x, s.az + ez * t - z));
+      }
+    }
+  }
+  return best;
 }
 
 /** Twice the signed area of triangle a, b, c: positive when it turns left in (x, z) */

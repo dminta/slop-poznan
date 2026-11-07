@@ -72,7 +72,9 @@ test('seeded species assignment preserves the full built city tree sites and col
   assert.deepEqual(after, [17928, 21715, 8385, 2020]);
   assert.equal(siteHash, 'dd5faf6f835a774d0ca8fa9963baa262a6ed3b5dbec4da26ec30dbfa8ae6c95d');
   assert.equal(digest(grid.propColliders), '2c9753350cf7849cb916076c4b72f73be803975bcae4aedfd07e541b4a7814ca');
-  assert.equal(digest(details.colliders), '8cb2524d7bf91560e84ec364d796e9f0994f7f51c235d7bb9288c7049edbc0aa');
+  // 2026-11-06: the curbside props that leaned into the PST cutting are filtered by clearOfRails (the cutting bollard
+  // rows only; trees are unchanged)
+  assert.equal(digest(details.colliders), '64b6d947e508249205e8eacb7bffca49035711ddea4f293b7a50d8c9c48db1ed');
   const meshCount = (pick) => {
     const types = new Set();
     for (const t of sites) {
