@@ -77,7 +77,13 @@ test.before(async () => {
     'return { along, across, next, crosswalks, segments, segmentsNear, links };'), {
     imports: { './road-network.js': road }, globals
   });
-  world = { createPedestrianRoutes, network, config, GEO, road, gridModule, grid, street, heads, baseline, facings, runtimeHeads, meshRecords, meshTypes, testInternals, attributeRecords, buildingColliders };
+  const tramInfra = loadModule(source('tram-infra'), {
+    imports: { ...rendering, './geodata.js': { GEO }, './city-config.js': config }, globals
+  });
+  world = {
+    createPedestrianRoutes, network, config, GEO, road, gridModule, grid, street, heads, baseline, facings,
+    runtimeHeads, meshRecords, meshTypes, testInternals, attributeRecords, buildingColliders, tramInfra
+  };
 });
 
 test('the live Krucza approaches have correctly facing heads without changing the furnished road network', () => {
@@ -332,6 +338,7 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
           `overhead arm keeps 2.22 m from rails at ${px}, ${pz}`);
       }
       if (h.band) assert.ok(along <= -8 + 1e-6, `band head along ${along}`);
+      if (h.strict) assert.ok(along <= -10.5 + 1e-6, `strict head along ${along}`);
       assert.ok(config.roadClearance(h.pole.x, h.pole.z) >= 0.8);
       assert.ok(gridModule.railClearance(h.pole.x, h.pole.z, 20) >= 2.22);
     } else {
@@ -352,5 +359,32 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
     const p = h.pole || h.p;
     assert.equal(localRoutes(rebuiltRoutes, p), localRoutes(routes, p),
       `pedestrian tracks and connections near ${p.x}, ${p.z} are unchanged`);
+  }
+});
+
+// Read-only after the runtime placements above: the tram and railway layouts are built last in main.js, so this
+// checks the finished arms against the masts that the real build places, not only the 2.6 m track setback.
+test('overhead arms keep 0.5 m from tram poles and railway masts', () => {
+  const { network, street, tramInfra } = world;
+  const tram = tramInfra.layoutTramInfrastructure(network);
+  const rail = tramInfra.layoutRailInfrastructure(network);
+  const supports = [...tram.poles, ...rail.masts];
+  const segDist = (x, z, ax, az, bx, bz) => {
+    const dx = bx - ax, dz = bz - az, len2 = dx * dx + dz * dz;
+    const t = len2 ? Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / len2)) : 0;
+    return Math.hypot(ax + dx * t - x, az + dz * t - z);
+  };
+  const overhead = street.runtimeHeads.filter((h) => h.overhead);
+  assert.ok(overhead.length > 0, 'runtime placement produced overhead heads');
+  for (const h of overhead) {
+    let min = Infinity, where = '';
+    for (const p of supports) {
+      for (const [part, d] of [['arm', segDist(p.x, p.z, h.pole.x, h.pole.z, h.p.x, h.p.z)],
+        ['foot', Math.hypot(p.x - h.pole.x, p.z - h.pole.z)],
+        ['head', Math.hypot(p.x - h.p.x, p.z - h.p.z)]]) {
+        if (d < min) { min = d; where = part; }
+      }
+    }
+    assert.ok(min >= 0.5, `overhead ${where} at ${h.node.x}, ${h.node.z} is ${min.toFixed(2)} m from a mast`);
   }
 });

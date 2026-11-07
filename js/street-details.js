@@ -1840,12 +1840,13 @@ function buildStreetDetails(scene, opts = {}) {
         if (sameHead) { entry.class = 'A'; entry.head = sameHead; continue; }
         // The first pass already serves an approach when a same-phase head on the same plan faces it within 45 m.
         // A head with the other group does not count, or the audit would report A for an approach that still has
-        // no signal of its own phase.
+        // no signal of its own phase. Pedestrian-only signals run one shared phase for both groups (axisIndex 0),
+        // so either group's head serves the approach there.
         const approachHead = vehicleHeadSites.find((h) => {
           if (root(h.site.timing) !== root(node.signalTiming)) return false;
           const swap = Math.abs(h.site.timing.mainUx * node.signalTiming.mainUx +
             h.site.timing.mainUz * node.signalTiming.mainUz) <= 0.82;
-          return (h.group0 !== swap) === (edge.axisIndex === 0) &&
+          return (node.signalTiming.pedestrian || (h.group0 !== swap) === (edge.axisIndex === 0)) &&
             Math.hypot(h.p.x - node.x, h.p.z - node.z) < 45 &&
             h.a.ux * edge.inArm.ux + h.a.uz * edge.inArm.uz > 0.98;
         });
@@ -1911,23 +1912,30 @@ function buildStreetDetails(scene, opts = {}) {
         };
         // Overhead fallback: pair the head with an existing signal pole or a mast foot on any clear block within
         // 12 m, including medians and sidewalk points 6-12 m from the curb and supports up to 10 m ahead of the stop
-        // line. The ordinary search stops at 6 m and misses them. The first pass keeps the head at least 8 m before
-        // the stop line (table 7.2 brackets the 4.5-5.5 m mounting heights there); only when no support reaches
-        // that band does the head fall back to the support's position.
+        // line. The ordinary search stops at 6 m and misses them. The first search keeps the head at least 8 m before
+        // the stop line (the table 7.2 row for a 4.5 m mounting), then a successful arm is retargeted to the stricter
+        // 10.5 m row for the 5.3 m head when its reach allows; only when no support reaches either band does the head
+        // fall back to the support's position (1.75 m past the stop line at most).
         const findOverhead = () => {
-          // Keep the arm lateral by pairing the head with the support's longitudinal position, clamped to the
-          // ground search's -15 m limit and to the requested visibility band; the head goes over the nearest lane.
+          // Pair the head with the support's longitudinal position, clamped to the ground search's -15 m limit and
+          // to the requested visibility band; the head goes over the nearest lane. The arm is not always lateral:
+          // 10 of the 26 arms run farther along the approach than across it, and 11 of the 15 fallbacks run
+          // 6.25-8.25 m along it.
           const targetFor = (along, lat, maxAlong) => {
             let lane = edge.lanes[0];
             for (const value of edge.lanes) if (Math.abs(value - lat) < Math.abs(lane - lat)) lane = value;
             const t = Math.max(-15, Math.min(maxAlong, along));
             return { x: x + edge.dx * t + edge.rx * lane, z: z + edge.dz * t + edge.rz * lane, along: t };
           };
-          const search = (maxAlong, band) => {
+          // Keep the mast foot 3.1 m from every track as a conservative buffer above the 1.75 m tram-pole and
+          // 2.6 m railway-mast setbacks. The later layouts cannot be read here; signal-placement.test.cjs builds
+          // them and checks every arm, foot and head against the real poles and masts (closest 7.26 m).
+          const mastClear = (px, pz) => clearOfRails(px, pz, 1.1);
+          const search = (maxAlong, band, strict = false) => {
             let best = null;
             for (const record of signalArmPoles.values()) for (const item of record.poles) {
               const p = item.p, along = (p.x - x) * edge.dx + (p.z - z) * edge.dz;
-              if (along < -15 || along > 10) continue;
+              if (along < -15 || along > 10 || !mastClear(p.x, p.z)) continue;
               const lat = (p.x - x) * edge.rx + (p.z - z) * edge.rz;
               const target = targetFor(along, lat, maxAlong);
               const reach = Math.hypot(p.x - target.x, p.z - target.z);
@@ -1935,7 +1943,7 @@ function buildStreetDetails(scene, opts = {}) {
               const score = reach - 3;
               if (best && score >= best.score) continue;
               if (!armClear(p, target)) continue;
-              best = { foot: p, existing: true, reach, score, target, band };
+              best = { foot: p, existing: true, reach, score, target, band, strict };
             }
             for (let along = -15; along <= 10; along += 1) {
               for (let lat = -edge.half - OVERHEAD_REACH; lat <= edge.half + OVERHEAD_REACH; lat += 0.8) {
@@ -1943,14 +1951,18 @@ function buildStreetDetails(scene, opts = {}) {
                 const pz = z + edge.dz * along + edge.rz * lat;
                 const target = targetFor(along, lat, maxAlong);
                 const reach = Math.hypot(px - target.x, pz - target.z);
-                if (reach > OVERHEAD_REACH || reach < 1 || (best && reach >= best.score)) continue;
+                if (reach > OVERHEAD_REACH || reach < 1 || (best && reach >= best.score) ||
+                  !mastClear(px, pz)) continue;
                 if (failures(px, pz, true).length || !armClear({ x: px, z: pz }, target)) continue;
-                best = { foot: { x: px, z: pz }, existing: false, reach, score: reach, target, band };
+                best = { foot: { x: px, z: pz }, existing: false, reach, score: reach, target, band, strict };
               }
             }
             return best;
           };
-          return search(-8, true) || search(STOP_SETBACK, false);
+          const band = search(-8, true);
+          if (!band) return search(STOP_SETBACK, false);
+          if (band.target.along <= -10.5 + 1e-6) return { ...band, strict: true };
+          return search(-10.5, true, true) || band;
         };
         // The first clear sample is placed, so the order is the preference: near, narrow sites first, then wider offsets,
         // then further back, where the head is harder to see from the stop line. Placing stops at the first failed
@@ -2001,7 +2013,7 @@ function buildStreetDetails(scene, opts = {}) {
           const target = overheadSite.target;
           const m = setFacing(target.x + a.ux * 0.18, OVERHEAD_Y, target.z + a.uz * 0.18, a.ux, a.uz);
           const head = { site, a, p: target, group0, existing: overheadSite.existing, node, edge,
-            overhead: true, pole: overheadSite.foot, m, band: overheadSite.band };
+            overhead: true, pole: overheadSite.foot, m, band: overheadSite.band, strict: overheadSite.strict };
           heads.push(head);
           vehicleHeadSites.push(head);
           entry.class = 'B';

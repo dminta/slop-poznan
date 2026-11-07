@@ -6,7 +6,7 @@ as ESM without a package.json depends on Node's automatic module-syntax detectio
 
 ## Commands (verified)
 
-- Full suite: `node --test tests/`. 425 tests, about 50 s (2026-11-07). Most time is spent in `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`, the five-minute traffic-flow regression, and the signal-head and pedestrian-route audits.
+- Full suite: `node --test tests/`. 432 tests, about 55 s (2026-11-07). Most time is spent in `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`, the five-minute traffic-flow regression, and the signal-head and pedestrian-route audits.
 - Quick loop that skips the geodata rebuild: `node --test tests/*.cjs` (about 9 s, most of it `road-network`, `tram-infra` and `tram-clearance` building the network and the street furniture on the real Poznań graph, and `buildings-density` running `buildCityBlocks` twice).
 - One file: `node --test tests/cameras.test.cjs`. Running `node tests/cameras.test.cjs` directly also works.
 - By test name: `node --test --test-name-pattern="police" tests/`
@@ -252,9 +252,10 @@ and runtime use the same search, including actual lanes, turn samples, crossing 
 sidewalk, corner and refuge segments. The headless fixture uses live park/plaza data but omits building, landmark and
 bridge colliders. The browser includes them, so candidate sites and counts can differ. The audit checks geometry, not
 visual occlusion, and C does not rule out unsampled sites. `tests/signal-audit.test.cjs` checks before and after counts
-(117/0/40/10, hash `e988c6ad...`); `signal-placement.test.cjs` rebuilds the network with the new footprints and compares
-lanes, crossings and pedestrian segments and their route connections near the new poles, as well as phase, facing,
-setbacks, reused pole curbside bounds (`lateral <= half + 2.6 m`), overhead arm reach (`<= 12 m`), 0.5 m arm/head
-rail clearance (`>= 2.22 m`), colliders and audio registrations. The fixture does not build the tram/rail catenary
-layouts; an independent probe checked every overhead arm against both, and folding those layouts into the regression
-remains worthwhile if their placements move.
+(117/0/40/10, hash `636398ec...`); `signal-placement.test.cjs` rebuilds the network with the new footprints and compares
+lanes, crossings and pedestrian segments and their route connections near the new poles, as well as phase equality
+over the full plan cycle (pedestrian plans included), facing, setbacks, reused pole curbside bounds
+(`lateral <= half + 2.6 m`), overhead arm reach (`<= 12 m`), 0.5 m arm/head
+rail clearance (`>= 2.22 m`), the 8 m/10.5 m visibility bands, foot rail clearance (`>= 3.1 m`), colliders and audio
+registrations. It also builds the tram/rail catenary layouts and checks every overhead arm, foot and head against
+every pole and mast (`>= 0.5 m`).

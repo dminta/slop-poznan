@@ -80,6 +80,15 @@ for (const { node, edge } of initial) {
     row.head = [p.x, p.z];
     row.along = ox * edge.dx + oz * edge.dz;
     row.lateral = ox * edge.rx + oz * edge.rz;
+    // Raw phase inputs, so the test can check that every A head agrees with its edge's arm group even when the
+    // two plans' main axes are opposed.
+    row.group0 = entry.head.group0;
+    row.axis0 = edge.axisIndex === 0;
+    row.swap = Math.abs(entry.head.site.timing.mainUx * node.signalTiming.mainUx +
+      entry.head.site.timing.mainUz * node.signalTiming.mainUz) <= 0.82;
+    row.pedestrian = !!node.signalTiming.pedestrian;
+    row.plan = entry.head.site.timing.index;
+    row.nodePlan = node.signalTiming.index;
   }
   if (entry.candidate) row.site = [entry.candidate.x, entry.candidate.z, entry.candidate.side];
   if (entry.class === 'C') {
@@ -91,12 +100,59 @@ for (const { node, edge } of initial) {
   counts[row.class]++;
   console.log(JSON.stringify(row));
 }
+const alongOf = (h) => {
+  const e = h.edge, x = e.sx + e.dx * e.len, z = e.sz + e.dz * e.len;
+  return (h.p.x - x) * e.dx + (h.p.z - z) * e.dz;
+};
+const overhead = street.runtimeHeads.filter((h) => h.overhead);
+const fallback = overhead.filter((h) => !h.band);
+const fallbackAlong = fallback.map(alongOf);
+const armLengths = overhead.map((h) => Math.hypot(h.pole.x - h.p.x, h.pole.z - h.p.z));
+const armRail = (h) => {
+  const arm = Math.hypot(h.pole.x - h.p.x, h.pole.z - h.p.z);
+  const steps = Math.max(1, Math.ceil(arm / 0.5));
+  let min = Infinity;
+  for (let i = 0; i <= steps; i++) {
+    min = Math.min(min, gridModule.railClearance(h.pole.x + (h.p.x - h.pole.x) * i / steps,
+      h.pole.z + (h.p.z - h.pole.z) * i / steps, 20));
+  }
+  return min;
+};
+// How close an existing signal pole would come to a head at the 8 m band: the 15 fallback heads keep the support
+// position because this distance exceeds the 12 m arm.
+const supportDistance = (h) => {
+  const e = h.edge, x = e.sx + e.dx * e.len, z = e.sz + e.dz * e.len;
+  let min = Infinity;
+  for (const record of audit.signalArmPoles.values()) for (const item of record.poles) {
+    const p = item.p, along = (p.x - x) * e.dx + (p.z - z) * e.dz;
+    if (along < -15 || along > 10) continue;
+    const lat = (p.x - x) * e.rx + (p.z - z) * e.rz;
+    let lane = e.lanes[0];
+    for (const value of e.lanes) if (Math.abs(value - lat) < Math.abs(lane - lat)) lane = value;
+    const t = Math.max(-15, Math.min(-8, along));
+    min = Math.min(min, Math.hypot(p.x - x - e.dx * t - e.rx * lane,
+      p.z - z - e.dz * t - e.rz * lane));
+  }
+  return min;
+};
 console.log(JSON.stringify({ counts, total: initial.length, vehicleHeads: street.vehicleHeads,
   pedestrianHeads: street.audioSignals.length, runtimePoles: street.runtimeHeads.filter((h) => !h.existing).length,
   reusedPoles: street.runtimeHeads.filter((h) => h.existing).length,
-  overheadHeads: street.runtimeHeads.filter((h) => h.overhead).length,
-  overheadPoles: street.runtimeHeads.filter((h) => h.overhead && !h.existing).length,
-  overheadReused: street.runtimeHeads.filter((h) => h.overhead && h.existing).length,
-  overheadBand: street.runtimeHeads.filter((h) => h.overhead && h.band).length,
-  overheadException: street.runtimeHeads.filter((h) => h.overhead && !h.band).length,
+  overheadHeads: overhead.length,
+  overheadPoles: overhead.filter((h) => !h.existing).length,
+  overheadReused: overhead.filter((h) => h.existing).length,
+  overheadStrict: overhead.filter((h) => h.strict).length,
+  overheadBand: overhead.filter((h) => h.band).length,
+  overheadException: fallback.length,
+  overheadFallbackAlong: fallbackAlong.map((v) => Number(v.toFixed(3))),
+  overheadFallbackSupportMin: fallback.length ? Number(Math.min(...fallback.map(supportDistance)).toFixed(3)) : null,
+  overheadArmMax: overhead.length ? Number(Math.max(...armLengths).toFixed(4)) : null,
+  overheadArmMean: overhead.length
+    ? Number((armLengths.reduce((sum, v) => sum + v, 0) / armLengths.length).toFixed(4)) : null,
+  pedestrianApproaches: analysis.entries.filter((entry) => entry.node.signalTiming &&
+    entry.node.signalTiming.pedestrian && !entry.node.signalTiming.disabled)
+    .map((entry) => ({ node: [entry.node.x, entry.node.z], class: entry.class })),
+  overheadFootRailMin: overhead.length ? Math.min(...overhead.map((h) =>
+    gridModule.railClearance(h.pole.x, h.pole.z, 20))) : null,
+  overheadArmRailMin: overhead.length ? Math.min(...overhead.map(armRail)) : null,
   placements: street.runtimeHeads.map((h) => [h.node.x, h.node.z, h.p.x, h.p.z, h.existing]) }));
