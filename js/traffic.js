@@ -1909,6 +1909,9 @@ function createTrafficSystem(
           let skip = false;
           for (const o of list) {
             if (o.v.tram) continue;
+            // If the tram is already braking for this vehicle, don't place a proxy across its path: the vehicle
+            // is inside the sweep and must be allowed to clear, or car and tram deadlock each other.
+            if (o.v === t.obstacle) { skip = true; break; }
             const cLo = o.s - o.v.half;
             const cHi = o.s + o.v.half;
             if (cHi < lo || cLo > hi) continue;
