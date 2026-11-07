@@ -72,8 +72,8 @@ Implementation details and completed measurements live in the [topic docs](../AG
 ### Interface and performance
 
 - Verify the loading screen's Poznań colours (white `#ffffff`, dark blue `#234792`, gradient to `#009cdc`),
-  contrast, independence from OS dark mode before boot, and loader credits and HUD “Źródła” popover layout and
-  link responsiveness on desktop and phone.
+  contrast, independence from OS dark mode before boot, and loader credits layout and link responsiveness on desktop
+  and phone.
 - Check Polish labels in the HUD, toolbar and touch layout, metric readings, map labels and pin clustering on
   WebGPU and WebGL2.
 - Check new shop signs and their frame-rate/draw-call cost (26 instanced meshes, +21 calls versus the former five).

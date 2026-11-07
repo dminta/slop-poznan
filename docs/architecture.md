@@ -198,7 +198,7 @@ Physics notes:
 - Wrap every storage access in `try { } catch { /* reason */ }`. Storage may be unavailable, and that must never block play.
 
 ## HUD, CSS and cache busting
-- `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently `20261107-brand-blue`). When you change
+- `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently `20261107-remove-credits`). When you change
   `style.css`, bump that query in `index.html` in the same commit; GitHub Pages caches it.
 - Colours are tokens on `:root`: `--accent`/`--accent-ink` mark whatever is active. The accent is a lighter tint of
   Poznań's brand blue (#234792) so it reads on the dark glass: `--accent` #7ba7f4 (≈ 7.7:1 on the glass) and
@@ -214,8 +214,8 @@ Physics notes:
   - Błękit (Process Blue / accent): Pantone Process Blue, CMYK `100, 0, 0, 0`, RGB `0, 156, 220`, **`#009CDC`**.
   - Biel (white background): **`#FFFFFF`**.
   Contrast of `#234792` on `#ffffff` is **8.79:1** (WCAG AA/AAA). The overlay sets solid `#ffffff`/`#234792` before app boot,
-  independent of OS dark mode. The in-game HUD keeps its quiet graphite glass palette; a persistent "Źródła" button and popover
-  in the top-left brand heading keeps map and data attributions accessible after the splash screen closes.
+  independent of OS dark mode. The in-game HUD keeps its quiet graphite glass palette; map and data attributions live on
+  the loading screen only.
 - The location HUD draws each street as a Poznań SIM 2017 plate, the same design as the in-world wall plates:
   `renderLocation(label, district)` in `main.js` runs each OSM name through `plateLabel` (exported by
   `street-details.js`, the one copy of the kind words and the patron given-name list) and fills `.street-sign-kind`

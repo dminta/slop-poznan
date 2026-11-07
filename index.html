@@ -67,7 +67,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..800&amp;family=Overpass:wght@500;600&amp;display=swap" />
-  <link rel="stylesheet" href="./css/style.css?v=20261107-brand-blue" />
+  <link rel="stylesheet" href="./css/style.css?v=20261107-remove-credits" />
 </head>
 <body>
   <!-- Icon sprite (24 × 24 stroke icons, drawn in currentColor) -->
@@ -132,39 +132,11 @@
         <div class="brand-heading">
           <h1>Slop Poznań</h1>
           <a class="repo-link" href="https://github.com/dminta/slop-poznan/" target="_blank" rel="noopener noreferrer" aria-label="Slop Poznań na GitHubie (otwiera się w nowej karcie)">GitHub <span aria-hidden="true">↗</span></a>
-          <button id="btn-credits" class="repo-link credits-trigger" type="button" popovertarget="credits-popover" aria-label="Źródła i licencje">Źródła</button>
         </div>
         <div class="brand-subtitle">three.js · WebGPU · TSL · <span id="hud-fps" class="fps-ok">60</span> fps</div>
       </div>
     </div>
   </header>
-
-  <!-- In-game Credits & Attribution Popover -->
-  <div id="credits-popover" class="popover credits-popover" popover data-side="below" data-anchor="btn-credits" data-align="btn-credits" aria-label="Źródła i licencje">
-    <div class="pop-title">Źródła i licencje</div>
-    <div class="credits-content">
-      <div class="credits-section">
-        <strong>Slop Poznań</strong>
-        <p>© 2026 Dominik Minta · na bazie <a href="https://github.com/mrdoob/slop-newyork" target="_blank" rel="noopener noreferrer">Slop New York</a> (© 2026 Mr.doob) · licencja <a href="https://github.com/dminta/slop-poznan/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT</a></p>
-      </div>
-      <div class="credits-section">
-        <strong>Dane mapowe</strong>
-        <p>© autorzy <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> (<a href="https://opendatacommons.org/licenses/odbl/" target="_blank" rel="noopener noreferrer">ODbL</a>). Siatka ulic, budynki, zieleń i woda skompilowane z bazy OSM.</p>
-      </div>
-      <div class="credits-section">
-        <strong>Pomiary i wysokości obiektów</strong>
-        <p>Źródło danych: <a href="https://geoportal.gov.pl/" target="_blank" rel="noopener noreferrer">Główny Urząd Geodezji i Kartografii</a> (PZGiK). Modele NMT/NMPT wykorzystane do kalibracji wysokości wybranych zabytków (Fara, Teatr Wielki).</p>
-      </div>
-      <div class="credits-section">
-        <strong>Typografia</strong>
-        <p><a href="https://fonts.google.com/specimen/Inter" target="_blank" rel="noopener noreferrer">Inter</a> (Rasmus Andersson) i <a href="https://fonts.google.com/specimen/Overpass" target="_blank" rel="noopener noreferrer">Overpass</a> (Red Hat / Delve Fonts) na licencji <a href="https://openfontlicense.org/" target="_blank" rel="noopener noreferrer">SIL OFL 1.1</a>.</p>
-      </div>
-      <div class="credits-section">
-        <strong>Dźwięk i hejnał</strong>
-        <p>Melodia hejnału miasta Poznania (zał. nr 4 do Statutu Miasta Poznania), własna synteza dźwięku w czasie rzeczywistym (Web Audio API).</p>
-      </div>
-    </div>
-  </div>
 
   <!-- Top-Right Toolbar: Time of Day, Teleport, Map & Clean View -->
   <div class="hud hud-top-right">
