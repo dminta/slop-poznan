@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { buildRoadNetwork, CROSSWALK } from './road-network.js';
-import { createPedestrianRoutes } from './pedestrian-routes.js';
+import { createPedestrianRoutes, LANE_INSET } from './pedestrian-routes.js';
 import { updateSignal, requestWalkSignal, configurePedestrianSignal, configureSignalClearance, blockAt } from './city-config.js';
 import { cityUniforms, createContactShadowMaterial } from './tsl-materials.js';
 import { HEADLIGHTS, createVehicleHeadlight, placeVehicleHeadlight } from './vehicle-lights.js';
@@ -549,6 +549,7 @@ function createTrafficSystem(
       len: 1,
       t: 0,
       dir: 1,
+      lane: 0, // m to the right of the track's centre line: each direction keeps its own side on a two-way line
       node: null, // the intersection of its crosswalk, which side of it, where along it
       side: 0,
       group: 0, // the right-of-way group of the road it crosses there, whose phase holds the WALK
@@ -2258,6 +2259,7 @@ function createTrafficSystem(
       Object.assign(p, track);
       p.t = t;
       p.dir = t < track.len * 0.5 ? 1 : -1;
+      p.lane = 0;
       p.through = false;
       p.x = x;
       p.z = z;
@@ -2422,6 +2424,8 @@ function createTrafficSystem(
   const PED_BRAKE = 1.6; // m/s^2 easing to a stop
   const TURN_TIME = 0.85; // s turning round at the end of the track
   const PED_STUCK_TIME = 20; // s standing with no legitimate wait before the ped is re-placed elsewhere
+  const PED_LANE_RAMP = 1.5; // m at each track end where the direction inset fades out
+  const PED_LANE_RATE = 1.5; // m/s largest lateral move while easing into or out of an inset lane
   const walkedNodes = [];
   // Peds by their current physical line, refreshed once per frame so the same-line following check scans only a
   // handful of people instead of all 340 per walker. Lists and the map are reused; a walker that changes track this
@@ -2461,6 +2465,21 @@ function createTrafficSystem(
       if (!list.length) routeLists.push(list);
       list.push(p);
     }
+  }
+  // Direction-specific inset lane: on a marked two-way walking line each walker keeps to the right of its travel
+  // direction (pedestrian-routes.js `insetLane`), so opposing queues pass instead of stopping body to body. The
+  // target fades to zero at both track ends, and the stored lane eases at PED_LANE_RATE, so a leg change or a
+  // dead-end turnaround never jumps the walker sideways. No object is allocated per frame.
+  function laneOffset(p, dt) {
+    let target = 0;
+    // Bit 1 is the track's +right lane, bit 2 its -right lane; a corner link may offer only the side it is walked on.
+    if (p.route && (p.route.insetLane & (p.dir > 0 ? 1 : 2)) && !p.node) {
+      const fade = Math.min(1, p.t / PED_LANE_RAMP, (p.len - p.t) / PED_LANE_RAMP);
+      if (fade > 0) target = p.dir * LANE_INSET * fade;
+    }
+    const step = PED_LANE_RATE * dt;
+    p.lane = target > p.lane ? Math.min(target, p.lane + step) : Math.max(target, p.lane - step);
+    return p.lane;
   }
   function walk(p, dt) {
     // Removing a ped is popping too: postpone a re-placement while the camera can see where it stands (the new spot is
@@ -2668,8 +2687,9 @@ function createTrafficSystem(
       }
     }
     p.t = t;
-    p.x = p.ax + p.ux * t;
-    p.z = p.az + p.uz * t;
+    const lane = laneOffset(p, dt);
+    p.x = p.ax + p.ux * t - p.uz * lane;
+    p.z = p.az + p.uz * t + p.ux * lane;
     // A jam or a route sink must not hold a crowd forever. Waiting at a curb or strip hold, a conversation or a pause
     // is legitimate and resets this; anything else that has not moved in 20 s is re-placed like any other distant ped.
     // Short tracks (corner links, cramped sidewalks) still count a crossing wait: a blocked exit there is exactly the

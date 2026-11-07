@@ -42,6 +42,7 @@ test('traffic hands the real building colliders to the pedestrian route builder'
   });
   let received = null;
   const pedestrianRoutes = {
+    LANE_INSET: 0.34,
     createPedestrianRoutes: (...args) => {
       received = args;
       return { along: () => [], across: () => [], next: () => null, crosswalks: [], segments: () => [],

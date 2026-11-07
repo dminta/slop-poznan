@@ -1,5 +1,11 @@
 import { CROSSWALK, CROSSWALK_REACH } from './road-network.js';
 
+// Each direction on a narrow two-way walking line keeps to its own side (traffic.js applies this as a lateral
+// offset), so opposing queues pass instead of stacking on one body-width point. The two lanes sit 0.68 m apart,
+// just over traffic.js QUEUE_GAP 0.62 m; a walker's body keeps 0.25 m inside the offset line. A track records a
+// bit per clear side: 1 for the +right lane, 2 for -right; both are set on ordinary two-way sidewalks.
+const LANE_INSET = 0.34, LANE_BODY = 0.25;
+
 // Small, lazily connected sidewalk tracks. Junctions only connect points on the same curb island;
 // crossing the roadway is a separate, signal-controlled track owned by traffic.js, on the crosswalks laid out here once
 // for the whole network (the zebras road-paint.js paints).
@@ -14,7 +20,7 @@ function createPedestrianRoutes(
   const segment = (a, b, extra = {}) => {
     const len = Math.hypot(b.x - a.x, b.z - a.z);
     return { ax: a.x, az: a.z, ux: (b.x - a.x) / len, uz: (b.z - a.z) / len,
-      len, node: null, side: 0, sides: null, group: 0, line: 0, ...extra };
+      len, node: null, side: 0, sides: null, group: 0, line: 0, insetLane: 0, ...extra };
   };
 
   function clear(a, b, block = null, anyBlock = false) {
@@ -28,6 +34,34 @@ function createPedestrianRoutes(
       x = nx; z = nz;
     }
     return true;
+  }
+
+  // A side of a track stays walkable and on the same block at LANE_INSET, so traffic.js may keep that direction on
+  // its own side. A two-way sidewalk usually has both; a corner link between different curb blocks may have room on
+  // its travel side only, which is enough because it is walked one way. Tracks shorter than the inset keep no lane.
+  function laneClear(a, b, block) {
+    if (!block) return 0;
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    if (len < 2 * LANE_INSET) return 0;
+    const rx = -(b.z - a.z) / len, rz = (b.x - a.x) / len;
+    // 1 m samples, at most 24 per side: the lane is only 0.34 m off a centreline `clear` already sampled at 1 m,
+    // so a pinch narrower than the sample spacing is not reachable without the centreline leaving its block first.
+    const steps = Math.min(24, Math.max(1, Math.ceil(len)));
+    let lanes = 0;
+    for (const side of [-1, 1]) {
+      let clearSide = true;
+      for (let i = 0; i <= steps; i++) {
+        const x = a.x + (b.x - a.x) * i / steps + rx * side * LANE_INSET;
+        const z = a.z + (b.z - a.z) * i / steps + rz * side * LANE_INSET;
+        if (blockAt(x, z) !== block ||
+            !walkable(x - LANE_BODY, x + LANE_BODY, z - LANE_BODY, z + LANE_BODY)) {
+          clearSide = false;
+          break;
+        }
+      }
+      if (clearSide) lanes |= side > 0 ? 1 : 2;
+    }
+    return lanes;
   }
 
   // A two-way street is two directed edges on one centreline, and a divided pair drawn closer than PAIR_SEP is put on
@@ -82,7 +116,8 @@ function createPedestrianRoutes(
         if (!blkA || !blkB) continue;
         if (blkA === blkB) {
           if (!clear(a, b, blkA)) continue;
-          result.push(segment(a, b, { edge: e, from: e.from, to: e.to, block: blkA, walkKey: key }));
+          result.push(segment(a, b, { edge: e, from: e.from, to: e.to, block: blkA, walkKey: key,
+            insetLane: laneClear(a, b, blkA) }));
         } else {
           // Continuous sidewalk bridging across two blocks under a railway underpass
           if (!clear(a, b, null, true)) continue;
@@ -656,7 +691,7 @@ function createPedestrianRoutes(
       const path = [];
       if (distance > 0.01) {
         if (cornerClear(a, b, block)) {
-          path.push({ track: segment(a, b), dir: 1 });
+          path.push({ track: segment(a, b, { insetLane: laneClear(a, b, block) }), dir: 1 });
         } else {
           // Meeting the two offset sidewalk lines rounds the curb instead of cutting diagonally through a lot.
           const ax = track.ux * dir, az = track.uz * dir, bx = next.ux * nextDir, bz = next.uz * nextDir;
@@ -667,8 +702,10 @@ function createPedestrianRoutes(
           if (t < 0 || t > 20 || (b.x - c.x) * bx + (b.z - c.z) * bz < 0 ||
               Math.hypot(b.x - c.x, b.z - c.z) > 20) continue;
           if (!cornerClear(a, c, block) || !cornerClear(c, b, block)) continue;
-          if (t > 0.01) path.push({ track: segment(a, c), dir: 1 });
-          if (Math.hypot(b.x - c.x, b.z - c.z) > 0.01) path.push({ track: segment(c, b), dir: 1 });
+          if (t > 0.01) path.push({ track: segment(a, c, { insetLane: laneClear(a, c, block) }), dir: 1 });
+          if (Math.hypot(b.x - c.x, b.z - c.z) > 0.01) {
+            path.push({ track: segment(c, b, { insetLane: laneClear(c, b, block) }), dir: 1 });
+          }
         }
       }
       path.push({ track: next, dir: nextDir });
@@ -690,7 +727,8 @@ function createPedestrianRoutes(
       if (distance <= 0.01 || distance > DIRECT_MAX || !targetBlock) continue;
       if (targetBlock === block ? !clear(a, b, block) : distance > 16 || !clearGap(a, b)) continue;
       if (!clearHazards(a, b) || !withinBlockEdge(a, b, block, DIRECT_CORRIDOR)) continue;
-      result.push([{ track: segment(a, b), dir: 1 }, { track: next, dir: nextDir }]);
+      const inset = targetBlock === block && laneClear(a, b, block);
+      result.push([{ track: segment(a, b, { insetLane: inset }), dir: 1 }, { track: next, dir: nextDir }]);
     }
     for (const port of candidates) {
       const next = port.track, nextDir = port.end ? -1 : 1;
@@ -737,7 +775,9 @@ function createPedestrianRoutes(
           !withinBlockEdge(a, { x: c.x, z: c.z }, block, FALLBACK_CORRIDOR)) continue;
       added++;
       const q = c.q, extra = { edge: q.edge, block: q.block, blockTo: q.blockTo, underpass: q.underpass };
-      const connector = c.distance > 0.01 ? [{ track: segment(a, { x: c.x, z: c.z }), dir: 1 }] : [];
+      const inset = c.targetBlock === block && laneClear(a, { x: c.x, z: c.z }, block);
+      const connector = c.distance > 0.01
+        ? [{ track: segment(a, { x: c.x, z: c.z }, { insetLane: inset }), dir: 1 }] : [];
       // The sub-tracks start at the projection point c (end 0) and run to one of q's ends (end 1). A walker arriving
       // over the connector enters at c and continues along the sub, so both legs travel dir 1. `from`/`to` name the
       // nodes at end 0/end 1: c lies mid-track and has no node, while end 1 is q's own end, so `to` carries q.from for
@@ -745,11 +785,15 @@ function createPedestrianRoutes(
       // dir -1, which started the walker at point(q, 0) and sent them back to c, and made `links` look for q.from's
       // ports at c instead of at the end it actually reached.)
       if (c.proj > 0.01) {
-        const sub = segment({ x: c.x, z: c.z }, point(q, 0), { ...extra, from: null, to: q.from });
+        const sub = segment({ x: c.x, z: c.z }, point(q, 0), {
+          ...extra, from: null, to: q.from, insetLane: q.insetLane
+        });
         result.push([...connector, { track: sub, dir: 1 }]);
       }
       if (q.len - c.proj > 0.01) {
-        const sub = segment({ x: c.x, z: c.z }, point(q, 1), { ...extra, from: null, to: q.to });
+        const sub = segment({ x: c.x, z: c.z }, point(q, 1), {
+          ...extra, from: null, to: q.to, insetLane: q.insetLane
+        });
         result.push([...connector, { track: sub, dir: 1 }]);
       }
     }
@@ -843,4 +887,4 @@ function createPedestrianRoutes(
   return { along, across, next, crosswalks, segments, segmentsNear };
 }
 
-export { createPedestrianRoutes };
+export { createPedestrianRoutes, LANE_INSET };

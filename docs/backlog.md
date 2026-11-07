@@ -6,16 +6,19 @@ Implementation details and completed measurements live in the [topic docs](../AG
 
 ## Known gaps and follow-up investigations
 
-- **Pedestrian overlap remnants:** the 2026-11-07 follow-up keys queues by physical line instead of route object,
-  tests entrances and oncoming queues in world space, and lets a blocked crossing exit age. On the dworzec/wilda audit
-  (seeds 4242/77, 3 min) clusters fall 17 → 12, longest 26 → 24 s, mean overlapping pairs/s 18.8 → 14.1, crosswalk
-  entries hold at 108.0 → 109.2/min; the biggest short cluster grows 7 → 8. The retained `bench-traffic.mjs --ped-rooms`
-  audit attributes Jeżyce's remaining walker holds (1,745 ped-s of 94,103 sampled, longest 17.7 s) to queue (96%) and
-  merge (4%) room, not to trams; the `tramRoom` boundary trap is fixed. Remaining: a 24 s / 5-body knot on the 5.3 m
-  Most Dworcowy corner link where trams stop both directions on one line, an 8 s / 8-body two-way queue at
-  Droga Dębińska, and conversation pairs meeting within a body width of another pair. A direction-specific inset lane
-  is the untried fix for the first two. The 20 s recovery is still postponed while a pedestrian is in `nearView`.
+- **Pedestrian overlap remnants:** the 2026-11-07 physical-line follow-up keys queues by physical line instead of
+  route object, tests entrances and oncoming queues in world space, and lets a blocked crossing exit age. The
+  direction-specific inset-lane follow-up then gives every walking track a `LANE_INSET` 0.34 m lane on its clear
+  right-hand sides; each direction keeps its own side and the offset fades at both track ends. On the dworzec/wilda
+  audit (seeds 4242/77, 3 min) clusters fall 8 → 1, longest 20 → 16 s, biggest 6 → 4, mean overlapping pairs/s
+  13.25 → 5.15, crosswalk entries hold at 125.7 → 126.2/min. The 24 s Most Dworcowy two-way knot and the 8 s /
+  8-body Droga Dębińska queue are gone. Wilda's `bench-traffic.mjs --ped-rooms` freeze falls 5,025 → 4,008 ped-s of
+  about 50,000 sampled, longest 20.1 s (entrance → merge); the `tramRoom` boundary trap stays fixed. Remaining: a
+  16 s / 4-body same-direction pile at the 5.3 m Most Dworcowy corner link waiting for its crosswalk (no longer a
+  two-way knot), conversation pairs meeting within a body width of another pair, and the 20 s recovery still
+  postponed while a pedestrian is in `nearView`.
   [Mechanisms, fix and per-seed results](observations/ped-overlaps-2026-11-05.md#follow-up-2026-11-07-coincident-lines-and-blocked-exits),
+  [inset lanes](observations/ped-overlaps-2026-11-05.md#follow-up-2026-11-07-direction-specific-inset-lanes),
   [room audit](observations/jezyce-gridlock-2026-11-07.md#follow-up-tramroom-boundary-fix-and-room-audit-2026-11-07).
 - **Isolated crosswalk landings:** stage 2 connects the remaining empty ends without restoring U-turns or crossing
   roads, rails, buildings or water. The long fallback now accepts sidewalk track ends (the old `!next.node` gate
