@@ -135,8 +135,10 @@ Implementation details and completed measurements live in the [topic docs](../AG
   rendered interaction with a naturally approaching bus, including rear clearance.
   [Dworzec checks](observations/dworzec-2026-10-30.md), [bus population check](observations/bus-population-2026-10-30.md).
 - Check overhead signal visibility: 11 of the 26 overhead heads stand at least 8 m before the stop line, while 15
-  fall back to the support position (most 1.75 m past the stop line if no support reaches the band). Verify the
-  fallback heads are visible through the whole queue and move them back or add a gantry if they are not.
+  fall back to the support position (most 1.75 m past the stop line if no support reaches the band). The 8 m edge is
+  the table 7.2 row for a 4.5 m mounting; the 5.3 m head falls between that and the 5.5 m row (10.5–15 m), so 10.5 m
+  is the stricter target worth trying. Verify the fallback heads are visible through the whole queue and move them
+  back or add a gantry if they are not.
 - Watch a tram pass a car stopped at a crossing and a left-turner complete through the Kaponiera box; check for
   visible clipping or stopping within the approximately 1 s forecast gap.
 - Watch whole trams clear switches, crossings and occupied stops; observe Zawady/Ogrody loop boarding and return

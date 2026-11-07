@@ -253,7 +253,8 @@ Built before the road network, so everything that stands near a lane is checked 
   no candidate, a head is hung from an existing signal pole or a new 6.2 m mast within 12 m, over the nearest real
   lane. Supports may stand on medians, on sidewalk points 6–12 m behind the curb that the ordinary search never
   samples, or up to 10 m ahead of the stop line. The arm and head keep the foot's **2.22 m** rail clearance at every
-  0.5 m sample; the three first-pass arms that crossed a tram envelope (0.05–2.45 m from a track axis) are rejected.
+  0.5 m sample; the three first-pass arms whose closest arm or head approach was 0.05, 0.10 and 1.88 m from a track
+  axis are rejected.
   C does not exclude other, unsampled sites. This is geometric visibility, without occlusion checks.
 
   `addRuntimeSignalHeads` uses the configured runtime edges, phase and facing. It prefers an unused existing pole on
@@ -267,14 +268,15 @@ Built before the road network, so everything that stands near a lane is checked 
   pedestrian-route and building checks, and every 0.5 m of the 5.55 m arm and the head keeps 2.22 m from each track
   axis, while tall colliders and bridge decks are sampled too. The S-1 centre sits at 5.3 m and its top at 5.73 m,
   below the 5.8 m tram contact wire. The first pass puts the head at least 8 m before the stop line, where table 7.2
-  places overhead signals; 11 of the 26 heads reach that band, while 15 fall back to the support's position (most
-  1.75 m past the stop line) because no support within 12 m reaches the band. That fallback is a documented
-  visibility deviation pending a browser check, not an occlusion result. In the furnished-grid fixture, runtime
-  placement measured **≈3.6 s** (≈4.3 s including the diagnostic pass; 3.6–4.7 s across headless runs, buildings,
-  landmarks and bridge colliders omitted), up from 2.89 s before the fallback. Ground heads keep the earlier
-  along/lateral range; the 26 overhead arms run at most 11.70 m (mean 9.11 m). New poles carry S-1 heads only;
-  their footprints and player colliders are registered before controllers are built and their shafts get a runtime
-  instanced mesh. Vehicle heads increase
+  places overhead signals at a 4.5 m mounting; the 5.3 m head falls between that row and the 5.5 m row (10.5–15 m),
+  so 10.5 m remains the stricter target. 11 of the 26 heads reach the 8 m band, while 15 fall back to the support's
+  position (most 1.75 m past the stop line) because no support within 12 m reaches the band. That fallback is a
+  documented visibility deviation pending a browser check, not an occlusion result. In the furnished-grid fixture,
+  runtime placement measured **≈3.6 s** (≈4.3 s including the diagnostic pass; 3.6–4.7 s across headless runs,
+  buildings, landmarks and bridge colliders omitted), up from 2.89 s before the fallback. Ground heads keep the
+  earlier along/lateral range; the 26 overhead arms run at most 11.70 m (mean 9.11 m). New poles carry S-1 heads
+  only; their footprints and player colliders are registered before controllers are built and their shafts get a
+  runtime instanced mesh. Vehicle heads increase
   **903 → 1,004** (81 new and 20 reused runtime poles; 12 overhead masts and 14 overhead pole reuses among them);
   pedestrian heads and audio entries remain **1,572**. The audit of the historical approaches moves from
   **91/0/66/10** to **117/0/40/10** (A/B/C/D), with one earlier redundant ground placement dropped because its

@@ -254,4 +254,6 @@ visual occlusion, and C does not rule out unsampled sites. `tests/signal-audit.t
 (117/0/40/10, hash `e988c6ad...`); `signal-placement.test.cjs` rebuilds the network with the new footprints and compares
 lanes, crossings and pedestrian segments and their route connections near the new poles, as well as phase, facing,
 setbacks, reused pole curbside bounds (`lateral <= half + 2.6 m`), overhead arm reach (`<= 12 m`), 0.5 m arm/head
-rail clearance (`>= 2.22 m`), colliders and audio registrations.
+rail clearance (`>= 2.22 m`), colliders and audio registrations. The fixture does not build the tram/rail catenary
+layouts; an independent probe checked every overhead arm against both, and folding those layouts into the regression
+remains worthwhile if their placements move.
