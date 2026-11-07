@@ -299,7 +299,7 @@ bend setbacks they need.
   link keeps its lanes on its own side of the centreline. The result must stay on the car part of the carriageway (a
   tram strip is not road for cars) and pass `laneOpen` for every shifted lane.
 - The re-check also rejects a lane that lands on or beside a same-direction track on a tram-strip road (not a shared
-  tram lane), a move on an edge 12 m or shorter, and a move that would make a straight connector steeper than the
+  tram lane), a move on an edge under 12 m, and a move that would make a straight connector steeper than the
   base's.
 
 ### Classification at the repaired base `a302005`
