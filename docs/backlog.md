@@ -52,6 +52,25 @@ Implementation details and completed measurements live in the [topic docs](../AG
 - **Building accuracy (4.4, 7):** the Fara front gable/cross and the Teatr Wielki portico/Pegasus now use GUGiK
   NMPT − NMT sub-heights; only the four Fara niche statues (below the 1 m DSM resolution) remain visual estimates.
   [Height audit](observations/landmark-heights-2026-11-03.md#2026-11-07--refined-fara-and-teatr-sub-heights).
+- **Building density and campus/pavilion complexes (Bukowska, hospital/academic grounds):** building density along
+  Bukowska, Marcelińska and parts of Grunwald/Jeżyce appears noticeably lower than satellite and OSM data.
+  Five underlying causes:
+  1. Giant campus blocks: `poz-blocks.mjs` drops unnamed `highway=service`, so large hospital and university campuses
+     (e.g. Block 666 Szpital Święcickiego: 16.2 ha, 77 OSM buildings; Block 577 Szpital Jonschera: 8.6 ha, 54 buildings;
+     Block 427/476 Ogrody/UMP: 9.9/9.3 ha; Block 770 MTP: 29.8 ha) form single massive blocks without interior streets.
+  2. Lot rect coverage: `maskRects` caps at 8 rects, covering only 60–75% of irregular campus interiors; the rest
+     stays empty.
+  3. Perimeter kamienice mismatch: `blockProfile` defaults Jeżyce/Łazarz to `RES_KAMIENICE`. For blocks with built
+     share under 22.4% ($q < 0.8$), `steerProfile` sets `out.noCore = true` and `inner = [['yard', 1]]`, turning the
+     entire 100–150 m deep block interior into flat bare yards instead of generating hospital pavilions or clinics.
+  4. Detail box boundary: `detailBox` ends at $x = -3675.4$ (Bukowska / Bułgarska / Polska). Everything west (King
+     Cross Marcelin, Business Garden, Ławica airport terminal) lies in `outskirts`, with a 90 m buffer where no
+     buildings spawn.
+  5. OSM vs BDOT10k: verify if campus footprints or storeys are under-mapped in OSM against GUGiK BDOT10k (`OT_BUBD_A`).
+  Follow-up: introduce a pavilion/campus profile for hospital and university grounds, allow named/major service cuts
+  or inner-lot rect grids in blocks > 5 ha, and evaluate the western detail box transition.
+  [Density test harness](tests/buildings-density.test.cjs),
+  [Phase 14 archive](archive/poznan-plan.md#phase-14-real-building-density-from-osm).
 - **Merge starvation and short-link left turns:** the 2026-11-07 Centrum seed 99 10-minute hold (`waitMax`/`longestHeld`
   184 s at `(-1117, 132)`) is fixed. A blocked lead no longer reserves the 9.4 m link between signals, and a left turn
   that cannot clear falls back to a straight move from the same lane, so it no longer waits on the link. That run is
