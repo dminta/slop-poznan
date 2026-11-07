@@ -458,11 +458,13 @@ function createPedestrianRoutes(
   // Clearance for a fallback connector: no road lane within its half width, no rail/tram centreline, no building
   // collider and no building lot rect. Water and obstacle footprints are rejected by `walkable` in `clear`/`clearGap`.
   // Used only for the sparse crosswalk landings, never for ordinary sidewalk links. A direct link may reach 8 m; every
-  // fallback link, direct or up to FALLBACK_MAX long, stays 8 m from its block edge, the depth of the sidewalk band the
-  // direct limit already used. On the 2026-11-07 headless world the 5 m corridor leaves 247 empty ends and 8 m leaves
-  // 212 (10/12/16 m give 204/192/182); all 376 fallback connector legs keep the lane margin (laneHits 0, the old
-  // distance form let 17 legs in by up to 1.09 m). A 40/48 m FALLBACK_MAX connected only 4/5 more, so 32 m stays.
-  const FALLBACK_MAX = 32, FALLBACK_CORRIDOR = 8, DIRECT_CORRIDOR = 8, DIRECT_MAX = 8;
+  // fallback link, direct or up to FALLBACK_MAX long, keeps the 8 m sidewalk band, and may reach FALLBACK_CORRIDOR into
+  // a wide corner or plaza. On the 2026-11-07 headless world the old 8 m corridor left 212 empty ends and 197 tracks;
+  // accepting sidewalk track ends in the long fallback and widening to 16 m leaves 156/143 (10/12 m give 183/168).
+  // Every connector still keeps the lane margin (`laneHits` 0; the old line-line form let 17 legs in by up to 1.09 m)
+  // and the 2 m rail keep; a deeper point must also see its block edge without a building between (closed courtyards).
+  // A 40/48 m FALLBACK_MAX connected only 6/7 more, so 32 m stays.
+  const FALLBACK_MAX = 32, FALLBACK_CORRIDOR = 16, FALLBACK_BAND = 8, DIRECT_CORRIDOR = 8, DIRECT_MAX = 8;
   // Distance from point p to segment a-b
   function pointSegmentDistance(px, pz, ax, az, bx, bz) {
     const rx = bx - ax, rz = bz - az, len2 = rx * rx + rz * rz;
@@ -523,17 +525,28 @@ function createPedestrianRoutes(
     }
     return true;
   }
+  // A fallback connector may leave the 8 m sidewalk band up to `limit`, but a point deeper than the band must still
+  // see the curb: where a building wall stands between it and the nearest block edge, the connector has reached a
+  // closed courtyard or back yard through a gap. The 16 m corridor handles wide junction corners and plazas; this
+  // sight line keeps enclosed ground off limits. The benchmark's gained connectors at 12/16 m all see their edge.
   function withinBlockEdge(a, b, block, limit) {
     const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z)));
     for (let i = 0; i <= steps; i++) {
       const x = a.x + (b.x - a.x) * i / steps, z = a.z + (b.z - a.z) * i / steps;
-      let distance = Infinity;
+      let distance = Infinity, ex = x, ez = z;
       for (let j = 0, k = block.poly.length - 1; j < block.poly.length; k = j++) {
         const p = block.poly[j], q = block.poly[k], dx = q.x - p.x, dz = q.z - p.z;
         const t = Math.max(0, Math.min(1, ((x - p.x) * dx + (z - p.z) * dz) / (dx * dx + dz * dz || 1)));
-        distance = Math.min(distance, Math.hypot(x - p.x - dx * t, z - p.z - dz * t));
+        const px = p.x + dx * t, pz = p.z + dz * t, d = Math.hypot(x - px, z - pz);
+        if (d < distance) { distance = d; ex = px; ez = pz; }
       }
       if (distance > limit) return false;
+      if (distance > FALLBACK_BAND) {
+        const sight = Math.max(1, Math.ceil(Math.hypot(ex - x, ez - z) / 0.5));
+        for (let s = 0; s <= sight; s++) {
+          if (hitsBuilding(x + (ex - x) * s / sight, z + (ez - z) * s / sight)) return false;
+        }
+      }
     }
     return true;
   }
@@ -681,7 +694,9 @@ function createPedestrianRoutes(
     }
     for (const port of candidates) {
       const next = port.track, nextDir = port.end ? -1 : 1;
-      if (!next.node || next === track || (track.arm && next.arm === track.arm)) continue;
+      // Sidewalk tracks have no `node` (their ends are `from`/`to`); the long loop must reach them too, or every
+      // landing next to a track end 8-32 m away stays isolated (16 of the 212 empty ends on the 2026-11-07 world).
+      if (next === track || (track.arm && next.arm === track.arm)) continue;
       const b = point(next, port.end), distance = Math.hypot(b.x - a.x, b.z - a.z);
       // The direct loop above already owns every port within DIRECT_MAX; skipping them here avoids duplicate paths.
       if (distance <= DIRECT_MAX) continue;

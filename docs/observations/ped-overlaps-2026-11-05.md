@@ -190,3 +190,60 @@ no per-frame allocation, reused route lists, and the line key is built once per 
 `node --test tests/*.cjs`: 412 pass. `tests/underpass-sidewalks.test.cjs` and the route-sink and route-building tests
 pass unchanged; the physical track geometry (and so the signal-audit hash) does not move, because `walkKey` is only an
 extra field on each track.
+
+## Follow-up 2026-11-07: crosswalk landings stage 2
+
+The backlog still listed 212 empty crosswalk ends (197 tracks with an empty end) on the furnished headless world. The
+stage-2 change keeps every safety rule: no sibling-line U-turn, no road-lane crossing, `RAIL_KEEP` 2 m, no building
+wall, no closed courtyard and no water. Reproduce with:
+
+`node tools/audit-crosswalk-landings.mjs [--json out.json] [--list] [--near x,z,r]...`
+
+The tool builds the same world as `tools/bench-world.mjs` (street furniture and city-block colliders, no city-grid
+curbs, landmarks or bridges), counts both directions of every crosswalk track, and independently re-checks every
+fallback connector leg with the exact segment-to-segment lane margin (`edge.half + 0.8 m`), the 2 m rail keep and the
+building colliders. `diagnoseFallback` reports the first rule that rejects each candidate, so `--json` carries the
+reason for every remaining end.
+
+### Mechanisms
+
+1. **Sidewalk track ends were invisible to the long fallback.** `fallbackPaths`' second loop skipped every target with
+   `!next.node`. Sidewalk tracks carry `from`/`to`, not `node`, so only crosswalk tracks could be reached beyond
+   `DIRECT_MAX` 8 m; a landing next to a sidewalk track end 8-32 m away stayed isolated. Removing the gate connects
+   16 ends (212 → 196).
+2. **The 8 m corridor was narrower than the junction corners it had to round.** At a wide corner the straight chord
+   between a landing and a nearby sidewalk leaves the 8 m band and was rejected. Widening to 12 m connects 20 ends
+   alone and 44 with the node fix (168 remaining); 16 m connects 30 alone and 56 together (156 remaining). Deep
+   points now have to see their nearest block edge without a building between them, so a connector cannot enter a
+   closed courtyard or back yard through a gap. On this world no gained connector at 12/16 m is building-enclosed; a
+   synthetic wall behind the 8 m band trips the new guard (`tests/pedestrian-route-buildings.test.cjs`).
+3. **The remaining key nodes have no same-block sidewalk to reach.** Okrąglak's landing at `-841.5, 30.6` sits on a
+   351 m² block cut by tram tracks; it has no sidewalk track of its own, and its only ports are two tracks 15.6/16.7 m
+   away on the far side of the roadway. Miła/Dąbrowskiego (`-3269.1, -884.3`), Promienista/Grochowska
+   (`-3541.4, 1448.4`, `-3540.3, 1449.4`) and Wierzbięcice/Górna Wilda (`-851.4, 1662.7/1664.2`) are similar: the
+   only non-sibling candidates are 17-26 m across a lane, so the lane and corridor rules reject them. Okrąglak /
+   Święty Marcin at `-1120.1, 112` has candidates 12-21 m across the roadway and 39-45 m around it. A corridor beyond
+   16 m gains no other key node, and 40/48 m `FALLBACK_MAX` adds only 6/7 ends; both limits stay. Length rejects a
+   candidate at 72 of the 212 ends, so the fallback radius is not the main limiter. Building lots reject candidates at
+   28 ends and walls at 7 (the 2 m lot pad and the 0.4 m body pad are unchanged, and neither is relaxed by the wider
+   corridor). Święty Marcin / Wysoka has no empty end in this world. A production full-scene count is still open
+   because the benchmark omits landmark/bridge colliders and city-grid curbs.
+
+### Before / after
+
+`buildWorld` from `tools/bench-world.mjs`, 3,270 crosswalks and 4,527 tracks in both runs.
+
+| metric | before | after |
+|---|---|---|
+| empty crosswalk ends | 212 | **156** |
+| tracks with an empty end | 197 | **143** |
+| fallback ends / connector legs | 153 / 376 | 209 / 1,004 |
+| sibling U-turn links | 0 | **0** |
+| laneHits / railHits / buildingHits | 0 / 0 / 0 | **0 / 0 / 0** |
+
+On the bare `buildRoadNetwork([], [])` network (`tests/pedestrian-route-sinks.test.cjs`) ends with no links fall
+**230 → 109** and tracks with an empty end **218 → 98**; the test now keeps ceilings of 120/110. Route build rises
+182 → 242 ms and `links()` over all 9,054 ends 5.33 → 6.3 s (worst single call 33.4 → 37 ms); the longer corridor
+scans a wider 32 m box only when an end has no base link, and the result is cached per end.
+
+`node --test tests/*.cjs` passes (415 tests: the original 413 plus the two new landing tests).

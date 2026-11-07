@@ -84,24 +84,31 @@ back over the zebra just crossed, and at a curb with no sidewalk exit every walk
 link. A route choice also skips a crossing whose far end lands on a known block with no way off it (a park edge with no
 sidewalk track); before the fix those crossings made people cross, find nothing, turn round and cross straight back
 forever. Removing the U-turn exposed empty landings, so `links` fills one only when the connector stays within the
-source block's edge corridor (8 m as of the 2026-11-07 corridor widening, matching the direct link), is at most 32 m
+source block's edge corridor (16 m as of the 2026-11-07 stage-2 widening; points beyond the 8 m sidewalk band must
+still see their block edge without a building between, so a closed courtyard stays off limits), is at most 32 m
 long, keeps every road lane at least its half width + 0.8 m away, stays `RAIL_KEEP` 2 m from any rail/tram centreline,
-avoids building lots (2 m pad) and the real building colliders passed by `main.js` (0.4 m pad, once a collider's
+avoids building lots (2 m pad) and the real building colliders passed by `main.js` (0.4 m body pad, once a collider's
 underside is below the 1.9 m pedestrian), keeps off obstacle footprints and never crosses water. It can join the
-nearest point on a sidewalk track or another zebra; a cross-block seam also passes `clearGap`. `DIRECT_MAX` 8 m now
-only caps the shortest-link length; every longer connector up to 32 m keeps the same 8 m corridor. The connector
-clearance measures the exact segment-to-segment distance (four endpoint projections plus a crossing test): the old
-line-line form read 5.39 m where the pair was 2.0 m and let 17 fallback legs into a lane by up to 1.09 m. On the
-headless benchmark world (`tools/bench-world.mjs`, street furniture plus city-block colliders, no city-grid curbs,
-landmarks or bridges) empty ends fall **269 → 212** (the 6a1a234 corridor step measured 246; the distance fix leaves
-212 with `laneHits` 0) and tracks with an empty end (never entered by the full routing) **247 → 197**, with crosswalk
-count unchanged at 3,270. A 10/12/16 m corridor would leave 204/192/182 ends but reaches past the sidewalk band into
-forecourts and courtyards; a 40/48 m `FALLBACK_MAX` connected only 4/5 more, so both stay at 8 m and 32 m. The 2 m
-rail keep replaces the earlier 1.5 m check; on this harness it changed no count, but a 1.7 m synthetic clearance now
-blocks a connector. The street index is built with the routes; sidewalk tracks are materialised only for the nearby
-edges of a landing and `links()` never loops the whole network in a frame. The U-turn fix's bare-network snapshot had
-unconnected crosswalk tracks fall **321 → 218** and ends with no links **365 → 230** (old U-turn figures 20 and 208);
-the rest are isolated landings and are listed in the [backlog](backlog.md) with reasons. A pedestrian that still
+nearest point on a sidewalk track or another zebra; a cross-block seam also passes `clearGap`. The long fallback also
+accepts a sidewalk track end (those tracks carry `from`/`to`, not `node`); the old `!next.node` gate skipped every
+one beyond `DIRECT_MAX` and left 16 ends isolated. `DIRECT_MAX` 8 m still caps the shortest-link length; every longer
+connector up to 32 m may use the 16 m corridor. The connector clearance measures the exact segment-to-segment
+distance (four endpoint projections plus a crossing test): the old line-line form read 5.39 m where the pair was
+2.0 m and let 17 fallback legs into a lane by up to 1.09 m. On the headless benchmark world (`tools/bench-world.mjs`,
+street furniture plus city-block colliders, no city-grid curbs, landmarks or bridges) empty ends fall **269 → 212 →
+156** and tracks with an empty end (never entered by the full routing) **247 → 197 → 143**, with crosswalk count
+unchanged at 3,270; `laneHits`, rail hits and building hits stay 0, and 209 ends now use 1,004 fallback connector legs
+(153 / 376 before stage 2). Removing the node gate accounts for 16 ends; the 8 → 16 m corridor with its courtyard
+sight line for 20 more alone and 44 together. The 16 m corridor gains 56 of the 68 ends that even a 32 m corridor
+would, and a 40/48 m `FALLBACK_MAX` adds only 6/7, so 32 m stays. The 2 m rail keep replaces the earlier 1.5 m
+check; on this harness it changed no count, but a 1.7 m synthetic clearance now blocks a connector. The street index
+is built with the routes; sidewalk tracks are materialised only for the nearby edges of a landing and `links()` never
+loops the whole network in a frame. The U-turn fix's bare-network snapshot had unconnected crosswalk tracks fall
+**321 → 218** and ends with no links **365 → 230**; stage 2 leaves **109 ends / 98 tracks** on the same bare network
+(old U-turn figures 20 and 208). Route build rises 182 → 242 ms and `links()` over all ends 5.33 → 6.3 s (worst call
+33.4 → 37 ms), still lazy and once per end. The rest are isolated landings and are listed in the
+[backlog](backlog.md) with reasons; `tools/audit-crosswalk-landings.mjs` counts them and re-checks every fallback
+leg's lane, rail and building clearance. A pedestrian that still
 stands with no legitimate wait (not a curb wait, strip hold, conversation or rest) for `PED_STUCK_TIME` 20 s is
 re-placed 60-280 m away with the normal view protection, and removal itself is postponed while `nearView` says the
 camera can see the old spot. Waiting at the curb for the WALK is the only crossing wait that exempts the clock; a body

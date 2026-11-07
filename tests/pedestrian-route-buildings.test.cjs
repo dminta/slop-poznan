@@ -9,7 +9,8 @@ const CROSSWALK_REACH = 4;
 const { createPedestrianRoutes } = loadModule(
   readFileSync(join(__dirname, '../js/pedestrian-routes.js'), 'utf8').replace(
     'return { along, across, next, crosswalks, segments, segmentsNear };',
-    'return { along, across, next, crosswalks, segments, segmentsNear, links, fallbackPaths, crossings };'
+    'return { along, across, next, crosswalks, segments, segmentsNear, links, fallbackPaths, ' +
+    'withinBlockEdge, crossings };'
   ),
   { imports: { './road-network.js': { CROSSWALK, CROSSWALK_REACH } } }
 );
@@ -46,9 +47,10 @@ function directLinks({ startX = 0.5, edgeX = 10, halfZ = 6, wall = null, rail = 
 }
 
 // A landing with one crosswalk-like port 12.5 m away across a block seam. The direct loop skips it (over 8 m); the
-// 32 m long loop must keep the same 8 m corridor. `crossings` is seeded after creation, so the fake layout is the one
-// `ports()` reads. Optional `edges`, `walkable` and `rail` place a road, water or track between the two points.
-function longFallback(halfZ, { edges = [], walkable = () => true, rail = null } = {}) {
+// 32 m long loop must keep the sidewalk band and may reach 16 m into a wide corner. `crossings` is seeded after
+// creation, so the fake layout is the one `ports()` reads. Optional `edges`, `walkable` and `rail` place a road, water
+// or track between the two points; `targetNode` false makes the target a real sidewalk track (`node: null`).
+function longFallback(halfZ, { edges = [], walkable = () => true, rail = null, targetNode = true } = {}) {
   const blockA = { poly: [{ x: -100, z: halfZ }, { x: 100, z: halfZ }, { x: 100, z: -halfZ }, { x: -100, z: -halfZ }],
     rects: [] };
   const blockB = { poly: [{ x: 5, z: halfZ }, { x: 200, z: halfZ }, { x: 200, z: -halfZ }, { x: 5, z: -halfZ }],
@@ -56,8 +58,8 @@ function longFallback(halfZ, { edges = [], walkable = () => true, rail = null } 
   const node = { x: 0, z: 0, signal: false, arms: [], in: [], out: [] };
   const landing = { ax: 0, az: 0, ux: 1, uz: 0, len: 0.5, node, side: 0, sides: null, group: 0, line: 0,
     from: node, to: node };
-  const port = { ax: 12.5, az: 0.5, ux: 1, uz: 0, len: 0.1, node, side: 1, sides: null, group: 0, line: 0.75,
-    from: node, to: node };
+  const port = { ax: 12.5, az: 0.5, ux: 1, uz: 0, len: 0.1, node: targetNode ? node : null, side: 1, sides: null,
+    group: 0, line: 0.75, edge: targetNode ? null : {}, from: node, to: node };
   const routes = createPedestrianRoutes({ nodes: [node], edges, walkable },
     (x) => (x >= 5 ? blockB : blockA), rail);
   routes.crossings.set(node, [port]);
@@ -105,16 +107,17 @@ test('the OBB cell index covers the pad-sqrt(2) reach across a 32 m cell edge', 
 });
 
 test('a direct landing link reaches 8 m inside a wide block, but no farther', () => {
-  // The nearest sidewalk port is 6.7 m from the landing. In a 12 m-wide block both points are 6 m from its edge, so
-  // the old 5 m direct corridor rejected the link; the 8 m direct corridor keeps it in the edge band. At 8.7 m the
-  // direct length limit rejects it and the long fallback takes over, and in a 17 m-wide block the 8 m corridor does.
+  // The nearest sidewalk port is 7.8 m from the landing. In a 12 m-wide block both points are within the long
+  // fallback's 16 m corridor, so the link joins; the direct loop itself still caps at 8 m.
   const paths = directLinks();
-  assert.ok(paths.length > 0, 'the 6.7 m direct link connects');
+  assert.ok(paths.length > 0, 'the 7.8 m direct link connects');
   assert.ok(paths.every((p) => p[0].track.len <= 8), 'and stays inside the 8 m direct limit');
   const longer = directLinks({ edgeX: 12 });
   assert.ok(longer.length > 0, 'the 8.7 m link waits for the long fallback');
   assert.ok(longer.every((p) => p[0].track.len > 8), 'no direct link reaches past 8 m');
-  assert.equal(directLinks({ halfZ: 8.5 }).length, 0, 'a connector 8.5 m from the block edge is outside the corridor');
+  const deep = directLinks({ halfZ: 8.5 });
+  assert.ok(deep.length > 0, 'an 8.5 m deep landing joins through the widened long fallback');
+  assert.equal(directLinks({ halfZ: 17 }).length, 0, 'but 17 m from the block edge is outside the 16 m corridor');
   const wall = { minX: 3.5, maxX: 4.5, minZ: -1, maxZ: 1, minY: 0, maxY: 12 };
   assert.equal(directLinks({ wall }).length, 0, 'the wider corridor still rejects a building wall');
   const railAt = (z) => (_x, zz, r) => Math.min(r, Math.abs(zz - z));
@@ -122,10 +125,11 @@ test('a direct landing link reaches 8 m inside a wide block, but no farther', ()
   assert.ok(directLinks({ rail: railAt(2.7) }).length > 0, 'a track 2.7 m away clears it');
 });
 
-test('long fallback links share the 8 m corridor with direct links', () => {
+test('long fallback links keep the sidewalk band and may reach 16 m into a wide corner', () => {
   assert.ok(longFallback(4).length > 0, 'the 12.5 m link inside a 4 m edge band connects');
-  assert.ok(longFallback(6).length > 0, 'and the same link 6 m from the edge now joins through the 8 m corridor');
-  assert.equal(longFallback(8.5).length, 0, 'but 8.5 m from the edge is outside it');
+  assert.ok(longFallback(6).length > 0, 'and the same link 6 m from the edge still joins');
+  assert.ok(longFallback(15).length > 0, 'a 15 m deep corner stays inside the widened corridor');
+  assert.equal(longFallback(17).length, 0, 'but 17 m from the edge is outside it');
   // The widened corridor still keeps the safety rules: a lane, water and a tram track between the landing and the port
   // each reject the connector even though both endpoints are clear.
   const road = { sx: 6, sz: -10, dx: 0, dz: 1, len: 20, half: 2 };
@@ -134,6 +138,27 @@ test('long fallback links share the 8 m corridor with direct links', () => {
   assert.equal(longFallback(6, { walkable: water }).length, 0, 'water across the connector blocks it');
   const rail = (_x, z, r) => Math.min(r, Math.abs(z - 1.5));
   assert.equal(longFallback(6, { rail }).length, 0, 'a tram track within the 2 m keep blocks it');
+});
+
+test('the long fallback reaches a sidewalk track end without a node', () => {
+  // Sidewalk tracks carry `from`/`to` nodes, not `node`; the old `!next.node` gate skipped every one of them beyond
+  // DIRECT_MAX, leaving 16 crosswalk ends next to a track end unconnected on the 2026-11-07 world.
+  assert.ok(longFallback(6, { targetNode: false }).length > 0, 'the node-less sidewalk end connects');
+  assert.ok(longFallback(6).length > 0, 'the crossing-like port still connects');
+});
+
+test('a connector deeper than the sidewalk band cannot enter a closed courtyard', () => {
+  // A point 12 m inside a block sees its nearest edge at 12 m. With no wall the widened corridor accepts it; a wall
+  // between the point and that edge (a courtyard ring) blocks the sight line and the connector is rejected.
+  const block = { poly: [{ x: -100, z: 12 }, { x: 100, z: 12 }, { x: 100, z: -12 }, { x: -100, z: -12 }],
+    rects: [] };
+  const node = { x: 0, z: 0, signal: false, arms: [], in: [], out: [] };
+  const a = { x: 0, z: 0 }, b = { x: 10, z: 0 };
+  const open = createPedestrianRoutes({ nodes: [node], edges: [], walkable: () => true }, () => block);
+  assert.equal(open.withinBlockEdge(a, b, block, 16), true, 'the 12 m deep point is inside the 16 m corridor');
+  const wall = { minX: -20, maxX: 20, minZ: 5, maxZ: 7, minY: 0, maxY: 12 };
+  const closed = createPedestrianRoutes({ nodes: [node], edges: [], walkable: () => true }, () => block, null, [wall]);
+  assert.equal(closed.withinBlockEdge(a, b, block, 16), false, 'the wall between the point and its edge blocks it');
 });
 
 test('a slanted connector stays out of a lane it passes 2 m from', () => {

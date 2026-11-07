@@ -30,19 +30,31 @@ test('pedestrian routes do not U-turn over a crossing line or cross into a dead 
     a.group === b.group && a.line !== b.line;
 
   // Every actual link from every crosswalk end: none may step onto the sibling line of the same crossing.
-  let ends = 0;
+  let ends = 0, emptyEnds = 0, emptyTracks = 0;
   for (const crossing of routes.crosswalks) {
     for (const track of crossing.tracks) {
+      let anyEmpty = false;
       for (const dir of [-1, 1]) {
         ends++;
-        for (const path of routes.links(track, dir)) {
+        const paths = routes.links(track, dir);
+        if (!paths.length) {
+          emptyEnds++;
+          anyEmpty = true;
+        }
+        for (const path of paths) {
           const last = path[path.length - 1];
           assert.ok(!sibling(track, last.track), `line ${track.line} of the crossing at ${track.node.x},${track.node.z} U-turns onto its sibling`);
         }
       }
+      if (anyEmpty) emptyTracks++;
     }
   }
   assert.ok(ends > 5000, `the whole network has crosswalk ends (${ends})`);
+  // The 2026-11-07 landing work (sidewalk track ends in the long fallback, a 16 m corner corridor with a courtyard
+  // sight line) leaves 109 empty ends / 98 tracks on this bare network, down from 230 / 218. No building or rail input
+  // here, so the furnished world can only be better; a regression that reopens dead ends trips these ceilings.
+  assert.ok(emptyEnds <= 120, `the bare network leaves isolated crosswalk ends (${emptyEnds})`);
+  assert.ok(emptyTracks <= 110, `the bare network leaves tracks with an empty end (${emptyTracks})`);
 
   // Sample route choices across the city with several goals per end. A chosen crossing must have links at the landing
   // it walks to, and must not be a turn back onto the same crossing's other line.
