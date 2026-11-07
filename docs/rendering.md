@@ -73,6 +73,10 @@
   - `createGableScreenMaterial()`: the Rynek's stepped and volute gable screens (+1 pipeline): render tinted by the
     per-instance `gableTint` attribute (not `instanceColor`, which would tint the white trim too), string courses,
     coping, attic windows and an oculus from the unit uvs.
+  - `createLitWindowMaterial()`: warm interior glow for modelled landmark panes (+1 pipeline), driven by
+    `cityUniforms.uInteriorGlow`. Each pane carries a unique seed in `uv.x` and its lit share in `uv.y` (0.45 standard,
+    0.20 on churches), hashed per pane for uniform lighting with a dimmer, warm/cool mix and night fade. Unlit
+    architectural glass uses plain `M.glass`.
 - Use `canyonSkyAONode()` as the `aoNode` for street-level city surfaces, and read sun and sky colours from `cityUniforms` so they follow the presets. It opens up over 0–22 m (Poznań's ≈ 18–25 m roofline) and inside the parks.
 - Shaders that need to know where land or parks are sample `getLandMaskTexture()` (8 m cells, 1 on land and bridge decks) or `getParkMaskTexture()` (16 m cells, each block's `park` share) through `boxUV`, built lazily from the city-config land raster and `BLOCKS` over the detail box. The water's night skyline marches the reflected ray over the land mask (ten taps) and fades out beyond the box.
 

@@ -1480,6 +1480,44 @@ function createGableScreenMaterial() {
   return mat;
 }
 
+let _litWindowMat = null;
+
+/**
+ * Lit Window Panes TSL Material for Historic Landmarks
+ * Reuses the facade shader's warm interior glow driven by cityUniforms.uInteriorGlow.
+ * Each pane receives its own seed and lit share in its vertex UV attribute (u = paneSeed, v = litProbability),
+ * ensuring the entire pane lights uniformly without splits across cell edges.
+ */
+function createLitWindowMaterial() {
+  if (_litWindowMat) return _litWindowMat;
+
+  const mat = new THREE.MeshStandardNodeMaterial({
+    color: 0x1c2a36,
+    roughness: 0.1,
+    metalness: 0.5
+  });
+
+  const p = uv();
+  const cellId = floor(p.x.add(0.5));
+  const cellHash = hash2D(vec2(cellId, 3.71));
+
+  const warm = mix(color(0xffa85c), color(0xebdcbf), step(0.78, cellHash));
+  const dimmer = fract(cellHash.mul(13.7)).mul(0.75).add(0.25);
+  const lit = step(cellHash, p.y);
+  const night = smoothstep(0.6, 1.15, cityUniforms.uInteriorGlow);
+  const fade = night.mul(0.95).add(cityUniforms.uInteriorGlow.mul(0.1));
+
+  mat.emissiveNode = warm.mul(lit).mul(dimmer).mul(fade).mul(0.85);
+  mat.isLitWindow = true;
+  mat.userData = {
+    isLitWindow: true,
+    usesInteriorGlow: true
+  };
+
+  _litWindowMat = mat;
+  return mat;
+}
+
 /**
  * Instanced unit boxes for the facade materials' `boxLocal` mode, one per { x, y, z, w, h, d, faces?, tone?, ry? }
  * (y = centre; ry: turn about +y, for blocks laid out along a non-grid street), with the per-instance `box` attribute
@@ -2582,6 +2620,7 @@ export {
   createRoofMaterial,
   createDormerWindowMaterial,
   createGableScreenMaterial,
+  createLitWindowMaterial,
   createFacadeBoxes,
   createCarPaintMaterial,
   createTreeMaterial,

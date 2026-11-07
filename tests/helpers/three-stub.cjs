@@ -343,6 +343,7 @@ class Object3D {
   constructor() {
     this.children = [];
     this.parent = null;
+    this.userData = {};
     this.position = new Vector3();
     this.scale = new Vector3(1, 1, 1);
     this.quaternion = new Quaternion();

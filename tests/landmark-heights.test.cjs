@@ -11,7 +11,8 @@ const { LANDMARK_SITES } = cityConfig;
 const tslStub = {
   createPreWarBuildingMaterial: (o) => ({ ...o }),
   createCurtainWallMaterial: (o) => ({ ...o }),
-  createFacadeBoxes: () => new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), {})
+  createFacadeBoxes: () => new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), {}),
+  createLitWindowMaterial: (opts = {}) => Object.assign(new THREE.MeshStandardNodeMaterial({ color: 0x1c2a36, ...opts }), { isLitWindow: true, userData: { isLitWindow: true } })
 };
 
 const kitSource = readFileSync(join(__dirname, '../js/landmark-kit.js'), 'utf8');

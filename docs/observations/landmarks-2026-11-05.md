@@ -54,7 +54,7 @@ Dimensions and elevations were calibrated using:
 6. **Collegium Maius:**
    Large neo-Renaissance palace ($90.4 \times 69.2$ m). Main 3-storey south wing along Fredry (+z) holds the central avant-corps, Ionic portico (pediment ridge 'z'), and octagonal drum with lantern dome reaching 36.4 m. Side wings extend north around the courtyard (−z).
 7. **Kościół św. Franciszka Serafickiego (Bernardyni):**
-   Nave runs E–W along the site's long axis ($76 \times 18$ m, ridge 30.9 m). Multi-tier Baroque facade screen and twin Baroque towers with copper helms at the west end (−x) on Garbary reach 44.7 m. South monastery wing ($36 \times 20$ m).
+   Nave runs E–W along the site's long axis ($76 \times 18$ m, ridge 30.9 m). Multi-tier Baroque facade screen and twin Baroque towers with copper helms at the west end (−x) on Garbary reach 44.7 m (pl.wikipedia text: helms 29 m each; infobox 69 m; lidar 44.7 m broad top). South monastery wing ($36 \times 20$ m).
 8. **Kościół św. Antoniego Padewskiego (Franciszkanie):**
    Nave ($42 \times 22$ m) runs along the east side (+x). Twin octagonal openwork copper spires (32.6 m) stand 16 m apart east of centre at the north front. Convent wing on the west slope (−x).
 9. **Kościół Najświętszej Marii Panny (in Summo):**
@@ -63,3 +63,79 @@ Dimensions and elevations were calibrated using:
     Nave runs E–W along local x ($32 \times 15$ m) with Renaissance volute gable at the west front (−x) reaching 23.9 m. Freestanding wooden belfry in the churchyard.
 11. **Kościół Bożego Ciała:**
     Massive Gothic basilica with nave running E–W along local x ($58 \times 26$ m). West facade (−x) features 7-tier stepped pinnacle gable (34.0 m). Central copper flèche at mid-length ridge reaches 39.5 m.
+
+## Detail pass (2026-11-06)
+
+The eleven models in `js/landmarks-historic.js` were rebuilt from about 30 lines each into detailed models, at the
+level of the heritage and centrum landmarks. Every model keeps the envelope verified above. Before and after were
+compared headlessly with three r180, measuring each model's bounding box before `fitToSite`. Ten match to the
+centimetre. Teatr Polski is 1 cm narrower on both sides, and NMP's lesenes stand 0.59 m less proud on both long sides
+than the old buttresses. Both changes are symmetric, so neither moves the model. Scale stays 1.000 on all eleven, and
+the top heights and positions are unchanged. The lidar-checked peaks are the pelican, the Bazar lantern, the Muzeum
+pavilion roof, the fly tower, the Maius finial, the tower crosses, the NMP ridge with its turret, the św. Wojciech
+gable and the Boże Ciało ridge turret. The old colliders are kept. New ones cover the Maius courtyard hall, the
+Bernardine front and towers, the Franciscan south range and the św. Wojciech south annex.
+
+**Sources opened for this pass.** The general claims below are from these pages; anything else is from general
+knowledge / photos, as noted per building in the module.
+- pl.wikipedia: "Biblioteka Raczyńskich" (12 pairs of cast-iron Corinthian columns on a rusticated plinth, balustrade
+  partly hiding the copper hipped roof, axial tympanum, loggia); "Pałac Działyńskich w Poznaniu" (Corinthian
+  pilasters, attic with the Ogończyk tympanum, legionaries, procession reliefs, truncated obelisk with the pelican,
+  panoplia, Sala Czerwona); "Hotel Bazar w Poznaniu" (Paderewskiego portico raised to the roof with pilasters and a
+  tympanum between two square towers; Sławski's neo-Baroque wing, 1898–1899); "Muzeum Narodowe w Poznaniu"
+  (Hinckeldeyn, 1904; Bednarowicz's mosaics on the main front; the 2001 "jamnik" wing); "Teatr Polski w Poznaniu"
+  (Hebanowski, Italian Renaissance, 1873–1875; "Naród Sobie"; Cybichowski's 1929 vestibule); "Collegium Maius w
+  Poznaniu" (semicircular risalit with the dome, lower and stockier today; drum figures removed in 1945; glazed main
+  hall); "Kościół św. Franciszka Serafickiego w Poznaniu" (single nave, lower flat-ended presbytery, Stier's
+  two-lantern helms, Domsburger's saints in three tiers; the infobox's 69 m towers disagree with the 44.7 m lidar,
+  which the model keeps); "Kościół św. Wojciecha w Poznaniu" (high tiled roof, Gothic diagonal-brick frieze,
+  late-Renaissance gable, east and west gables, Gothic north and south portals, shingled wooden belfry, crypt);
+  "Kościół Bożego Ciała w Poznaniu" (pseudo-hall, stepped buttresses, five presbytery windows, plain west front with
+  a five-light window, modest Baroque gable with the chalice and hosts, Bonadura's tower on the south aisle).
+- medievalheritage.eu, "Poznań – collegiate church of St. Mary": NMP is a two-bay, three-aisle hall with an ambulatory
+  and a pentagonal outer wall, with no buttresses. Its lesenes carry two levels of niches, there is one three-light
+  ogival window per bay, and the stepped west gable has ogival blendes and 12 pinnacles, the highest converted into a
+  19th-century ridge turret. The glazed-brick portal is on the south, its north twin walled up. dzieje.pl (search
+  summary): Hanusz Prusz, Lorek of Kościan.
+- Kościół Franciszkanów: no architectural description was found. A search summary of an Ochrona Zabytków note gives
+  1668–1698 and 1733, to Jan Koński's design. The towers, front and convent are from general knowledge / photos.
+
+**Corrections to the notes above.** Boże Ciało's west gable is a modest Baroque gable over a five-light window, not
+a 7-tier stepped pinnacle gable. NMP has lesenes, not buttresses, and a polygonal east end. Its stepped gable is on
+the west only. Collegium Maius has a semicircular risalit under the dome rather than an Ionic portico. The Bernardine
+church is single-nave, with a lower presbytery.
+
+**What was added.** Per-building summaries are in [world.md](../world.md); in brief:
+- Windows are laid out in the real bay rhythm, each with a sill, a lintel cornice or a pediment and, on the main
+  fronts, jambs. The courses are rustication (every 0.75 m), string courses and cornices. Pilasters, engaged and
+  free columns and statues in niches are modelled. The gables have the real profile: stepped with pinnacles and
+  blendes, scrolled, or a tympanum.
+- Roofs: Działyński's and Bazar's slate mansards with dormers, the copper hipped roof of the Biblioteka, the
+  Muzeum's copper pavilion and glass roof light, the Maius drum, dome and lantern, the two-lantern Bernardine helms,
+  the Franciscan lantern helms, Boże Ciało's ridge turret and Bonadura's tower cap, NMP's half-octagon hip and the
+  belfry's skirt and tented roofs.
+- The scrolled gables (`scrollGable`) climb in convex scrolls that each stay 0.4 m outside the roof's raking line,
+  so the roof end never shows beside them.
+
+**Coverage of the OSM ring** (test minimum 75%), before → after: Biblioteka 100 → 100%, Działyński 100 → 100%,
+Bazar 93.8 → 97.6%, Muzeum 98.0 → 98.7%, Teatr 95.0 → 98.4%, Maius 77.7 → 95.5% (the courtyard hall), Bernardyni
+89.1 → 90.8%, Franciszkanie 80.4 → 90.6% (the south range), NMP 92.5 → 95.0%, Wojciech 78.6 → 91.2% (the south
+annex), Boże Ciało 80.0 → 80.1%.
+
+**Cost** (three r180 geometry, headless). Triangles before → after: Biblioteka 1,014 → 3,580; Działyński 160 →
+2,891; Bazar 316 → 3,850; Muzeum 66 → 2,844; Teatr 294 → 1,937; Maius 264 → 4,204; Bernardyni 392 → 3,750;
+Franciszkanie 176 → 2,473; NMP 202 → 885; Wojciech 72 → 1,406; Boże Ciało 132 → 1,925. In all 3,088 → 29,745, in
+237 meshes before batching (was 116). The heritage module's models are 1.1–2.3k triangles each and the centrum ones
+1.0–3.4k; Maius (90 × 69 m) and Bazar (73 × 40 m) are the only ones above that range. Draw calls: no change. Every
+material is a canonical one that other landmark modules already batch. Gold, which `batchStaticGroupMeshes` leaves
+unbatched, is still a single mesh (the pelican and the Ogończyk arms). Build time of `buildHistoricLandmarks` in the
+main realm (8 runs): first run 23 ms (was 7), warm median 7 ms (was 1.5). In the vm test harness the figures are
+41/25 ms (was 7/2): global lookups are slow in a vm context. Parts fill preallocated typed arrays, because pushing to
+plain arrays and copying them into attributes made that harness 36 ms warm.
+
+**Kit roof winding.** The detail pass found that `pitchedRoofGeometry` built its attributes before the winding pass.
+`Float32BufferAttribute` copies the array, so none of the swaps took effect. A 10 × 6 × 3 test roof showed both
+slopes with normals (0, −0.71, ±0.71), facing inward and down. The fix builds the attributes after the pass, which
+turns every x-ridge (default, incl. hip:1 pyramids) landmark roof slope outward (z-ridge roofs were already correct).
+Front-side materials previously culled these slopes from above. The appearance of the affected landmark roofs is
+therefore a browser check (see the backlog).

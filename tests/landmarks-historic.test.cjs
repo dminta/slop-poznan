@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const test = require('node:test');
+const vm = require('node:vm');
 const { loadModule } = require('./helpers/module.cjs');
 const { THREE } = require('./helpers/three-stub.cjs');
 
@@ -11,7 +12,8 @@ const { LANDMARK_SITES, CITY_LANDMARKS } = cityConfig;
 const tslStub = {
   createPreWarBuildingMaterial: (o) => ({ ...o }),
   createCurtainWallMaterial: (o) => ({ ...o }),
-  createFacadeBoxes: () => new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), {})
+  createFacadeBoxes: () => new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), {}),
+  createLitWindowMaterial: (opts = {}) => Object.assign(new THREE.MeshStandardNodeMaterial({ color: 0x1c2a36, ...opts }), { isLitWindow: true, userData: { isLitWindow: true } })
 };
 
 const kitSource = readFileSync(join(__dirname, '../js/landmark-kit.js'), 'utf8');
@@ -427,4 +429,116 @@ test('no historic landmark mesh or player collider penetrates any roadway', () =
       }
     }
   }
+});
+
+test('all 11 historic landmarks have lit-window geometry using M.glassLit', () => {
+  const group = new THREE.Group();
+  const colliders = [];
+  historic.buildHistoricLandmarks({ group, colliders, M });
+
+  for (const { name } of HISTORIC_LANDMARKS) {
+    const site = LANDMARK_SITES[name];
+    const lm = group.children.find((child) => {
+      const box = new THREE.Box3().setFromObject(child);
+      const cx = (box.min.x + box.max.x) / 2;
+      const cz = (box.min.z + box.max.z) / 2;
+      return Math.hypot(cx - site.x, cz - site.z) < 25;
+    });
+    assert.ok(lm, `Found built model for '${name}'`);
+
+    const mats = new Set();
+    lm.traverse((n) => {
+      if (n.isMesh && n.material) mats.add(n.material);
+    });
+    assert.ok(
+      mats.has(M.glassLit),
+      `'${name}' contains meshes with lit window material M.glassLit for night glow`
+    );
+  }
+});
+
+test('lit window panes carry a per-pane seed in UV (all vertices of a pane share it; distinct panes differ)', () => {
+  const group = new THREE.Group();
+  const colliders = [];
+  historic.buildHistoricLandmarks({ group, colliders, M });
+
+  let totalPanes = 0;
+  const seenSeeds = new Set();
+
+  group.traverse((n) => {
+    if (!n.isMesh || n.material !== M.glassLit) return;
+    const pos = n.geometry.attributes.position.array;
+    const uv = n.geometry.attributes.uv.array;
+    const count = n.geometry.attributes.position.count;
+    let i = 0;
+    while (i < count) {
+      const x0 = pos[i * 3], y0 = pos[i * 3 + 1], z0 = pos[i * 3 + 2];
+      const u0 = uv[i * 2];
+      const v0 = uv[i * 2 + 1];
+      while (i < count) {
+        for (let k = 0; k < 3; k++) {
+          const u = uv[(i + k) * 2];
+          const v = uv[(i + k) * 2 + 1];
+          assert.equal(u, u0, `All vertices of a pane must share the same seed (vertex has ${u}, expected ${u0})`);
+          assert.equal(v, v0, `All vertices of a pane must share the same lit share`);
+        }
+        i += 3;
+        if (i < count) {
+          const nx = pos[i * 3], ny = pos[i * 3 + 1], nz = pos[i * 3 + 2];
+          if (Math.hypot(nx - x0, ny - y0, nz - z0) > 1e-4) break; // fan apex changed -> new pane!
+        }
+      }
+      totalPanes++;
+      assert.ok(!seenSeeds.has(u0), `Pane seed ${u0} must be unique across distinct panes`);
+      seenSeeds.add(u0);
+    }
+  });
+
+  assert.equal(totalPanes, 986, 'all 986 modelled window panes are identified');
+  assert.equal(seenSeeds.size, 986, 'every pane has a distinct seed');
+});
+
+test('createLitWindowMaterial uses uInteriorGlow, UV per-pane hash and vertex lit probability', () => {
+  const source = readFileSync(join(__dirname, '../js/tsl-materials.js'), 'utf8');
+  const start = source.indexOf('function createLitWindowMaterial');
+  const end = source.indexOf('function createFacadeBoxes', start);
+  assert.ok(start >= 0 && end > start, 'createLitWindowMaterial definition exists in tsl-materials.js');
+
+  class Node {
+    constructor(name) { this.name = name; }
+    div() { return this; }
+    mul() { return this; }
+    add() { return this; }
+    sub() { return this; }
+  }
+  const node = (name) => new Node(name);
+
+  const cityUniforms = { uInteriorGlow: node('uInteriorGlow') };
+  const calls = [];
+  const uvNode = { x: node('uvX'), y: node('uvY') };
+  const context = {
+    THREE: { MeshStandardNodeMaterial: class { constructor(opts) { Object.assign(this, opts); } } },
+    cityUniforms,
+    uv: () => { calls.push('uv'); return uvNode; },
+    floor: (n) => { calls.push('floor'); return n; },
+    fract: (n) => { calls.push('fract'); return n; },
+    vec2: (a, b) => node('vec2'),
+    color: (c) => node('color'),
+    float: (f) => node('float'),
+    step: (edge, x) => { calls.push('step'); return node('step'); },
+    mix: (x, y, a) => { calls.push('mix'); return node('mix'); },
+    smoothstep: (min, max, x) => { calls.push('smoothstep'); return node('smoothstep'); },
+    hash2D: (p) => { calls.push('hash2D'); return node('hash2D'); }
+  };
+
+  const fnText = source.slice(start, end);
+  const fn = vm.runInNewContext('(() => { let _litWindowMat = null; ' + fnText + '; return createLitWindowMaterial; })()', context);
+
+  const mat = fn();
+  assert.ok(mat.userData.usesInteriorGlow, 'material flags usage of uInteriorGlow');
+  assert.ok(mat.isLitWindow, 'material marks isLitWindow');
+  assert.ok(calls.includes('uv'), 'material reads uv() for pane seed and lit probability');
+  assert.ok(calls.includes('hash2D'), 'material computes per-pane cellHash via hash2D');
+  assert.ok(calls.includes('smoothstep'), 'material uses smoothstep for night fade');
+  assert.ok(mat.emissiveNode, 'material assigns emissiveNode');
 });

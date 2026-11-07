@@ -598,6 +598,15 @@ Both historical open decisions were confirmed by the user on 2026-11-01 and impl
 - Start (loading) screen: verify Poznań brand colours (white background `#ffffff`, official dark blue `#234792` badge, title, progress bar, text and links; gradient to `#009cdc`), contrast (WCAG AA/AAA, ratio 8.79:1), independence from OS dark mode before boot, and loader credits and in-game HUD "Źródła" popover layout and link responsiveness on desktop and phone.
 - Polish UI labels fit the HUD/toolbar/touch layout on desktop and phone; new shop signs render.
 - Shop signs: 26 instanced meshes (+21 draw calls vs. 5) — verify frame rate and draw call budget in browser; atlas texture with per-instance UVs if needed.
+- The 11 detailed historic landmarks (`landmarks-historic.js`, 2026-11-06): check their appearance on WebGPU and WebGL2.
+  Look at the window rhythm and the pane offsets (3.5 cm proud: z-fighting with the rustication?), the scrolled and
+  stepped gables against their roofs, the domes, helms and lanterns, the Teatr Polski inscription, and the pelican.
+  Check that the plain masonry walls and lit window panes (warm interior glow driven by city lighting uniforms,
+  with the box-local facade pass on plain wall runs) read well next to the neighbouring blocks by day and at night.
+  Headless checks covered only geometry: a software rasterizer for winding, plus envelopes, coverage and roadway clearance.
+- Kit roofs now face outward (`pitchedRoofGeometry` winding fix, 2026-11-06): check that every x-ridge landmark roof
+  (Ratusz, Katedra, Zamek Cesarski, Teatr Wielki, Dworzec…; z-ridge roofs like Fara were already correct) now shows
+  from above and from the street with sensible shading.
 
 Full-scene smoke checks on 2026-10-30 confirmed boot and 60 rendered frames on both WebGPU and WebGL2, with
 no console warnings or errors; the WebGL2 check also recorded no GL errors. The two-frame pedestrian probes

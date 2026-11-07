@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { LANDMARK_SITES } from './city-config.js';
-import { createPreWarBuildingMaterial, createCurtainWallMaterial, createFacadeBoxes } from './tsl-materials.js';
+import { createPreWarBuildingMaterial, createCurtainWallMaterial, createFacadeBoxes, createLitWindowMaterial } from './tsl-materials.js';
 
 // js/landmark-kit.js
 // The shared toolkit of the hand-modelled landmarks (landmarks.js and the landmarks-*.js area modules): fitting a model
@@ -104,9 +104,10 @@ function fitTurned(objs, site, colliders, c0, c, sx, sy, sz, offset) {
   }
 }
 
-// Box-shaped facade parts (unrotated) become box-local facade boxes: every wall laid out in whole window bays between
+// Box-shaped facade parts become box-local facade boxes: every wall laid out in whole window bays between
 // solid masonry corners, like the procedural blocks, so no window is cut by a corner. `boxLocalTwins` maps each
-// world-space facade material to its `boxLocal: true` twin; rotated and non-box parts keep the world-space window grid.
+// world-space facade material to its `boxLocal: true` twin; turned parts pass their yaw (site + part rotation).
+// Existing landmarks with turned boxes keep their world-space facade shaders unless opted into the box-local pass.
 function emitFacadeBoxes(group, boxLocalTwins) {
   group.updateMatrixWorld(true);
   const facadeBoxes = new Map();
@@ -119,11 +120,25 @@ function emitFacadeBoxes(group, boxLocalTwins) {
   const partScale = new THREE.Vector3();
   for (const m of boxParts) {
     m.matrixWorld.decompose(partPos, partRot, partScale);
-    if (Math.abs(partRot.w) < 0.99999) continue;
+    if (Math.abs(partRot.x) > 0.05 || Math.abs(partRot.z) > 0.05) continue;
+    const isTurned = Math.abs(partRot.w) < 0.99999;
+    if (isTurned && (!m.userData || !m.userData.boxLocal)) continue;
     const { width, height, depth } = m.geometry.parameters;
     const twin = boxLocalTwins.get(m.material);
     if (!facadeBoxes.has(twin)) facadeBoxes.set(twin, []);
-    facadeBoxes.get(twin).push({ x: partPos.x, y: partPos.y, z: partPos.z, w: width * partScale.x, h: height * partScale.y, d: depth * partScale.z });
+    const ry = 2 * Math.atan2(partRot.y, partRot.w);
+    const boxDef = {
+      x: partPos.x,
+      y: partPos.y,
+      z: partPos.z,
+      w: width * partScale.x,
+      h: height * partScale.y,
+      d: depth * partScale.z,
+      ry
+    };
+    if (m.userData && m.userData.faces) boxDef.faces = m.userData.faces;
+    if (m.userData && m.userData.tone !== undefined) boxDef.tone = m.userData.tone;
+    facadeBoxes.get(twin).push(boxDef);
     m.removeFromParent();
   }
   for (const [mat, boxes] of facadeBoxes) {
@@ -195,6 +210,7 @@ function createLandmarkMaterials() {
     darkMetal: std(0x26282c, 0.45, 0.6),
     bronze: std(0x5a4632, 0.42, 0.75),
     glass: std(0x1c2a36, 0.08, 0.6), // plain dark window panes on non-facade parts
+    glassLit: createLitWindowMaterial(), // warm interior glow at night
     wood: std(0x4e3424, 0.8),
     hedge: std(0x3d5a2c, 0.95), // clipped box and privet in planters
     // Lit at night: clock faces and lanterns
@@ -218,8 +234,13 @@ function addMesh(parent, geometry, material, x = 0, y = 0, z = 0, ry = 0) {
 }
 
 // A w (x) × h × d (z) box standing on y
-function box(parent, w, h, d, material, x = 0, y = 0, z = 0, ry = 0) {
-  return addMesh(parent, new THREE.BoxGeometry(w, h, d), material, x, y + h / 2, z, ry);
+function box(parent, w, h, d, material, x = 0, y = 0, z = 0, ry = 0, { boxLocal = false, faces = null, tone = undefined } = {}) {
+  const m = addMesh(parent, new THREE.BoxGeometry(w, h, d), material, x, y + h / 2, z, ry);
+  if (!m.userData) m.userData = {};
+  if (boxLocal) m.userData.boxLocal = true;
+  if (faces) m.userData.faces = faces;
+  if (tone !== undefined) m.userData.tone = tone;
+  return m;
 }
 
 // A cylinder (or cone, rTop 0) standing on y
@@ -261,9 +282,6 @@ function pitchedRoofGeometry(w, d, h, { ridge = 'x', hip = 0 } = {}) {
       uvs.push(v[0] + v[2], v[1]);
     }
   }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   // Wind every triangle outward (normal away from the base centre, upward)
   const a = new THREE.Vector3();
   const b = new THREE.Vector3();
@@ -291,8 +309,11 @@ function pitchedRoofGeometry(w, d, h, { ridge = 'x', hip = 0 } = {}) {
       }
     }
   }
-  g.attributes.position.needsUpdate = true;
-  g.attributes.uv.needsUpdate = true;
+  // The attributes are made after the winding pass: Float32BufferAttribute copies its array, so swaps made after it
+  // (as before 2026-11-06) never reached the geometry and every slope faced inward, culled from above
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   g.computeVertexNormals();
   return g;
 }
