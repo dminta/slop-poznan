@@ -24,7 +24,8 @@ corridor overlap lies at the block edge, so the lawn is left uncut. At Chartowo,
 lane reaches the park corner; the backlog's `2490, 2478` point itself is on the unnamed slip lane and no emitted
 park surface covers it in the current geodata. `city-config.js` now cuts that carriageway corridor (half width
 + 0.5 m) from the raised surfaces and from ground-height queries, while `parkBedInset` keeps the usual 5 m bed: the
-lane coverage falls to 0 and the lawn is emitted as 41 convex pieces. Wioślarska's unpaved service piece (width 5,
+lane coverage falls to 0, and splitting the self-intersecting bed and lawn outlines before `cutSlab` emits 45 bed
+and 46 lawn convex pieces with no overlap. Wioślarska's unpaved service piece (width 5,
 `463.6…569.1, 1574.6…1600.1`) has no `roadGraph` link and no traffic lanes (service roads are excluded by default),
 and `blockAt` returns Park Nad Wartą's block 966 along its whole centreline, so its paving and lawn are the intended
 surface and no greenery is cut there.

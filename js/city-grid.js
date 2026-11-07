@@ -1696,8 +1696,11 @@ function buildCityGrid(scene, opts = {}) {
     const allBedHoles = bedHoles.length > 0 && unionHoles.length > 0
       ? unionPolygons([...bedHoles, ...unionHoles])
       : (bedHoles.length > 0 ? bedHoles : unionHoles);
-    const bedPieces = buildingFootprints ? splitIntoSimpleRings(bed) : [bed];
-    const beds = roadCuts ? cutSlab(bed, roadCuts, 0, unionHoles) : bedPieces;
+    // A self-intersecting bed passed raw to cutSlab leaves overlapping convex pieces; split the ring first so every
+    // piece has a simple outline (block 1304's folded bed/lawn was the measured case). Blocks without a road cut
+    // keep their historical rings unless building footprints already force a split.
+    const bedRings = roadCuts || buildingFootprints ? splitIntoSimpleRings(bed) : [bed];
+    const beds = roadCuts ? bedRings.flatMap((piece) => cutSlab(piece, roadCuts, 0, unionHoles)) : bedRings;
     for (const piece of beds) {
       const holes = roadCuts ? [] : (buildingFootprints ? clipHolesToPiece(piece, allBedHoles) :
         ponds.map((h) => {
@@ -1707,8 +1710,8 @@ function buildCityGrid(scene, opts = {}) {
       group.add(createExtrudedPolygonMesh(piece, 0.2, BED_Y - 0.21, graniteMat, true, false, holes));
     }
     const lawnTop = offsetPolygonInward(bed, 0.3);
-    const lawns = roadCuts ? (lawnTop ? cutSlab(lawnTop, roadCuts, 0, unionHoles) : []) :
-      (lawnTop ? (buildingFootprints ? splitIntoSimpleRings(lawnTop) : [lawnTop]) : []);
+    const lawnRings = lawnTop ? (roadCuts || buildingFootprints ? splitIntoSimpleRings(lawnTop) : [lawnTop]) : [];
+    const lawns = roadCuts ? lawnRings.flatMap((piece) => cutSlab(piece, roadCuts, 0, unionHoles)) : lawnRings;
     for (const piece of lawns) {
       const holes = roadCuts ? [] : (buildingFootprints ? clipHolesToPiece(piece, allBedHoles) :
         bedHoles.filter((h) => ringInside(piece, h)));
