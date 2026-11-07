@@ -17,11 +17,12 @@ const DEG = Math.PI / 180;
 // courtyards north of the forecourt that opens onto Św. Marcin, and the throne-hall wing (entered from Kościuszki) is
 // the big south-east block. Ranges: 3 storeys, eaves ≈ 19 m, steep slate roofs (estimated from photos).
 const ZAMEK = { top: 75, eaves: 19, roofH: 9 };
-// Teatr Wielki (Max Littmann, 1910). No published height: the stage fly tower's gable roof peaks at 31.7 m above the
-// local ground in the GUGiK lidar (NMPT−NMT, ISOK 2011; docs/observations/landmark-heights-2026-11-03.md), with
-// eaves at ~26.5-28 m and the ridge running front-to-back along local z. The portico's pediment (≈ 21 m) and the Pegasus
-// (≈ 24 m) stay estimates from photos. The OSM outline's portico bulge (u -23..-1) puts the building's axis at
-// u ≈ -11; the lower east part is the side wing and the former restaurant.
+// Teatr Wielki (Max Littmann, 1910). The stage fly tower's gable roof peaks at 31.7 m above the local ground in the
+// GUGiK lidar (NMPT−NMT, ISOK 2011; docs/observations/landmark-heights-2026-11-03.md), with eaves at ~26.5-28 m and
+// the ridge running front-to-back along local z. The same DSM puts the portico pediment at 21.3 m and the Pegasus at
+// 23.7-23.9 m (a lower bound: the wings are thin); the model's 5.0 m Pegasus is scaled to 0.68 so its wing tip reaches
+// 24.0 m. The OSM outline's portico bulge (u -23..-1) puts the building's axis at u ≈ -11; the lower east part is the
+// side wing and the former restaurant.
 const TEATR = { top: 31.7, axis: -11 };
 // Collegium Minus (Edmund Fürstenau, 1910): eaves 17 m (OSM height), red tile roofs, the round observatory tower on the
 // railway (west) side ≈ 27 m (estimate). The outline is turned ≈ 24.5° from the site axes, so the model is drawn in the
@@ -194,7 +195,7 @@ function buildCentrumLandmarks({ group, colliders, M }) {
     }
     box(obj, pw + 0.6, 2.4, 6, M.sandstone, ax, 15, pz - 0.3); // entablature
     box(obj, pw + 1.2, 0.6, 6.4, M.plasterWhite, ax, 17.4, pz - 0.3);
-    gable(obj, pw + 1.2, 3.6, 6, M.sandstone, ax, 18, pz - 0.3);
+    gable(obj, pw + 1.2, 3.3, 6, M.sandstone, ax, 18, pz - 0.3);
     archWindow(obj, 2.2, 4.5, M.glass, ax, 3.5, pz - 2.4);
     for (const d of [-6, 6]) archWindow(obj, 2, 3.8, M.glass, ax + d, 3.5, pz - 2.4);
     // Pegasus rearing on the pediment, wings raised
@@ -211,6 +212,8 @@ function buildCentrumLandmarks({ group, colliders, M }) {
       }
       peg.rotation.y = Math.PI / 2;
       peg.position.set(ax, 20.6, pz);
+      // 5.0 m authored figure -> the measured 3.4 m above its base, wing tip at 24.0 m
+      peg.scale.set(0.68, 0.68, 0.68);
       obj.add(peg);
     }
     collider(colliders, ax - 19, ax + 31, 14, 31, 14);

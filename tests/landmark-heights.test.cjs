@@ -261,6 +261,22 @@ test('Teatr Wielki: stage fly tower corrected to 31.7 m from GUGiK NMPT − NMT'
   assert.ok(Math.abs(flyBox.min.y - 22.0) < 0.05,
     `Fly tower starts at stage-house eaves 22.0 m (got ${flyBox.min.y.toFixed(2)} m)`);
   assert.ok(Math.abs(flyBox.max.y - 26.5) < 0.05, `Fly tower eaves ${flyBox.max.y.toFixed(2)} m should be 26.5 m`);
+
+  // The same DSM measures the portico pediment at 21.3 m and the Pegasus wing tip at 23.7-23.9 m (24.0 m authored)
+  let pedimentTop = 0;
+  let pegasusTop = 0;
+  teatr.traverse((node) => {
+    if (!node.isMesh) return;
+    const b = new THREE.Box3().setFromObject(node);
+    if (node.geometry?.type === 'ExtrudeGeometry' && node.material === M.sandstone) {
+      pedimentTop = Math.max(pedimentTop, b.max.y);
+    }
+    if (node.material === M.bronze) pegasusTop = Math.max(pegasusTop, b.max.y);
+  });
+  assert.ok(Math.abs(pedimentTop - 21.3) < 0.05,
+    `Portico pediment ${pedimentTop.toFixed(2)} m should be the measured 21.3 m`);
+  assert.ok(Math.abs(pegasusTop - 24.0) < 0.1,
+    `Pegasus top ${pegasusTop.toFixed(2)} m should be 24.0 m`);
 });
 
 test('Fara and Novotel: sourced heights retained (40.0 m and 68.0 m)', () => {
@@ -277,8 +293,9 @@ test('Fara and Novotel: sourced heights retained (40.0 m and 68.0 m)', () => {
   heritage.buildHeritageLandmarks({ group: heritageGroup, colliders: [], M });
   const fara = findBySite(heritageGroup, 'Fara');
   const faraBox = new THREE.Box3().setFromObject(fara);
-  // The authored 37 m nave ridge sits under the 40 m overall top (the rear gable/attic); fitToSite scales the 40.8 m
-  // pediment statue down with the rest, so the ridge renders at ~36.3 m. The old 40 m ridge rendered at ~39.2 m.
+  // The 40 m top is authored directly: a 37.8 m front gable plus its 2.2 m cross. fitToSite therefore runs at 1.000
+  // and the 37 m nave ridge renders at 37.0 m, matching the measured 36.6-37.1 m (it was 36.3 m with the old 40.8 m
+  // top).
   assert.ok(Math.abs(faraBox.max.y - 40.0) < 0.1, 'Fara tops out at 40.0 m');
   let ridgeTop = 0;
   fara.traverse((node) => {
@@ -286,7 +303,27 @@ test('Fara and Novotel: sourced heights retained (40.0 m and 68.0 m)', () => {
       ridgeTop = Math.max(ridgeTop, new THREE.Box3().setFromObject(node).max.y);
     }
   });
-  assert.ok(ridgeTop > 36.0 && ridgeTop < 37.2, `Fara nave ridge ${ridgeTop.toFixed(2)} m should be about 37 m`);
+  assert.ok(Math.abs(ridgeTop - 37.0) < 0.05, `Fara nave ridge ${ridgeTop.toFixed(2)} m should be 37.0 m`);
+
+  // Front gable apex and the cross above it: 37.8 m and 40.0 m from the 33 m cornice
+  let gableTop = 0;
+  fara.traverse((node) => {
+    if (node.isMesh && node.geometry?.type === 'ExtrudeGeometry' && node.material === M.plasterWhite) {
+      gableTop = Math.max(gableTop, new THREE.Box3().setFromObject(node).max.y);
+    }
+  });
+  assert.ok(Math.abs(gableTop - 37.8) < 0.05, `Fara front gable ${gableTop.toFixed(2)} m should be 37.8 m`);
+  const finial = fara.children.find((node) =>
+    node.isMesh && node.geometry?.type === 'BoxGeometry' && node.material === M.sandstone &&
+    node.geometry.parameters.width === 1 && node.geometry.parameters.depth === 1 &&
+    node.geometry.parameters.height === 2.2
+  );
+  assert.ok(finial, 'Identified Fara front cross (1 × 2.2 × 1 m)');
+  const finialBox = new THREE.Box3().setFromObject(finial);
+  assert.ok(Math.abs(finialBox.min.y - 37.8) < 0.05,
+    `Fara cross base ${finialBox.min.y.toFixed(2)} m should stand on the gable at 37.8 m`);
+  assert.ok(Math.abs(finialBox.max.y - 40.0) < 0.05,
+    `Fara cross tip ${finialBox.max.y.toFixed(2)} m should be 40.0 m`);
 
   const towersSource = readFileSync(join(__dirname, '../js/landmarks-towers.js'), 'utf8');
   const towers = loadModule(towersSource, {

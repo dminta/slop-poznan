@@ -143,9 +143,11 @@ function buildKatedra(group, colliders, M) {
 // Fara (Bazylika Kolegiacka MB Nieustającej Pomocy): the former Jesuit church, 55 m long with a 27 m high nave
 // (en.wikipedia "Poznań Fara"); its baroque main front faces north, closing ul. Świętosławska from the Stary Rynek
 // (outline +u faces bearing 98°, so -z is north). The nave ridge measures 36.6-37.1 m above ground in the GUGiK lidar
-// (NMPT−NMT, ISOK 2011; docs/observations/landmark-heights-2026-11-03.md); the 40 m cells are only a ~6 × 2 m strip
-// on the rear gable, and the north front reads 38.5-39.3 m. The model keeps a 37 m ridge under the 40 m overall top
-// (the pediment statue) and the front's cornice and statues stay estimates. No dome is modelled: none shows outside.
+// (NMPT−NMT, ISOK 2011; docs/observations/landmark-heights-2026-11-03.md); the north front gable reads 37.8 m and its
+// thin cross 39.0-39.2 m (a 1 m grid misses the tip), while the 39.9-40.1 m cells are the south gable/second facade.
+// The model therefore keeps a 37 m ridge, rises 4.8 m over the 33 m front cornice and tops the 2.2 m cross at 40 m
+// without scaling. The four niche statues stay visual estimates: the DSM cannot separate them from the facade.
+// No dome is modelled: none shows outside.
 const FARA = {
   naveWall: 29,
   ridge: 37,
@@ -204,9 +206,9 @@ function buildFara(group, colliders, M) {
     for (const x of [s * 13.5, s * 8.2]) box(obj, 1, 2.6, 1, M.sandstone, x, F.frontLower, fz - 1.4);
     box(obj, 0.6, 3.4, 0.4, M.glass, s * 5.4, F.frontLower + 4.5, fz - 1.05);
   }
-  profileSlab(obj, [[-10.4, 0], [10.4, 0], [0, 5.6]], 2.4, trim, 0, F.frontUpper, fz - 0.2);
-  profileSlab(obj, [[-9, 0.5], [9, 0.5], [0, 4.8]], 1.6, wall, 0, F.frontUpper, fz - 0.6);
-  box(obj, 1, 2.2, 1, M.sandstone, 0, F.frontUpper + 5.6, fz - 0.2);
+  profileSlab(obj, [[-10.4, 0], [10.4, 0], [0, 4.8]], 2.4, trim, 0, F.frontUpper, fz - 0.2);
+  profileSlab(obj, [[-9, 0.5], [9, 0.5], [0, 4]], 1.6, wall, 0, F.frontUpper, fz - 0.6);
+  box(obj, 1, 2.2, 1, M.sandstone, 0, F.frontUpper + 4.8, fz - 0.2);
   // Portal and the big window above it
   box(obj, 4.4, 7.5, 0.4, M.wood, 0, 0, fz - 1.1);
   box(obj, 6, 1, 0.8, trim, 0, 7.5, fz - 1.1);

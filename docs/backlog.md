@@ -38,8 +38,9 @@ Implementation details and completed measurements live in the [topic docs](../AG
   arm-aligned pole reuse found no suitable sites. Run `node tools/audit-signal-heads.mjs` with attention to the
   fixture's missing building, landmark and bridge colliders; browser counts can differ.
   [Signal placement](world.md#street-furniture-street-detailsjs). Overhead mounting is an option to consider below.
-- **Building accuracy (4.4, 7):** source the remaining estimated sub-heights, including Fara's front statues and
-  Teatr Wielki's pediment/Pegasus. [Height audit](observations/landmark-heights-2026-11-03.md).
+- **Building accuracy (4.4, 7):** the Fara front gable/cross and the Teatr Wielki portico/Pegasus now use GUGiK
+  NMPT − NMT sub-heights; only the four Fara niche statues (below the 1 m DSM resolution) remain visual estimates.
+  [Height audit](observations/landmark-heights-2026-11-03.md#2026-11-07--refined-fara-and-teatr-sub-heights).
 - **Merge starvation:** investigate remaining long holds, especially Centrum seeds 99/4242/7 and Rataje seed 4242,
   and queues at Kaponiera and Wilda. After the short-link follower fix, the 8-seed × 7-district benchmark still
   has 213 cars held over 60 s and 10 over 120 s. Avoid reviving the rejected early-arrival and lane-lead braking
@@ -120,7 +121,8 @@ Implementation details and completed measurements live in the [topic docs](../AG
 - Inspect park lamps on Za Cytadelą and lamps moved onto lawns in narrow-walk parks (e.g. block 212 near
   `−953, −1928`); check trees by Avenida and in park blocks with buildings (Park Nad Wartą, Antoninek block 874).
   [Tree/building clearance](observations/tree-building-clearance-2026-11-03.md).
-- Check the corrected heights of Iglica, Delta, Brama Poznania and Zamek Królewski.
+- Check the corrected heights of Iglica, Delta, Brama Poznania and Zamek Królewski, and the refined Fara front
+  gable/cross and Teatr Wielki portico/Pegasus from street level and above.
 - Check tram rails without a track bed for appearance and shader errors (flush heads on road, grass and curb islands);
   mainline railway sleepers should remain visible.
 - Inspect P-22 BUS markings on WebGPU and WebGL2. [Placement scope](world.md).
