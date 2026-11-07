@@ -16,16 +16,19 @@ test('the furnished audit classifies historical approaches before and after runt
   assert.equal(before.rows.length, 167);
   assert.equal(after.rows.length, 167);
   assert.deepEqual(before.summary.counts, { A: 17, B: 74, C: 66, D: 10 });
-  assert.deepEqual(after.summary.counts, { A: 91, B: 0, C: 66, D: 10 });
+  assert.deepEqual(after.summary.counts, { A: 120, B: 0, C: 37, D: 10 });
   assert.equal(before.summary.vehicleHeads, 903);
-  assert.equal(after.summary.vehicleHeads, 979);
+  assert.equal(after.summary.vehicleHeads, 1007);
   assert.equal(after.summary.pedestrianHeads, 1572);
-  assert.equal(after.summary.runtimePoles, 70);
-  assert.equal(after.summary.reusedPoles, 6);
+  assert.equal(after.summary.runtimePoles, 84);
+  assert.equal(after.summary.reusedPoles, 20);
+  assert.equal(after.summary.overheadHeads, 29);
+  assert.equal(after.summary.overheadPoles, 15);
+  assert.equal(after.summary.overheadReused, 14);
   const placements = after.summary.placements.map((row) => row.map((v) =>
     typeof v === 'number' ? Number(v.toFixed(3)) : v));
   assert.equal(createHash('sha256').update(JSON.stringify(placements)).digest('hex'),
-    '85648549c0f0b637be0834a4844297dcf5e113a4d3ca7a5eed31f74b1c6857e8');
+    'c751e6811f336281456be73c3667dffe835cf077f131349df850293ce6ae4e51');
   for (const [x, z] of [[1374.2, 566.1], [-2086.95, 2421.3]]) {
     assert.ok(before.rows.some((r) => Math.hypot(r.node[0] - x, r.node[1] - z) < 0.01 && r.class === 'B'));
     assert.ok(after.rows.some((r) => Math.hypot(r.node[0] - x, r.node[1] - z) < 0.01 && r.class === 'A'));

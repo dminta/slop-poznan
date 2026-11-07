@@ -251,6 +251,7 @@ and runtime use the same search, including actual lanes, turn samples, crossing 
 sidewalk, corner and refuge segments. The headless fixture uses live park/plaza data but omits building, landmark and
 bridge colliders. The browser includes them, so candidate sites and counts can differ. The audit checks geometry, not
 visual occlusion, and C does not rule out unsampled sites. `tests/signal-audit.test.cjs` checks before and after counts
-(91/0/66/10, hash `85648549...`); `signal-placement.test.cjs` rebuilds the network with the new footprints and compares
+(120/0/37/10, hash `c751e681...`); `signal-placement.test.cjs` rebuilds the network with the new footprints and compares
 lanes, crossings and pedestrian segments and their route connections near the new poles, as well as phase, facing,
-setbacks, reused pole curbside bounds (`lateral <= half + 2.6 m`), colliders and audio registrations.
+setbacks, reused pole curbside bounds (`lateral <= half + 2.6 m`), overhead arm reach (`<= 12 m`), colliders and audio
+registrations.

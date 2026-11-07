@@ -246,12 +246,14 @@ Built before the road network, so everything that stands near a lane is checked 
   dot > 0.98 head within 45 m. Eight existing-pole heads raised vehicle heads 895 → 903; two of the other eleven
   already had heads and one was disabled. On the remaining 167 edges, the original 60-site sampling classified
   A/B/C/D **17/27/113/10 → 47/0/110/10** before and after the previous placement. The expanded sampling classifies
-  the same fixture **17/74/66/10** before and **91/0/66/10** after the current placement. A requires the same phase,
+  the same fixture **17/74/66/10** before and **120/0/37/10** after the current placement. A requires the same phase,
   direction dot > 0.9, a pole within 30 m of the stop line and along ≤ 2 m; B has a sampled clear site; C has no such
   site; D is inactive. The audit reports each failed constraint's count over up to 300 samples and the fewest failures
-  at any one sample. An exploration of extra positions (0..+6 m forward, medians, arm-aligned reuse) tried in a
-  throwaway run unlocked none of the 66 C edges. C does not exclude other, unsampled sites. This is geometric
-  visibility, without occlusion checks.
+  at any one sample. An overhead fallback now recovers 29 of those 66 C edges: when the ordinary curbside search finds
+  no candidate, a head is hung from an existing signal pole or a new 6.2 m mast within 12 m, over the nearest real
+  lane at the support's own longitudinal position (clamped to −15…+1.75 m from the stop line). Supports may stand on
+  medians, on sidewalk points 6–12 m behind the curb that the ordinary search never samples, or up to 10 m ahead of
+  the stop line. C does not exclude other, unsampled sites. This is geometric visibility, without occlusion checks.
 
   `addRuntimeSignalHeads` uses the configured runtime edges, phase and facing. It prefers an unused existing pole on
   the right, then left, 0.6–2.6 m beyond that edge's curb and −15 to +2 m along from its stop line. Otherwise it
@@ -259,17 +261,22 @@ Built before the road network, so everything that stands near a lane is checked 
   lane half-width. Sites are checked against runtime lanes and turning curves, curb/median, rails, landing bands,
   building colliders and nearby pedestrian tracks including corner and refuge links. Neighbourhoods are materialised
   lazily and cached per junction; the search conservatively accounts for the one-metre rectangle steps in route
-  clearance. Candidate short-circuiting in place mode stops at the first clear site. In the furnished-grid fixture,
+  clearance. Candidate short-circuiting in place mode stops at the first clear site. When no ground site is clear,
+  the overhead fallback adds the arm and head instead: its foot passes the same rail, landing, lane, curve,
+  pedestrian-route and building checks, while the 5.55 m arm is sampled against tall colliders and bridge decks. The
+  S-1 centre sits at 5.3 m and its top at 5.73 m, below the 5.8 m tram contact wire. In the furnished-grid fixture,
   runtime placement measured **2.05 → 3.52 → 2.89 s** (baseline → expanded search → short-circuited placement, single
-  headless run; buildings, landmarks and bridge colliders omitted). Placed heads sit at along [−14.75, +1.25] m (mean
-  −4.28 m; along histogram: 8 in [−15, −10), 22 in [−10, −5), 19 in [−5, 0), 25 in [0, 2] m) and lateral [2.40, 14.15] m
-  (mean 6.14 m). New poles carry S-1 heads only; their footprints and player colliders are registered before
-  controllers are built and their shafts get a runtime instanced mesh. Vehicle heads increase **903 → 979** (six
-  existing and 70 new poles); pedestrian heads and audio entries remain **1,572**. The furnished-grid regression
-  rebuilds the road and pedestrian networks with the new footprints and compares all lanes, crossings, and route
-  segments and connections near each new pole. An earlier exhaustive comparison also found all route segments unchanged.
-  The audit fixture omits building, landmark and bridge colliders; the browser passes them, so actual placements and
-  counts may differ. Browser appearance and visibility remain unverified.
+  headless run; buildings, landmarks and bridge colliders omitted). Ground heads keep the earlier along/lateral
+  range; the 29 overhead arms run at most 12 m (mean 8.97 m). New poles carry S-1 heads only; their footprints and
+  player colliders are registered before controllers are built and their shafts get a runtime instanced mesh.
+  Vehicle heads increase **903 → 1,007** (84 new and 20 reused runtime poles; 15 overhead masts and 14 overhead pole
+  reuses among them); pedestrian heads and audio entries remain **1,572**. The audit of the historical approaches
+  moves from **91/0/66/10** to **120/0/37/10** (A/B/C/D), with one earlier redundant ground placement dropped because
+  its approach already had a same-plan head. The furnished-grid regression rebuilds the road and pedestrian networks
+  with the new footprints and compares all lanes, crossings, and route segments and connections near each new pole.
+  An earlier exhaustive comparison also found all route segments unchanged. The audit fixture omits building,
+  landmark and bridge colliders; the browser passes them, so actual placements and counts may differ. Browser
+  appearance and visibility remain unverified.
 
 - **Name plates (1B).** For each named arm and side, a ray from the curb 3.5 m past the corner across the sidewalk finds the first wall (a `buildingColliders` box, AABB or `obb`, at least 5 m tall) within 14 m that faces the street; a plate goes on it at 3.3 m, one per name within 25 m. Plates follow Poznań's System Informacji Miejskiej (2017 manual, pp. 41–51; ZDM "Nowe tablice ulicowe"): graphite RAL 7043 (#3b3d3f) with white left-set type, the kind as a full lowercase word on a small top line with a patron's given names and titles (`plateLabel(name, district)` → `{ kind, name, district }`: "ulica Jana Henryka" over "Dąbrowskiego", "aleje Karola" over "Marcinkowskiego", "rondo" over "Kaponiera"; "Stary Rynek" and Zaułek/Pasaż/Wzgórze names have no top word; the HUD plate in `main.js` reuses it), the name large below, and a blue RAL 5005 (#1f5bb5) strip along the bottom with the block's district in capitals. 0.315 × 0.22 m in the Old Town and on streets under 10 m, 0.67 × 0.35 m elsewhere (`PLATE_SIZES`), each size its own canvas atlas with a per-instance `plateCell`. No house-number ranges. Headless (tests) there are no colliders and no plates; with the lot rects standing in for walls, 122. The old pole blades are gone.
 - **Streetlights (2).** Every curb edge takes the class of the road in front of it (`nearestRoads`): main (≥ 12.5 m, 3+ lanes or a trunk road) 10 m LED bent masts every ~34 m, side streets 7 m ones (the same mesh at 0.7) every ~30 m, both nominally 1.08 m inside the curb with the luminaire over the road and a pooled spot. In the Old Town (Stare Miasto inside buildings.js `OLD_TOWN_BOX`) and within 650 m of the Katedra, non-main edges get cast-iron gas lanterns (ladder bar, four-sided glass) every ~22 m with pooled point lights (0.9 m nominal offset). Poles maintain a minimum clearance of ≥ 0.50 m from the rendered curb face as a design choice and sit fully on the sidewalk with zero footprint overlap onto the 0.25 m granite curb stone, moving further onto the sidewalk or sliding along the edge where narrow islands, acute corners or tram cuts pinch the margin. Measured headlessly: 2,059 main, 12,512 side and 1,074 gas streetlights (15,645 total), plus 2,332 park walk lampposts (city-grid.js: 1.05 m inside the park curb, or stepped onto the lawn where the walk is narrower) and 642 square/plaza lampposts (18,619 lamps; none under 0.50 m).

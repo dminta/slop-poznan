@@ -33,11 +33,13 @@ Implementation details and completed measurements live in the [topic docs](../AG
   count. The fallback keeps a 2 m building-lot pad and rejects connectors through building walls; the benchmark still
   omits landmark and bridge colliders.
   [Routing observations](observations/ped-overlaps-2026-11-05.md).
-- **Other missing signal heads (15.5):** investigate alternative mounting positions for the 66 historical
-  Category C approaches and verify visibility. Sampled curbside sites, forward positions up to 6 m, medians and
-  arm-aligned pole reuse found no suitable sites. Run `node tools/audit-signal-heads.mjs` with attention to the
-  fixture's missing building, landmark and bridge colliders; browser counts can differ.
-  [Signal placement](world.md#street-furniture-street-detailsjs). Overhead mounting is an option to consider below.
+- **Other missing signal heads (15.5):** the overhead fallback now serves 29 of the 66 historical Category C
+  approaches from 15 new 6.2 m masts and 14 reused signal poles (arm ≤ 12 m, mean 8.97 m); the audit is
+  120/0/37/10 (was 91/0/66/10). The remaining 37 have no clear mast foot within 12 m or no support in the
+  −15…+10 m approach band. Further gains would need gantries or span wires across the widest junctions, or a
+  visibility review in the browser. Run `node tools/audit-signal-heads.mjs` with attention to the fixture's
+  missing building, landmark and bridge colliders; browser counts can differ.
+  [Signal placement](world.md#street-furniture-street-detailsjs).
 - **Building accuracy (4.4, 7):** source the remaining estimated sub-heights, including Fara's front statues and
   Teatr Wielki's pediment/Pegasus. [Height audit](observations/landmark-heights-2026-11-03.md).
 - **Merge starvation:** investigate remaining long holds, especially Centrum seeds 99/4242/7 and Rataje seed 4242,
@@ -72,11 +74,6 @@ Implementation details and completed measurements live in the [topic docs](../AG
   their union; bridge levels need separate checks.
 - Visually review the later Witosa / Niestachowska opposite-sidewalk correction and the Armii Poznań / Pułaskiego
   island, Przepadek and Roosevelt cuts, including WebGL2. Some planting margins are narrow.
-
-## Options to consider
-
-- **Overhead signal heads:** consider heads on mast arms above the roadway for the 66 historical approaches
-  without a suitable curbside pole site. This remains an option, not an approved implementation task.
 
 ## Optional features and fidelity
 
