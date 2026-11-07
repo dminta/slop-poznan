@@ -246,6 +246,8 @@ function parkBedInset(b, roadCuts) {
   if ((b.minX === 1610 && b.maxX === 2181 && b.minZ === 1687 && b.maxZ === 2106.5) ||
     (b.minX === 2468.5 && b.maxX === 2647 && b.minZ === 2468 && b.maxZ === 2611) ||
     (b.minX === 2492.5 && b.maxX === 2684.5 && b.minZ === 2693.5 && b.maxZ === 2821)) return 0.5;
+  // The Chartowo park only loses a corner to the Bolesława Krzywoustego corridor; keep its usual wide bed.
+  if (b.minX === 2415.5 && b.maxX === 2544 && b.minZ === 2484 && b.maxZ === 2687) return 5;
   return roadCuts ? 0.8 : Math.min(5, Math.min(b.maxX - b.minX, b.maxZ - b.minZ) * 0.2);
 }
 
@@ -1694,8 +1696,11 @@ function buildCityGrid(scene, opts = {}) {
     const allBedHoles = bedHoles.length > 0 && unionHoles.length > 0
       ? unionPolygons([...bedHoles, ...unionHoles])
       : (bedHoles.length > 0 ? bedHoles : unionHoles);
-    const bedPieces = buildingFootprints ? splitIntoSimpleRings(bed) : [bed];
-    const beds = roadCuts ? cutSlab(bed, roadCuts, 0, unionHoles) : bedPieces;
+    // A self-intersecting bed passed raw to cutSlab leaves overlapping convex pieces; split the ring first so every
+    // piece has a simple outline (block 1304's folded bed/lawn was the measured case). Blocks without a road cut
+    // keep their historical rings unless building footprints already force a split.
+    const bedRings = roadCuts || buildingFootprints ? splitIntoSimpleRings(bed) : [bed];
+    const beds = roadCuts ? bedRings.flatMap((piece) => cutSlab(piece, roadCuts, 0, unionHoles)) : bedRings;
     for (const piece of beds) {
       const holes = roadCuts ? [] : (buildingFootprints ? clipHolesToPiece(piece, allBedHoles) :
         ponds.map((h) => {
@@ -1705,8 +1710,8 @@ function buildCityGrid(scene, opts = {}) {
       group.add(createExtrudedPolygonMesh(piece, 0.2, BED_Y - 0.21, graniteMat, true, false, holes));
     }
     const lawnTop = offsetPolygonInward(bed, 0.3);
-    const lawns = roadCuts ? (lawnTop ? cutSlab(lawnTop, roadCuts, 0, unionHoles) : []) :
-      (lawnTop ? (buildingFootprints ? splitIntoSimpleRings(lawnTop) : [lawnTop]) : []);
+    const lawnRings = lawnTop ? (roadCuts || buildingFootprints ? splitIntoSimpleRings(lawnTop) : [lawnTop]) : [];
+    const lawns = roadCuts ? lawnRings.flatMap((piece) => cutSlab(piece, roadCuts, 0, unionHoles)) : lawnRings;
     for (const piece of lawns) {
       const holes = roadCuts ? [] : (buildingFootprints ? clipHolesToPiece(piece, allBedHoles) :
         bedHoles.filter((h) => ringInside(piece, h)));
@@ -1737,11 +1742,20 @@ function buildCityGrid(scene, opts = {}) {
     // special-cased bed outlines again can fold them, so the lawn test measures distances to the drawn rings; the bed
     // outline can also reach past the block, hence blockAt.
     const lampLine = offsetPolygonInward(b.poly, 1.05);
+    // A lamp on a cut roll keeps 0.7 m from the new curb face (the audit's 0.5 m plus its 0.2 m radius); otherwise a
+    // lamp just outside a road corridor but inside the block reads as standing on the curb stone.
+    const cutClear = (x, z) => !roadCuts || roadCuts.every(([ax, az, bx, bz, half]) => {
+      const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
+      if (len < 1e-6) return true;
+      const along = ((x - ax) * dx + (z - az) * dz) / len;
+      const across = ((z - az) * dx - (x - ax) * dz) / len;
+      return along < -half - 0.7 || along > len + half + 0.7 || Math.abs(across) > half + 0.7;
+    });
     const clearOf = (rings, x, z) => rings.every((h) => !pointInPolygonXZ(h, x, z) && ringDist(h, x, z) >= 1);
     const onLawn = (x, z) => blockAt(x, z) === b && ringDist(b.poly, x, z) >= 0.95 &&
       lawns.some((p) => pointInPolygonXZ(p, x, z) && ringDist(p, x, z) >= 0.7) &&
       beds.every((p) => ringDist(p, x, z) >= 1) && clearOf(bedHoles, x, z) && clearOf(ponds, x, z) &&
-      distToWater(x, z) >= 2;
+      distToWater(x, z) >= 2 && cutClear(x, z);
     const clearOfParkTrees = (x, z) => {
       for (let k = parkTree0; k < treeSites.length; k++) {
         if (Math.hypot(treeSites[k].x - x, treeSites[k].z - z) < 2.5) return false;
@@ -1770,8 +1784,21 @@ function buildCityGrid(scene, opts = {}) {
               }
             }
             if (!moved) continue;
-          } else if (b.roadCut && !slabPieces.some((p) => pointInPolygonXZ(p, px, pz))) {
-            continue;
+          } else if (roadCuts) {
+            if (!slabPieces.some((p) => pointInPolygonXZ(p, px, pz))) continue;
+            if (!cutClear(px, pz)) {
+              // Step inward off the cut curb where the walk beside a corridor is narrow; drop the site only if 2.5 m
+              // still leaves it on the edge.
+              if (!pointInPolygonXZ(b.poly, px + nx * 1.3, pz + nz * 1.3)) { nx = -nx; nz = -nz; }
+              let moved = false;
+              for (let d = 0.25; d <= 2.5 && !moved; d += 0.25) {
+                const qx = px + nx * d, qz = pz + nz * d;
+                if (cutClear(qx, qz) && slabPieces.some((p) => pointInPolygonXZ(p, qx, qz))) {
+                  px = qx; pz = qz; moved = true;
+                }
+              }
+              if (!moved) continue;
+            }
           }
           addLamp(px, y, pz);
         }

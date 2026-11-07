@@ -28,6 +28,58 @@ function inside(poly, x, z) {
   return result;
 }
 
+test('the unpaved Wioślarska service road stays park ground rather than a cut corridor', async () => {
+  const config = await import('../js/city-config.js');
+  const { GEO } = await import('../js/geodata.js');
+  const service = GEO.roads.find((r) => r[0] === 'Wioślarska' && r[1] === 5 && r[5][0] === 463.6);
+  assert.ok(service, 'the mapped unpaved Wioślarska piece exists');
+  assert.deepEqual(service[5], [463.6, 1574.6, 518.3, 1586.1, 569.1, 1600.1]);
+  // The road graph leaves highway=service pieces out by default (docs/actors.md, poz-roadgraph.mjs), so this
+  // unpaved access road has no traffic lanes. Check every graph link within the corridor's bounds by distance.
+  const linkPoints = (l) => {
+    const out = [{ x: GEO.roadGraph.nodes[l[0] * 2], z: GEO.roadGraph.nodes[l[0] * 2 + 1] }];
+    for (let i = 0; i < (l[6] || []).length; i += 2) out.push({ x: l[6][i], z: l[6][i + 1] });
+    out.push({ x: GEO.roadGraph.nodes[l[1] * 2], z: GEO.roadGraph.nodes[l[1] * 2 + 1] });
+    return out;
+  };
+  const distance = (x, z, a, b) => {
+    const dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz || 1;
+    const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / l2));
+    return Math.hypot(x - a.x - t * dx, z - a.z - t * dz);
+  };
+  const serviceDistance = (x, z) => {
+    let best = Infinity;
+    for (let s = 0; s + 3 < service[5].length; s += 2) {
+      best = Math.min(best, distance(x, z, { x: service[5][s], z: service[5][s + 1] },
+        { x: service[5][s + 2], z: service[5][s + 3] }));
+    }
+    return best;
+  };
+  let nearest = Infinity;
+  for (const l of GEO.roadGraph.links) {
+    const p = linkPoints(l);
+    for (let i = 0; i + 1 < p.length; i++) {
+      const len = Math.hypot(p[i + 1].x - p[i].x, p[i + 1].z - p[i].z);
+      for (let t = 0; t <= len; t += 1) {
+        const x = p[i].x + (p[i + 1].x - p[i].x) * t / len;
+        const z = p[i].z + (p[i + 1].z - p[i].z) * t / len;
+        if (Math.abs(x - 516) < 80 && Math.abs(z - 1587) < 40) nearest = Math.min(nearest, serviceDistance(x, z));
+      }
+    }
+  }
+  const nearestText = Number.isFinite(nearest) ? `${nearest.toFixed(1)} m` : 'none within 80 m';
+  assert.ok(nearest > service[1] * 0.5, `no traffic lane runs along the unpaved access road (nearest ${nearestText})`);
+  // The park block owns the whole centreline; its paving and lawn are the intended surface for this non-drivable way.
+  for (let s = 0; s + 3 < service[5].length; s += 2) {
+    const ax = service[5][s], az = service[5][s + 1], bx = service[5][s + 2], bz = service[5][s + 3];
+    const len = Math.hypot(bx - ax, bz - az);
+    for (let t = 0; t <= len; t += 5) {
+      const x = ax + (bx - ax) * t / len, z = az + (bz - az) * t / len;
+      assert.equal(config.blockAt(x, z)?.id, 966, `Wioślarska at ${x.toFixed(1)}, ${z.toFixed(1)} is park ground`);
+    }
+  }
+});
+
 test('partial park lawns keep the six mapped service-road corridors clear', async () => {
   const config = await import('../js/city-config.js');
   const { GEO } = await import('../js/geodata.js');

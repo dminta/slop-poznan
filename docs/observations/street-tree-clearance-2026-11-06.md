@@ -74,13 +74,21 @@ using production crossing constants; species are still selected deterministicall
 | Mesh allocation before locust assignment | 13,852 | 13,848 | Species/variant/200 m cell groups change |
 | Mesh allocation after locust assignment | 16,797 | 16,791 | Position-based species and cell groups change |
 
-The park/grid collider hash remains `2c975335…`; its pin was not changed. Full hashes are in the tests. Other test
+The park/grid collider hash remained `2c975335…` at this stage; the later Chartowo lamp move changes it to
+`c5b4e900…` (below). Full hashes are in the tests. Other test
 edits supply the real `buildRoadNetwork` dependency; they do not change expectations. The real-world zero-count
 and moved-spacing assertions reuse the city already built by the distribution fixture.
 The small new audit regression independently distinguishes the four violation kinds on synthetic geometry, and
 retains the historical counts as a pinned record. Baseline replay and the full fixture
 remain tool operations. Existing distribution hashes pin determinism and unchanged park colliders; the new small
 traffic-factory slice checks injected-network identity and exactly one fallback build.
+
+## Chartowo lamp pin (2026-11-07)
+
+Cutting the Bolesława Krzywoustego corridor from block 1304 (see `docs/world.md`) moved three park lamps inward off
+the new cut curb: `2450.46, 2503.0`, `2532.4, 2617.6` and `2512.2, 2590.3`. The park count stays 2,332 and all park
+poles now clear the cut curb by at least 0.54 m. The park/grid collider SHA-256 changes from `2c975335…` to
+`c5b4e900…`; the tree-site, street-collider and species pins are unchanged.
 
 ## Validation
 

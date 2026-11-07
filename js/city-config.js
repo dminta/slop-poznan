@@ -881,6 +881,26 @@ if (KRZYWOUSTEGO_PARK) {
   }
 }
 
+// The Park Rataje lawn at the Chartowo junction crosses the Bolesława Krzywoustego carriageway by about 1.2 m
+// along a 2 m corner (block 1304). Cut the measured corridor from every raised surface and from height queries;
+// the 5 m bed inset stays, since only the corner reaches the road.
+const CHARTOWO_PARK = BLOCKS.find((b) => b.minX === 2415.5 && b.maxX === 2544 && b.minZ === 2484 && b.maxZ === 2687);
+if (CHARTOWO_PARK) {
+  const b = CHARTOWO_PARK;
+  const segs = [];
+  for (const road of GEO.roads) {
+    if (road[0] !== 'Bolesława Krzywoustego') continue;
+    const p = road[5];
+    for (let i = 0; i + 3 < p.length; i += 2) {
+      if (Math.max(p[i], p[i + 2]) < b.minX - 15 || Math.min(p[i], p[i + 2]) > b.maxX + 15 ||
+        Math.max(p[i + 1], p[i + 3]) < b.minZ - 15 || Math.min(p[i + 1], p[i + 3]) > b.maxZ + 15) continue;
+      // The network's outer lane centre here lies 3.6 m from this OSM centreline; 0.5 m past the curb keeps its band.
+      segs.push([p[i], p[i + 1], p[i + 2], p[i + 3], road[1] * 0.5 + 0.5]);
+    }
+  }
+  b.roadCut = segs;
+}
+
 // The surveyed Hetmańska/Dmowskiego island puts 47.5 m² of curb across the tram track. Cut only this empty
 // island, keeping generated geodata intact. Share the exact corridor with city-grid's slab subtraction so height
 // queries (rails, pedestrians and the player) cannot stand on an invisible remnant of the old raised surface.
