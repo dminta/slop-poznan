@@ -10,19 +10,21 @@ Implementation details and completed measurements live in the [topic docs](../AG
   Dworzec and Droga Dębińska (up to 16 s and 6 pedestrians in the last audit). The 20 s recovery is postponed while
   a pedestrian is in `nearView`; recognising blocked give-way exits remains unexplored.
   [Method and district results](observations/ped-overlaps-2026-11-05.md).
-- **Isolated crosswalk landings:** connect the remaining 246 empty ends (225 tracks never entered by routing) without
+- **Isolated crosswalk landings:** connect the remaining 212 empty ends (197 tracks with an empty end) without
   restoring U-turns or crossing roads, rails, buildings or water. Examples: Okrąglak (both side-1 lines),
   Miła / Dąbrowskiego, Święty Marcin / Wysoka, Promienista / Grochowska and Wierzbięcice / Górna Wilda.
-  Most are unused second lines of two-line crossings. The route builder now receives the real building colliders
-  (`main.js`: landmark + city-block) and uses them in fallback-connector clearance. Direct links may now reach 8 m and
-  stay 8 m from the block edge (5 → 8 m), while the 32 m fallback keeps its 5 m corridor and every connector keeps
-  `RAIL_KEEP` 2 m from tracks. In the 2026-11-07 headless world (`tools/bench-world.mjs`, city-block colliders
-  included; city-grid curbs, landmarks and bridges omitted) empty ends moved **269 → 246** and never-entered tracks
-  **247 → 225**, with crosswalks unchanged at 3,270. The older grid-and-furniture 230/218 snapshot predates these
-  inputs and is not directly comparable. Still open: widening or otherwise reworking the 5 m long-link corridor and
-  32 m connector limit (an earlier exploratory widening suggested about 124 further ends, not re-measured here), and a
-  production full-scene count. The fallback keeps a 2 m building-lot pad and now rejects connectors through building
-  walls; the benchmark still omits landmark and bridge colliders.
+  Most are unused second lines of two-line crossings. The route builder receives the real building colliders
+  (`main.js`: landmark + city-block) and uses them in fallback-connector clearance. Direct and fallback links share
+  an 8 m corridor from the block edge (5 → 8 m on 2026-11-07), every connector stays `RAIL_KEEP` 2 m from tracks, and
+  the long loop still caps at 32 m. The connector clearance now measures exact segment-to-segment distance; the old
+  line-line form read 5.39 m where the pair was 2.0 m and let 17 fallback legs into a lane by up to 1.09 m. In the
+  2026-11-07 headless world (`tools/bench-world.mjs`, city-block colliders included; city-grid curbs, landmarks and
+  bridges omitted) empty ends moved **269 → 246 → 212** and tracks with an empty end **247 → 225 → 197**, with
+  crosswalks unchanged at 3,270 and `laneHits` 0. The older grid-and-furniture 230/218 snapshot predates these inputs
+  and is not directly comparable. Still open: a corridor wider than 8 m (10/12/16 m leave 204/192/182 ends but reach
+  into forecourts and courtyards), a longer 32 m limit (40/48 m connected only 4/5 more), and a production full-scene
+  count. The fallback keeps a 2 m building-lot pad and rejects connectors through building walls; the benchmark still
+  omits landmark and bridge colliders.
   [Routing observations](observations/ped-overlaps-2026-11-05.md).
 - **Jeżyce crosswalk freeze (latent):** after `abc352f` (pedestrian queues, U-turn/landing routing and recovery
   together) the recorded gridlock no longer appears in the 8-seed Jeżyce benchmark: seeds 99/5 fall from 12/9 cars

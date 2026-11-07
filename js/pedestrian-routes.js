@@ -419,17 +419,35 @@ function createPedestrianRoutes(
 
   // Clearance for a fallback connector: no road lane within its half width, no rail/tram centreline, no building
   // collider and no building lot rect. Water and obstacle footprints are rejected by `walkable` in `clear`/`clearGap`.
-  // Used only for the sparse crosswalk landings, never for ordinary sidewalk links. A direct link may reach 8 m and
-  // stay 8 m from its block edge; longer links keep the 5 m corridor. With both limits and RAIL_KEEP, the 2026-11-07
-  // headless world leaves 269 -> 246 empty ends and 247 -> 225 never-entered tracks.
-  const FALLBACK_MAX = 32, FALLBACK_CORRIDOR = 5, DIRECT_CORRIDOR = 8, DIRECT_MAX = 8;
+  // Used only for the sparse crosswalk landings, never for ordinary sidewalk links. A direct link may reach 8 m; every
+  // fallback link, direct or up to FALLBACK_MAX long, stays 8 m from its block edge, the depth of the sidewalk band the
+  // direct limit already used. On the 2026-11-07 headless world the 5 m corridor leaves 247 empty ends and 8 m leaves
+  // 212 (10/12/16 m give 204/192/182); all 376 fallback connector legs keep the lane margin (laneHits 0, the old
+  // distance form let 17 legs in by up to 1.09 m). A 40/48 m FALLBACK_MAX connected only 4/5 more, so 32 m stays.
+  const FALLBACK_MAX = 32, FALLBACK_CORRIDOR = 8, DIRECT_CORRIDOR = 8, DIRECT_MAX = 8;
+  // Distance from point p to segment a-b
+  function pointSegmentDistance(px, pz, ax, az, bx, bz) {
+    const rx = bx - ax, rz = bz - az, len2 = rx * rx + rz * rz;
+    const t = len2 ? Math.max(0, Math.min(1, ((px - ax) * rx + (pz - az) * rz) / len2)) : 0;
+    return Math.hypot(px - ax - rx * t, pz - az - rz * t);
+  }
+  // Distance between two segments. The closest pair is an endpoint of one projected onto the other unless the
+  // segments cross. The old line-line form clamped the two parameters independently and overestimated slanted pairs
+  // (a connector (0,0)-(2,8) against a lane (4,4)-(4,13) read 5.39 m instead of 2.0 m), which let a corridor leg clip
+  // a lane. Four endpoint distances plus a proper-crossing test are exact in 2D.
   function segmentDistance(ax, az, bx, bz, cx, cz, dx, dz) {
-    const rx = bx - ax, rz = bz - az, sx = dx - cx, sz = dz - cz;
-    const den = rx * sz - rz * sx;
-    if (Math.abs(den) < 1e-9) return Math.min(Math.hypot(ax - cx, az - cz), Math.hypot(ax - dx, az - dz));
-    const t = Math.max(0, Math.min(1, ((cx - ax) * sz - (cz - az) * sx) / den));
-    const u = Math.max(0, Math.min(1, ((cx - ax) * rz - (cz - az) * rx) / den));
-    return Math.hypot(ax + rx * t - (cx + sx * u), az + rz * t - (cz + sz * u));
+    const best = Math.min(
+      pointSegmentDistance(ax, az, cx, cz, dx, dz),
+      pointSegmentDistance(bx, bz, cx, cz, dx, dz),
+      pointSegmentDistance(cx, cz, ax, az, bx, bz),
+      pointSegmentDistance(dx, dz, ax, az, bx, bz)
+    );
+    if (best === 0) return 0;
+    const o1 = (bx - ax) * (cz - az) - (bz - az) * (cx - ax);
+    const o2 = (bx - ax) * (dz - az) - (bz - az) * (dx - ax);
+    const o3 = (dx - cx) * (az - cz) - (dz - cz) * (ax - cx);
+    const o4 = (dx - cx) * (bz - cz) - (dz - cz) * (bx - cx);
+    return o1 * o2 < 0 && o3 * o4 < 0 ? 0 : best;
   }
   let streetCells = null;
   function indexStreets() {
@@ -627,7 +645,9 @@ function createPedestrianRoutes(
       const next = port.track, nextDir = port.end ? -1 : 1;
       if (!next.node || next === track || (track.arm && next.arm === track.arm)) continue;
       const b = point(next, port.end), distance = Math.hypot(b.x - a.x, b.z - a.z);
-      if (distance <= 0.01 || distance > 32 || !clearGap(a, b)) continue;
+      // The direct loop above already owns every port within DIRECT_MAX; skipping them here avoids duplicate paths.
+      if (distance <= DIRECT_MAX) continue;
+      if (distance > FALLBACK_MAX || !clearGap(a, b)) continue;
       if (!clearHazards(a, b) || !withinBlockEdge(a, b, block, FALLBACK_CORRIDOR)) continue;
       result.push([{ track: segment(a, b), dir: 1 }, { track: next, dir: nextDir }]);
     }

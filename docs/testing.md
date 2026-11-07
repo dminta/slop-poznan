@@ -144,10 +144,12 @@ builder inputs, seed, population rules and sample window.
 
 Empty-ending counts are not printed by the benchmark. They were taken from the same `buildWorld()` result by exposing
 `links` with the source replacement in `tests/pedestrian-route-sinks.test.cjs` and asking `links(track, ±1)` for every
-crosswalk track end. That makes the 2026-11-07 before/after pair (269 → 246 ends, 247 → 225 never-entered tracks)
-reproducible without a separate tool; crosswalk count and the harness's omissions must be reported with it. The direct
-fit (up to 8 m) and the 32 m fallback (5 m corridor) are measured together, as are the 2 m rail keep and building
-colliders.
+crosswalk track end. That makes the 2026-11-07 before/after pairs **269 → 246 → 212 ends** and **247 → 225 → 197
+tracks with an empty end** reproducible without a separate tool; crosswalk count and the harness's omissions must be
+reported with it. The direct fit (up to 8 m) and the 32 m fallback (8 m corridor) are measured together, as are the
+2 m rail keep and building colliders. The same run audits every fallback connector leg against each road lane with the
+exact segment-to-segment distance and reports `laneHits` (0; the former line-line form admitted 17 legs by up to
+1.09 m).
 
 Per district it prints the cars sampled, mean speed (and of the moving ones), the share stopped (< 0.5 m/s), the longest
 stopped queue in a lane, the distribution of finished waits (p50/p90/max), cars held over 60 and 120 s, why the stopped
