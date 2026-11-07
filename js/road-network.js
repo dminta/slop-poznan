@@ -474,8 +474,6 @@ function buildRoadNetwork(sidewalks, obstacles) {
   const streetTracks = [];
   (GEO.rail || []).forEach((r, chain) => {
     if (r.kind !== 'tram' || !r.street) return;
-    let chainLen = 0;
-    for (let k = 2; k < r.pts.length; k += 2) chainLen += Math.hypot(r.pts[k] - r.pts[k - 2], r.pts[k + 1] - r.pts[k - 1]);
     for (let k = 2; k < r.pts.length; k += 2) {
       const ax = r.pts[k - 2], az = r.pts[k - 1], bx = r.pts[k], bz = r.pts[k + 1];
       const len = Math.hypot(bx - ax, bz - az);
@@ -739,7 +737,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
     // and with laneOpen passing; strip roads must not leave a lane on a same-direction track. Place the stop lines
     // again afterwards for moved edges at bends and their neighbours, since the move changes the bend setbacks. Runs
     // under 10 m are junction stubs (49 of the baseline 64), left to the junction curves and tram proxies; a move on
-    // an edge 12 m or shorter is not applied. A move that would make a straight connector steeper than the base's
+    // an edge under 12 m is not applied. A move that would make a straight connector steeper than the base's
     // (a bend at both ends with a > 2 m shift) is not applied; short two-way shared stubs are left to the proxies too.
     const OPPOSING_CLEAR = 2.3; // car half 0.92 + tram half 1.2 + 0.2 margin (tools/audit-tram-opposing-lanes.mjs)
     const OPPOSING_RUN = 10;
@@ -790,7 +788,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
           const dot = t.ux * e.dx + t.uz * e.dz;
           if (Math.abs(dot) < 0.95 || Math.abs(lat) > e.half + OPPOSING_CLEAR) continue;
           if (!t.used) continue;
-        const q = nearby.get(t.chain);
+          const q = nearby.get(t.chain);
           if (!q || Math.abs(lat) < Math.abs(q.lat)) nearby.set(t.chain, { chain: t.chain, lat, dot, oneway: t.oneway });
         }
         const tracks = [...nearby.values()];
