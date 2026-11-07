@@ -11,7 +11,8 @@ function audit(...args) {
   return { summary: rows.pop(), rows };
 }
 
-test('the furnished audit classifies historical approaches before and after runtime placement', () => {
+test('the furnished audit classifies historical approaches before and after runtime placement', async () => {
+  const config = await import('../js/city-config.js');
   const before = audit('--before'), after = audit();
   assert.equal(before.rows.length, 167);
   assert.equal(after.rows.length, 167);
@@ -34,6 +35,8 @@ test('the furnished audit classifies historical approaches before and after runt
   assert.ok(after.summary.overheadArmRailMin >= 2.22, 'every sampled arm and head keeps 2.22 m from rails');
   assert.ok(after.summary.overheadFallbackSupportMin > 12 && after.summary.overheadFallbackSupportMin < 13,
     'the closest fallback support misses the 12 m arm');
+  assert.ok(after.summary.overheadArmMax > 11.7 && after.summary.overheadArmMax <= 12,
+    'the longest overhead arm stays within the 12 m reach');
   const placements = after.summary.placements.map((row) => row.map((v) =>
     typeof v === 'number' ? Number(v.toFixed(3)) : v));
   assert.equal(createHash('sha256').update(JSON.stringify(placements)).digest('hex'),
@@ -44,13 +47,24 @@ test('the furnished audit classifies historical approaches before and after runt
   }
   assert.ok(after.rows.filter((row) => row.class === 'A').every((row) =>
     row.along <= 2 && Math.abs(row.lateral) <= 15));
+  const cycle = Math.max(120, ...config.SIGNAL_PLANS.map((plan) => plan.cycle || 0));
+  let pedestrianA = 0;
   for (const [stage, report] of [['before', before], ['after', after]]) {
     for (const row of report.rows.filter((r) => r.class === 'A')) {
       assert.ok(row.head, `A row without a head at ${row.node} (${stage})`);
-      assert.equal(row.group0 !== row.swap, row.axis0,
-        `A head has the wrong arm group at ${row.node} (${stage})`);
+      assert.ok(Number.isInteger(row.plan) && Number.isInteger(row.nodePlan),
+        `A row without a plan index at ${row.node} (${stage})`);
+      const headPlan = { signalTiming: config.SIGNAL_PLANS[row.plan] };
+      const edgePlan = { signalTiming: config.SIGNAL_PLANS[row.nodePlan] };
+      for (let time = 0; time < cycle; time++) {
+        assert.equal(config.signalPhase(time, row.group0, headPlan),
+          config.signalPhase(time, row.axis0, edgePlan),
+          `A head has the wrong phase at ${row.node}, ${time} s (${stage})`);
+      }
+      if (row.pedestrian) pedestrianA++;
     }
   }
+  assert.ok(pedestrianA > 0, 'at least one A row is a pedestrian-only signal');
   assert.ok(before.rows.filter((row) => row.class === 'C').every((row) =>
     row.sampleCount === 300 && row.decisive.length && Object.keys(row.reasonCounts).length));
 });

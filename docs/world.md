@@ -265,8 +265,9 @@ Built before the road network, so everything that stands near a lane is checked 
   head on the same plan facing the approach: either the strict test (direction dot > 0.9, within 30 m of the stop
   line and along ≤ 2 m) or the approach test (direction dot > 0.98, within 45 m of the junction). Both compare the
   head's group with the edge's arm group after swapping the plan's main axis when the two plans' main axes are
-  opposed (dot ≤ 0.82); a head from the other group never counts. B has a sampled clear site or an overhead fallback;
-  C has no such site; D is inactive. The audit reports each failed constraint's count over up to 300 samples, the
+  opposed (dot ≤ 0.82); a head from the other group never counts. Pedestrian-only plans run one shared phase for
+  both groups (edge.axisIndex 0), so either group's head counts there. B has a sampled clear site or an overhead
+  fallback; C has no such site; D is inactive. The audit reports each failed constraint's count over up to 300 samples, the
   fewest failures at any one sample, and each A head's raw `group0`/`axis0`/`swap` inputs. An overhead fallback now
   recovers 26 of those 66 C edges: when the ordinary curbside search finds no candidate, a head is hung from an
   existing signal pole or a new 6.2 m mast within 12 m, over the nearest real lane. Supports may stand on medians, on sidewalk points 6–12 m behind the curb that the ordinary search never
@@ -299,7 +300,7 @@ Built before the road network, so everything that stands near a lane is checked 
   13.5–461 m away. No fallback head can therefore reach either band without a gantry or span wire. In the
   furnished-grid fixture, runtime placement measured **≈3.55 s** (≈4.3 s including the diagnostic pass; 3.5–4.7 s
   across headless runs, buildings, landmarks and bridge colliders omitted), up from 2.89 s before the fallback.
-  Ground heads keep the earlier along/lateral range; the 26 overhead arms run at most 11.72 m (mean 9.28 m).
+  Ground heads keep the earlier along/lateral range; the 26 overhead arms run at most 11.717 m (mean 9.282 m).
   New poles carry S-1 heads only; their footprints and player colliders are registered before controllers are built
   and their shafts get a runtime instanced mesh. Vehicle heads increase **903 → 1,004** (81 new and 20 reused
   runtime poles; 12 overhead masts and 14 overhead pole reuses among them); pedestrian heads and audio entries

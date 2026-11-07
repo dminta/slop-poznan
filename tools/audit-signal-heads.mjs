@@ -86,6 +86,9 @@ for (const { node, edge } of initial) {
     row.axis0 = edge.axisIndex === 0;
     row.swap = Math.abs(entry.head.site.timing.mainUx * node.signalTiming.mainUx +
       entry.head.site.timing.mainUz * node.signalTiming.mainUz) <= 0.82;
+    row.pedestrian = !!node.signalTiming.pedestrian;
+    row.plan = entry.head.site.timing.index;
+    row.nodePlan = node.signalTiming.index;
   }
   if (entry.candidate) row.site = [entry.candidate.x, entry.candidate.z, entry.candidate.side];
   if (entry.class === 'C') {
@@ -104,6 +107,7 @@ const alongOf = (h) => {
 const overhead = street.runtimeHeads.filter((h) => h.overhead);
 const fallback = overhead.filter((h) => !h.band);
 const fallbackAlong = fallback.map(alongOf);
+const armLengths = overhead.map((h) => Math.hypot(h.pole.x - h.p.x, h.pole.z - h.p.z));
 const armRail = (h) => {
   const arm = Math.hypot(h.pole.x - h.p.x, h.pole.z - h.p.z);
   const steps = Math.max(1, Math.ceil(arm / 0.5));
@@ -142,6 +146,8 @@ console.log(JSON.stringify({ counts, total: initial.length, vehicleHeads: street
   overheadException: fallback.length,
   overheadFallbackAlong: fallbackAlong.map((v) => Number(v.toFixed(3))),
   overheadFallbackSupportMin: fallback.length ? Number(Math.min(...fallback.map(supportDistance)).toFixed(3)) : null,
+  overheadArmMax: overhead.length ? Number(Math.max(...armLengths).toFixed(4)) : null,
+  overheadArmMean: overhead.length ? Number((armLengths.reduce((sum, v) => sum + v, 0) / armLengths.length).toFixed(4)) : null,
   overheadFootRailMin: overhead.length ? Math.min(...overhead.map((h) =>
     gridModule.railClearance(h.pole.x, h.pole.z, 20))) : null,
   overheadArmRailMin: overhead.length ? Math.min(...overhead.map(armRail)) : null,

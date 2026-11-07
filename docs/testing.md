@@ -253,8 +253,9 @@ sidewalk, corner and refuge segments. The headless fixture uses live park/plaza 
 bridge colliders. The browser includes them, so candidate sites and counts can differ. The audit checks geometry, not
 visual occlusion, and C does not rule out unsampled sites. `tests/signal-audit.test.cjs` checks before and after counts
 (117/0/40/10, hash `636398ec...`); `signal-placement.test.cjs` rebuilds the network with the new footprints and compares
-lanes, crossings and pedestrian segments and their route connections near the new poles, as well as phase, facing,
-setbacks, reused pole curbside bounds (`lateral <= half + 2.6 m`), overhead arm reach (`<= 12 m`), 0.5 m arm/head
+lanes, crossings and pedestrian segments and their route connections near the new poles, as well as phase equality
+over the full plan cycle (pedestrian plans included), facing, setbacks, reused pole curbside bounds
+(`lateral <= half + 2.6 m`), overhead arm reach (`<= 12 m`), 0.5 m arm/head
 rail clearance (`>= 2.22 m`), the 8 m/10.5 m visibility bands, foot rail clearance (`>= 3.1 m`), colliders and audio
 registrations. It also builds the tram/rail catenary layouts and checks every overhead arm, foot and head against
 every pole and mast (`>= 0.5 m`).

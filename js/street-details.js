@@ -1840,12 +1840,13 @@ function buildStreetDetails(scene, opts = {}) {
         if (sameHead) { entry.class = 'A'; entry.head = sameHead; continue; }
         // The first pass already serves an approach when a same-phase head on the same plan faces it within 45 m.
         // A head with the other group does not count, or the audit would report A for an approach that still has
-        // no signal of its own phase.
+        // no signal of its own phase. Pedestrian-only signals run one shared phase for both groups (axisIndex 0),
+        // so either group's head serves the approach there.
         const approachHead = vehicleHeadSites.find((h) => {
           if (root(h.site.timing) !== root(node.signalTiming)) return false;
           const swap = Math.abs(h.site.timing.mainUx * node.signalTiming.mainUx +
             h.site.timing.mainUz * node.signalTiming.mainUz) <= 0.82;
-          return (h.group0 !== swap) === (edge.axisIndex === 0) &&
+          return (node.signalTiming.pedestrian || (h.group0 !== swap) === (edge.axisIndex === 0)) &&
             Math.hypot(h.p.x - node.x, h.p.z - node.z) < 45 &&
             h.a.ux * edge.inArm.ux + h.a.uz * edge.inArm.uz > 0.98;
         });
@@ -1916,8 +1917,10 @@ function buildStreetDetails(scene, opts = {}) {
         // 10.5 m row for the 5.3 m head when its reach allows; only when no support reaches either band does the head
         // fall back to the support's position (1.75 m past the stop line at most).
         const findOverhead = () => {
-          // Keep the arm lateral by pairing the head with the support's longitudinal position, clamped to the
-          // ground search's -15 m limit and to the requested visibility band; the head goes over the nearest lane.
+          // Pair the head with the support's longitudinal position, clamped to the ground search's -15 m limit and
+          // to the requested visibility band; the head goes over the nearest lane. The arm is not always lateral:
+          // 10 of the 26 arms run farther along the approach than across it, and 11 of the 15 fallbacks run
+          // 6.25-8.25 m along it.
           const targetFor = (along, lat, maxAlong) => {
             let lane = edge.lanes[0];
             for (const value of edge.lanes) if (Math.abs(value - lat) < Math.abs(lane - lat)) lane = value;

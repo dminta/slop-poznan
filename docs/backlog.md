@@ -41,7 +41,7 @@ Implementation details and completed measurements live in the [topic docs](../AG
   production full-scene count (the benchmark omits landmark and bridge colliders and city-grid curbs).
   [Routing observations](observations/ped-overlaps-2026-11-05.md).
 - **Other missing signal heads (15.5):** the overhead fallback now serves 26 of the 66 historical Category C
-  approaches from 12 new 6.2 m masts and 14 reused signal poles (arm ≤ 11.72 m, mean 9.28 m); the audit is
+  approaches from 12 new 6.2 m masts and 14 reused signal poles (arm ≤ 11.717 m, mean 9.282 m); the audit is
   117/0/40/10 (was 91/0/66/10). The arm, head and foot keep 2.22 m from every track axis at 0.5 m samples, and the
   foot keeps 3.1 m (0.5 m beyond the 2.6 m tram/rail mast setback); the built tram and railway layouts put every
   arm, foot and head at least 7.26 m from a pole or mast. Three first-pass arms crossed a tram envelope and are
