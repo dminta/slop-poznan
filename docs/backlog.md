@@ -8,8 +8,11 @@ Implementation details and completed measurements live in the [topic docs](../AG
 
 - **Pedestrian overlap remnants:** investigate short conversation and blocked-crossing queue overlaps, mostly around
   Dworzec and Droga Dębińska (up to 16 s and 6 pedestrians in the last audit). The 20 s recovery is postponed while
-  a pedestrian is in `nearView`; recognising blocked give-way exits remains unexplored.
-  [Method and district results](observations/ped-overlaps-2026-11-05.md).
+  a pedestrian is in `nearView`; recognising blocked give-way exits remains unexplored. The retained
+  `bench-traffic.mjs --ped-rooms` audit attributes Jeżyce's remaining non-legitimate walker holds (1,745 ped-s of
+  94,103 sampled, longest 17.7 s) to queue (96%) and merge (4%) room, not to trams; the `tramRoom` boundary trap is
+  fixed. [Method and district results](observations/ped-overlaps-2026-11-05.md),
+  [room audit](observations/jezyce-gridlock-2026-11-07.md#follow-up-tramroom-boundary-fix-and-room-audit-2026-11-07).
 - **Isolated crosswalk landings:** connect the remaining 246 empty ends (225 tracks never entered by routing) without
   restoring U-turns or crossing roads, rails, buildings or water. Examples: Okrąglak (both side-1 lines),
   Miła / Dąbrowskiego, Święty Marcin / Wysoka, Promienista / Grochowska and Wierzbięcice / Górna Wilda.
@@ -24,19 +27,6 @@ Implementation details and completed measurements live in the [topic docs](../AG
   production full-scene count. The fallback keeps a 2 m building-lot pad and now rejects connectors through building
   walls; the benchmark still omits landmark and bridge colliders.
   [Routing observations](observations/ped-overlaps-2026-11-05.md).
-- **Jeżyce crosswalk freeze (latent):** after `abc352f` (pedestrian queues, U-turn/landing routing and recovery
-  together) the recorded gridlock no longer appears in the 8-seed Jeżyce benchmark: seeds 99/5 fall from 12/9 cars
-  held over 60 s and one over 120 s to none, and the 8-seed over-60 sum is 50 → 28 with no car held over 120 s at
-  sampling. The benchmark's `waitMax` maximum is 83 s; it did not capture `longestHeld`, so it does not verify the
-  test's `longestHeld < 120` bound, and the historical 129/103 s `longestHeld` outliers are not comparable. Seed 1
-  and 3 rose (57 → 62 s, 0 → 1 and 78 → 83 s, 4 → 13 over 60 s), so the gain is not uniform and the landing links
-  alone cannot be credited. A walker
-  can still stop at `tramRoom`'s `before = 0` edge while `tramNear` holds it; the stuck clock is suppressed by
-  crosswalk waits but also by curb/split holds, pauses and conversations, and `nearView` postpones removal. An
-  unretained ad-hoc variant (stationary traffic-held trams exempt in `tramNear`) did not remove the non-tram `room`
-  freezes, so it was not kept. Next: retain an instrumented check of the other `room` terms; keep the
-  body-over-crossing block and the 6 s lookahead.
-  [Measurements](observations/jezyce-gridlock-2026-11-07.md).
 - **Other missing signal heads (15.5):** investigate alternative mounting positions for the 66 historical
   Category C approaches and verify visibility. Sampled curbside sites, forward positions up to 6 m, medians and
   arm-aligned pole reuse found no suitable sites. Run `node tools/audit-signal-heads.mjs` with attention to the

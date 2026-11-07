@@ -560,6 +560,7 @@ function createTrafficSystem(
       v: 0, // current speed, easing up to it and down to stops
       pause: 0,
       stuck: 0, // s standing with nowhere to wait (a jam or a route sink); long enough and it is re-placed
+      roomCause: '', // the walk() term that last capped room; read by the retained bench-traffic room audit
       route: null,
       nextRoute: null,
       nextLeg: 0,
@@ -2266,6 +2267,10 @@ function createTrafficSystem(
   // each walking track lists where it crosses the tram tracks (worked out on first use), and p stops short of the
   // next one while a tram is over it or due there within PED_TRAM_TIME seconds. Anyone already on the rails walks on.
   const PED_TRAM_TIME = 6;
+  // The tram state behind one tramNear() result, reused by tramRoom() for every walker (no per-walker object): a body
+  // over the crossing and a moving tram still block a walker at the clearance edge; a tram standing short of it does
+  // not.
+  const PED_TRAM_HOLD = { over: false, moving: false };
   function tramRoom(p) {
     const route = p.route;
     if (!route || !tramGraph || !trams.length) return Infinity;
@@ -2274,7 +2279,9 @@ function createTrafficSystem(
     let room = Infinity;
     for (const c of crossings) {
       let before = (c.t - p.t) * p.dir - c.clear;
-      if (before > 25 || before < -2 * c.clear || !tramNear(c.edge, c.s, PED_TRAM_TIME)) continue;
+      if (before > 25 || before < -2 * c.clear) continue;
+      PED_TRAM_HOLD.over = PED_TRAM_HOLD.moving = false;
+      if (!tramNear(c.edge, c.s, PED_TRAM_TIME, PED_TRAM_HOLD)) continue;
       // Short of a track inside the reach of another one (between the two tracks of a line, ~3 m apart) is no place
       // to wait: short of that one instead, or, already on it, walk on (two passes settle a pair in any order)
       for (let pass = 0; pass < 2; pass++) {
@@ -2283,7 +2290,13 @@ function createTrafficSystem(
           if (enter < before && before < enter + 2 * o.clear) before = enter;
         }
       }
-      if (before >= -0.3) room = Math.min(room, Math.max(0, before));
+      if (before >= -0.3) {
+        // Once at the edge (before = 0) a walker used to get zero room and stay there while a tram stood short of the
+        // crossing, so a stopped tram could pin it for good. Let it finish crossing a tram that is neither over the
+        // crossing nor moving; the body-over-crossing block and the 6 s lookahead for a moving tram stay as they were.
+        if (before <= 0 && !PED_TRAM_HOLD.over && !PED_TRAM_HOLD.moving) continue;
+        room = Math.min(room, Math.max(0, before));
+      }
     }
     return room;
   }
@@ -2329,8 +2342,11 @@ function createTrafficSystem(
   }
 
   // Is a tram's body over point s of tram edge te (either way along that track), or its front due there within
-  // `time` seconds (unless it stands waiting for pedestrians)?
-  function tramNear(te, s, time) {
+  // `time` seconds (unless it stands waiting for pedestrians)? With `hold`, checks every tram and records in it
+  // whether one is over the crossing (`over`) or moving (`moving`); tramRoom() uses that to tell a tram standing
+  // short of the crossing from one that must still hold a walker at the clearance edge.
+  function tramNear(te, s, time, hold = null) {
+    let near = false;
     for (const t of trams) {
       const path = t.path;
       for (let i = 0; i < path.n; i++) {
@@ -2341,10 +2357,15 @@ function createTrafficSystem(
         // a tram standing short of the crossing for the people in its way lets them cross: waiting for it there
         // locked both up for good (trams held 90 s by someone 2 m off their front, then respawned)
         if (d > 0 && t.speed < 0.5 && t.waitReason === 'pedestrian') continue;
-        if (d > -t.length - 1.5 && d < 3 + t.speed * time) return true;
+        if (d > -t.length - 1.5 && d < 3 + t.speed * time) {
+          if (!hold) return true;
+          near = true;
+          if (d <= 0 && d > -t.length) hold.over = true;
+          if (t.speed >= 0.5) hold.moving = true;
+        }
       }
     }
-    return false;
+    return near;
   }
 
   // Continue through validated sidewalk corners. Crossing tracks retain their curb queues and right of way;
@@ -2398,6 +2419,7 @@ function createTrafficSystem(
     let vMax = p.pause > 0 || p.conversation ? 0 : p.speed;
     if (!p.nextRoute) vMax = Math.min(vMax, Math.sqrt(2 * PED_BRAKE * ahead));
     let room = Infinity;
+    let roomCause = ''; // the term that set the last finite room, for the retained room audit (bench --ped-rooms)
     // Hold the queue gap behind anyone ahead on the same line and in the same direction, all along the track and not
     // only at a curb: a faster walker who closes up on a leader that then stops has no room to back off and the two
     // overlap (the sidewalk clusters in the 2026-11-05 record).
@@ -2407,7 +2429,10 @@ function createTrafficSystem(
         for (const q of list) {
           if (q === p || q.route !== p.route || q.dir !== p.dir) continue;
           const forward = (q.t - p.t) * p.dir;
-          if (forward > 0 && forward < QUEUE_GAP) room = Math.min(room, Math.max(0, forward - QUEUE_GAP));
+          if (forward > 0 && forward < QUEUE_GAP) {
+            const limit = Math.max(0, forward - QUEUE_GAP);
+            if (limit < room) { room = limit; roomCause = 'queue'; }
+          }
         }
       }
     }
@@ -2430,7 +2455,10 @@ function createTrafficSystem(
         blocked = true;
       }
       // A short corner link or crosswalk holds only so many people; the rest wait on the approach, not on top of it.
-      if (blocked || onNext >= capacity) room = Math.min(room, Math.max(0, ahead - QUEUE_GAP));
+      if (blocked || onNext >= capacity) {
+        const limit = Math.max(0, ahead - QUEUE_GAP);
+        if (limit < room) { room = limit; roomCause = 'entrance'; }
+      }
     }
     if (!p.node && p.nextRoute && !onRails(p)) {
       // A queue can reach back onto the sidewalk. Keep clear before entering its track, including short corner
@@ -2454,7 +2482,8 @@ function createTrafficSystem(
           // strictly ahead only: two people who already share a point (a shared curb link, a respawn) must not each
           // report zero room and lock the pair there for good; letting both walk out separates them by preferred speed
           if (forward > 0.01 && lateral2 < QUEUE_GAP * QUEUE_GAP) {
-            room = Math.min(room, Math.max(0, forward - Math.sqrt(QUEUE_GAP * QUEUE_GAP - lateral2)));
+            const limit = Math.max(0, forward - Math.sqrt(QUEUE_GAP * QUEUE_GAP - lateral2));
+            if (limit < room) { room = limit; roomCause = 'approach'; }
           }
         }
         if (leader && leader !== p) {
@@ -2463,7 +2492,10 @@ function createTrafficSystem(
           const yieldToLine = (line) => {
             const side = (p.x - line.ax) * line.uz - (p.z - line.az) * line.ux;
             const toward = (p.ux * line.uz - p.uz * line.ux) * p.dir;
-            if (side * toward < 0) room = Math.min(room, Math.max(0, (Math.abs(side) - QUEUE_GAP - 0.01) / Math.abs(toward)));
+            if (side * toward < 0) {
+              const limit = Math.max(0, (Math.abs(side) - QUEUE_GAP - 0.01) / Math.abs(toward));
+              if (limit < room) { room = limit; roomCause = 'merge'; }
+            }
           };
           yieldToLine(leader);
           for (let i = leader.nextLeg; i < leader.nextRoute.length; i++) {
@@ -2478,10 +2510,14 @@ function createTrafficSystem(
       // wait), and up to the back of whoever is ahead
       const s = curbProgress(p);
       room = s <= KERB && !p.through && !mayCross(p) ? KERB - s : Infinity;
+      roomCause = room === Infinity ? '' : 'curb';
       for (const q of p.node.curb) {
         if (q === p || q.node !== p.node || q.side !== p.side || q.dir !== p.dir || Math.abs(q.line - p.line) > 0.55) continue;
         const gap = curbProgress(q) - s;
-        if (gap > 0) room = Math.min(room, Math.max(0, gap - QUEUE_GAP));
+        if (gap > 0) {
+          const limit = Math.max(0, gap - QUEUE_GAP);
+          if (limit < room) { room = limit; roomCause = 'curbQueue'; }
+        }
       }
     }
     // At a split crossing's strip end whose far end has no room to wait (next to the rails: pedestrian-routes.js
@@ -2489,16 +2525,21 @@ function createTrafficSystem(
     const hold = p.nextRoute && p.nextLeg < p.nextRoute.length ? p.nextRoute[p.nextLeg].hold : null;
     const held = !!hold && !mayCross(hold);
     if (held) {
-      room = Math.min(room, ahead);
+      if (ahead < room) { room = ahead; roomCause = 'hold'; }
       // A strip crossing that is still shut gets a queue as at any curb: back along this track in queue-gap steps.
       // Without it everyone reaching the strip stands on the same end point and waits there in a heap.
       for (const q of routePeds.get(p.route) || NO_PEDS) {
         if (q === p || q.route !== p.route || q.dir !== p.dir) continue;
         const qAhead = q.dir > 0 ? q.len - q.t : q.t;
-        if (qAhead < ahead) room = Math.min(room, Math.max(0, ahead - qAhead - QUEUE_GAP));
+        if (qAhead < ahead) {
+          const limit = Math.max(0, ahead - qAhead - QUEUE_GAP);
+          if (limit < room) { room = limit; roomCause = 'holdQueue'; }
+        }
       }
     }
-    room = Math.min(room, tramRoom(p));
+    const tramLimit = tramRoom(p);
+    if (tramLimit < room) { room = tramLimit; roomCause = 'tram'; }
+    p.roomCause = roomCause;
     vMax = Math.min(vMax, Math.sqrt(2 * PED_BRAKE * room));
     p.v += Math.max(-2 * PED_BRAKE * dt, Math.min(PED_ACCEL * dt, vMax - p.v));
     const movement = Math.min(p.v * dt, room);

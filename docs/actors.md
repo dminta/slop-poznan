@@ -427,7 +427,11 @@ chosen over driving into a tram; watch it at Kaponiera.
 - **Pedestrians** (`tramRoom(p)` in `walk()`): each walking track caches `route.tramCrossings` (where it crosses a
   track, and how far along it a pedestrian must stay clear, `2 m / sin(angle)`); a pedestrian stops short of the next
   crossing while `tramNear` finds a tram body over it or a front due within `PED_TRAM_TIME` 6 s, but not a tram standing
-  short of it waiting for pedestrians (`waitReason 'pedestrian'`). The 2 m normal clearance includes the person's
+  short of it waiting for pedestrians (`waitReason 'pedestrian'`). Once at the clearance edge or just inside it
+  (`before <= 0`, the old `-0.3` dead band included), a walker finishes crossing a tram that is standing short of the
+  crossing and is neither over it nor moving: a stopped tram used to pin the walker there with zero room for good. A
+  body over the crossing and a moving tram's 6 s lookahead still hold it; `walk()` records the binding term in
+  `p.roomCause` for the `bench-traffic.mjs --ped-rooms` audit. The 2 m normal clearance includes the person's
   diagonal footprint, so a waiting pedestrian does not itself block the tram. Anyone already on the
   rails walks on. Standing on a crosswalk keeps them in `n.walkers`, so cars wait for them. A stop short of one track that lies within the reach of another (between the two tracks of a line) moves back short of that one, or, once on it, p walks on. Walking on the rails (`onRails`: within a crossing's reach) p ignores the queue ahead and closes up rather than stand in a tram's way. Historical Phase 15.5 headless measurement (3 min at each of six tram-strip crossings): pedestrians standing within 1.7 m of a track 10,439 → 0 samples, inside a tram body 6261 → 0–47 (people already on the rails walking past a tram stopped beside them).
 - **Player** (`collideWithTram(t)` after the cars in `update()`): SAT (`overlapWithPlayer`) against every section OBB.

@@ -936,7 +936,7 @@ test('pedestrians stop short of a tram track while a tram is over it or coming',
   const te = { pts: new Float64Array([0, 0, 100, 0]), cum: new Float64Array([0, 100]), len: 100, box: [0, 100, 0, 0], flip: false, reverse: null };
   const route = { ax: 50, az: -10, ux: 0, uz: 1, len: 20 };
   const t = tramOn(te, 30, 10);
-  const context = { trams: [t], tramGraph: { edges: [te] }, PED_TRAM_TIME: 6, Math, Infinity };
+  const context = { trams: [t], tramGraph: { edges: [te] }, PED_TRAM_TIME: 6, PED_TRAM_HOLD: { over: false, moving: false }, Math, Infinity };
   context.tramCrossings = trafficFunction('tramCrossings', context);
   context.tramNear = trafficFunction('tramNear', context);
   const tramRoom = trafficFunction('tramRoom', context);
@@ -965,7 +965,7 @@ test('a tram standing short of a crosswalk for the people on it lets them cross;
   const te = { pts: new Float64Array([0, 0, 100, 0]), cum: new Float64Array([0, 100]), len: 100, box: [0, 100, 0, 0], flip: false, reverse: null };
   const route = { ax: 50, az: -10, ux: 0, uz: 1, len: 20 };
   const t = tramOn(te, 48, 0);
-  const context = { trams: [t], tramGraph: { edges: [te] }, PED_TRAM_TIME: 6, Math, Infinity };
+  const context = { trams: [t], tramGraph: { edges: [te] }, PED_TRAM_TIME: 6, PED_TRAM_HOLD: { over: false, moving: false }, Math, Infinity };
   context.tramCrossings = trafficFunction('tramCrossings', context);
   context.tramNear = trafficFunction('tramNear', context);
   const tramRoom = trafficFunction('tramRoom', context);
@@ -979,6 +979,30 @@ test('a tram standing short of a crosswalk for the people on it lets them cross;
   t.speed = 0;
   t.path.u = 70;
   assert.ok(tramRoom(p) < 2, 'its body over the crossing: wait, whatever it waits for');
+});
+
+test('a walker at the tram clearance edge finishes crossing a tram standing short of it', () => {
+  // The trap: before = 0 plus a tram standing 2 m short left the walker with zero room for as long as the tram stood.
+  const te = { pts: new Float64Array([0, 0, 100, 0]), cum: new Float64Array([0, 100]), len: 100, box: [0, 100, 0, 0], flip: false, reverse: null };
+  const route = { ax: 50, az: -10, ux: 0, uz: 1, len: 20 };
+  const t = tramOn(te, 48, 0);
+  const context = { trams: [t], tramGraph: { edges: [te] }, PED_TRAM_TIME: 6, PED_TRAM_HOLD: { over: false, moving: false }, Math, Infinity };
+  context.tramCrossings = trafficFunction('tramCrossings', context);
+  context.tramNear = trafficFunction('tramNear', context);
+  const tramRoom = trafficFunction('tramRoom', context);
+  const atEdge = { route, t: 8, dir: 1 }; // before = (10 - 8) - 2 = 0
+  const inside = { route, t: 8.2, dir: 1 }; // before = -0.2, within the old -0.3 dead band
+  t.waitReason = 'signal';
+  assert.equal(tramRoom(atEdge), Infinity, 'a tram standing short of the crossing no longer pins the walker');
+  assert.equal(tramRoom(inside), Infinity, 'nor one just inside the clearance band');
+  assert.ok(tramRoom({ route, t: 7.5, dir: 1 }) < 0.6, 'the lookahead still stops the walker on the approach');
+  t.speed = 2;
+  assert.equal(tramRoom(atEdge), 0, 'a moving tram keeps its lookahead at the edge');
+  assert.equal(tramRoom(inside), 0, 'and just inside it');
+  t.speed = 0;
+  t.path.u = 60;
+  assert.equal(tramRoom(atEdge), 0, 'a body over the crossing holds the walker, whatever it waits for');
+  assert.equal(tramRoom(inside), 0);
 });
 
 test('a tram held at a stop, a red or behind another tram holds only the junction curves under its body', () => {
@@ -1081,7 +1105,7 @@ test('a pedestrian waiting before a diagonal track stays outside the tram safety
     len: Math.SQRT2 * 100, box: [0, 100, 0, 100], flip: false, reverse: null };
   const route = { ax: 50 + 10 * h, az: 50 - 10 * h, ux: -h, uz: h, len: 20 };
   const t = { path: { edges: [te], start: [0], n: 1, u: 60 }, length: 32, speed: 2, waitReason: '' };
-  const context = { trams: [t], tramGraph: { edges: [te] }, PED_TRAM_TIME: 6, Math, Infinity };
+  const context = { trams: [t], tramGraph: { edges: [te] }, PED_TRAM_TIME: 6, PED_TRAM_HOLD: { over: false, moving: false }, Math, Infinity };
   context.tramCrossings = trafficFunction('tramCrossings', context);
   context.tramNear = trafficFunction('tramNear', context);
   const room = trafficFunction('tramRoom', context);
