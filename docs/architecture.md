@@ -198,11 +198,13 @@ Physics notes:
 - Wrap every storage access in `try { } catch { /* reason */ }`. Storage may be unavailable, and that must never block play.
 
 ## HUD, CSS and cache busting
-- `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently `20261106-poznan-loader`). When you change
+- `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently `20261107-brand-blue`). When you change
   `style.css`, bump that query in `index.html` in the same commit; GitHub Pages caches it.
-- Colours are tokens on `:root`: `--accent`/`--accent-ink` (yellow, also the map's GPS route in `city-map.js`) mark
-  whatever is active; `--sign-graphite` (#3b3d3f) and `--sign-blue` (#1f5bb5, the district strip) are the street plate.
-  The in-game brand and map title share the `.badge` roundel with `--accent` ink.
+- Colours are tokens on `:root`: `--accent`/`--accent-ink` mark whatever is active. The accent is a lighter tint of
+  Poznań's brand blue (#234792) so it reads on the dark glass: `--accent` #7ba7f4 (≈ 7.7:1 on the glass) and
+  `--accent-ink` #0b1733 (≈ 7.3:1 on the accent). The same blue is the map's GPS route in `city-map.js` (MAP.route);
+  `--sign-graphite` (#3b3d3f) and `--sign-blue` (#1f5bb5, the district strip) are the street plate. The in-game brand and
+  map title share the `.badge` roundel (PŃ) with `--accent` ink.
 - **Poznań city colours and loading screen visual identity**:
   The start (loading) screen uses Poznań's earlier visual identity ([logo manual PDF](https://www.poznan.pl/mim/public/sport/attachments.att?co=show&instance=1017&parent=37249&lang=pl&id=76107):
   "Podstawowe kolory występowania logo to ciemny błękit (100% cyan, 75% magenta), błękit (100%) i biel tła"; 2024 introduced a

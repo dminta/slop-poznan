@@ -1,5 +1,5 @@
 /* css/style.css */
-/* HUD design system: quiet graphite glass in the corners of the screen, one yellow accent for whatever is active,
+/* HUD design system: quiet graphite glass in the corners of the screen, one Poznań blue accent for whatever is active,
    graphite Poznań street plates with a blue district strip for street names, so that the city itself stays the star */
 
 :root {
@@ -18,9 +18,10 @@
   --text-3: rgba(246, 245, 242, 0.44);
 
   /* Accents */
-  /* yellow, also the map's GPS route (city-map.js); ink on it is ≈ 12:1 */
-  --accent: #ffc21a;
-  --accent-ink: #17140a;
+  /* A lighter tint of Poznań's brand blue #234792 so it reads on the dark glass (≈ 7.7:1); the same colour is the map's
+     GPS route (city-map.js), and ink on it is ≈ 7.3:1 */
+  --accent: #7ba7f4;
+  --accent-ink: #0b1733;
   /* street plates (Poznań SIM 2017, as street-details.js paints them): graphite RAL 7043, RAL 5005 district strip */
   --sign-graphite: #3b3d3f;
   --sign-blue: #1f5bb5;
@@ -962,8 +963,8 @@ body.hud-minimized .icon-show {
 }
 
 .mode-btn.active kbd {
-  color: rgba(23, 20, 10, 0.62);
-  background: rgba(23, 20, 10, 0.1);
+  color: rgba(11, 23, 51, 0.62);
+  background: rgba(11, 23, 51, 0.1);
   box-shadow: none;
 }
 
@@ -1051,7 +1052,7 @@ body[data-mode='helicopter'] .gauge-alt {
   overflow: hidden;
 }
 
-/* Speed as a share of the mode's top speed; it turns the accent yellow on boost */
+/* Speed as a share of the mode's top speed; it turns the Poznań blue accent on boost */
 #hud-speed-meter {
   position: absolute;
   inset: 0;
@@ -1528,7 +1529,7 @@ body.is-boosting #hud-speed-meter {
   touch-action: none;
 }
 .touch-action > [aria-hidden] { font-size: 23px; line-height: 1; }
-.touch-boost { grid-column: 2; border-color: rgba(255, 194, 26, 0.65); color: var(--accent); }
+.touch-boost { grid-column: 2; border-color: rgba(123, 167, 244, 0.65); color: var(--accent); }
 .touch-action.is-pressed { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
 
 body.touch-enabled .controls-hint,

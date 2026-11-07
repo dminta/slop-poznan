@@ -55,8 +55,8 @@ function pluralPl(n, one, few, many) {
 }
 
 // Map palette, shared by the radar & the atlas (in step with css/style.css): graphite ground with the streets a shade
-// lighter than the blocks they run between, muted parks & water; a yellow GPS route, white landmarks & player, cyan
-// search hits, amber bridges, thin red tram lines and dashed grey railways
+// lighter than the blocks they run between, muted parks & water; a Poznań blue GPS route (the HUD's --accent), white
+// landmarks & player, cyan search hits, amber bridges, thin red tram lines and dashed grey railways
 const MAP = {
   water: '#0a1118',
   beyond: '#12161b', // the land past the city line
@@ -77,7 +77,7 @@ const MAP = {
   bridge: '#c08a3e',
   tram: '#b8434d',
   rail: '#5f6875',
-  route: '#ffc21a',
+  route: '#7ba7f4',
   search: '#5fd0ff',
   halo: 'rgba(8, 11, 15, 0.9)'
 };
@@ -727,7 +727,7 @@ function routePath(tree, start, out) {
   return out;
 }
 
-// GPS route from the player to the waypoint through the route's graph nodes (straight across without any): yellow
+// GPS route from the player to the waypoint through the route's graph nodes (straight across without any): Poznań blue
 // on a dark casing
 function drawRoute(ctx, v, px, pz, wx, wz, graph, nodes, width) {
   ctx.lineJoin = 'round';
@@ -744,7 +744,7 @@ function drawRoute(ctx, v, px, pz, wx, wz, graph, nodes, width) {
   ctx.stroke();
 }
 
-// Waypoint: a yellow target
+// Waypoint: a Poznań blue target
 function drawWaypoint(ctx, x, y, r) {
   ctx.fillStyle = MAP.halo;
   ctx.beginPath();
