@@ -528,6 +528,17 @@ function buildStreetDetails(scene, opts = {}) {
   const S1_Y = 3.55; // head centre: its red lamp at 3.82 m, the green at 3.28 m
   const PED_Y = 2.45;
   const signalHeadMatrix = (p, a) => setFacing(p.x + a.ux * 0.18, S1_Y, p.z + a.uz * 0.18, a.ux, a.uz);
+  // Overhead mast-arm heads for approaches whose curb has no pole site. The head centre at 5.3 m leaves
+  // 0.47 m below the 5.8 m tram contact wire; a 6.2 m mast or a 4.1-6.2 m sleeve on a reused pole carries the
+  // 5.55 m arm over the nearest lane.
+  const OVERHEAD_Y = 5.3;
+  const OVERHEAD_MAST_H = 6.2;
+  const OVERHEAD_ARM_Y = 5.55;
+  const OVERHEAD_ARM_R = 0.045;
+  const OVERHEAD_REACH = 12;
+  const armDir = new THREE.Vector3();
+  const armUp = new THREE.Vector3(0, 1, 0);
+  const armQuat = new THREE.Quaternion();
 
   function addSignalPole(p) {
     addPole(p);
@@ -536,6 +547,38 @@ function buildStreetDetails(scene, opts = {}) {
     dummy.position.set(p.x, 0.1 + SIGNAL_POLE_H / 2, p.z);
     dummy.rotation.set(0, 0, 0);
     dummy.scale.set(0.055, SIGNAL_POLE_H, 0.055);
+    dummy.updateMatrix();
+    signalPoleMatrices.push(dummy.matrix.clone());
+  }
+  // Thicker mast for an overhead head: the same footprint/collider machinery, a taller shaft and a horizontal arm
+  // reaching over the arriving lane. Only the foot is a player obstacle; the arm and head clear all road users.
+  function addOverheadPole(p) {
+    addPole(p);
+    addFootprint(p.x, p.z, 0.36, 0.36, 'signal');
+    addCollider(p.x, p.z, 0.1, 0.1, 0.1 + OVERHEAD_MAST_H);
+    dummy.position.set(p.x, 0.1 + OVERHEAD_MAST_H / 2, p.z);
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.set(0.08, OVERHEAD_MAST_H, 0.08);
+    dummy.updateMatrix();
+    signalPoleMatrices.push(dummy.matrix.clone());
+  }
+  function addSignalArm(p, head) {
+    const dx = head.x - p.x, dz = head.z - p.z, len = Math.hypot(dx, dz);
+    if (len < 0.05) return;
+    armDir.set(dx / len, 0, dz / len);
+    armQuat.setFromUnitVectors(armUp, armDir);
+    dummy.position.set((p.x + head.x) / 2, OVERHEAD_ARM_Y, (p.z + head.z) / 2);
+    dummy.quaternion.copy(armQuat);
+    dummy.scale.set(OVERHEAD_ARM_R, len, OVERHEAD_ARM_R);
+    dummy.updateMatrix();
+    signalPoleMatrices.push(dummy.matrix.clone());
+    dummy.rotation.set(0, 0, 0);
+  }
+  // A reused 4.2 m signal pole needs a sleeve up to the 5.55 m arm; the existing footing and collider stay as they are.
+  function addMastExtension(p) {
+    dummy.position.set(p.x, 4.1 + (OVERHEAD_MAST_H - 4.1) / 2, p.z);
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.set(0.06, OVERHEAD_MAST_H - 4.1, 0.06);
     dummy.updateMatrix();
     signalPoleMatrices.push(dummy.matrix.clone());
   }
@@ -1717,7 +1760,7 @@ function buildStreetDetails(scene, opts = {}) {
       }
     };
     const lookup = (map, x, z) => map.get(key(x, z)) || [];
-    const curves = index(), lanes = index(), crossings = index(), buildings = index();
+    const curves = index(), lanes = index(), crossings = index(), buildings = index(), overhead = index();
     for (const n of network.nodes) for (const e of n.in) for (const move of e.moves) {
       for (let i = 0; i < move.out.length; i++) {
         const j = move.out[i];
@@ -1757,6 +1800,12 @@ function buildStreetDetails(scene, opts = {}) {
       if ((c.minY ?? 0) > SIGNAL_POLE_H + 0.1 || (c.maxY ?? Infinity) < 0.1) continue;
       file(buildings, c, c.minX - 0.15, c.maxX + 0.15, c.minZ - 0.15, c.maxZ + 0.15);
     }
+    // Tall obstacles an arm at 5.55 m would hit: buildings, bridge decks and other colliders spanning the arm's
+    // height. The ground index above stops at 4.3 m and misses the viaducts that cross several signal approaches.
+    for (const c of buildingColliders) {
+      if ((c.minY ?? 0) > OVERHEAD_ARM_Y + 0.6 || (c.maxY ?? Infinity) < OVERHEAD_ARM_Y - 0.6) continue;
+      file(overhead, c, c.minX - 0.15, c.maxX + 0.15, c.minZ - 0.15, c.maxZ + 0.15);
+    }
     // Segment intersects a square around the candidate (the rectangle query used by walkable/pathClear).
     const intersects = (s, x, z) => {
       let lo = 0, hi = 1;
@@ -1789,6 +1838,18 @@ function buildStreetDetails(scene, opts = {}) {
             ox * edge.dx + oz * edge.dz <= STOP_SETBACK;
         });
         if (sameHead) { entry.class = 'A'; entry.head = sameHead; continue; }
+        // The first pass already serves an approach when a same-phase head on the same plan faces it within 45 m.
+        // A head with the other group does not count, or the audit would report A for an approach that still has
+        // no signal of its own phase.
+        const approachHead = vehicleHeadSites.find((h) => {
+          if (root(h.site.timing) !== root(node.signalTiming)) return false;
+          const swap = Math.abs(h.site.timing.mainUx * node.signalTiming.mainUx +
+            h.site.timing.mainUz * node.signalTiming.mainUz) <= 0.82;
+          return (h.group0 !== swap) === (edge.axisIndex === 0) &&
+            Math.hypot(h.p.x - node.x, h.p.z - node.z) < 45 &&
+            h.a.ux * edge.inArm.ux + h.a.uz * edge.inArm.uz > 0.98;
+        });
+        if (approachHead) { entry.class = 'A'; entry.head = approachHead; continue; }
         const reasons = {}, candidates = [], walks = index();
         // Cache one neighbourhood per junction, enclosing the candidates on all its incoming edges. The tracks
         // and their links are otherwise lazy; materialising the entire city made signal placement take 19 seconds.
@@ -1834,6 +1895,63 @@ function buildStreetDetails(scene, opts = {}) {
           }
           return fail;
         };
+        // A mast arm may pass over the roadway but not through a tall wall, a bridge deck or the tram envelope.
+        // The 0.5 m samples keep the whole arm and head at least 2.22 m from every track centreline
+        // (RAIL_PROP_KEEP + 0.22 m), the same rule the pole foot meets; 1.5 m steps missed a head over a rail by 2 m.
+        const armClear = (from, to) => {
+          const dx = to.x - from.x, dz = to.z - from.z, len = Math.hypot(dx, dz);
+          const steps = Math.max(1, Math.ceil(len / 0.5));
+          for (let i = 0; i <= steps; i++) {
+            const px = from.x + dx * i / steps, pz = from.z + dz * i / steps;
+            if (!clearOfRails(px, pz, 0.22)) return false;
+            if (lookup(overhead, px, pz).some((c) => px >= c.minX - 0.15 && px <= c.maxX + 0.15 &&
+              pz >= c.minZ - 0.15 && pz <= c.maxZ + 0.15)) return false;
+          }
+          return true;
+        };
+        // Overhead fallback: pair the head with an existing signal pole or a mast foot on any clear block within
+        // 12 m, including medians and sidewalk points 6-12 m from the curb and supports up to 10 m ahead of the stop
+        // line. The ordinary search stops at 6 m and misses them. The first pass keeps the head at least 8 m before
+        // the stop line (table 7.2 brackets the 4.5-5.5 m mounting heights there); only when no support reaches
+        // that band does the head fall back to the support's position.
+        const findOverhead = () => {
+          // Keep the arm lateral by pairing the head with the support's longitudinal position, clamped to the
+          // ground search's -15 m limit and to the requested visibility band; the head goes over the nearest lane.
+          const targetFor = (along, lat, maxAlong) => {
+            let lane = edge.lanes[0];
+            for (const value of edge.lanes) if (Math.abs(value - lat) < Math.abs(lane - lat)) lane = value;
+            const t = Math.max(-15, Math.min(maxAlong, along));
+            return { x: x + edge.dx * t + edge.rx * lane, z: z + edge.dz * t + edge.rz * lane, along: t };
+          };
+          const search = (maxAlong, band) => {
+            let best = null;
+            for (const record of signalArmPoles.values()) for (const item of record.poles) {
+              const p = item.p, along = (p.x - x) * edge.dx + (p.z - z) * edge.dz;
+              if (along < -15 || along > 10) continue;
+              const lat = (p.x - x) * edge.rx + (p.z - z) * edge.rz;
+              const target = targetFor(along, lat, maxAlong);
+              const reach = Math.hypot(p.x - target.x, p.z - target.z);
+              if (reach > OVERHEAD_REACH || reach < 0.3) continue;
+              const score = reach - 3;
+              if (best && score >= best.score) continue;
+              if (!armClear(p, target)) continue;
+              best = { foot: p, existing: true, reach, score, target, band };
+            }
+            for (let along = -15; along <= 10; along += 1) {
+              for (let lat = -edge.half - OVERHEAD_REACH; lat <= edge.half + OVERHEAD_REACH; lat += 0.8) {
+                const px = x + edge.dx * along + edge.rx * lat;
+                const pz = z + edge.dz * along + edge.rz * lat;
+                const target = targetFor(along, lat, maxAlong);
+                const reach = Math.hypot(px - target.x, pz - target.z);
+                if (reach > OVERHEAD_REACH || reach < 1 || (best && reach >= best.score)) continue;
+                if (failures(px, pz, true).length || !armClear({ x: px, z: pz }, target)) continue;
+                best = { foot: { x: px, z: pz }, existing: false, reach, score: reach, target, band };
+              }
+            }
+            return best;
+          };
+          return search(-8, true) || search(STOP_SETBACK, false);
+        };
         // The first clear sample is placed, so the order is the preference: near, narrow sites first, then wider offsets,
         // then further back, where the head is harder to see from the stop line. Placing stops at the first failed
         // rule and the first clear site; the audit (place false) still tallies every rule at every sample.
@@ -1872,7 +1990,24 @@ function buildStreetDetails(scene, opts = {}) {
             pole = p; break findPole;
           }
         }
-        if (!pole && !candidates.length) continue;
+        if (!pole && !candidates.length) {
+          const overheadSite = findOverhead();
+          if (!overheadSite) continue;
+          if (!overheadSite.existing) addOverheadPole(overheadSite.foot);
+          else addMastExtension(overheadSite.foot);
+          addSignalArm(overheadSite.foot, overheadSite.target);
+          const site = { timing: node.signalTiming }, group0 = edge.axisIndex === 0;
+          const a = { ux: -edge.dx, uz: -edge.dz, w: edge.half * 2, lanes: edge.lanes.length };
+          const target = overheadSite.target;
+          const m = setFacing(target.x + a.ux * 0.18, OVERHEAD_Y, target.z + a.uz * 0.18, a.ux, a.uz);
+          const head = { site, a, p: target, group0, existing: overheadSite.existing, node, edge,
+            overhead: true, pole: overheadSite.foot, m, band: overheadSite.band };
+          heads.push(head);
+          vehicleHeadSites.push(head);
+          entry.class = 'B';
+          entry.candidate = { x: target.x, z: target.z, side: 0, overhead: true };
+          continue;
+        }
         const p = pole || candidates[0];
         if (!pole) addSignalPole(p);
         const site = { timing: node.signalTiming }, group0 = edge.axisIndex === 0;
@@ -1937,7 +2072,7 @@ function buildStreetDetails(scene, opts = {}) {
       result.runtimeHeads.push(...additions.heads);
       for (const head of additions.heads) {
         const { site, a, p, group0 } = head;
-        const m = signalHeadMatrix(p, a);
+        const m = head.m || signalHeadMatrix(p, a);
         const index = (site.timing.index + 0.5) / Math.max(1, SIGNAL_PLANS.length);
         matrices.push(m);
         (group0 ? ave : street).push(m);

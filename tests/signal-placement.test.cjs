@@ -297,14 +297,18 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
   assert.ok(street.runtimeHeads.some((h) => !h.existing && Math.hypot(h.node.x - 1374.2, h.node.z - 566.1) < 0.1));
   const newPoles = street.runtimeHeads.filter((h) => !h.existing);
   assert.ok(newPoles.length > 0);
-  assert.ok(newPoles.every(({ p }) => p.x < wall.minX - 0.15 || p.x > wall.maxX + 0.15 ||
-    p.z < wall.minZ - 0.15 || p.z > wall.maxZ + 0.15), 'new poles avoid building colliders');
+  assert.ok(newPoles.every((h) => {
+    const p = h.pole || h.p;
+    return p.x < wall.minX - 0.15 || p.x > wall.maxX + 0.15 ||
+      p.z < wall.minZ - 0.15 || p.z > wall.maxZ + 0.15;
+  }), 'new poles avoid building colliders');
   assert.equal(street.footprints.length, oldFootprints + newPoles.length);
   assert.equal(street.colliders.length, oldColliders + newPoles.length);
   assert.equal(JSON.stringify(street.footprints.slice(0, oldFootprints)), footprintSnapshot);
   assert.equal(JSON.stringify(street.colliders.slice(0, oldColliders)), colliderSnapshot);
   assert.equal(street.vehicleHeads, oldCount + street.runtimeHeads.length);
-  assert.ok(newPoles.some(({ p, edge }) => {
+  assert.ok(newPoles.some((h) => {
+    const p = h.pole || h.p, edge = h.edge;
     const x = edge.sx + edge.dx * edge.len, z = edge.sz + edge.dz * edge.len;
     return (p.x - x) * edge.dx + (p.z - z) * edge.dz < -15 ||
       Math.abs((p.x - x) * edge.rx + (p.z - z) * edge.rz) > edge.half + 2.6;
@@ -315,19 +319,37 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
     const lateral = Math.abs((h.p.x - x) * e.rx + (h.p.z - z) * e.rz);
     assert.ok(Math.hypot(h.p.x - x, h.p.z - z) <= 30 && along >= -15 - 1e-6 && along <= road.STOP_SETBACK + 1e-6,
       `setback ${along}`);
-    assert.ok(lateral >= e.half + 0.6 && lateral <= e.half + 6.01, `curb offset ${lateral - e.half}`);
-    if (h.existing) assert.ok(lateral <= e.half + 2.6 + 1e-6, `reused pole lateral ${lateral}`);
+    if (h.overhead) {
+      const arm = Math.hypot(h.pole.x - h.p.x, h.pole.z - h.p.z);
+      assert.ok(arm <= 12.01, `overhead arm ${arm}`);
+      assert.ok(e.lanes.some((lane) => Math.abs(lane - ((h.p.x - x) * e.rx + (h.p.z - z) * e.rz)) < 0.01),
+        `overhead head over a lane at ${h.p.x}, ${h.p.z}`);
+      const steps = Math.max(1, Math.ceil(arm / 0.5));
+      for (let i = 0; i <= steps; i++) {
+        const px = h.pole.x + (h.p.x - h.pole.x) * i / steps;
+        const pz = h.pole.z + (h.p.z - h.pole.z) * i / steps;
+        assert.ok(gridModule.railClearance(px, pz, 20) >= 2.22,
+          `overhead arm keeps 2.22 m from rails at ${px}, ${pz}`);
+      }
+      if (h.band) assert.ok(along <= -8 + 1e-6, `band head along ${along}`);
+      assert.ok(config.roadClearance(h.pole.x, h.pole.z) >= 0.8);
+      assert.ok(gridModule.railClearance(h.pole.x, h.pole.z, 20) >= 2.22);
+    } else {
+      assert.ok(lateral >= e.half + 0.6 && lateral <= e.half + 6.01, `curb offset ${lateral - e.half}`);
+      if (h.existing) assert.ok(lateral <= e.half + 2.6 + 1e-6, `reused pole lateral ${lateral}`);
+      assert.ok(config.roadClearance(h.p.x, h.p.z) >= 0.8);
+      assert.ok(gridModule.railClearance(h.p.x, h.p.z, 20) >= 2.22);
+    }
     assert.ok(-h.a.ux * e.dx - h.a.uz * e.dz > 0.9999);
     assert.equal(h.group0, e.axisIndex === 0);
-    assert.ok(config.roadClearance(h.p.x, h.p.z) >= 0.8);
-    assert.ok(gridModule.railClearance(h.p.x, h.p.z, 20) >= 2.22);
   }
   assert.deepEqual(Array.from(street.audioSignals, (s) => [s.x, s.y, s.z, s.isAvenue, s.signalTiming]), audio);
   const rebuilt = road.buildRoadNetwork(grid.sidewalks, [...grid.footprints, ...street.footprints]);
   assert.deepEqual(lanes(rebuilt), originalLanes, 'all lanes survive the new footprints');
   const rebuiltRoutes = createPedestrianRoutes(rebuilt, config.blockAt, gridModule.railClearance);
   assert.deepEqual(crossings(rebuiltRoutes), originalCrossings, 'all crossings survive the new footprints');
-  for (const { p } of newPoles) {
+  for (const h of newPoles) {
+    const p = h.pole || h.p;
     assert.equal(localRoutes(rebuiltRoutes, p), localRoutes(routes, p),
       `pedestrian tracks and connections near ${p.x}, ${p.z} are unchanged`);
   }
