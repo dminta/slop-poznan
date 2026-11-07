@@ -306,4 +306,3 @@ sampled choice count falls 26,664 → 26,433 because some ends now return no pat
 
 `node --test tests/*.cjs`: 419 pass. The signal-audit fixture is unchanged because the guard only filters `next()`;
 it adds or moves no track.
-
