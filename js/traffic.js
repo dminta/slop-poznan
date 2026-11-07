@@ -2005,7 +2005,6 @@ function createTrafficSystem(scene, sidewalks, obstacles, network = buildRoadNet
   function collideWithTram(t) {
     const pe = player.entity;
     for (const sec of t.sections) {
-      if (sec.hidden) continue; // the tunnel mask: a tram drawn below the surface does not push the player
       const relX = pe.position.x - sec.x;
       const relZ = pe.position.z - sec.z;
       if (Math.abs(relX) > sec.halfLength + 4 || Math.abs(relZ) > sec.halfLength + 4) continue;

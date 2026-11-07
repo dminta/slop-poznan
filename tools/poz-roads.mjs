@@ -274,12 +274,6 @@ const trackWays = [];
 const trackUnderpasses = railwayUnderpasses(osmRail.elements.filter((e) => e.type === 'way' && e.geometry &&
   ['tram', 'rail', 'light_rail'].includes(tagOf(e).railway)));
 const isPst = (t) => /Pestka|Poznański Szybki Tramwaj/i.test((t && (t.name || t.loc_name)) || '');
-// The PST lower level at Kaponiera/Dworzec Zachodni. Shared by the street-running test and GEO.tramTunnels so the two
-// cannot drift apart.
-const PST_LOWER_BOX = [-1800, -1400, 0, 1050];
-const inPstLowerBox = (pts) => pts.some(([x, z]) => x >= PST_LOWER_BOX[0] && x <= PST_LOWER_BOX[1] &&
-  z >= PST_LOWER_BOX[2] && z <= PST_LOWER_BOX[3]);
-const isLowerTrench = (tags, pts) => isPst(tags) && (tags.level === '-2' || tags.layer === '-2' || inPstLowerBox(pts));
 let droppedRailTunnel = 0;
 let closedTram = 0;
 for (const e of osmRail.elements) {
@@ -441,8 +435,9 @@ const streetGrid = segGrid(pieces.filter((p) => p.cls !== 'service').map((p) => 
 const onStreet = (pts) => shareAlong(pts, (x, z, dx, dz) => nearParallel(streetGrid, x, z, dx, dz, TRAM_D, TRAM_COS, 8.0)) >= 0.5;
 function isStreetTram(t, tags, pts) {
   const isPstTrack = isPst(tags);
+  const isLowerTrench = isPstTrack && (tags.level === '-2' || tags.layer === '-2' || pts.some(([x, z]) => x >= -1800 && x <= -1400 && z >= 0 && z <= 1050));
   const isOpenCutting = isPstTrack && pts.every(([x, z]) => z < -460);
-  if (isLowerTrench(tags, pts) || isOpenCutting) return false;
+  if (isLowerTrench || isOpenCutting) return false;
   if (isPstTrack) {
     if (pts.some(([x, z]) => x >= -1420 && x <= -1320 && z >= -400 && z <= -250)) return true;
     return false;
@@ -580,27 +575,6 @@ const tramRoutes = allTramRoutes.filter((_, i) => routeIndex[i] === 0);
 allTramRoutes.forEach((r, i) => { if (routeIndex[i] === 0) routeIndex[i] = tramRoutes.indexOf(r); });
 for (const r of rail) if (r.routes) r.routes = r.routes.map((i) => routeIndex[i]);
 
-// Tram tunnels and the PST cutting. The flat world draws every track at grade, so these retained underground ways
-// (PST under Kaponiera, the Franowo tunnel) and the level=-2 PST cutting need their own presentation: portals and short
-// walled approaches, retaining walls and a player keep-out (js/tram-infra.js); nothing is drawn on the surface between
-// portals. `covered` means an OSM tunnel/layer < 0 (the ways kept by the PST/Franowo guards above); `trench` is the PST
-// lower level, including the reach the OSM data leaves untagged but isLowerTrench catches by the Dworzec Zachodni box.
-const tramTunnels = [];
-for (const t of trackWays) {
-  if (t.kind !== 'tram') continue;
-  // The Górczyn/Hetmańska kerbside tracks are railway underpasses, already kept at grade and covered by the elevated
-  // rail viaducts; they are not tram tunnels (review 2026-11-06).
-  if (trackUnderpasses.has(t.id)) continue;
-  const tags = t.tags || {};
-  const kind = underground(tags) ? 'covered' : isLowerTrench(tags, t.pts) ? 'trench' : null;
-  if (!kind || !touchesBox(t.pts, 0)) continue;
-  tramTunnels.push({ kind, pts: rdp(t.pts, 0.3).map(([x, z]) => [r1(x), r1(z)]) });
-}
-log(`tram tunnels: ${tramTunnels.filter((t) => t.kind === 'covered').length} covered ways ` +
-  `(${(tramTunnels.filter((t) => t.kind === 'covered').reduce((s, t) => s + lineLen(t.pts), 0) / 1000).toFixed(2)} km), ` +
-  `${tramTunnels.filter((t) => t.kind === 'trench').length} trench ways ` +
-  `(${(tramTunnels.filter((t) => t.kind === 'trench').reduce((s, t) => s + lineLen(t.pts), 0) / 1000).toFixed(2)} km)`);
-
 // Non-buildable rail land: landuse=railway areas, plus a corridor around every off-street track (street trams are
 // covered by their road's widened stamp). 5 m per mapped rail track (1435 mm gauge, 4.5 m track centres), 4 m per tram.
 const railCorridors = { rings: [], lines: [] };
@@ -734,5 +708,5 @@ log(`rail: ${rail.length} lines (tram ${rail.filter((r) => r.kind === 'tram').le
 }
 log(`roads: ${roads.length} polylines (${roads.reduce((t, r) => t + r[5].length / 2, 0)} pts); tram stops ${tramStops.length}; signal nodes ${signalNodes.length}`);
 
-export { TRAM_W, pieces, plazas, pedestrianWays, rail, railCorridors, levelCrossings, roads, tramRoutes, tramStops, signalNodes,
-  tramTunnels, midOf, lineLen };
+export { TRAM_W, pieces, plazas, pedestrianWays, rail, railCorridors, levelCrossings, roads, tramRoutes, tramStops, signalNodes, midOf,
+  lineLen };

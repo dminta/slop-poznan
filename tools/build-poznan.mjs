@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { log, llAffine, LAT0, LON0, BEARING_DEG, DETAIL_BOX, inDetailBox } from './poz-base.mjs';
 import { r1, Raster } from './geo-util.mjs';
-import { levelCrossings, pieces, plazas, rail, roads, signalNodes, tramRoutes, tramStops, tramTunnels } from './poz-roads.mjs';
+import { levelCrossings, pieces, plazas, rail, roads, signalNodes, tramRoutes, tramStops } from './poz-roads.mjs';
 import { water, land, landHoles, outskirts, outskirtsHoles } from './poz-water.mjs';
 import { parks, landmarks, districts, labels } from './poz-extra.mjs';
 import { blocks, STRIP, SIDEWALK } from './poz-blocks.mjs';
@@ -81,9 +81,6 @@ const GEO = {
   rail: rail.map((r) => (r.routes
     ? { kind: r.kind, street: r.street, tracks: r.tracks, oneway: r.oneway, pts: flat(r.pts), routes: r.routes }
     : { kind: r.kind, street: r.street, tracks: r.tracks, oneway: r.oneway, pts: flat(r.pts) })),
-  // [{ kind: 'covered'|'trench', pts (flat x, z) }] tram ways in a tunnel or the PST lower cutting (world is flat;
-  // js/tram-infra.js builds their portals and walled approaches, retaining walls and keep-out, docs/world.md)
-  tramTunnels: tramTunnels.map((t) => ({ kind: t.kind, pts: flat(t.pts) })),
   // [x, z, ...] level crossings inside the detail box: nodes a road shares with a mainline track (every other road and
   // mainline crossing is grade-separated)
   levelCrossings: flat(levelCrossings),

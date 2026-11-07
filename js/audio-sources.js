@@ -169,7 +169,6 @@ class CityAudioSources {
   tramSources() {
     for (let i = 0; i < this.tramList.length; i++) {
       const t = this.tramList[i];
-      if (t.hidden) continue; // inside a covered tunnel: no traction or bell at the surface
       const d2 = this.distanceSq(t.x, 1.2, t.z);
       if (!Number.isFinite(d2) || d2 > TRAM_RANGE * TRAM_RANGE) continue;
       if (d2 <= MOTOR_RANGE * MOTOR_RANGE) {

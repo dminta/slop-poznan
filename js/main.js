@@ -127,8 +127,7 @@ async function initApp() {
   const tramSystem = createTramSystem(scene, {
     network: trafficSystem.network,
     stops: tramInfra.stops,
-    traffic: trafficSystem,
-    hidden: tramInfra.tunnels.hidden
+    traffic: trafficSystem
   });
   trafficSystem.setTrams(tramSystem);
   markInit('trams');

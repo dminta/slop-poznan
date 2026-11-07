@@ -160,7 +160,6 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
     };
     let diagonal = 0;
     for (const st of stops) {
-      if (st.hidden) continue;
       if (!st.shelter) continue;
       const { x, y, z, yaw, len } = st.shelter;
       if (Math.abs(Math.sin(2 * yaw)) <= 0.5) continue; // only a diagonal shelter's AABB reaches past its glass
@@ -186,38 +185,6 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
       assert.ok(blocked('person', 0.01, px, y, pz), `${st.name}: the end panel blocks`);
     }
     assert.ok(diagonal >= 100, `${diagonal} diagonal shelters probed`);
-    // Tram tunnels and the PST cutting: portals and approaches only (no lid), plus a combined player keep-out
-    assert.equal(layout.tunnels.portals.length, 8, '4 frames + 4 Chartowo median ramps');
-    assert.equal(layout.tunnels.roofs.length, 0, 'no lid over a covered stretch');
-    const tunnelStructures = meshes.find((m) => m.name === 'TramTunnelStructures');
-    const tunnelOpenings = meshes.find((m) => m.name === 'TramTunnelOpenings');
-    const trenchRailings = meshes.find((m) => m.name === 'TramTrenchRailings');
-    assert.ok(tunnelStructures && tunnelStructures.count > 400, `${tunnelStructures?.count} portal/approach wall pieces`);
-    assert.equal(tunnelOpenings && tunnelOpenings.count, 8, '8 dark portal/ramp openings');
-    assert.ok(trenchRailings && trenchRailings.count > 400, `${trenchRailings?.count} cutting/approach railing segments`);
-    assert.ok(layout.hiddenBeds > 0 && layout.hiddenBeds < layout.beds.length,
-      `${layout.hiddenBeds} rail/bed pieces left out of the hidden stretch`);
-    assert.equal(layout.stops.filter((s) => s.hidden).length, 4, '4 stops inside the hidden Franowo stretch draw no surface furniture');
-    assert.ok(layout.poles.every((q) => !layout.tunnels.hiddenAt(q.x, q.z, 3.0) &&
-      !layout.tunnels.trenchAt(q.x, q.z, 2.6)), 'no catenary pole stands inside a hidden/cutting stretch');
-    assert.ok(layout.spans.every((sp) => !layout.tunnels.hiddenAt((sp.ax + sp.bx) / 2, (sp.az + sp.bz) / 2, 2)),
-      'no catenary span crosses a hidden stretch');
-    assert.ok(layout.arms.every((a) => !layout.tunnels.hiddenAt(a.bx, a.bz, 2)),
-      'no cantilever reaches into a hidden stretch');
-    assert.ok(layout.droppers.every((d) => !layout.tunnels.hiddenAt(d.x, d.z, 2)),
-      'no dropper hangs in a hidden stretch');
-    // the keep-out covers the trackbed, but the roads that cross the cutting/tunnel stay open
-    let P = null;
-    for (const t of layout.tunnels.tracks) {
-      if (t.kind !== 'trench') continue;
-      for (let k = 0; k < t.n; k++) {
-        const x = t.p[2 * k], z = t.p[2 * k + 1];
-        if (config.roadClearance(x, z) > 1) { P = { x, z }; break; }
-      }
-      if (P) break;
-    }
-    assert.ok(P && infra.railCorridor(P.x, P.z), 'a cutting track point is inside the player keep-out');
-    assert.ok(!infra.railCorridor(-1368, -212), 'Most Teatralny stays passable over the PST cutting');
   }
 
   // Tram ballast carries no sleepers and no per-instance tie attribute; mainline railway ballast retains both.
@@ -240,7 +207,7 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
   {
     const GLASS_BACK = -0.62;
     const ROOF_FRONT = 0.8;
-    const cases = stops.filter((s) => !s.hidden).map((s) => ({ ...s, tag: `${s.name} (${s.kind} ${s.shelter?.len ?? '-'})` }));
+    const cases = stops.map((s) => ({ ...s, tag: `${s.name} (${s.kind} ${s.shelter?.len ?? '-'})` }));
     // No curb shelter currently gets the 3.2 m setting, so cover all four kind/length pairs synthetically too.
     for (const kind of ['island', 'curb']) {
       for (const len of [3.2, 4.4]) {

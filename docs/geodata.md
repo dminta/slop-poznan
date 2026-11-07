@@ -31,12 +31,12 @@ GEO_DATA=/some/dir node ... tools/build-poznan.mjs                # read inputs 
 - Rings and polylines are flat `[x0, z0, x1, z1, ...]` arrays, rounded to 0.1 m. Outer rings have a negative shoelace area in (x, z); hole rings are positive.
 
 ## Output shape and consumers
-- `GEO` has these keys: `version` (2), `frame{bearingDeg, origin, lat0, lon0, units, strip, sidewalk, detailBox, ll}`, `land`, `landHoles`, `water`, `outskirts`, `outskirtsHoles`, `districts`, `labels`, `roads`, `roadGraph`, `rail`, `tramTunnels`, `levelCrossings`, `tramRoutes`, `tramStops`, `plazas`, `blocks`, `blockStats`, `parks`, `landmarks`. The positional tuple layouts of `roads`, `roadGraph.links`, `blocks` and `blockStats` are documented in comments next to the `GEO` literal in `build-poznan.mjs`. Keep those comments in sync when you change a layout.
+- `GEO` has these keys: `version` (2), `frame{bearingDeg, origin, lat0, lon0, units, strip, sidewalk, detailBox, ll}`, `land`, `landHoles`, `water`, `outskirts`, `outskirtsHoles`, `districts`, `labels`, `roads`, `roadGraph`, `rail`, `levelCrossings`, `tramRoutes`, `tramStops`, `plazas`, `blocks`, `blockStats`, `parks`, `landmarks`. The positional tuple layouts of `roads`, `roadGraph.links`, `blocks` and `blockStats` are documented in comments next to the `GEO` literal in `build-poznan.mjs`. Keep those comments in sync when you change a layout.
 - `js/city-config.js` is the main consumer. It turns `GEO` into `{x, z}` rings and named exports: `LAND_RINGS`/`LAND_HOLES`, `WATER`, `OUTSKIRTS`/`OUTSKIRTS_HOLES`, `RAIL`, `PLAZAS`, `DISTRICTS` (`districtAt`), `BRIDGES` (the bridge-flagged graph links chained per name), `SIGNAL_SITES` (from `roadGraph.signals`, with each junction's arms), `roadClearance` (distance outside the road graph's runs, for street furniture), `ROADS`, `BLOCKS` (each with `built`, `levels` and `buildings` from `GEO.blockStats`), `LANDMARK_SITES`, and the land raster behind `isLand`/`isWater`/`distToWater`/`clampToLand` (2 m cells; bridge decks count as land). Prefer those exports in runtime code. A few modules read `GEO` directly:
   - `road-network.js`: `roadGraph`
   - `city-grid.js`, `buildings.js`, `city-map.js`: `parks`, `plazas`, `frame`
   - `city-map.js`: `labels` (area names, placed by `kind`)
-  - `tram-infra.js`: `rail` (for `oneway`, which `RAIL` drops), `tramStops` and `tramTunnels` (tunnel/cutting ways)
+  - `tram-infra.js`: `rail` (for `oneway`, which `RAIL` drops) and `tramStops`
   - `trams.js`: `rail` (with each tram chain's `routes`), `tramStops` and `tramRoutes`
 - When you add, rename or re-layout a `GEO` key, update every consumer of it, plus the `GEO` stubs in `tests/city-map.test.cjs` if `city-map.js` reads it.
 - `GEO.landmarks` is keyed by a curated name (`Ratusz`, `Katedra`, `Bałtyk`, …; `poz-extra.mjs`), each `{x, z, w, d, h, area, ring, ang}`. `ang` (radians, the turn of a frontage frame's θ and three.js `rotation.y`) is the outline's principal axis: `w` and `d` are the extents along the turned axes, and `fitToSite` turns the model and its colliders by it (see [`world.md`](world.md)). `h` uses a curated height first, then OSM `height` only when it is at least max(6 m, `building:levels` × 3.4 m), then the storeys × 3.4 m, or the placeholder when none is usable. Tiny or implausible OSM heights are rejected. Runtime code looks entries up by name (`LANDMARK_SITES['Ratusz']`), so a dropped match silently drops the landmark: `fitToSite` returns early on a missing site.
@@ -125,14 +125,10 @@ since the 2026-10-25/27 fetches (no tag change on any road, rail, tram route, bu
   `railway=rail|light_rail` way, plus the underground ways of the same name with an end within 10 m of one. OSM tags the
   road under a rail bridge that way, and the world is flat, so they stay at grade and tram-infra.js cuts the railway
   over them. Before 2026-10-28 they were dropped too: Hetmańska had an 80 m gap under the Górczyn line (both
-  carriageways and both tram tracks), with the trackbed drawn across it. Kept on the 2026-11-06 snapshot: 7 road ways
-  (Hetmańska 4, Nad Wierzbakiem, two service roads), 3 track ways (Hetmańska's 2 tram tracks, one outside the box).
-  The PST guards (`isPst`, `isFranowo`) keep the Franowo tunnel and the Kaponiera cover even though they are
-  underground; they are exported as `GEO.tramTunnels` (see [world.md](world.md#tram-infrastructure)). The Górczyn
-  ways are railway underpasses (`trackUnderpasses`), already covered by the rail viaducts, so they are not repeated
-  as tram tunnels.
-  Still dropped: 74 road ways (garage ramps, courtyard passages, Warmińska under Niestachowska); the build now drops
-  0 of these underground track ways inside the box.
+  carriageways and both tram tracks), with the trackbed drawn across it. Kept on the 2026-10-28 snapshot: 7 road ways
+  (Hetmańska 4, Nad Wierzbakiem, two service roads), 3 track ways (Hetmańska's 2 tram tracks, one outside the box);
+  still dropped: 74 road ways (garage ramps, courtyard passages, Warmińska under Niestachowska) and 17 track ways (the
+  Franowo tram tunnel, a 72 m PST tunnel).
 - Level crossings (`GEO.levelCrossings`, flat `[x, z, ...]`, `poz-roads.mjs`): the nodes a drivable piece shares with a
   mainline track way, inside the detail box. OSM joins a road and a track only where they cross at grade (the node
   carries `railway=level_crossing`, which the snapshots do not fetch); bridges and underpasses share no node. 39 on the
@@ -167,7 +163,7 @@ The build reads only the committed `poz_*.json` snapshots. The current output co
   - `poz-base.mjs`: the frame (origin at the Ratusz, 52.40856 N 16.93401 E; bearing 0, so x is east and z is south),
     `toWorld`, `llAffine`, `DETAIL_BOX` and the snapshot loader.
   - `poz-roads.mjs`: drivable ways split at shared nodes into `pieces`, plus plazas (with `holes`), pedestrian ways,
-    rail lines, rail corridors, `roads`, tram stops, signal nodes and the `tramTunnels` (tunnel/PST-cutting) ways.
+    rail lines, rail corridors, `roads`, tram stops and signal nodes.
   - `poz-water.mjs`: water polygons; `land` (the detail box minus water on a 2 m raster) with `landHoles`; `outskirts`
     with `outskirtsHoles`; `isLandAt`.
   - `poz-extra.mjs`: parks and the park-coverage pass, landmarks (with `ang`), districts and labels.
@@ -218,12 +214,11 @@ The build reads only the committed `poz_*.json` snapshots. The current output co
   2026-10-28 snapshot (8.2 × 5.7 km box): 44 links right, 799 left (52.5 km), 200 with the tracks on the carriageway
   (the 6.1 × 3.7 km box: 35, 475 (32 km), 156); the build logs `tram strip right … / left … links`. Blocks went from
   821 to 796 (outer curbs moved in, slivers merged) when it came in.
-- Current committed output (read directly from `js/geodata.js`, 2026-11-06): 2,590,417 bytes including its header,
-  1,422 blocks and block-stat entries, 6,659 road pieces, 7,121 graph links, 441 parks, 34 osiedla, 1,171 rail
-  chains (645 tram, 526 mainline) and 24 tram tunnel/cutting ways (17 covered, 2.18 km of bore; 7 PST cutting). There are 225 tram stop nodes and 38 directional
-  route records. Physical tram chains total 127.4 km; mainline chains 127.2 km. Directed runtime tram edges have a
-  different denominator (two-way chains contribute twice); see [actors.md](actors.md#trams-jstramsjs). The historical
-  smaller-box output was 1.42 MB.
+- Current committed output (read directly from `js/geodata.js`, 2026-10-29): 2,477,423 bytes including its header,
+  1,424 blocks and block-stat entries, 6,659 road pieces, 7,121 graph links, 441 parks, 34 osiedla and 1,168 rail
+  chains (642 tram, 526 mainline). There are 225 tram stop nodes and 38 directional route records. Physical tram
+  chains total 127.4 km; mainline chains 127.2 km. Directed runtime tram edges have a different denominator
+  (two-way chains contribute twice); see [actors.md](actors.md#trams-jstramsjs). The historical smaller-box output was 1.42 MB.
 - Holes are separate keys: `landHoles` and `outskirtsHoles` are `[{ outer, ring }]` with positive winding, where `outer`
   indexes `land` or `outskirts`. `water[i].holes` (islands) and `plazas[i].holes` (buildings on a square) are nested and
   optional. Keep the comments next to the `GEO` literal in `build-poznan.mjs` in sync with the layouts.
