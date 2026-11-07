@@ -40,21 +40,17 @@ Implementation details and completed measurements live in the [topic docs](../AG
   [Signal placement](world.md#street-furniture-street-detailsjs). Overhead mounting is an option to consider below.
 - **Building accuracy (4.4, 7):** source the remaining estimated sub-heights, including Fara's front statues and
   Teatr Wielki's pediment/Pegasus. [Height audit](observations/landmark-heights-2026-11-03.md).
-- **Merge starvation:** investigate remaining long holds, especially Centrum seeds 99/4242/7 and Rataje seed 4242,
-  and queues at Kaponiera and Wilda. After the short-link follower fix, the 8-seed × 7-district benchmark still
-  has 213 cars held over 60 s and 10 over 120 s. Avoid reviving the rejected early-arrival and lane-lead braking
-  relaxations without checking their regressions. [Comparison and rejected variants](observations/tram-overlaps-2026-11-04.md).
-  The 2026-11-07 Centrum seed 99 10-minute run (current working tree) reports `waitMax`/`longestHeld` 184 s at
-  `(-1117, 132)`; the 5-minute benchmark ends at 300 s and does not reach the t = 477 s peak. Only the aggregate and
-  one `--dump` snapshot are documented. An unretained per-second trace suggested a 9.4 m short link held by a
-  left-turner or a car at the downstream red, with an exit reservation still counting a priority lead held by
-  tram/box; that chain is **not reproducible**, so treat it as a hypothesis. An unretained variant that skipped such
-  reservations reported 133 s but a slower seed and a car stopped 52 s in the junction box at target node
-  `(-1074, 129)`; it was not kept and is not reproducible either. Still open; the same physical link is covered by the
-  short-link left-turn item. [Aggregate and limitations](observations/merge-starvation-2026-11-07.md).
-- **Short-link left-turn phase:** reduce remaining holds at Centrum (seed 99: 110 s; 4242: 85 s; 7: 87 s in the
-  recorded comparison). Preserve tram-body reservations and verify full clearance through the junction.
-  [Per-second trace and timetable context](observations/left-turn-tram-2026-11-04.md).
+- **Merge starvation and short-link left turns:** the 2026-11-07 Centrum seed 99 10-minute hold (`waitMax`/`longestHeld`
+  184 s at `(-1117, 132)`) is fixed. A blocked lead no longer reserves the 9.4 m link between signals, and a left turn
+  that cannot clear falls back to a straight move from the same lane, so it no longer waits on the link. That run is
+  now 52/51 s with no box-stuck car or deadlock at the target and no car over 60 s; over the 8 seeds × 7 districts
+  (5 min) held > 60 s moves 164 → 117 and > 120 s 12 → 3, deadlocks 1 → 0 and box-stuck seed-districts 13 → 11 (the
+  older 213/10 figure came from a different tree; this baseline re-measured at `6a1a234`). Centrum has no box-stuck
+  seed, including seeds 1 and 5 and the target `(-1117, 132)`. Kaponiera still dominates what remains
+  (`(-1490, 170)` boxes, 3 cars over 120 s) but improves from 12. Avoid reviving the rejected early-arrival and
+  lane-lead braking relaxations without their regressions.
+  [Trace, measurements and rejected variants](observations/merge-starvation-2026-11-07.md),
+  [per-second left-turn/tram trace](observations/left-turn-tram-2026-11-04.md).
 - **Car–tram body overlaps:** address the short-link car forecast blind spot at Kaponiera and Centrum, cars
   stopped inside the tram envelope (27 in the recorded audit, mostly Jeżyce buses), and 58 remaining close lanes
   (62 runs, 626 m: short junction/shared-tram stubs, curved and constant-shift cases, off-street lanes and tracks

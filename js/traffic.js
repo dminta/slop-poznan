@@ -1099,14 +1099,35 @@ function createTrafficSystem(
   // non-transitive: three cars could each reserve the same empty exit against the next at Kaponiera. At a short link,
   // an arrived lead waiting over 10 s remains eligible through red only if the entrant is expected to stop at the
   // downstream signal. Otherwise green traffic can clear the empty link instead of waiting for the red approach.
-  function room(f, j, v) {
+  function room(f, j, v, tight = false) {
     let free = f.len - 1;
-    for (const o of f.occ[j]) if (o.v !== v && o.s - o.v.half < f.len) free -= 2 * o.v.half + o.v.driver.s0;
+    // A car that cannot stop may not enter a long feeder of a short signalised link when the space behind the
+    // rearmost car is too small: the total-gap sum would let it stop in the upstream box behind the approach queue
+    // at (-1074, 129) for 53 s (seed 5). Stoppable cars keep the old estimate. Buses are left to the existing
+    // short-link bus guard: their length does not fit the rear-gap estimate. A feeder under 20 m stores too few cars
+    // for this queue to reach the box.
+    let shortAhead = tight && !v.bus && f.len >= 20 && f.to && f.to.out;
+    if (shortAhead) {
+      shortAhead = false;
+      for (const g of f.to.out) if (g.len < 12 && g.from.signal && g.to.signal) { shortAhead = true; break; }
+    }
+    for (const o of f.occ[j]) {
+      if (o.v === v || o.s - o.v.half >= f.len) continue;
+      const rear = o.s - o.v.half;
+      if (shortAhead && rear < 2 * v.half + 0.5) free = Math.min(free, rear);
+      else free -= 2 * o.v.half + o.v.driver.s0;
+    }
     let priority = null, waited = 0, arrival = Infinity;
     for (const a of f.from.in) {
       for (const list of a.occ) {
         const o = leadOf(list);
         if (!o || o.v.claimed || !o.v.move || o.v.move.to !== f || o.v.move.out[o.v.lane] !== j) continue;
+        // A lead that something physical holds must not reserve the one usable lane of a short link out of a
+        // signal. A police car behind a tram at the 9.4 m Św. Marcin link kept it for the whole cross green and
+        // starved the (-1074, 129) approach for 184 s (seed 99, 10 min). Unsignalised give-way exits keep the old rule.
+        if (f.len < 12 && f.from.signal && o.v.speed < 0.5 &&
+          (o.v.held === 'box' || o.v.held === 'tram' || o.v.held === 'oncoming' || o.v.held === 'crossing' ||
+          o.v.held === 'pedestrian' || o.v.held === 'turner' || o.v.held === 'bus' || o.v.held === 'lane')) continue;
         if (a.to.signal && !o.v.isPolice && o.v.commit !== a.to && phaseOf(a) !== 'green' &&
           !(f.len < 12 && o.v.wait > 10 && Number.isFinite(o.v.mergeArrival) && downstreamStops(f, j, v))) continue;
         const at = Number.isFinite(o.v.mergeArrival) ? o.v.mergeArrival : Infinity;
@@ -1123,6 +1144,12 @@ function createTrafficSystem(
       for (const list of a.occ) {
         const o = leadOf(list);
         if (!o || o.v.claimed || !o.v.move || o.v.move.to !== f || o.v.move.out[o.v.lane] !== j) continue;
+        // A lead that something physical holds must not reserve the one usable lane of a short link out of a
+        // signal. A police car behind a tram at the 9.4 m Św. Marcin link kept it for the whole cross green and
+        // starved the (-1074, 129) approach for 184 s (seed 99, 10 min). Unsignalised give-way exits keep the old rule.
+        if (f.len < 12 && f.from.signal && o.v.speed < 0.5 &&
+          (o.v.held === 'box' || o.v.held === 'tram' || o.v.held === 'oncoming' || o.v.held === 'crossing' ||
+          o.v.held === 'pedestrian' || o.v.held === 'turner' || o.v.held === 'bus' || o.v.held === 'lane')) continue;
         if (a.to.signal && !o.v.isPolice && o.v.commit !== a.to && phaseOf(a) !== 'green' &&
           !(f.len < 12 && o.v.wait > 10 && Number.isFinite(o.v.mergeArrival) && downstreamStops(f, j, v))) continue;
         const first = a === v.edge ? mergeFirst(o.v, o.s, v, v.s) : a === priority;
@@ -1269,7 +1296,7 @@ function createTrafficSystem(
     if (pedestrianOn(n, e.inSide, laneCoord(e, v.lane, e.inArm), 0, timeTo(v, d + (e.crosswalkEnd ?? e.setbackTo + CROSSWALK) + 2 * v.half), turn)) return refuse(v, 'pedestrian');
     if (wait < 0 && pedestrianOn(n, f.outSide, laneCoord(f, j, f.outArm), timeTo(v, d + c.len - shortOfZebra(f)), timeTo(v, d + c.len - f.setbackFrom + 2 * v.half), turn)) return refuse(v, 'pedestrian');
     const vs = v.s - e.len - c.len; // where on f it would be now
-    if (!room(f, j, v)) return refuse(v, 'room');
+    if (!room(f, j, v, !stoppable)) return refuse(v, 'room');
     if (alongside(f, j, v, vs, m.turn !== 'S') || mergingAhead(v, f, j)) return refuse(v, 'merge');
     v.out = j;
     v.yielding = wait >= 0;
@@ -1366,6 +1393,18 @@ function createTrafficSystem(
     return Math.sqrt(Math.min(speeds[i], speeds[Math.min(i + 1, speeds.length - 1)]));
   }
 
+  // A left turn held on a short link between signals blocks the only usable lane: take a straight move from the same
+  // lane instead (when the link has one) rather than wait there. Used only after mayEnter refused the left turn.
+  function straightFallback(v) {
+    let other = null;
+    for (const m of v.edge.moves) {
+      if (m.out[v.lane] < 0 || m.turn === 'L') continue;
+      if (m.turn === 'S') return m;
+      if (!other) other = m;
+    }
+    return other;
+  }
+
   // IDM acceleration for vehicles ahead in the lane (and, through the intersection, in the lane it leads to),
   // the stop line while v may not go, a red beyond, the player, and slowing down for turns and give-way lines.
   // v.waitReason names the binding term, as a tram's does: 'car' (v.leader ahead), why mayEnter refused (v.held:
@@ -1387,7 +1426,13 @@ function createTrafficSystem(
       if (worst < 0) why = 'car';
       const d = e.len - v.s - v.half;
       if (d < LOOKAHEAD) {
-        const go = mayEnter(v, d);
+        let go = mayEnter(v, d);
+        if (!go && v.edge.len < 12 && v.edge.from.signal && v.edge.to.signal && v.move.turn === 'L' && v.speed < 2 &&
+          (v.held === 'oncoming' || v.held === 'box' || v.held === 'tram' || v.held === 'pedestrian' ||
+          v.held === 'room' || v.held === 'merge' || v.held === 'turner' || v.held === 'crossing' || v.held === 'bus')) {
+          const alt = straightFallback(v);
+          if (alt) { v.move = alt; go = mayEnter(v, d); }
+        }
         const f = v.move.to;
         const j = v.move.out[v.lane];
         const c = j < 0 ? null : connector(e, v.lane, f, j);

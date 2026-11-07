@@ -260,6 +260,62 @@ test('a long-waiting red approach can reserve the next opening in a short exit',
   assert.equal(room(exit, 0, newer), true, 'long exits retain normal signal priority');
 });
 
+test('a physically blocked lead does not reserve a short exit lane', () => {
+  // At the 9.4 m Św. Marcin link, a police car on the south approach sat on a red, held by a tram, and its exit
+  // reservation still kept the link's only usable lane empty through the cross green (seed 99: 184 s hold).
+  const n = { signal: true, in: [] };
+  const a = { id: 1, to: n, occ: [], phase: 'green' };
+  const b = { id: 2, to: n, occ: [], phase: 'green' };
+  const exit = { len: 9.43, occ: [[]], from: n };
+  const car = (edge, wait, arrival) => ({ edge, lane: 0, s: 9, wait, mergeArrival: arrival, half: 2.2, speed: 0,
+    driver: { s0: 2 }, move: { to: exit, out: [0] } });
+  const old = car(a, 70, 10), newer = car(b, 5, 75);
+  a.occ = [[{ v: old, s: old.s }]];
+  b.occ = [[{ v: newer, s: newer.s }]];
+  n.in = [a, b];
+  const context = { leadOf: (list) => list.at(-1), precedence: (v, s) => s + v.half, phaseOf: (e) => e.phase };
+  context.mergeFirst = trafficFunction('mergeFirst', context);
+  const room = trafficFunction('room', context);
+  assert.equal(room(exit, 0, newer), false, 'a stopped lead at the line holds its turn');
+  old.held = 'tram';
+  assert.equal(room(exit, 0, newer), true, 'a lead held by a tram cannot reserve the empty short link');
+  old.held = 'signal';
+  assert.equal(room(exit, 0, newer), false, 'a lead waiting only for its own green still keeps its slot');
+  old.held = 'tram';
+  exit.len = 12.2;
+  assert.equal(room(exit, 0, newer), false, 'an exit at least 12 m still counts the blocked lead');
+  n.signal = false;
+  exit.len = 9.43;
+  assert.equal(room(exit, 0, newer), false, 'a give-way short exit keeps its reservation');
+  n.signal = true;
+  old.speed = 1;
+  assert.equal(room(exit, 0, newer), false, 'a lead that is moving reserves normally');
+});
+
+test('a car that cannot stop does not take a long feeder with a tight rear gap', () => {
+  const road = { len: 9.4, from: { signal: true }, to: { signal: true } };
+  const n = { signal: true, in: [] };
+  const lead = { s: 3.5, v: { half: 2.2, driver: { s0: 2 } } };
+  const exit = { len: 25.1, occ: [[lead]], from: n, to: { out: [road] } };
+  const car = { half: 2.2, driver: { s0: 2 } };
+  const room = trafficFunction('room', {});
+  assert.equal(room(exit, 0, car, true), false, 'the space behind the rearmost car is too small');
+  assert.equal(room(exit, 0, car, false), true, 'a stoppable car keeps the total-gap estimate');
+  road.from.signal = false;
+  assert.equal(room(exit, 0, car, true), true, 'only a short signal-to-signal link ahead scopes the rule');
+});
+
+test('a left turn on a short link falls back to a straight move from the same lane', () => {
+  const straightFallback = trafficFunction('straightFallback', {});
+  const L = { turn: 'L', out: [0] };
+  const S = { turn: 'S', out: [0] };
+  const R = { turn: 'R', out: [0] };
+  assert.equal(straightFallback({ edge: { moves: [L, S, R] }, lane: 0 }), S, 'prefers a straight move');
+  assert.equal(straightFallback({ edge: { moves: [L, R] }, lane: 0 }), R, 'takes another non-left move');
+  assert.equal(straightFallback({ edge: { moves: [L] }, lane: 0 }), null, 'keeps the left turn when nothing else exists');
+  assert.equal(straightFallback({ edge: { moves: [S] }, lane: 0 }), S, 'a non-left move is returned unchanged');
+});
+
 test('the downstream forecast matches signal plans without changing their current state', async () => {
   const { updateSignal } = await import('../js/city-config.js');
   const root = { cycle: 60, green0: 25, start1: 30, offset: 2, mainUx: 1, mainUz: 0,
