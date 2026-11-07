@@ -35,10 +35,11 @@ Implementation details and completed measurements live in the [topic docs](../AG
   fallback connector: every existing candidate crosses a lane, a building lot or a rail, or lies beyond the 16 m
   corridor. The audit's `reasonCounts` (overlapping, one per remaining end) are lane 138, length 70, lot 51, walkable
   32, rail 14, corridor 14, building 8, block 4 and none 2. A 40/48 m `FALLBACK_MAX` adds only 6/7 ends, and a corridor
-  beyond 16 m connects no other key node, so both stay. Follow-up: extend `next()`'s dead-end guard to sidewalk tracks
-  (`target.edge`); the long fallback now leaves 346 path ends on a sidewalk track with no further link (333 before),
-  and one of a projection sub-track's `from`/`to` is not geometric, so the guard needs a sampled test. Still open: a
-  production full-scene count (the benchmark omits landmark and bridge colliders and city-grid curbs).
+  beyond 16 m connects no other key node, so both stay. The dead-end guard now also covers sidewalk-track landings
+  (`target.edge`): of the 346 path ends that used to land on a sidewalk track with no onward link, 11 gain a non-empty
+  link after the fallback projection sub-tracks' `from`/`to` were made geometric and the remaining 335 are rejected by
+  `next()` (sampled route choices into such dead ends fall 517 → 0). Still open: a production full-scene count (the
+  benchmark omits landmark and bridge colliders and city-grid curbs).
   [Routing observations](observations/ped-overlaps-2026-11-05.md).
 - **Other missing signal heads (15.5):** the overhead fallback now serves 26 of the 66 historical Category C
   approaches from 12 new 6.2 m masts and 14 reused signal poles (arm ≤ 11.7 m, mean 9.11 m); the audit is

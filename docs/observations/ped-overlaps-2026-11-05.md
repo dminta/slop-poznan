@@ -255,8 +255,55 @@ scans a wider 32 m box only when an end has no base link, and the result is cach
 
 ### Remaining follow-up
 
-The long fallback can now end on a sidewalk track, whose `node` is null. `next()`'s dead-end guard only checks
-`target.node`, so on this world 346 path ends land on a sidewalk track with no further link (333 before, +13); a
-walker can then reverse and walk the same short track back. Extending the guard to `target.edge` is not part of this
-change because the fallback's projection sub-tracks also carry `edge` and one of their `from`/`to` is not geometric;
-the backlog keeps it as a follow-up with a sampled test.
+The production full-scene count is still open because the benchmark omits landmark and bridge colliders and city-grid
+curbs; the 156 empty crosswalk ends themselves are listed above and in `docs/backlog.md`.
+
+## Follow-up 2026-11-07: dead-end sidewalk guard
+
+The long fallback lands on sidewalk tracks, whose ends are `from`/`to` rather than a crosswalk `node`. `next()` only
+guarded `target.node`, so on the headless world **346** path ends landed on a sidewalk track with no onward link (333
+before the long fallback accepted sidewalk tracks). A walker that took one could reverse on the same short track and
+loop, or stand until the 20 s recovery moved it.
+
+### Mechanisms
+
+1. **A projection sub-track's node sat on the wrong end.** `fallbackPaths` cuts a sidewalk track `q` at the projection
+   point `c` and offers two sub-tracks from `c` to `q`'s ends. The backward sub (`c` → `point(q, 0)`) carried
+   `from: q.from`, but `from` names the node at end 0, which is `c` (mid-track, no node), while end 1 is `q.from`.
+   `baseLinks(track, dir)` reads `track.to` for a dir 1 exit and `track.from` for dir -1, so the link lookup ran at the
+   wrong end. The leg also travelled `dir -1`, which starts the walker at `point(q, 0)` and sends them back to `c`
+   instead of continuing along `q`.
+2. **`next()` had no sidewalk branch.** For `target.edge` the guard built no landing and skipped the dead-end test, so
+   a fallback path could end on a track whose `links` list was empty.
+
+### Fix
+
+- `js/pedestrian-routes.js`: both projection sub-tracks now travel `dir 1` from `c`, and their `to` names the node at
+  end 1 (`q.from` for the backward sub, `q.to` for the forward one); `from` is null because `c` is mid-track. `links`
+  therefore looks for onward connections at the node the walker actually reaches.
+- `next()` checks `target.edge` as well as a crosswalk `target.node`: when the landing lies on a known block and
+  `links(target, last.dir)` is empty, the path is skipped. Unknown landings keep the old behaviour.
+- `tests/pedestrian-route-sinks.test.cjs`: the sampled route-choice check also rejects a chosen sidewalk landing with
+  no links, and a targeted loop puts the goal exactly on every dead-end sidewalk landing and asserts `next()` never
+  returns that path. On the old code 151 of 230 bare-network links were chosen this way; now 0.
+
+### Before / after
+
+Furnished headless world (`buildWorld`, 3,270 crosswalks / 4,527 tracks) and the bare `buildRoadNetwork([], [])`
+network (3,391 / 4,729). "Sampled" is the route-sink test's three goals per crosswalk end; "targeted" puts the goal
+exactly on the dead landing.
+
+| metric | furnished before | furnished after | bare before | bare after |
+|---|---|---|---|---|
+| sidewalk path ends with no onward link | 346 | **335** | 230 | **219** |
+| of those, landing on a known block | 346 | 335 | 230 | 219 |
+| sampled route choices into a dead end | 517 | **0** | 8 | **0** |
+| targeted goals routed into the dead end | 270 / 346 | **0 / 335** | 151 / 230 | **0 / 219** |
+
+Of the 346 furnished dead ends, 11 are projection sub-tracks that now reach `q.from`/`q.to` and gain a non-empty
+onward link; the remaining 335 (ordinary sidewalk track ends with no other port) are all rejected by the guard. The
+sampled choice count falls 26,664 → 26,433 because some ends now return no path at all. No new dead ends appear.
+
+`node --test tests/*.cjs`: 419 pass. The signal-audit fixture is unchanged because the guard only filters `next()`;
+it adds or moves no track.
+
