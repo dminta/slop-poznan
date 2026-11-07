@@ -118,8 +118,10 @@ per focus point at 15 fps and seed 4242; the record below also used seed 77 (`--
 cluster is a connected group of at least four such peds lasting over 5 s, and it also reports citywide overlapping pairs
 per second and crosswalk entries per minute so throughput is visible. Each cluster lists its centroid, street name,
 member states, route positions, spawn origins and age. It uses the benchmark's headless world and omissions. Results are
-in [observations/ped-overlaps-2026-11-05.md](observations/ped-overlaps-2026-11-05.md); no test runs the whole audit, but
-`tests/pedestrian-route-sinks.test.cjs` covers the route-side regression on the bare network.
+in [observations/ped-overlaps-2026-11-05.md](observations/ped-overlaps-2026-11-05.md); no test runs the whole audit.
+`tests/pedestrian-route-sinks.test.cjs` covers the route-side regression on the bare network (32 empty ends / 31 tracks,
+ceilings 40/40) and builds the furnished headless world once to pin the five named landings, their kerb links and the
+2.22 m rail / building / block clearance.
 
 ## Traffic benchmark
 
@@ -252,7 +254,7 @@ and runtime use the same search, including actual lanes, turn samples, crossing 
 sidewalk, corner and refuge segments. The headless fixture uses live park/plaza data but omits building, landmark and
 bridge colliders. The browser includes them, so candidate sites and counts can differ. The audit checks geometry, not
 visual occlusion, and C does not rule out unsampled sites. `tests/signal-audit.test.cjs` checks before and after counts
-(117/0/40/10, hash `636398ec...`); `signal-placement.test.cjs` rebuilds the network with the new footprints and compares
+(114/0/43/10, hash `3815ffac...`); `signal-placement.test.cjs` rebuilds the network with the new footprints and compares
 lanes, crossings and pedestrian segments and their route connections near the new poles, as well as phase equality
 over the full plan cycle (pedestrian plans included), facing, setbacks, reused pole curbside bounds
 (`lateral <= half + 2.6 m`), overhead arm reach (`<= 12 m`), 0.5 m arm/head

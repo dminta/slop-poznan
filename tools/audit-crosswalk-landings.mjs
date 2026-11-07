@@ -8,7 +8,8 @@
 //
 // `laneHits` repeats the exact segment-to-segment lane check the connector uses (edge half width + 0.8 m). The audit
 // also reports rail and building hits, sibling-line U-turns and the number of fallback connector legs, so a corridor
-// widening cannot pass by clipping a lane or a wall.
+// widening cannot pass by clipping a lane or a wall. `spur*` re-checks the short kerb tracks generated on tram-cut
+// islands/medians: their whole path keeps 2.22 m from every rail centreline, stays out of buildings and on its block.
 import { writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -99,6 +100,32 @@ let fallbackLegs = 0, fallbackEnds = 0, laneHits = 0, railHits = 0, buildingHits
 const laneExamples = [];
 const edges = network.edges;
 const buildings = loadBuildingColliders();
+const BUILDING_CELL = 32, buildingCells = new Map();
+for (const c of buildings) {
+  if ((c.minY ?? 0) >= 1.9) continue;
+  const reach = c.obb ? 0.4 * Math.SQRT2 : 0.4;
+  const ix0 = Math.floor((c.minX - reach) / BUILDING_CELL), ix1 = Math.floor((c.maxX + reach) / BUILDING_CELL);
+  const iz0 = Math.floor((c.minZ - reach) / BUILDING_CELL), iz1 = Math.floor((c.maxZ + reach) / BUILDING_CELL);
+  for (let ix = ix0; ix <= ix1; ix++) for (let iz = iz0; iz <= iz1; iz++) {
+    const key = ix * 100000 + iz;
+    if (!buildingCells.has(key)) buildingCells.set(key, []);
+    buildingCells.get(key).push(c);
+  }
+}
+const hitsBuilding = (x, z) => {
+  const list = buildingCells.get(Math.floor(x / BUILDING_CELL) * 100000 + Math.floor(z / BUILDING_CELL));
+  if (!list) return false;
+  for (const c of list) {
+    if (c.obb) {
+      const { cx, cz, hx, hz, cs, sn } = c.obb;
+      const dx = x - cx, dz = z - cz;
+      if (Math.abs(dx * cs - dz * sn) <= hx + 0.4 && Math.abs(dx * sn + dz * cs) <= hz + 0.4) return true;
+    } else if (x >= c.minX - 0.4 && x <= c.maxX + 0.4 && z >= c.minZ - 0.4 && z <= c.maxZ + 0.4) {
+      return true;
+    }
+  }
+  return false;
+};
 for (const track of tracks) {
   for (const dir of [-1, 1]) {
     const paths = routes.fallbackPaths(track, dir);
@@ -126,16 +153,38 @@ for (const track of tracks) {
       for (let i = 0; i <= steps; i++) {
         const x = ax + (bx - ax) * i / steps, z = az + (bz - az) * i / steps;
         if (railClearance(x, z, RAIL_KEEP) < RAIL_KEEP) railHits++;
-        for (const c of buildings) {
-          if ((c.minY ?? 0) >= 1.9) continue;
-          if (x < c.minX - 0.4 || x > c.maxX + 0.4 || z < c.minZ - 0.4 || z > c.maxZ + 0.4) continue;
-          if (c.obb) {
-            const { cx, cz, hx, hz, cs, sn } = c.obb;
-            const dx = x - cx, dz = z - cz;
-            if (Math.abs(dx * cs - dz * sn) > hx + 0.4 || Math.abs(dx * sn + dz * cs) > hz + 0.4) continue;
-          }
-          buildingHits++;
-          break;
+        if (hitsBuilding(x, z)) buildingHits++;
+      }
+    }
+  }
+}
+
+// Spur links: the short kerb tracks generated on tram-cut islands and medians (the Miła landing and its kin) are
+// re-checked independently. Split road-edge runs are ordinary sidewalk lines, some of which legitimately pass under a
+// railway viaduct where the 2D rail distance is small; the named key nodes are pinned at 2.22 m by
+// tests/pedestrian-route-sinks.test.cjs. Rail, building and block membership apply to the whole spur path.
+const CURB_RAIL_KEEP = 2.22;
+let spurLinks = 0, spurRailHits = 0, spurBuildingHits = 0, spurBlockHits = 0, spurMinRail = Infinity;
+const spurTracks = new Set(), spurEnds = new Set();
+for (const track of tracks) {
+  for (const dir of [-1, 1]) {
+    const paths = routes.links(track, dir);
+    for (const path of paths) {
+      const last = path[path.length - 1].track;
+      if (last.node || !last.landing) continue;
+      spurLinks++;
+      spurEnds.add(track);
+      spurTracks.add(last);
+      for (const { track: leg } of path) {
+        const ax = leg.ax, az = leg.az, bx = leg.ax + leg.ux * leg.len, bz = leg.az + leg.uz * leg.len;
+        const steps = Math.max(1, Math.ceil(leg.len / 0.5));
+        for (let i = 0; i <= steps; i++) {
+          const x = ax + (bx - ax) * i / steps, z = az + (bz - az) * i / steps;
+          const rail = railClearance(x, z, CURB_RAIL_KEEP + 1);
+          spurMinRail = Math.min(spurMinRail, rail);
+          if (rail < CURB_RAIL_KEEP) spurRailHits++;
+          if (hitsBuilding(x, z)) spurBuildingHits++;
+          if (leg.block && !leg.node && !leg.underpass && config.blockAt(x, z) !== leg.block) spurBlockHits++;
         }
       }
     }
@@ -167,6 +216,13 @@ const summary = {
   railHits,
   buildingHits,
   laneExamples,
+  spurLinks,
+  spurEnds: spurEnds.size,
+  spurTracks: spurTracks.size,
+  spurRailHits,
+  spurBuildingHits,
+  spurBlockHits,
+  spurMinRail: Number.isFinite(spurMinRail) ? +spurMinRail.toFixed(2) : null,
   reasonCounts
 };
 console.log(JSON.stringify(summary, null, 2));

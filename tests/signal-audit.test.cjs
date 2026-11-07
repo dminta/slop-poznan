@@ -16,21 +16,21 @@ test('the furnished audit classifies historical approaches before and after runt
   const before = audit('--before'), after = audit();
   assert.equal(before.rows.length, 167);
   assert.equal(after.rows.length, 167);
-  assert.deepEqual(before.summary.counts, { A: 17, B: 74, C: 66, D: 10 });
-  assert.deepEqual(after.summary.counts, { A: 117, B: 0, C: 40, D: 10 });
+  assert.deepEqual(before.summary.counts, { A: 17, B: 67, C: 73, D: 10 });
+  assert.deepEqual(after.summary.counts, { A: 114, B: 0, C: 43, D: 10 });
   assert.equal(before.summary.vehicleHeads, 903);
-  assert.equal(after.summary.vehicleHeads, 1004);
+  assert.equal(after.summary.vehicleHeads, 1001);
   assert.equal(after.summary.pedestrianHeads, 1572);
-  assert.equal(after.summary.runtimePoles, 81);
-  assert.equal(after.summary.reusedPoles, 20);
-  assert.equal(after.summary.overheadHeads, 26);
-  assert.equal(after.summary.overheadPoles, 12);
-  assert.equal(after.summary.overheadReused, 14);
-  assert.equal(after.summary.overheadStrict, 10);
-  assert.equal(after.summary.overheadBand, 11);
-  assert.equal(after.summary.overheadException, 15);
+  assert.equal(after.summary.runtimePoles, 73);
+  assert.equal(after.summary.reusedPoles, 25);
+  assert.equal(after.summary.overheadHeads, 30);
+  assert.equal(after.summary.overheadPoles, 11);
+  assert.equal(after.summary.overheadReused, 19);
+  assert.equal(after.summary.overheadStrict, 15);
+  assert.equal(after.summary.overheadBand, 16);
+  assert.equal(after.summary.overheadException, 14);
   assert.deepEqual(after.summary.overheadFallbackAlong,
-    [1.75, 1.75, 1.75, 1.75, 1.75, 1.75, 1.75, 0.031, 1.75, 1.75, -0.816, 1.75, 1.75, 1.75, 1.75]);
+    [1.75, 1.75, 1.75, 1.75, 1.75, 0.031, 1.75, 1.75, -0.816, 1.75, 1.75, 1.75, 1.75, 1.75]);
   assert.ok(after.summary.overheadFootRailMin >= 3.1, 'mast feet keep 0.5 m from a 2.6 m mast setback');
   assert.ok(after.summary.overheadArmRailMin >= 2.22, 'every sampled arm and head keeps 2.22 m from rails');
   assert.ok(after.summary.overheadFallbackSupportMin > 12 && after.summary.overheadFallbackSupportMin < 13,
@@ -49,8 +49,8 @@ test('the furnished audit classifies historical approaches before and after runt
   const placements = after.summary.placements.map((row) => row.map((v) =>
     typeof v === 'number' ? Number(v.toFixed(3)) : v));
   assert.equal(createHash('sha256').update(JSON.stringify(placements)).digest('hex'),
-    '636398ec0efe2462b097f78fae04d5c51391ae81996189916e66c8b2ade48976');
-  for (const [x, z] of [[1374.2, 566.1], [-2086.95, 2421.3]]) {
+    '3815ffac35ec84042c47dae59ef06c6928548e40478c05c9bfcd963fdea9556b');
+  for (const [x, z] of [[1374.2, 566.1], [1060.7, 1452.8]]) {
     assert.ok(before.rows.some((r) => Math.hypot(r.node[0] - x, r.node[1] - z) < 0.01 && r.class === 'B'));
     assert.ok(after.rows.some((r) => Math.hypot(r.node[0] - x, r.node[1] - z) < 0.01 && r.class === 'A'));
   }

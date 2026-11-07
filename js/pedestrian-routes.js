@@ -9,7 +9,7 @@ function createPedestrianRoutes(
   { nodes = [], edges = [], walkable, configureCrosswalks }, blockAt, railClearance = null, buildingColliders = null
 ) {
   const sidewalks = new Map(), crossings = new Map(), junctions = new Map(), connections = new WeakMap();
-  const islandPorts = new Map();
+  const islandPorts = new Map(), curbPorts = new Map();
   const point = (track, end) => ({ x: track.ax + track.ux * track.len * end, z: track.az + track.uz * track.len * end });
   const segment = (a, b, extra = {}) => {
     const len = Math.hypot(b.x - a.x, b.z - a.z);
@@ -64,6 +64,113 @@ function createPedestrianRoutes(
     return null;
   }
 
+  // A landing that reaches a kerb island with no complete sidewalk line on it (a tram-cut island, or a corner where
+  // every road-edge line leaves the island before the zebra) has no port to walk on to. `curbPorts` indexes every
+  // sidewalk-track end by the block it stands on; `baseLinks` offers the ones within CURB_LINK_MAX to a crosswalk end.
+  // The edge lines themselves are split at block boundaries below, so the island part is a real, legal track rather
+  // than a connector across the roadway. 8 m is the shortest-link band used for ordinary curb links.
+  const CURB_LINK_MAX = 8, CURB_RUN_MIN = 1.5;
+  // A tram-cut island or median has no complete road-edge sidewalk line through the cut, so an isolated landing there
+  // gets a short kerb track of its own. The walk stays 2.22 m from every rail centreline (the tram envelope plus a
+  // body), along the landing's own block outline, and never crosses a lane, a lot or a wall.
+  const CURB_SPUR = 6, LANDING_RAIL_KEEP = 2.22;
+  function fileCurb(track) {
+    for (const end of [0, 1]) {
+      const p = point(track, end), block = blockAt(p.x, p.z);
+      if (!block) continue;
+      let list = curbPorts.get(block);
+      if (!list) curbPorts.set(block, list = []);
+      list.push({ track, end });
+    }
+  }
+  // A road-edge sidewalk line is only walked where it lies on a curb island, but one line can pass several blocks (and
+  // tram cuts) end to end. Keep the clear same-block runs separately: before, the whole line was dropped when any
+  // sample left its block, which removed every island track through a tram cut (Okrąglak, Święty Marcin,
+  // Górna Wilda).
+  function splitAlong(a, b, e, key, result) {
+    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.5));
+    const at = (i) => ({ x: a.x + (b.x - a.x) * i / steps, z: a.z + (b.z - a.z) * i / steps });
+    const push = (i0, i1, block) => {
+      // Leave the last half metre at each boundary: blockAt is null exactly on a cut, and a port must be walkable.
+      for (let trim = 0; trim <= 2 && i1 - i0 >= 3; trim++) {
+        const p0 = at(i0 + trim), p1 = at(i1 - trim);
+        if (blockAt(p0.x, p0.z) !== block || blockAt(p1.x, p1.z) !== block) continue;
+        if (Math.hypot(p1.x - p0.x, p1.z - p0.z) < CURB_RUN_MIN) return;
+        if (!clear(p0, p1, block)) continue;
+        const track = segment(p0, p1, {
+          edge: e, from: i0 + trim === 0 ? e.from : null, to: i1 - trim === steps ? e.to : null, block, walkKey: key,
+          split: true
+        });
+        result.push(track);
+        fileCurb(track);
+        return;
+      }
+    };
+    let start = -1, block = null;
+    for (let i = 0; i <= steps; i++) {
+      const p = at(i), next = blockAt(p.x, p.z);
+      if (next === block) continue;
+      if (block) push(start, i - 1, block);
+      start = i;
+      block = next;
+    }
+    if (block) push(start, steps, block);
+  }
+
+  // A short sidewalk track along the kerb of an island/median, starting at the landing and running along the block
+  // outline. It is filed under its block so the crosswalk end links to it; the far end has no node and stays a
+  // terminus (routing's dead-end guard keeps walkers from entering it as a through route). Returns the nearest existing
+  // landing track on the block first, so two lines of one crossing share one spur.
+  function landingSpur(a, block) {
+    for (const port of curbPorts.get(block) || []) {
+      if (!port.track.landing) continue;
+      const b = point(port.track, port.end);
+      if (Math.hypot(b.x - a.x, b.z - a.z) <= CURB_LINK_MAX) return port;
+    }
+    if (block.poly.length < 3) return null;
+    let edge = null;
+    for (let i = 0, j = block.poly.length - 1; i < block.poly.length; j = i++) {
+      const p = block.poly[j], q = block.poly[i];
+      const d = pointSegmentDistance(a.x, a.z, p.x, p.z, q.x, q.z);
+      if (!edge || d < edge.d) edge = { d, p, q };
+    }
+    // The zebra lands 2 m onto the curb; a landing deeper than 3 m from every outline is not on this kerb.
+    if (!edge || edge.d > 3) return null;
+    const len = Math.hypot(edge.q.x - edge.p.x, edge.q.z - edge.p.z) || 1;
+    const dx = (edge.q.x - edge.p.x) / len, dz = (edge.q.z - edge.p.z) / len;
+    // Stay on the landing itself rather than offsetting the outline: the nearest outline segment of a concave block
+    // can face another gap (the Miła tip), and a 1.7 m offset from it fell outside the block.
+    const step = 0.25;
+    const walkableAt = (t) => {
+      const x = a.x + dx * t, z = a.z + dz * t;
+      if (blockAt(x, z) !== block) return false;
+      return !railClearance || railClearance(x, z, LANDING_RAIL_KEEP + 1) >= LANDING_RAIL_KEEP;
+    };
+    if (!walkableAt(0)) return null;
+    let lo = 0, hi = 0;
+    while (-lo < CURB_SPUR && walkableAt(lo - step)) lo -= step;
+    while (hi < CURB_SPUR && walkableAt(hi + step)) hi += step;
+    const far = -lo >= hi ? lo : hi;
+    if (Math.abs(far) < CURB_RUN_MIN) return null;
+    // Prefer the longer side, but a lot or a lane can block it while the shorter side remains a legal kerb walk.
+    const candidates = Math.abs(far) === hi && hi > 0 ? [hi, lo] : [lo, hi];
+    for (const reach of candidates) {
+      if (Math.abs(reach) < CURB_RUN_MIN) continue;
+      const p0 = reach < 0 ? { x: a.x + dx * reach, z: a.z + dz * reach } : a;
+      const p1 = reach < 0 ? a : { x: a.x + dx * reach, z: a.z + dz * reach };
+      if (!clear(p0, p1, block) || !clearHazards(p0, p1)) continue;
+      const track = segment(p0, p1, { edge: true, block, landing: true });
+      fileCurb(track);
+      let best = null;
+      for (const end of [0, 1]) {
+        const p = point(track, end), d = Math.hypot(p.x - a.x, p.z - a.z);
+        if (!best || d < best.d) best = { track, end, d };
+      }
+      return best;
+    }
+    return null;
+  }
+
   function along(e) {
     if (sidewalks.has(e)) return sidewalks.get(e);
     const result = [];
@@ -79,15 +186,23 @@ function createPedestrianRoutes(
         const b = { x: a.x + e.dx * e.len, z: a.z + e.dz * e.len };
         const blkA = blockAt(a.x, a.z);
         const blkB = blockAt(b.x, b.z);
-        if (!blkA || !blkB) continue;
-        if (blkA === blkB) {
-          if (!clear(a, b, blkA)) continue;
-          result.push(segment(a, b, { edge: e, from: e.from, to: e.to, block: blkA, walkKey: key }));
-        } else {
+        if (blkA && blkB && blkA === blkB) {
+          if (!clear(a, b, blkA)) {
+            splitAlong(a, b, e, key, result);
+            continue;
+          }
+          const track = segment(a, b, { edge: e, from: e.from, to: e.to, block: blkA, walkKey: key });
+          result.push(track);
+          fileCurb(track);
+        } else if (blkA && blkB) {
           // Continuous sidewalk bridging across two blocks under a railway underpass
           if (!clear(a, b, null, true)) continue;
           const extra = { edge: e, from: e.from, to: e.to, block: blkA, blockTo: blkB, underpass: true, walkKey: key };
-          result.push(segment(a, b, extra));
+          const track = segment(a, b, extra);
+          result.push(track);
+          fileCurb(track);
+        } else {
+          splitAlong(a, b, e, key, result);
         }
       }
     }
@@ -648,6 +763,24 @@ function createPedestrianRoutes(
     // The two crossings of a median refuge can belong to different graph nodes. Join them on the actual island even
     // when its short intervening road has no complete sidewalk track; ordinary blocks retain their sidewalk routes.
     const candidates = ports(n).concat((islandPorts.get(block) || []).filter((p) => p.track.node !== n));
+    // A crosswalk landing on a kerb island can be near a split sidewalk run that belongs to another graph node (the
+    // line starts/ends at a setback, or the island's curb is shared with a neighbouring arm). Offer those ends when
+    // they are a short same-block step away; this is the landing's connection to the island, not a crossing of the
+    // roadway (the fallback handles longer gaps, with its lane/rail/building checks).
+    if (track.node) {
+      const seen = new Set(candidates.map((p) => p.track)), nearest = new Map();
+      for (const port of curbPorts.get(block) || []) {
+        if (seen.has(port.track)) continue;
+        const b = point(port.track, port.end), distance = Math.hypot(b.x - a.x, b.z - a.z);
+        if (distance > CURB_LINK_MAX) continue;
+        const prev = nearest.get(port.track);
+        if (!prev || distance < prev.distance) nearest.set(port.track, { port, distance });
+      }
+      for (const { port } of nearest.values()) {
+        seen.add(port.track);
+        candidates.push(port);
+      }
+    }
     for (const port of candidates) {
       const next = port.track, nextDir = port.end ? -1 : 1;
       if (next === track || (track.arm && next.arm === track.arm)) continue;
@@ -762,7 +895,23 @@ function createPedestrianRoutes(
     const end = dir > 0 ? 1 : 0;
     if (ends[end]) return ends[end];
     const result = ends[end] = baseLinks(track, dir);
-    if (!result.length && track.node) result.push(...fallbackPaths(track, dir));
+    if (!result.length && track.node) {
+      result.push(...fallbackPaths(track, dir));
+      // A tram-cut island or median with no road-edge sidewalk line through the cut still has a kerb: give the
+      // isolated zebra end a short track on it instead of a connector across the lane or the rails.
+      if (!result.length) {
+        const a = point(track, end), block = blockAt(a.x, a.z);
+        if (block && (block.tramCut || block.median)) {
+          const spur = landingSpur(a, block);
+          if (spur) {
+            const b = point(spur.track, spur.end), path = [];
+            if (Math.hypot(b.x - a.x, b.z - a.z) > 0.01) path.push({ track: segment(a, b), dir: 1 });
+            path.push({ track: spur.track, dir: spur.end ? -1 : 1 });
+            result.push(path);
+          }
+        }
+      }
+    }
     return result;
   }
 
