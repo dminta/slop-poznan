@@ -117,3 +117,76 @@ over its crossing or crosses into a dead end on a known block. On the old code i
 `indexRoutePeds` stub required by its source-sliced `update`. The signal-head audit hash moved because removing the
 U-turn links and adding the new landing connectors change the materialised walking segments the placement fixture sees;
 counts are unchanged (17/74/66/10 → 91/0/66/10), and `tests/signal-audit.test.cjs` carries the new hash `85648549...`.
+
+## Follow-up 2026-11-07: coincident lines and blocked exits
+
+The backlog still listed short conversation and blocked-crossing queues, up to 16 s and 6 pedestrians, mostly around
+Dworzec and Droga Dębińska. Re-running the audit with the landing connectors in place showed that some were longer
+again (longest 26 s, biggest 7). Command:
+
+`node tools/audit-ped-overlaps.mjs --minutes 3 --fps 15 --seeds 4242,77 --only dworzec,wilda`
+
+### Mechanisms
+
+1. **One physical line, two route objects.** A two-way street is two directed edges on one centreline, and a divided
+   pair drawn closer than `PAIR_SEP` (4 m) is moved onto one too (`road-network.js`). `along(e)` gave each edge four
+   walking tracks, so each physical line existed twice, once per direction, with opposite route parametrisations. The
+   per-frame queue in `traffic.js` was keyed by the route object, so walkers on the two copies could not queue behind
+   each other. In 60 s at Wilda, 167 distinct route objects held 96 ordered pairs of coincident lines.
+2. **One corner corridor, two corner links.** A junction builds one corner link per pair of tracks, so the same short
+   corridor is an A→B link for one route and a B→A link for another. When trams or a red light stopped both directions,
+   their queues interleaved on the same metres; the 5.3 m Most Dworcowy link held five bodies on one point for 24 s.
+3. **Blocked exits were exempt from the 20 s clock.** `walk()` suppressed the stuck counter for anyone on a crosswalk
+   (`p.node`) and for anyone whose `nextRoute` contained a crossing. A body that had crossed but could not leave the
+   far curb, or waited in a give-way queue, therefore never aged. Waiting at the curb for the WALK is the legitimate
+   case; standing on the zebra is not.
+
+### Fix
+
+- `js/pedestrian-routes.js`: every walking track carries a `walkKey` naming its physical line. Both directed edges of
+  one centreline share it; the twin edge's normal is flipped so its `sign`/inset map onto the same four keys. Tracks
+  and their ends are unchanged, so `next()` (including the underpass connectivity test) keeps working.
+- `js/traffic.js`: `routePeds` is keyed by `walkKey`, or by the undirected segment for corner links and crosswalks.
+  Following, entrance clearance and strip-hold queues use world positions and headings, because `t` and `dir` are not
+  comparable between opposite parametrisations. Entrance clearance tests the entry point in world space, so a
+  stationary body on a shared point holds it whichever route brought it there. A walker that is already stopping keeps
+  a body length from a stationary oncoming body; free walkers still pass, so the guard did not cost crossing
+  throughput. Crossing walkers are exempt from the stuck clock only while `waiting` at the curb, and split-crossing
+  strip holds stay exempt; blocked exits now age and are re-placed after 20 s. The removal is still postponed while
+  `nearView` sees the spot.
+- `tools/audit-ped-overlaps.mjs`: worst pairs now snapshot position and state at their peak; previously they stored the
+  ped objects and described them at the end of the run, so the reported place/state did not belong to the duration.
+
+### Before / after
+
+Seeds 4242 and 77, 3 simulated minutes at each of the two focus points, sampled once per second after 20 s.
+
+| District | seed | clusters | longest s | biggest | pairs/s | entries/min |
+|---|---|---|---|---|---|---|
+| Wilda | 4242 | 5 → 4 | 14 → 10 | 6 → 7 | 21.8 → 13.8 | 115.5 → 118.1 |
+| Wilda | 77 | 1 → 4 | 11 → 15 | 6 → 8 | 20.5 → 13.9 | 122.6 → 120.0 |
+| Poznań Główny | 4242 | 5 → 1 | 20 → 24 | 7 → 5 | 15.9 → 14.6 | 97.1 → 101.3 |
+| Poznań Główny | 77 | 6 → 3 | 26 → 12 | 7 → 6 | 17.0 → 14.2 | 96.8 → 97.5 |
+| **all** | | **17 → 12** | **26 → 24** | **7 → 8** | **18.8 → 14.1** | **108.0 → 109.2** |
+
+The two seeds are not uniform (Wilda 77 gains three short clusters and the biggest grows by one), but the citywide
+overlapping-pair rate falls about 25% and crossing throughput is unchanged. What remains is no longer a multi-minute
+stack: the largest is the 8-body two-way queue at Droga Dębińska, and the longest is the tram-blocked Most Dworcowy
+corner corridor above.
+
+### Remaining
+
+- The 5.3 m Most Dworcowy corner link still holds five bodies for 24 s when trams block both directions on one line.
+  A direction-specific inset lane (the two sidewalk tracks at 1.7 / 2.8 m from the curb) is the untried fix; this
+  change only makes the two flows see each other.
+- Conversation pairs can still meet within a body width of another pair (`meet` checks only the two partners'
+  distance), giving up to 8 bodies for 8 s.
+- The `nearView` postponement is unchanged: a player standing at a blocked knot keeps it until they look away.
+
+Per-frame cost with the same headless world at Centrum over 1 800 `traffic.update` frames at 60 fps after a 20 s
+warm-up, alternating old/current three times: **0.745 → 0.766 ms/frame** (about +3%, within the ±10% run-to-run noise);
+no per-frame allocation, reused route lists, and the line key is built once per route.
+
+`node --test tests/*.cjs`: 412 pass. `tests/underpass-sidewalks.test.cjs` and the route-sink and route-building tests
+pass unchanged; the physical track geometry (and so the signal-audit hash) does not move, because `walkKey` is only an
+extra field on each track.
