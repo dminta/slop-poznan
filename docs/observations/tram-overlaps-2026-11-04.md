@@ -384,3 +384,95 @@ colliders, and no browser check was run. The lane paint follows the corrected of
 markings and lane positions at Głogowska and Małopolska still need a visual check. The lane-direction inference in
 `road-network.js` is geometric and can disagree with the tram graph at a fork; the audit and its regression are the
 backstop.
+
+## Rear-end proxy and short-stub pass (2026-11-07)
+
+Measured on the current tree (`10b4594`), not on the older `a302005` baseline above: the merge moved vehicle and tram
+sequences, so its absolute pair counts are higher. Method is unchanged: `tools/audit-tram-overlaps.mjs`, seeds 1, 4242,
+7, 99, 2, 3, 5 and 11, five simulated minutes at 15 fps, all seven districts, first 20 s excluded. Baseline was a clean
+worktree at `10b4594`; the flow check is `tools/bench-traffic.mjs --minutes 5 --only jezyce,centrum`.
+
+### Fix: keep the proxy for an obstacle outside the sweep
+
+`occupyTrams` skipped the whole lane proxy as soon as the tram was braking for its `t.obstacle`, even when that vehicle
+was far ahead. A tram waiting behind a queue therefore had no proxy under its own body, and following cars and buses
+rear-ended it in shared lanes. In the seed 4242 Jeżyce run, eight pairs rear-ended a stopped tram, all eight moving over
+1 m/s and all with `tramWait = car`; six sat in the `-2210…-2154, -517…-493` cluster on the one-lane shared tracks
+7508/7509, the other two at `-2100, -277` and `-1997, -443`. The obstacle check now runs only after the car is known to
+overlap the proxy span; the proxy then stops the follower at the tram body. A vehicle the tram is already braking for
+inside the sweep keeps its exemption, so the car-in-the-box release is unchanged.
+
+### Eight-seed result
+
+Cells are overlap pairs / of them with the car moving over 1 m/s at first contact (the audit rounds the recorded speed
+to 0.1 m/s). The full event list has 27 stopped
+pairs (v < 0.5 m/s) after the change against 24 before.
+
+| District | Baseline | Final |
+|---|---|---|
+| Jeżyce | 83 / 70 | 31 / 17 |
+| Łazarz | 0 / 0 | 0 / 0 |
+| Centrum | 24 / 20 | 8 / 5 |
+| Kaponiera | 16 / 11 | 17 / 11 |
+| Stare Miasto | 12 / 9 | 12 / 8 |
+| Rataje | 3 / 0 | 3 / 0 |
+| Wilda | 0 / 0 | 0 / 0 |
+| **Sum** | **138 / 110** | **71 / 41** |
+
+Per seed, Jeżyce falls 6/8/12/8/11/13/17/8 → 2/2/6/2/5/5/4/5 and Centrum 3/1/5/0/12/1/1/1 → 3/0/1/0/3/0/1/0.
+Kaponiera is the only district that moves the wrong way, and only by one pair: seed 99 goes 2 → 4 while seeds 3 and 11
+improve or hold; the extra pairs are the same short-link commitment race described below, not the proxy change. Stare
+Miasto and Rataje are unchanged.
+
+### Flow
+
+Seed 1, five minutes. The change moves no deadlock and no car-over-120 s bound:
+
+| District | Baseline | Final |
+|---|---|---|
+| Jeżyce mean / stopped / longest hold / deadlocks | 16.0 km/h / 27.1% / 32 s / 0 | 15.7 / 28.3% / 36 s / 0 |
+| Centrum mean / stopped / longest hold / deadlocks | 13.9 km/h / 34.9% / 62 s / 0 | 13.9 / 34.9% / 62 s / 0 |
+
+At seed 4242, both trees keep the same pre-existing Jeżyce pedestrian-box cycle at `(-2069, -470)` (89 s, car #204 in
+the box, car #1 oncoming, tram 2), 126 s longest hold and 1 deadlock; the change leaves its position and timing
+unchanged. `tests/traffic-flow.test.mjs` therefore runs seed 1 and says why; it also keeps a bounded 3-minute seed 4242
+run (`deadlocks <= 1`, longest hold under 130 s, at most one car over 120 s) so a second cycle or a longer hold would
+still fail.
+
+### Remaining pairs
+
+The 71 first contacts split as:
+
+| Group | Pairs |
+|---|---:|
+| Jeżyce shared lane, no mapped conflict | 24 (14 moving, 10 stopped) |
+| Jeżyce connector | 7 (3 moving, 4 stopped) |
+| Kaponiera short-link connector | 14 (11 moving, 2 slow, 1 stopped) |
+| Kaponiera lane | 3 (1 slow, 2 stopped) |
+| Stare Miasto connector | 11 (7 moving, 4 stopped) |
+| Stare Miasto lane | 1 (moving) |
+| Centrum lane | 6 (4 moving, 2 stopped) |
+| Centrum connector | 2 (1 moving, 1 stopped) |
+| Rataje lane | 3 (stopped) |
+| **Sum** | **71 / 41 moving / 27 stopped / 3 slow** |
+
+The Jeżyce lanes are shared tram lanes (tracks 7508/7509 at `-2167, -498`): the proxy now stops followers, but a car
+that already covers the last 0.3 m at 15 fps still registers a touching SAT pair, and the audit models an articulated
+bus as one 18 m rectangle. The Kaponiera/Stare Miasto moving pairs are the known short-link commitment race: the car
+enters a 10 m link before the tram's curve is stamped as held, and the `enter` fallback above 4 m/s accepts it. The
+`enter` hard stop for cars on short links was measured again: it removes car 38 at Kaponiera seed 4242 but replaces it
+with a stopped car hit by a tram at `-1135, 157` and a later bus at the same blind spot, so it is not in the code.
+Extending the tram's closed-curve forecast from `8 + 6v` to `8 + 8v` removed one Jeżyce and one Stare pair but raised
+Centrum from 0 to 6; a larger proxy trim margin (0.8 m) raised Jeżyce seed 4242 from 2 to 4. A pedestrian-near filter on
+boxed cars did not move the seed 4242 cycle.
+
+### Opposing lanes
+
+`tools/audit-tram-opposing-lanes.mjs` now applies the same pass to edges under 12 m, which moves the 10 m edge 305 at
+`-1823, -3` clear (9 m close run); the full list goes 62 runs / 58 lanes / 626 m → 61 / 57 / 617. The default report counts only
+street-running track a `route=tram` relation uses, so off-street formations and unused depot/junction track move to
+`skipped` (`--all` lists them): the collision-relevant remainder is **47 runs on 45 lanes (417 m)**, with 14 runs / 12
+lanes / 200 m skipped. `tests/opposing-tram-audit.test.mjs` pins both totals and the categories. The 41 short stubs,
+three curved-track runs and three constant-shift cases from the earlier classification still need per-station lane
+geometry; the Rynek Jeżycki stubs remain rejected for the traffic regression recorded above. Edge 305's 2.446 m lane
+move and its paint have not been checked in a browser.

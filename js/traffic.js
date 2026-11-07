@@ -1910,12 +1910,14 @@ function createTrafficSystem(
           let skip = false;
           for (const o of list) {
             if (o.v.tram) continue;
-            // If the tram is already braking for this vehicle, don't place a proxy across its path: the vehicle
-            // is inside the sweep and must be allowed to clear, or car and tram deadlock each other.
-            if (o.v === t.obstacle) { skip = true; break; }
             const cLo = o.s - o.v.half;
             const cHi = o.s + o.v.half;
             if (cHi < lo || cLo > hi) continue;
+            // If the tram is already braking for this vehicle and it is inside the sweep, don't place a proxy across
+            // its path: the vehicle must be allowed to clear, or car and tram deadlock each other. An obstacle farther
+            // ahead (the tram waits behind a queue) kept dropping the whole proxy, so following cars rear-ended the
+            // stopped tram in its own lane (Jeżyce buses at -2167, -498).
+            if (o.v === t.obstacle) { skip = true; break; }
             if (crossing && (o.v.speed < 1 || cLo >= bhi)) {
               skip = true;
               break;

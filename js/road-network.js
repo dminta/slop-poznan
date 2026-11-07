@@ -736,9 +736,10 @@ function buildRoadNetwork(sidewalks, obstacles) {
     // stays) by the least amount that clears every such track over its close run, on the car part of the carriageway
     // and with laneOpen passing; strip roads must not leave a lane on a same-direction track. Place the stop lines
     // again afterwards for moved edges at bends and their neighbours, since the move changes the bend setbacks. Runs
-    // under 10 m are junction stubs (49 of the baseline 64), left to the junction curves and tram proxies; a move on
-    // an edge under 12 m is not applied. A move that would make a straight connector steeper than the base's
-    // (a bend at both ends with a > 2 m shift) is not applied; short two-way shared stubs are left to the proxies too.
+    // under 10 m are junction stubs (49 of the baseline 64), left to the junction curves and tram proxies; most remain
+    // because their lane has no lateral room between the track and the curb. A move that would make a straight
+    // connector steeper than the base's (a bend at both ends with a > 2 m shift) is not applied; short two-way shared
+    // stubs are left to the proxies too.
     const OPPOSING_CLEAR = 2.3; // car half 0.92 + tram half 1.2 + 0.2 margin (tools/audit-tram-opposing-lanes.mjs)
     const OPPOSING_RUN = 10;
     const TRACK_CELL = 32;
@@ -832,9 +833,6 @@ function buildRoadNetwork(sidewalks, obstacles) {
       if (!ids.length) continue;
       const close = opposingRuns(e, e.lanes, ids);
       if (!close.length) continue;
-      // 10 m is the audit's minimum, but a 10 m edge is a junction stub: its inbound connector jog would grow
-      // without a bend setback to absorb it, so leave those to the junction curves and tram proxies.
-      if (e.len < 12) continue;
       // The lane body must stay on the car part of the carriageway: a tram strip is not road for cars.
       const carHalf = e.half - (e.strip ? TRAM_W / 2 : 0);
       const center = e.lanes.reduce((a, b) => a + b, 0) / e.lanes.length;

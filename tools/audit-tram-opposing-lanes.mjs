@@ -1,5 +1,7 @@
 // List opposing road lanes closer to a tram track than a 1.8 m car, 2.4 m tram and 0.2 m margin allow.
-// node tools/audit-tram-opposing-lanes.mjs [--min-length 5] [--clearance 2.3]
+// By default only street-running tracks a route uses can collide with a car; `--all` also lists tracks with no route
+// and off-street formations, where the proximity is layout rather than a car-tram body overlap.
+// node tools/audit-tram-opposing-lanes.mjs [--min-length 5] [--clearance 2.3] [--all]
 import { buildWorld } from './bench-world.mjs';
 
 const args = process.argv.slice(2);
@@ -9,17 +11,20 @@ const option = (name, fallback) => {
 };
 const minimum = option('min-length', 5);
 const clearance = option('clearance', 2.3);
+const all = args.includes('--all');
 if (!(minimum > 0) || !(clearance > 0 && clearance <= 2.3)) throw new Error('Invalid minimum length or clearance (maximum 2.3 m)');
 const { trams } = buildWorld({});
 const rows = [];
+const skipped = [];
 for (const te of trams.graph.edges) {
   for (const run of te.lanes) {
     if (run.dir !== -1) continue;
     const road = run.edge;
     let first = null, last = null, min = Infinity;
     const finish = () => {
-      if (first !== null && last - first >= minimum) rows.push({
+      if (first !== null && last - first >= minimum) (te.street && te.routes.length ? rows : skipped).push({
         road: road.id, lane: run.lane, track: te.id, chain: te.chain,
+        street: !!te.street, routes: te.routes.length,
         length: +(last - first).toFixed(2), minimum: +min.toFixed(2),
         roadStart: [road.sx, road.sz].map((n) => +n.toFixed(1)),
         roadEnd: [road.sx + road.dx * road.len, road.sz + road.dz * road.len].map((n) => +n.toFixed(1)),
@@ -48,6 +53,10 @@ for (const te of trams.graph.edges) {
   }
 }
 rows.sort((a, b) => a.road - b.road || a.lane - b.lane || a.track - b.track);
-for (const row of rows) console.log(JSON.stringify(row));
-console.error(JSON.stringify({ segments: rows.length, lanes: new Set(rows.map((r) => `${r.road}:${r.lane}`)).size,
-  length: +rows.reduce((sum, r) => sum + r.length, 0).toFixed(2), clearance, minimum }));
+skipped.sort((a, b) => a.road - b.road || a.lane - b.lane || a.track - b.track);
+const listed = all ? [...rows, ...skipped] : rows;
+listed.sort((a, b) => a.road - b.road || a.lane - b.lane || a.track - b.track);
+for (const row of listed) console.log(JSON.stringify(row));
+const total = (list) => ({ segments: list.length, lanes: new Set(list.map((r) => `${r.road}:${r.lane}`)).size,
+  length: +list.reduce((sum, r) => sum + r.length, 0).toFixed(2) });
+console.error(JSON.stringify({ ...total(all ? listed : rows), skipped: total(skipped), clearance, minimum, all }));

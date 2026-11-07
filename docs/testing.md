@@ -177,7 +177,12 @@ bus cycle through that guard is still followed and would be a real cycle. Separa
 `maxSwitchWait` and `switchSeconds` measure the actual switch reason
 every frame while speed is below 0.5 m/s, excluding boarding dwells. A long red followed by a short switch wait is
 therefore distinguishable from a tram blocking a switch for over a minute. `tests/traffic-flow.test.mjs` runs the
-benchmark for 5 simulated minutes at Jeżyce and Centrum as a regression test.
+benchmark for 5 simulated minutes at Jeżyce and Centrum as a regression test. It uses seed 1: seed 4242's five-minute
+Jeżyce run reaches the separate pedestrian-in-the-box gridlock at `(-2069, -470)` (pedestrian-overlap backlog), which is
+not a car–tram flow regression. A 3-minute seed 4242 Jeżyce run is kept as a bound (`deadlocks <= 1`, longest hold
+under 130 s) so the known cycle cannot hide a new one. The same file runs `tools/audit-tram-overlaps.mjs` on Jeżyce seed
+4242 and requires at most four car–tram first contacts; the pre-proxy baseline was eight, all with `tramWait = car`, six
+in the `-2167, -498` cluster.
 
 ## Car–tram body overlap audit
 
@@ -188,7 +193,8 @@ contact for each pair. After the 20 s warmup, it compares each car and bus's ori
 active tram section on every frame; touching counts as an overlap. Pooled IDs may be reused after respawning, so a pair
 is counted once even if those objects meet again. It uses the benchmark's headless scene and omissions described above;
 it neither proves collision-free behavior between frames nor checks the rendered scene. Each seed takes a few minutes
-for all seven districts; no test runs it. Results over eight seeds are in
+for all seven districts; `tests/traffic-flow.test.mjs` runs only the five-minute Jeżyce pass at seed 4242 as a bound.
+Results over eight seeds are in
 [observations/tram-overlaps-2026-11-04.md](observations/tram-overlaps-2026-11-04.md).
 
 ## Opposing tram-lane clearance audit
@@ -200,12 +206,15 @@ changes the 5 m cutoff. It uses the benchmark network and `mapTramsToRoads` runs
 direction from each mapped run, so short encounters and unsampled gaps are not covered. The counts are not lengths of
 unique physical streets where track runs overlap. The scene omissions above apply. It takes a few seconds. At `1eff3b4`
 it listed 65 runs on 61 lanes (753 m). The Półwiejska lane correction left 64 runs on 60 lanes (668 m); the 2026-11-05
-general pass against the real street-track pair leaves **62 runs on 58 lanes (626 m)**. `tests/opposing-tram-audit.test.mjs`
-runs it, checks the row and total format, that edge 7500 and the two newly corrected edges do not appear, and the
-remaining lane and length totals. `tests/shared-tram-lanes.test.cjs` slices `alignSharedTramLane` and removes both
-`for (const e of edges) alignSharedTramLane(e);` and the `clearOpposingTracks();` call for its pre-fix control, so keep
-those calls on their own lines. It also rebuilds the curbs/medians network with and without the correction and asserts
-that no new straight connector becomes steeper than 15°.
+general pass against the real street-track pair leaves **62 runs on 58 lanes (626 m)**. The 2026-11-07 pass removes the
+`< 12 m` exception, moving edge 305 clear, and the default report counts only street-running tracks a `route=tram`
+relation uses: **47 runs on 45 lanes (417 m)**; the 14 runs / 12 lanes / 200 m on off-street formations or unused track
+are summarized under `skipped` and can be listed with `--all` (61 / 57 / 617 m). `tests/opposing-tram-audit.test.mjs`
+runs it, checks the row and total format, that each row is a used street track, that edge 7500, 3015, 3201 and 305 do
+not appear, and the lane and length totals. `tests/shared-tram-lanes.test.cjs` slices `alignSharedTramLane` and removes
+both `for (const e of edges) alignSharedTramLane(e);` and the `clearOpposingTracks();` call for its pre-fix control, so
+keep those calls on their own lines. It also rebuilds the curbs/medians network with and without the correction and
+asserts that no new straight connector becomes steeper than 15°.
 
 ## Tram edge queue benchmark
 
