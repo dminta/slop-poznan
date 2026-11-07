@@ -21,7 +21,7 @@ This document details third-party data sources, licences, typography, and visual
 
 - **Główny Urząd Geodezji i Kartografii (GUGiK)**: [geoportal.gov.pl](https://geoportal.gov.pl/).
   - Attribution: Źródło danych: Główny Urząd Geodezji i Kartografii (PZGiK).
-  - NMT (Digital Terrain Model) and NMPT (Digital Surface Model) lidar data from the state geodetic registry were used only for reference architectural height calibration of Fara (nave ridge 40 → 37 m) and Teatr Wielki fly tower (27 → 31.7 m); see [observations/landmark-heights-2026-11-03.md](observations/landmark-heights-2026-11-03.md).
+  - NMT (Digital Terrain Model) and NMPT (Digital Surface Model) lidar data from the state geodetic registry were used only for reference architectural height calibration of Fara (nave ridge 40 → 37 m, front gable 37.8 m, cross 40.0 m) and Teatr Wielki (portico pediment 21.3 m, Pegasus 24.0 m, fly tower 27 → 31.7 m); see [observations/landmark-heights-2026-11-03.md](observations/landmark-heights-2026-11-03.md).
   - Terms under Polish geodetic law: NMT is free under art. 40a ust. 2 pkt 1 lit. d Pgik, and GUGiK provides NMPT free of charge; art. 40c ust. 3 requires citing the source.
   - Note: the runtime geodata build (`js/geodata.js`) uses pure OSM data. BDOT10k was audited for coverage verification ([observations/sparse-blocks-2026-11-04.md](observations/sparse-blocks-2026-11-04.md)) and omitted from the build.
 
