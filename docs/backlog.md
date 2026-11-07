@@ -41,14 +41,17 @@ Implementation details and completed measurements live in the [topic docs](../AG
   production full-scene count (the benchmark omits landmark and bridge colliders and city-grid curbs).
   [Routing observations](observations/ped-overlaps-2026-11-05.md).
 - **Other missing signal heads (15.5):** the overhead fallback now serves 26 of the 66 historical Category C
-  approaches from 12 new 6.2 m masts and 14 reused signal poles (arm ≤ 11.7 m, mean 9.11 m); the audit is
-  117/0/40/10 (was 91/0/66/10). The arm, head and foot keep 2.22 m from every track axis at 0.5 m samples; three
-  first-pass arms crossed a tram envelope and are rejected. 11 heads reach the ≥ 8 m visibility band, 15 use the
-  support-position fallback (a documented deviation, browser check below). The remaining 40 have no clear
-  mast foot within 12 m or no support in the −15…+10 m approach band. Further gains would need gantries or span
-  wires across the widest junctions, or a visibility review in the browser. Run
-  `node tools/audit-signal-heads.mjs` with attention to the fixture's missing building, landmark and bridge
-  colliders; browser counts can differ. [Signal placement](world.md#street-furniture-street-detailsjs).
+  approaches from 12 new 6.2 m masts and 14 reused signal poles (arm ≤ 11.72 m, mean 9.28 m); the audit is
+  117/0/40/10 (was 91/0/66/10). The arm, head and foot keep 2.22 m from every track axis at 0.5 m samples, and the
+  foot keeps 3.1 m (0.5 m beyond the 2.6 m tram/rail mast setback); the built tram and railway layouts put every
+  arm, foot and head at least 7.26 m from a pole or mast. Three first-pass arms crossed a tram envelope and are
+  rejected. 10 heads reach the stricter ≥ 10.5 m band and one more the ≥ 8 m band; 15 use the stop-line fallback
+  (13 at 1.75 m past P-14, two reused poles at 0.03 and −0.82 m). A 0.5 × 0.4 m sweep of the −15…−8 m corridor
+  found 12,510 candidate mast feet, none clear; the closest existing support was 12.96 m from an −8 m head, so no
+  fallback head can reach either band without a gantry or span wire. The remaining 40 have no clear mast foot
+  within 12 m or no support in the −15…+10 m approach band. Run `node tools/audit-signal-heads.mjs` with attention
+  to the fixture's missing building, landmark and bridge colliders; browser counts can differ.
+  [Signal placement](world.md#street-furniture-street-detailsjs).
 - **Building accuracy (4.4, 7):** the Fara front gable/cross and the Teatr Wielki portico/Pegasus now use GUGiK
   NMPT − NMT sub-heights; only the four Fara niche statues (below the 1 m DSM resolution) remain visual estimates.
   [Height audit](observations/landmark-heights-2026-11-03.md#2026-11-07--refined-fara-and-teatr-sub-heights).
@@ -136,11 +139,10 @@ The Grudzieniec, Chartowo and Wioślarska candidates are resolved headlessly (me
 - Check Dworzec's connected refuge route, signals and pedestrian/vehicle interactions on WebGL2; record a full
   rendered interaction with a naturally approaching bus, including rear clearance.
   [Dworzec checks](observations/dworzec-2026-10-30.md), [bus population check](observations/bus-population-2026-10-30.md).
-- Check overhead signal visibility: 11 of the 26 overhead heads stand at least 8 m before the stop line, while 15
-  fall back to the support position (most 1.75 m past the stop line if no support reaches the band). The 8 m edge is
-  the table 7.2 row for a 4.5 m mounting; the 5.3 m head falls between that and the 5.5 m row (10.5–15 m), so 10.5 m
-  is the stricter target worth trying. Verify the fallback heads are visible through the whole queue and move them
-  back or add a gantry if they are not.
+- Check overhead signal visibility: 10 of the 26 overhead heads stand at least 10.5 m before the stop line and one
+  more at least 8 m, while 15 use the stop-line fallback (13 at 1.75 m past P-14, two reused poles at 0.03 and
+  −0.82 m). Verify the fallback heads are visible through the whole queue and move them back or add a gantry if they
+  are not.
 - Watch a tram pass a car stopped at a crossing and a left-turner complete through the Kaponiera box; check for
   visible clipping or stopping within the approximately 1 s forecast gap.
 - Watch whole trams clear switches, crossings and occupied stops; observe Zawady/Ogrody loop boarding and return
