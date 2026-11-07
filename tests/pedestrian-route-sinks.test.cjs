@@ -73,10 +73,45 @@ test('pedestrian routes do not U-turn over a crossing line or cross into a dead 
           if (last.track.node) {
             assert.ok(routes.links(last.track, last.dir).length > 0,
               `a route choice crosses into a dead end at ${last.track.node.x},${last.track.node.z}`);
+          } else if (last.track.edge) {
+            const end = last.dir > 0 ? 1 : 0;
+            const x = last.track.ax + last.track.ux * last.track.len * end;
+            const z = last.track.az + last.track.uz * last.track.len * end;
+            assert.ok(!config.blockAt(x, z) || routes.links(last.track, last.dir).length > 0,
+              `a route choice ends on a dead-end sidewalk track at ${x.toFixed(1)},${z.toFixed(1)}`);
           }
         }
       }
     }
   }
   assert.ok(sampled > 150 && chosen > 200, `route choices were sampled (${sampled} ends, ${chosen} paths)`);
+
+  // The long fallback lands on sidewalk tracks, whose ends are `from`/`to` rather than a crosswalk `node`. A goal on
+  // such a dead end used to route straight into it (151 of 230 bare-network links before the guard) and leave the
+  // walker to reverse on the same short track. Every such link must now be filtered out of `next`, even when the goal
+  // lies exactly on its landing. The bare network still has dead-end sidewalk links, so this cannot pass vacuously.
+  let deadSidewalkLinks = 0, deadGoals = 0;
+  const tracks = new Set();
+  for (const crossing of routes.crosswalks) for (const track of crossing.tracks) tracks.add(track);
+  for (const track of tracks) {
+    for (const dir of [-1, 1]) {
+      for (const path of routes.links(track, dir)) {
+        const last = path[path.length - 1], target = last.track;
+        if (!target.edge || target.node) continue;
+        if (routes.links(target, last.dir).length) continue;
+        const end = last.dir > 0 ? 1 : 0;
+        const x = target.ax + target.ux * target.len * end, z = target.az + target.uz * target.len * end;
+        if (!config.blockAt(x, z)) continue;
+        deadSidewalkLinks++;
+        const chosenPath = routes.next(track, dir, x, z);
+        if (!chosenPath) continue;
+        deadGoals++;
+        const chosenEnd = chosenPath[chosenPath.length - 1];
+        assert.ok(chosenEnd.track !== target || chosenEnd.dir !== last.dir,
+          `a goal on a dead-end sidewalk track routes into it at ${x.toFixed(1)},${z.toFixed(1)}`);
+      }
+    }
+  }
+  assert.ok(deadSidewalkLinks > 100, `the bare network has dead-end sidewalk links (${deadSidewalkLinks})`);
+  assert.ok(deadGoals > 100, `goals on dead-end sidewalk links were routed (${deadGoals})`);
 });

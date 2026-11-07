@@ -738,9 +738,15 @@ function createPedestrianRoutes(
       added++;
       const q = c.q, extra = { edge: q.edge, block: q.block, blockTo: q.blockTo, underpass: q.underpass };
       const connector = c.distance > 0.01 ? [{ track: segment(a, { x: c.x, z: c.z }), dir: 1 }] : [];
+      // The sub-tracks start at the projection point c (end 0) and run to one of q's ends (end 1). A walker arriving
+      // over the connector enters at c and continues along the sub, so both legs travel dir 1. `from`/`to` name the
+      // nodes at end 0/end 1: c lies mid-track and has no node, while end 1 is q's own end, so `to` carries q.from for
+      // the backward sub and q.to for the forward one. (Before, the backward sub put q.from on end 0 and travelled
+      // dir -1, which started the walker at point(q, 0) and sent them back to c, and made `links` look for q.from's
+      // ports at c instead of at the end it actually reached.)
       if (c.proj > 0.01) {
-        const sub = segment({ x: c.x, z: c.z }, point(q, 0), { ...extra, from: q.from, to: null });
-        result.push([...connector, { track: sub, dir: -1 }]);
+        const sub = segment({ x: c.x, z: c.z }, point(q, 0), { ...extra, from: null, to: q.from });
+        result.push([...connector, { track: sub, dir: 1 }]);
       }
       if (q.len - c.proj > 0.01) {
         const sub = segment({ x: c.x, z: c.z }, point(q, 1), { ...extra, from: null, to: q.to });
@@ -768,10 +774,12 @@ function createPedestrianRoutes(
       const last = path[path.length - 1], target = last.track;
       // A crossing whose far end lands on a known block with no way off it (a park edge with no sidewalk track) is no
       // route: walkers would cross, find nothing, turn round and cross straight back, forever (the Droga Dębińska
-      // sinks in the record). An unknown landing (no block) keeps the old behaviour for sparse or synthetic graphs.
-      const landing = target.node ? point(target, last.dir > 0 ? 1 : 0) : null;
-      if (landing && Array.isArray(target.node.in) && blockAt(landing.x, landing.z) &&
-          !links(target, last.dir).length) continue;
+      // sinks in the record). A fallback landing on a sidewalk track is the same sink: its `node` is null, so check
+      // `edge` and the end it actually reaches. An unknown landing (no block) keeps the old behaviour for sparse or
+      // synthetic graphs.
+      const landing = (target.node ? Array.isArray(target.node.in) : !!target.edge)
+        ? point(target, last.dir > 0 ? 1 : 0) : null;
+      if (landing && blockAt(landing.x, landing.z) && !links(target, last.dir).length) continue;
       const ux = target.ux * last.dir, uz = target.uz * last.dir;
       const back = ux * track.ux * dir + uz * track.uz * dir < -0.8;
       const score = (ux * gx + uz * gz) / distance + Math.random() * 0.7 - (back ? 2 : 0);
