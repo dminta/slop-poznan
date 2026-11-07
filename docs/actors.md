@@ -66,14 +66,18 @@ The median-only variant restores it to 82 s without relaxing the 120 s regressio
 - **Plates**: every car has its own made-up EU registration, `polishRegistration(i + 1)` (actor-models.js): district `PO` 55%, `PZ` 30%, `PY` 15% (Poznań city's two series and the county), then a five-character individual part in one of the Polish two-letter-district layouts (`12345`, `1234A`, `123AB`, `1A234`, `1AB23`, `A1234`, `AB123`; letters without B, D, I, O, Z). `encodeRegistration` packs its seven glyphs into the per-instance `plateCode` vec4 (two 32-cell atlas indices per component, exact in float32), which `renderCar` writes with the paint (both flagged through `dirtyPaint`). The material paints the white plate with the blue EU strip front and rear from one glyph-atlas sample (`plateColor`, shared with the bus, whose fleet shares one registration); the rear plate has the round registration sticker in the gap. The fixed-colour variant (the player's taxi, the wheels) paints blank plates. There are 12 buses (`NUM_BUSES`) in MPK livery, each with a fixed `route` (row of `BUS_ROUTES`, the amber LED destination sign, read from `busState.w`), and they spawn only on `e.major` edges (`road-network.js` `isMajorRoad`: ≥ 14.5 m curb to curb or ≥ 3 travel lanes, or on a named road that is major over most of its length). Instance buffers and the lightbar mesh are sized from the counts, so changing the mix resizes them.
 
 ## Pedestrian queues, routes and route ends
-Pedestrians keep a `QUEUE_GAP` of 0.62 m behind anyone ahead walking the same way on the same track, not only at a
+Pedestrians keep a `QUEUE_GAP` of 0.62 m behind anyone ahead walking the same way on the same line, not only at a
 curb: a faster walker used to close up on a leader that then stopped with no room to back off. The per-frame check is
-indexed by `routePeds` (the placed peds grouped by their current track, rebuilt once per frame) so it scans a handful of
-people, not all 340. A walker approaching a new leg keeps its entrance clear (same direction, plus the opposite
-direction on a crosswalk, and a length-based capacity), and a queue at a split crossing's `hold` backs along the track
-in queue-gap steps instead of standing on the strip's end point. The corner queue ignores people at exactly the same
-point (`forward > 0.01`), so an overlap left by a shared link or a respawn cannot report zero room to both and lock
-itself for good.
+indexed by `routePeds`, rebuilt once per frame and keyed by the **physical line** (`walkKey` on sidewalk tracks; the
+undirected segment for corner links and crosswalks), because one line carries several route objects: the two directed
+edges of a two-way street, and one corner link per pair of tracks. Following and the split-crossing `hold` queue compare
+world positions and headings, since the two directed copies have opposite route parametrisations. A walker approaching
+a new leg keeps its entrance clear (world entry point, so converging routes and both directions compete, plus a
+length-based capacity), and a walker that is already stopping does not stop inside a stationary oncoming body; free
+walkers still pass, so crossing throughput does not fall. A queue at a split crossing's `hold` backs along the track in
+queue-gap steps instead of standing on the strip's end point. The corner queue ignores people at exactly the same point
+(`forward > 0.01`), so an overlap left by a shared link or a respawn cannot report zero room to both and lock itself
+for good.
 
 `pedestrian-routes.js` never links the two painted lines of one crosswalk to each other: that 1.5 m step is a U-turn
 back over the zebra just crossed, and at a curb with no sidewalk exit every walker funnelled through that one short
@@ -98,10 +102,12 @@ blocks a connector. The street index is built with the routes; sidewalk tracks a
 edges of a landing and `links()` never loops the whole network in a frame. The U-turn fix's bare-network snapshot had
 unconnected crosswalk tracks fall **321 → 218** and ends with no links **365 → 230** (old U-turn figures 20 and 208);
 the rest are isolated landings and are listed in the [backlog](backlog.md) with reasons. A pedestrian that still
-stands with no legitimate wait (not a curb, strip hold, conversation or rest) for `PED_STUCK_TIME` 20 s is re-placed
-60-280 m away with the normal view protection, and removal itself is
-postponed while `nearView` says the camera can see the old spot. Short tracks (corner links, cramped sidewalks) keep
-counting a crossing wait: a blocked exit there is exactly the bottleneck.
+stands with no legitimate wait (not a curb wait, strip hold, conversation or rest) for `PED_STUCK_TIME` 20 s is
+re-placed 60-280 m away with the normal view protection, and removal itself is postponed while `nearView` says the
+camera can see the old spot. Waiting at the curb for the WALK is the only crossing wait that exempts the clock; a body
+that has crossed but cannot leave the far curb (a blocked, usually unsignalised, exit) ages and is re-placed. Short
+tracks (corner links, cramped sidewalks) do not get the crossing exemption: a blocked exit there is exactly the
+bottleneck that piles people up.
 
 Measured headlessly with `tools/audit-ped-overlaps.mjs` (8 focus points, seeds 4242 and 77, 3 simulated minutes each,
 one sample per second after 20 s): clusters of >= 4 peds with centres under 0.5 m lasting over 5 s fall **27 → 20**, the
@@ -112,9 +118,13 @@ peds on one 1.5 m link), Droga Dębińska in Wilda (53-74 s, up to 12) and Głog
 before the landing connections it was -9.5%, about 58% of which was the removed U-turn and dead-end crossing pairs and
 the rest walkers queueing briefly behind sidewalk conversations (6-12 s) and rests (1.5-4.5 s). `traffic.update`
 measured 0.632 → 0.66 ms/frame at Centrum (60 fps, 1 800 frames, headless); route build 180 → 182 ms and links()
-over all ends 5.1 → 5.33 s (worst call 34 → 33.4 ms). Remaining clusters are short (<= 16 s)
-conversation and queue overlaps, not stacks. Method,
-counts and the before/after table are in [the observation record](observations/ped-overlaps-2026-11-05.md).
+over all ends 5.1 → 5.33 s (worst call 34 → 33.4 ms). The 2026-11-07 physical-line follow-up, re-measured on the two
+remaining hotspots (Dworzec and Wilda, same seeds and duration), moves clusters **17 → 12**, longest **26 → 24 s**,
+biggest **7 → 8**, overlapping pairs/s **18.8 → 14.1** and crosswalk entries **108.0 → 109.2/min**; `traffic.update`
+stays within run-to-run noise (+3%). Remaining are a 24 s / 5-body corner link at Most Dworcowy when trams block both
+directions, an 8 s / 8-body two-way queue at Droga Dębińska and conversation pairs meeting within a body width of
+another pair, not stacks. Method, counts and the before/after tables are in
+[the observation record](observations/ped-overlaps-2026-11-05.md).
 
 ## Population around the camera (spawn/despawn)
 - Pools have a fixed size, and nothing is created or destroyed. **Only as many vehicles drive as the lanes around the focus carry at `VEHICLE_DENSITY`** (12 per km of lane, both ways counted, at least `MIN_VEHICLES` 30, at most the pool of 212): `refreshNear` sums the lane length within `NEAR_RADIUS` (`nearLanes`) and sets `nearTarget`. A vehicle retired beyond `VEHICLE_RADIUS` is placed again only while fewer than that drive; otherwise it is parked (`park()`: no edge, moved to 1e6 so the radar draws no stale blip; everything that reads `cars` skips `!v.edge` or draws off-map). A camera jump parks the excess at once. Until 2026-10 the whole pool filled whatever the network: the sparse single-lane grids (2.9–5 lane-km within 350 m at Wilda, Łazarz, Jeżyce, Stare Miasto) carried 40–70 vehicles per lane-km, a jam, and 62% of the cars stood even with no pedestrians, trams or signals (`tools/bench-traffic.mjs --no-peds --no-trams`). Now 28–80 vehicles drive within 300 m (37 at Stare Miasto, 61 at Kaponiera, 79 at Rataje). A rotating cursor scans the pool each frame with an **attempt** budget (4 vehicles, 6 pedestrians), so awkward spots can't monopolize a frame.

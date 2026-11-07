@@ -2375,19 +2375,41 @@ function createTrafficSystem(
   const TURN_TIME = 0.85; // s turning round at the end of the track
   const PED_STUCK_TIME = 20; // s standing with no legitimate wait before the ped is re-placed elsewhere
   const walkedNodes = [];
-  // Peds by their current track, refreshed once per frame so the same-line following check scans only a handful of
-  // people instead of all 340 per walker. Lists and the map are reused; a walker that changes track this frame is
-  // skipped by the route identity check until the next refresh.
+  // Peds by their current physical line, refreshed once per frame so the same-line following check scans only a
+  // handful of people instead of all 340 per walker. Lists and the map are reused; a walker that changes track this
+  // frame is still filed under the old line until the next refresh.
   const routePeds = new Map();
   const routeLists = [];
   const NO_PEDS = [];
+  // Lines, not route objects: one physical line can carry several route objects (the two directed edges of a two-way
+  // street, one corner link per pair of tracks). Keyed by that line, they queue together; the world heading decides
+  // who follows whom, so the two directions still pass each other. The string key is made once per route, not per frame.
+  const routeKeys = new WeakMap();
+  function routeKey(route) {
+    let key = routeKeys.get(route);
+    if (key === undefined) {
+      // Sidewalk lines name their physical line (both directed edges of one street share it); corner links and
+      // crosswalks fall back to their undirected segment, so the two directions of one corner corridor share it too.
+      if (route.walkKey) {
+        key = route.walkKey;
+      } else {
+        const a = `${Math.round(route.ax * 10)},${Math.round(route.az * 10)}`;
+        const b = `${Math.round((route.ax + route.ux * route.len) * 10)},` +
+          `${Math.round((route.az + route.uz * route.len) * 10)}`;
+        key = a < b ? `${a}|${b}` : `${b}|${a}`;
+      }
+      routeKeys.set(route, key);
+    }
+    return key;
+  }
   function indexRoutePeds() {
     for (const list of routeLists) list.length = 0;
     routeLists.length = 0;
     for (const p of peds) {
       if (!p.placed || !p.route) continue;
-      let list = routePeds.get(p.route);
-      if (!list) routePeds.set(p.route, list = []);
+      const key = routeKey(p.route);
+      let list = routePeds.get(key);
+      if (!list) routePeds.set(key, list = []);
       if (!list.length) routeLists.push(list);
       list.push(p);
     }
@@ -2423,35 +2445,54 @@ function createTrafficSystem(
     // Hold the queue gap behind anyone ahead on the same line and in the same direction, all along the track and not
     // only at a curb: a faster walker who closes up on a leader that then stops has no room to back off and the two
     // overlap (the sidewalk clusters in the 2026-11-05 record).
+    // A walker who is stopping anyway must not stop inside a stationary body facing the other way (both queues at a
+    // pair of crossings back up along one line and their ends interleave). Collected here and applied only once room
+    // is finite: free walkers are left alone, so the guard costs no crossing throughput.
+    let oppositeRoom = Infinity;
     if (p.route) {
-      const list = routePeds.get(p.route);
+      const list = routePeds.get(routeKey(p.route));
       if (list) {
+        // World positions and headings: a line's two directed copies run along the same paint with opposite route
+        // parametrisations, so `t` and `dir` are not comparable between them.
+        const hx = p.ux * p.dir, hz = p.uz * p.dir;
         for (const q of list) {
-          if (q === p || q.route !== p.route || q.dir !== p.dir) continue;
-          const forward = (q.t - p.t) * p.dir;
-          if (forward > 0 && forward < QUEUE_GAP) {
-            const limit = Math.max(0, forward - QUEUE_GAP);
-            if (limit < room) { room = limit; roomCause = 'queue'; }
+        for (const q of list) {
+          if (q === p) continue;
+          const dx = q.x - p.x, dz = q.z - p.z;
+          const forward = dx * hx + dz * hz;
+          if (forward <= 0 || forward >= 2 * QUEUE_GAP) continue;
+          const lateral2 = dx * dx + dz * dz - forward * forward;
+          if (lateral2 >= QUEUE_GAP * QUEUE_GAP) continue;
+          const dot = (p.ux * q.ux + p.uz * q.uz) * p.dir * q.dir;
+          if (dot > 0.8) {
+            if (forward < QUEUE_GAP) {
+              const limit = Math.max(0, forward - QUEUE_GAP);
+              if (limit < room) { room = limit; roomCause = 'queue'; }
+            }
+          } else if (dot < -0.8 && q.v < 0.05 && forward < QUEUE_GAP) {
+            oppositeRoom = Math.min(oppositeRoom, Math.max(0, forward - QUEUE_GAP));
           }
+        }
         }
       }
     }
     // Keep a leg's entrance clear for people who are not already walking away from it: a queue that reaches the
-    // entrance must back up on the approach, not stack several people on the same first metre. Only the same walking
-    // direction competes for an entrance (the other direction uses the opposite end), and a walker already moving is
+    // entrance must back up on the approach, not stack several people on the same first metre. The entry point is a
+    // world position, so converging routes and the other direction compete for it too; a walker already moving is
     // clearing it, so it does not block the follower.
     if (p.nextRoute && p.nextLeg < p.nextRoute.length && ahead < 2 * QUEUE_GAP) {
-      const next = p.nextRoute[p.nextLeg], enterT = next.dir > 0 ? 0 : next.track.len;
+      const next = p.nextRoute[p.nextLeg];
+      const enterX = next.track.ax + (next.dir > 0 ? 0 : next.track.ux * next.track.len);
+      const enterZ = next.track.az + (next.dir > 0 ? 0 : next.track.uz * next.track.len);
       const capacity = Math.max(2, Math.floor(next.track.len / QUEUE_GAP));
       let onNext = 0, blocked = false;
-      for (const q of routePeds.get(next.track) || NO_PEDS) {
-        if (q === p || !q.placed || q.route !== next.track) continue;
+      for (const q of routePeds.get(routeKey(next.track)) || NO_PEDS) {
+        if (q === p || !q.placed) continue;
         onNext++;
         if (blocked || q.v >= 0.5) continue;
-        // On a crosswalk the opposite direction shares the line, so someone standing at the entrance holds it too;
-        // elsewhere the other direction enters at the opposite end and does not compete for this one.
-        if (q.dir !== next.dir && !next.track.node) continue;
-        if (Math.abs(q.t - enterT) >= QUEUE_GAP) continue;
+        // The entrance is a place: whoever stands on it holds it, whichever way they were going (a converging corner
+        // link or a crossing side). The old same-direction test let opposite walkers teleport onto each other there.
+        if (Math.hypot(q.x - enterX, q.z - enterZ) >= QUEUE_GAP) continue;
         blocked = true;
       }
       // A short corner link or crosswalk holds only so many people; the rest wait on the approach, not on top of it.
@@ -2528,17 +2569,26 @@ function createTrafficSystem(
       if (ahead < room) { room = ahead; roomCause = 'hold'; }
       // A strip crossing that is still shut gets a queue as at any curb: back along this track in queue-gap steps.
       // Without it everyone reaching the strip stands on the same end point and waits there in a heap.
-      for (const q of routePeds.get(p.route) || NO_PEDS) {
-        if (q === p || q.route !== p.route || q.dir !== p.dir) continue;
-        const qAhead = q.dir > 0 ? q.len - q.t : q.t;
-        if (qAhead < ahead) {
-          const limit = Math.max(0, ahead - qAhead - QUEUE_GAP);
+      const hx = p.ux * p.dir, hz = p.uz * p.dir;
+      for (const q of routePeds.get(routeKey(p.route)) || NO_PEDS) {
+        if (q === p) continue;
+        if ((p.ux * q.ux + p.uz * q.uz) * p.dir * q.dir <= 0.8) continue;
+        const dx = q.x - p.x, dz = q.z - p.z;
+        const forward = dx * hx + dz * hz;
+        const lateral2 = dx * dx + dz * dz - forward * forward;
+        if (lateral2 >= QUEUE_GAP * QUEUE_GAP) continue;
+        if (forward > 0) {
+          const limit = Math.max(0, forward - QUEUE_GAP);
           if (limit < room) { room = limit; roomCause = 'holdQueue'; }
         }
       }
     }
     const tramLimit = tramRoom(p);
     if (tramLimit < room) { room = tramLimit; roomCause = 'tram'; }
+    if (room < Infinity && oppositeRoom < room) {
+      room = oppositeRoom;
+      roomCause = 'queue';
+    }
     p.roomCause = roomCause;
     vMax = Math.min(vMax, Math.sqrt(2 * PED_BRAKE * room));
     p.v += Math.max(-2 * PED_BRAKE * dt, Math.min(PED_ACCEL * dt, vMax - p.v));
@@ -2579,8 +2629,12 @@ function createTrafficSystem(
     // Short tracks (corner links, cramped sidewalks) still count a crossing wait: a blocked exit there is exactly the
     // bottleneck that piles people up.
     const shortTrack = p.route && p.route.len < 10;
-    let waitingForCrossing = !!p.node;
-    if (!waitingForCrossing && !shortTrack && p.nextRoute) {
+    // Waiting at the curb for the WALK is legitimate; standing on the zebra is not. A body that crossed but cannot
+    // leave the far curb (a blocked exit, typical of an unsignalised crossing where nobody yields) is exactly what the
+    // clock must catch, so only the curb wait keeps a crossing walker exempt. A split crossing's strip hold (`held`)
+    // waits short of the rails and stays exempt.
+    let waitingForCrossing = !!p.node && p.waiting;
+    if (!waitingForCrossing && !held && !shortTrack && p.nextRoute) {
       for (const leg of p.nextRoute) if (leg.track.node) { waitingForCrossing = true; break; }
     }
     if (p.v < 0.05 && p.pause <= 0 && !p.conversation && !p.waiting && !waitingForCrossing) p.stuck += dt;

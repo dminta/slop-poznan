@@ -30,13 +30,50 @@ function createPedestrianRoutes(
     return true;
   }
 
+  // A two-way street is two directed edges on one centreline, and a divided pair drawn closer than PAIR_SEP is put on
+  // one too (road-network.js). Both produce the same four physical lines in separate route objects. They keep their
+  // own tracks (each edge still needs its own ends for `next`), but carry the same `walkKey`, so traffic.js queues the
+  // two copies as one line instead of letting them walk through each other (the Droga Dębińska / Most Dworcowy stacks
+  // in the 2026-11-05 audit).
+  let pairedEdges = null, edgeOrder = null;
+  const pairKey = (a, b) => (a.x < b.x || (a.x === b.x && a.z < b.z)
+    ? `${a.x}:${a.z}|${b.x}:${b.z}` : `${b.x}:${b.z}|${a.x}:${a.z}`);
+  function walkKey(e) {
+    if (!e.from || !e.to) return null;
+    if (!pairedEdges) {
+      pairedEdges = new Map();
+      edgeOrder = new Map();
+      for (let i = 0; i < edges.length; i++) {
+        const f = edges[i];
+        if (!f.from || !f.to) continue;
+        edgeOrder.set(f, i);
+        const key = pairKey(f.from, f.to);
+        let list = pairedEdges.get(key);
+        if (!list) pairedEdges.set(key, list = []);
+        list.push(f);
+      }
+    }
+    for (const f of pairedEdges.get(pairKey(e.from, e.to)) || []) {
+      if (f === e || f.from !== e.to || f.to !== e.from || Math.abs(f.len - e.len) > 1) continue;
+      const fx = f.sx + f.dx * f.len, fz = f.sz + f.dz * f.len;
+      if (Math.abs((f.sx - e.sx) * e.rx + (f.sz - e.sz) * e.rz) > 0.5 ||
+          Math.abs((fx - e.sx) * e.rx + (fz - e.sz) * e.rz) > 0.5) continue;
+      const c = edgeOrder.get(e) < edgeOrder.get(f) ? e : f;
+      return { key: `${c.sx}:${c.sz}:${c.dx}:${c.dz}:${c.len}`, flip: c !== e };
+    }
+    return null;
+  }
+
   function along(e) {
     if (sidewalks.has(e)) return sidewalks.get(e);
     const result = [];
     sidewalks.set(e, result);
+    const pair = walkKey(e);
     // Two walking lines on each side leave room for people to pass or stop together.
     for (const sign of [-1, 1]) {
       for (const inset of [1.7, 2.8]) {
+        // One key per physical line: the twin edge has the opposite normal, so its sign is flipped back.
+        const key = pair ? `${pair.key}:${pair.flip ? -sign : sign}:${inset}` : null;
         const off = sign * (e.half + inset);
         const a = { x: e.sx + e.rx * off, z: e.sz + e.rz * off };
         const b = { x: a.x + e.dx * e.len, z: a.z + e.dz * e.len };
@@ -45,11 +82,12 @@ function createPedestrianRoutes(
         if (!blkA || !blkB) continue;
         if (blkA === blkB) {
           if (!clear(a, b, blkA)) continue;
-          result.push(segment(a, b, { edge: e, from: e.from, to: e.to, block: blkA }));
+          result.push(segment(a, b, { edge: e, from: e.from, to: e.to, block: blkA, walkKey: key }));
         } else {
           // Continuous sidewalk bridging across two blocks under a railway underpass
           if (!clear(a, b, null, true)) continue;
-          result.push(segment(a, b, { edge: e, from: e.from, to: e.to, block: blkA, blockTo: blkB, underpass: true }));
+          const extra = { edge: e, from: e.from, to: e.to, block: blkA, blockTo: blkB, underpass: true, walkKey: key };
+          result.push(segment(a, b, extra));
         }
       }
     }

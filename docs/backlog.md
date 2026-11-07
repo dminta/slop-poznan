@@ -6,12 +6,16 @@ Implementation details and completed measurements live in the [topic docs](../AG
 
 ## Known gaps and follow-up investigations
 
-- **Pedestrian overlap remnants:** investigate short conversation and blocked-crossing queue overlaps, mostly around
-  Dworzec and Droga Dębińska (up to 16 s and 6 pedestrians in the last audit). The 20 s recovery is postponed while
-  a pedestrian is in `nearView`; recognising blocked give-way exits remains unexplored. The retained
-  `bench-traffic.mjs --ped-rooms` audit attributes Jeżyce's remaining non-legitimate walker holds (1,745 ped-s of
-  94,103 sampled, longest 17.7 s) to queue (96%) and merge (4%) room, not to trams; the `tramRoom` boundary trap is
-  fixed. [Method and district results](observations/ped-overlaps-2026-11-05.md),
+- **Pedestrian overlap remnants:** the 2026-11-07 follow-up keys queues by physical line instead of route object,
+  tests entrances and oncoming queues in world space, and lets a blocked crossing exit age. On the dworzec/wilda audit
+  (seeds 4242/77, 3 min) clusters fall 17 → 12, longest 26 → 24 s, mean overlapping pairs/s 18.8 → 14.1, crosswalk
+  entries hold at 108.0 → 109.2/min; the biggest short cluster grows 7 → 8. The retained `bench-traffic.mjs --ped-rooms`
+  audit attributes Jeżyce's remaining walker holds (1,745 ped-s of 94,103 sampled, longest 17.7 s) to queue (96%) and
+  merge (4%) room, not to trams; the `tramRoom` boundary trap is fixed. Remaining: a 24 s / 5-body knot on the 5.3 m
+  Most Dworcowy corner link where trams stop both directions on one line, an 8 s / 8-body two-way queue at
+  Droga Dębińska, and conversation pairs meeting within a body width of another pair. A direction-specific inset lane
+  is the untried fix for the first two. The 20 s recovery is still postponed while a pedestrian is in `nearView`.
+  [Mechanisms, fix and per-seed results](observations/ped-overlaps-2026-11-05.md#follow-up-2026-11-07-coincident-lines-and-blocked-exits),
   [room audit](observations/jezyce-gridlock-2026-11-07.md#follow-up-tramroom-boundary-fix-and-room-audit-2026-11-07).
 - **Isolated crosswalk landings:** connect the remaining 212 empty ends (197 tracks with an empty end) without
   restoring U-turns or crossing roads, rails, buildings or water. Examples: Okrąglak (both side-1 lines),

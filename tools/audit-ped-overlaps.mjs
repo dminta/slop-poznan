@@ -127,7 +127,14 @@ function run(d, seed) {
       const key = a < b ? `${a}:${b}` : `${b}:${a}`;
       if (!pairSince.has(key)) pairSince.set(key, time);
       const duration = time - pairSince.get(key);
-      if (!pairMax.has(key) || pairMax.get(key).duration < duration) pairMax.set(key, { duration, time, a: all[a], b: all[b] });
+      if (!pairMax.has(key) || pairMax.get(key).duration < duration) {
+        // Snapshot at the peak: the ped objects keep moving, so describing them at the end of the run reported a
+        // different place and state than the recorded duration did.
+        pairMax.set(key, {
+          duration, time, x: round(all[a].x, 2), z: round(all[a].z, 2),
+          where: getLocationLabel(all[a].x, all[a].z), a: describe(all[a]), b: describe(all[b])
+        });
+      }
     }
     const live = new Set(pairs.map(([a, b]) => (a < b ? `${a}:${b}` : `${b}:${a}`)));
     for (const key of [...pairSince.keys()]) if (!live.has(key)) pairSince.delete(key);
@@ -167,8 +174,8 @@ function run(d, seed) {
   const clusterList = [...episodes.values()].filter((e) => e.duration >= MIN_SECONDS).sort((a, b) => b.duration - a.duration);
   const worstPairs = [...pairMax.entries()].filter(([, v]) => v.duration >= MIN_SECONDS)
     .sort((a, b) => b[1].duration - a[1].duration).slice(0, 10).map(([key, v]) => ({
-      pair: key, duration: round(v.duration), at: round(v.time), where: getLocationLabel(v.a.x, v.a.z),
-      x: round(v.a.x, 2), z: round(v.a.z, 2), a: describe(v.a), b: describe(v.b)
+      pair: key, duration: round(v.duration), at: round(v.time), where: v.where,
+      x: v.x, z: v.z, a: v.a, b: v.b
     }));
   const sampledSeconds = Math.max(1, MINUTES * 60 - WARMUP);
   return {
