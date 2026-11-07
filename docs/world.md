@@ -105,8 +105,13 @@ furnished-network lanes, furniture footprints and crossing endpoints. Generated 
 4. `cityBlocks.populateLeftoverSlabs()` places trees on leftover lot slabs now that `parkTreeSites` is populated.
 5. `buildOutskirts(scene)`, then `buildBridges(scene, { sidewalks: cityGrid.sidewalks })`.
 6. `buildStreetDetails(scene, { buildingColliders: allColliders })`: it needs the building colliders for the corner name plates. Its own `colliders` join `allColliders` only after step 8, since its footprints already go to the network; so do `cityGrid.propColliders` (square & park furniture and trees).
-7. `createTrafficSystem(scene, cityGrid.sidewalks, obstacles, streetDetails.roadNetwork)` reuses the furnished network
-   built during street-tree placement; omitted fourth arguments retain the `buildRoadNetwork` fallback. The obstacles are `cityGrid.footprints`, `streetDetails.footprints` and the colliders with no `obb` and `minY < 3.5`.
+7. `createTrafficSystem(scene, cityGrid.sidewalks, obstacles, streetDetails.roadNetwork, buildingColliders)` reuses the
+   furnished network built during street-tree placement; omitted fourth arguments retain the `buildRoadNetwork` fallback.
+   The obstacles are `cityGrid.footprints`, `streetDetails.footprints` and the colliders with no `obb` and `minY < 3.5`.
+   The fifth argument is the real building set (`landmarkColliders` + `cityBlocks.colliders`); `pedestrian-routes.js`
+   checks it on the sparse fallback connectors. Its 32 m cell index pads OBBs by `0.4 m × √2` (the turned box can reach
+   past its world AABB) and ignores colliders whose underside clears the 1.9 m pedestrian. Omitting the argument leaves
+   the fallback connectors with the lot-rect check only.
 8. `buildRoadPaint(scene, trafficSystem.network, trafficSystem.crosswalks, railClearance)`, then
    `buildTramInfrastructure(scene, trafficSystem.network)`: it needs the lanes to keep clear of, so none of it is a traffic obstacle; its colliders join `allColliders`.
 9. `createTramSystem` gets the road network, infrastructure stops and traffic system, then

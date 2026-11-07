@@ -39,6 +39,28 @@ const js = (file) => readFileSync(join(ROOT, 'js', file), 'utf8');
 const config = await import(pathToFileURL(join(ROOT, 'js/city-config.js')).href);
 const { GEO } = await import(pathToFileURL(join(ROOT, 'js/geodata.js')).href);
 
+// The benchmark still omits the rendered city, but the building colliders are cheap to generate on their own (the
+// block generator reads only geodata and config) and the pedestrian route builder needs them to keep fallback
+// connectors out of walls. Landmark and bridge colliders stay omitted: they add little at this scale and would pull
+// the whole landmark/bridge builders into every benchmark process. Built once per process and shared by all districts.
+let buildingColliders = null;
+function loadBuildingColliders() {
+  if (buildingColliders) return buildingColliders;
+  const stub = inert();
+  const { buildCityBlocks } = loadModule(js('buildings.js'), {
+    imports: {
+      'three/webgpu': inert(), 'three/tsl': inert(),
+      'three/addons/utils/BufferGeometryUtils.js': inert(),
+      './balconies.js': inert(), './roofs.js': inert(), './tsl-materials.js': inert(),
+      './city-config.js': config, './geodata.js': { GEO },
+      './city-grid.js': { pavedPlazaRects: [], parkTreeSites: [], sidewalkBlocks: [] }
+    },
+    globals: { ...G, document: stub }, filename: 'buildings.js'
+  });
+  buildingColliders = buildCityBlocks(stub).colliders;
+  return buildingColliders;
+}
+
 // The furnished network as main.js builds it, less the buildings (none stands in a lane) and the curb rectangles
 function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSeed = 1922 } = {}) {
   const rn = loadModule(js('road-network.js'), {
@@ -97,7 +119,7 @@ function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSe
     },
     globals: { ...G, performance: { now: () => 0 }, document: inert() }, filename: 'traffic.js'
   });
-  const traffic = createTrafficSystem(inert(), [], footprints, roadNetwork);
+  const traffic = createTrafficSystem(inert(), [], footprints, roadNetwork, loadBuildingColliders());
   const { layoutTramInfrastructure } = loadModule(js('tram-infra.js'), {
     imports: { ...three, './geodata.js': { GEO }, './city-config.js': config, './tsl-materials.js': inert() },
     globals: G, filename: 'tram-infra.js'

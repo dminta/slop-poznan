@@ -123,7 +123,9 @@ function createBusDestinationTexture() {
 
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 
-function createTrafficSystem(scene, sidewalks, obstacles, network = buildRoadNetwork(sidewalks, obstacles)) {
+function createTrafficSystem(
+  scene, sidewalks, obstacles, network = buildRoadNetwork(sidewalks, obstacles), buildingColliders = null
+) {
   const group = new THREE.Group();
   group.name = 'TrafficAndPedestrians';
   let collisionListener = null;
@@ -2119,7 +2121,7 @@ function createTrafficSystem(scene, sidewalks, obstacles, network = buildRoadNet
   // 7. PEDESTRIANS
   // =========================================================================
   const KERB = 1.6; // how far along a crosswalk track pedestrians wait to cross (the curb is 2 m along)
-  const pedRoutes = createPedestrianRoutes(network, blockAt, railClearance);
+  const pedRoutes = createPedestrianRoutes(network, blockAt, railClearance, buildingColliders);
   // Decide demand-only crossings after the real walking routes are known: a dropped OSM arm can leave a road
   // stopping for nobody. Use the curb-to-curb walk, not crosswalk.span (the approach road's length), for clearance.
   function configureSignals() {

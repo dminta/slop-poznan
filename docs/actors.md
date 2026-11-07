@@ -80,10 +80,16 @@ back over the zebra just crossed, and at a curb with no sidewalk exit every walk
 link. A route choice also skips a crossing whose far end lands on a known block with no way off it (a park edge with no
 sidewalk track); before the fix those crossings made people cross, find nothing, turn round and cross straight back
 forever. Removing the U-turn exposed empty landings, so `links` fills one only when the connector stays within the
-source block's edge corridor (5 m; a direct curb link is also at most 5 m long), is at most 32 m long, keeps every road
-lane at least its half width + 0.8 m away, stays 1.5 m from any rail/tram centreline, avoids building lots/obstacle
-footprints and never crosses water. It can join the nearest point on a sidewalk track or another zebra; a cross-block
-seam must also pass `clearGap`. The street index is built with the routes; sidewalk tracks are materialised only for
+source block's edge corridor (5 m; a direct curb link may reach 8 m and stays 8 m from the edge), is at most 32 m long,
+keeps every road lane at least its half width + 0.8 m away, stays `RAIL_KEEP` 2 m from any rail/tram centreline, avoids
+building lots (2 m pad) and the real building colliders passed by `main.js` (0.4 m pad, once a collider's underside is
+below the 1.9 m pedestrian), keeps off obstacle footprints and never crosses water. It can join the nearest point on a
+sidewalk track or another zebra; a cross-block seam also passes `clearGap`. The wider direct link is the 2026-11-07
+change, and only links up to `DIRECT_MAX` use it: the longer 32 m loop keeps the 5 m corridor. On the headless benchmark
+world (`tools/bench-world.mjs`, street furniture plus city-block colliders, no city-grid curbs, landmarks or bridges)
+empty ends fall **269 → 246** and tracks never entered by routing **247 → 225**, with crosswalk count unchanged at
+3,270. The 2 m rail keep replaces the earlier 1.5 m check; on this harness it changed no count, but a 1.7 m synthetic
+clearance now blocks a connector. The street index is built with the routes; sidewalk tracks are materialised only for
 the nearby edges of a landing and `links()` never loops the whole network in a frame. Unconnected crosswalk tracks go
 from **321 to 218** and ends with no links from **365 to 230**
 (old U-turn figures 20 and 208); the rest are isolated landings and are listed in the [backlog](backlog.md) with

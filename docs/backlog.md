@@ -10,19 +10,33 @@ Implementation details and completed measurements live in the [topic docs](../AG
   Dworzec and Droga Dębińska (up to 16 s and 6 pedestrians in the last audit). The 20 s recovery is postponed while
   a pedestrian is in `nearView`; recognising blocked give-way exits remains unexplored.
   [Method and district results](observations/ped-overlaps-2026-11-05.md).
-- **Isolated crosswalk landings:** connect the remaining 230 empty ends (218 tracks never entered by routing)
-  without restoring U-turns or crossing roads, rails, buildings or water. Examples: Okrąglak (both side-1 lines),
+- **Isolated crosswalk landings:** connect the remaining 246 empty ends (225 tracks never entered by routing) without
+  restoring U-turns or crossing roads, rails, buildings or water. Examples: Okrąglak (both side-1 lines),
   Miła / Dąbrowskiego, Święty Marcin / Wysoka, Promienista / Grochowska and Wierzbięcice / Górna Wilda.
-  Most are unused second lines of two-line crossings. Pass real building colliders to the route builder before
-  relaxing the 5 m block-edge corridor and direct-link limits; exploratory data suggests about 124 ends could
-  connect. The current fallback caps connector length at 32 m and keeps a 2 m building-lot pad.
+  Most are unused second lines of two-line crossings. The route builder now receives the real building colliders
+  (`main.js`: landmark + city-block) and uses them in fallback-connector clearance. Direct links may now reach 8 m and
+  stay 8 m from the block edge (5 → 8 m), while the 32 m fallback keeps its 5 m corridor and every connector keeps
+  `RAIL_KEEP` 2 m from tracks. In the 2026-11-07 headless world (`tools/bench-world.mjs`, city-block colliders
+  included; city-grid curbs, landmarks and bridges omitted) empty ends moved **269 → 246** and never-entered tracks
+  **247 → 225**, with crosswalks unchanged at 3,270. The older grid-and-furniture 230/218 snapshot predates these
+  inputs and is not directly comparable. Still open: widening or otherwise reworking the 5 m long-link corridor and
+  32 m connector limit (an earlier exploratory widening suggested about 124 further ends, not re-measured here), and a
+  production full-scene count. The fallback keeps a 2 m building-lot pad and now rejects connectors through building
+  walls; the benchmark still omits landmark and bridge colliders.
   [Routing observations](observations/ped-overlaps-2026-11-05.md).
-- **Jeżyce crosswalk gridlock:** break the tram → car → pedestrian → tram cycle around `−2105…−2040`.
-  Pedestrians freeze mid-crosswalk in `tramRoom`/`tramNear` beside stopped trams; cars wait for those pedestrians
-  and trams wait for the cars. It clears only when a tram respawns after 90 s. Queue spacing and the 20 s
-  recovery do not break the cycle (`p.node` crosswalk waits do not accumulate that recovery timer).
-  Measure the effect of the newer landing links on this scenario.
-  [Traffic trace](observations/tram-overlaps-2026-11-04.md#kaponiera-regression-and-fix-2026-11-05).
+- **Jeżyce crosswalk freeze (latent):** after `abc352f` (pedestrian queues, U-turn/landing routing and recovery
+  together) the recorded gridlock no longer appears in the 8-seed Jeżyce benchmark: seeds 99/5 fall from 12/9 cars
+  held over 60 s and one over 120 s to none, and the 8-seed over-60 sum is 50 → 28 with no car held over 120 s at
+  sampling. The benchmark's `waitMax` maximum is 83 s; it did not capture `longestHeld`, so it does not verify the
+  test's `longestHeld < 120` bound, and the historical 129/103 s `longestHeld` outliers are not comparable. Seed 1
+  and 3 rose (57 → 62 s, 0 → 1 and 78 → 83 s, 4 → 13 over 60 s), so the gain is not uniform and the landing links
+  alone cannot be credited. A walker
+  can still stop at `tramRoom`'s `before = 0` edge while `tramNear` holds it; the stuck clock is suppressed by
+  crosswalk waits but also by curb/split holds, pauses and conversations, and `nearView` postpones removal. An
+  unretained ad-hoc variant (stationary traffic-held trams exempt in `tramNear`) did not remove the non-tram `room`
+  freezes, so it was not kept. Next: retain an instrumented check of the other `room` terms; keep the
+  body-over-crossing block and the 6 s lookahead.
+  [Measurements](observations/jezyce-gridlock-2026-11-07.md).
 - **Other missing signal heads (15.5):** investigate alternative mounting positions for the 66 historical
   Category C approaches and verify visibility. Sampled curbside sites, forward positions up to 6 m, medians and
   arm-aligned pole reuse found no suitable sites. Run `node tools/audit-signal-heads.mjs` with attention to the
@@ -34,6 +48,14 @@ Implementation details and completed measurements live in the [topic docs](../AG
   and queues at Kaponiera and Wilda. After the short-link follower fix, the 8-seed × 7-district benchmark still
   has 213 cars held over 60 s and 10 over 120 s. Avoid reviving the rejected early-arrival and lane-lead braking
   relaxations without checking their regressions. [Comparison and rejected variants](observations/tram-overlaps-2026-11-04.md).
+  The 2026-11-07 Centrum seed 99 10-minute run (current working tree) reports `waitMax`/`longestHeld` 184 s at
+  `(-1117, 132)`; the 5-minute benchmark ends at 300 s and does not reach the t = 477 s peak. Only the aggregate and
+  one `--dump` snapshot are documented. An unretained per-second trace suggested a 9.4 m short link held by a
+  left-turner or a car at the downstream red, with an exit reservation still counting a priority lead held by
+  tram/box; that chain is **not reproducible**, so treat it as a hypothesis. An unretained variant that skipped such
+  reservations reported 133 s but a slower seed and a car stopped 52 s in the junction box at target node
+  `(-1074, 129)`; it was not kept and is not reproducible either. Still open; the same physical link is covered by the
+  short-link left-turn item. [Aggregate and limitations](observations/merge-starvation-2026-11-07.md).
 - **Short-link left-turn phase:** reduce remaining holds at Centrum (seed 99: 110 s; 4242: 85 s; 7: 87 s in the
   recorded comparison). Preserve tram-body reservations and verify full clearance through the junction.
   [Per-second trace and timetable context](observations/left-turn-tram-2026-11-04.md).

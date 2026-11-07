@@ -6,7 +6,7 @@ import { CROSSWALK, CROSSWALK_REACH } from './road-network.js';
 // `railClearance(x, z, r)` (city-grid.js: the distance to the nearest track centreline, capped at r) keeps the places
 // people wait on a split crossing's strip clear of the trams; without it every strip has room.
 function createPedestrianRoutes(
-  { nodes = [], edges = [], walkable, configureCrosswalks }, blockAt, railClearance = null
+  { nodes = [], edges = [], walkable, configureCrosswalks }, blockAt, railClearance = null, buildingColliders = null
 ) {
   const sidewalks = new Map(), crossings = new Map(), junctions = new Map(), connections = new WeakMap();
   const islandPorts = new Map();
@@ -418,8 +418,11 @@ function createPedestrianRoutes(
   }
 
   // Clearance for a fallback connector: no road lane within its half width, no rail/tram centreline, no building
-  // footprint and no water. Used only for the sparse crosswalk landings, never for ordinary sidewalk links.
-  const FALLBACK_MAX = 32, FALLBACK_CORRIDOR = 5, DIRECT_CORRIDOR = 5, DIRECT_MAX = 5;
+  // collider and no building lot rect. Water and obstacle footprints are rejected by `walkable` in `clear`/`clearGap`.
+  // Used only for the sparse crosswalk landings, never for ordinary sidewalk links. A direct link may reach 8 m and
+  // stay 8 m from its block edge; longer links keep the 5 m corridor. With both limits and RAIL_KEEP, the 2026-11-07
+  // headless world leaves 269 -> 246 empty ends and 247 -> 225 never-entered tracks.
+  const FALLBACK_MAX = 32, FALLBACK_CORRIDOR = 5, DIRECT_CORRIDOR = 8, DIRECT_MAX = 8;
   function segmentDistance(ax, az, bx, bz, cx, cz, dx, dz) {
     const rx = bx - ax, rz = bz - az, sx = dx - cx, sz = dz - cz;
     const den = rx * sz - rz * sx;
@@ -491,12 +494,56 @@ function createPedestrianRoutes(
     for (const [x0, x1, z0, z1] of block.rects || []) if (x >= x0 - 2 && x <= x1 + 2 && z >= z0 - 2 && z <= z1 + 2) return true;
     return false;
   }
+  // Real building walls passed by main.js (landmark and block colliders: AABB or OBB). The lot rects above keep a broad
+  // 2 m envelope, which is safe but blind outside mapped lots; the colliders let a fallback connector reject a wall even
+  // where no lot rect covers it, so the corridor and direct-link limits can be revisited without cutting through
+  // buildings. A walker's body keeps the same 0.4 m pad used by `walkable`. Indexed in 32 m cells because only the
+  // sparse crosswalk landings call this path.
+  const BUILDING_PAD = 0.4;
+  // The player's pedestrian body reaches 1.9 m (controllers.js); an NPC is 1.75 m. A collider whose underside clears
+  // that height is an overhang a walker passes under, not a wall across the connector.
+  const PEDESTRIAN_HEIGHT = 1.9;
+  let wallCells = null;
+  function indexWalls() {
+    if (wallCells || !buildingColliders) return wallCells;
+    wallCells = new Map();
+    const CELL = 32;
+    for (const c of buildingColliders) {
+      if ((c.minY ?? 0) >= PEDESTRIAN_HEIGHT) continue;
+      // The point test adds the pad along the box's own axes. For an OBB that reaches up to `pad * sqrt(2)` past its
+      // world AABB at a corner, so the cell index must file the wider bounds or a point near a cell edge can miss it.
+      const reach = c.obb ? BUILDING_PAD * Math.SQRT2 : BUILDING_PAD;
+      const ix0 = Math.floor((c.minX - reach) / CELL), ix1 = Math.floor((c.maxX + reach) / CELL);
+      const iz0 = Math.floor((c.minZ - reach) / CELL), iz1 = Math.floor((c.maxZ + reach) / CELL);
+      for (let ix = ix0; ix <= ix1; ix++) for (let iz = iz0; iz <= iz1; iz++) {
+        const key = ix * 100000 + iz;
+        let cell = wallCells.get(key);
+        if (!cell) wallCells.set(key, cell = []);
+        cell.push(c);
+      }
+    }
+    return wallCells;
+  }
+  function hitsBuilding(x, z) {
+    const cells = indexWalls();
+    if (!cells) return false;
+    for (const c of cells.get(Math.floor(x / 32) * 100000 + Math.floor(z / 32)) || []) {
+      if (c.obb) {
+        const { cx, cz, hx, hz, cs, sn } = c.obb;
+        const dx = x - cx, dz = z - cz, lx = dx * cs - dz * sn, lz = dx * sn + dz * cs;
+        if (Math.abs(lx) <= hx + BUILDING_PAD && Math.abs(lz) <= hz + BUILDING_PAD) return true;
+      } else if (x >= c.minX - BUILDING_PAD && x <= c.maxX + BUILDING_PAD &&
+                 z >= c.minZ - BUILDING_PAD && z <= c.maxZ + BUILDING_PAD) return true;
+    }
+    return false;
+  }
   function clearHazards(a, b) {
     if (!clearOfStreets(a, b)) return false;
     const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.5));
     for (let i = 0; i <= steps; i++) {
       const x = a.x + (b.x - a.x) * i / steps, z = a.z + (b.z - a.z) * i / steps;
-      if (railClearance && railClearance(x, z, 1.5) < 1.5) return false;
+      if (railClearance && railClearance(x, z, RAIL_KEEP) < RAIL_KEEP) return false;
+      if (hitsBuilding(x, z)) return false;
       const block = blockAt(x, z);
       if (block && inLot(x, z, block)) return false;
     }
@@ -581,7 +628,7 @@ function createPedestrianRoutes(
       if (!next.node || next === track || (track.arm && next.arm === track.arm)) continue;
       const b = point(next, port.end), distance = Math.hypot(b.x - a.x, b.z - a.z);
       if (distance <= 0.01 || distance > 32 || !clearGap(a, b)) continue;
-      if (!clearHazards(a, b) || !withinBlockEdge(a, b, block, DIRECT_CORRIDOR)) continue;
+      if (!clearHazards(a, b) || !withinBlockEdge(a, b, block, FALLBACK_CORRIDOR)) continue;
       result.push([{ track: segment(a, b), dir: 1 }, { track: next, dir: nextDir }]);
     }
     const near = [], seenEdges = new Set();

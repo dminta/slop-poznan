@@ -135,10 +135,19 @@ vehicle, tram and walker at its junction), `--watch x,z` (that junction every 30
 `--no-peds`, `--no-trams`, `--no-signals` (they patch `traffic.js` by exact text and throw if it changed).
 
 This is a benchmark variant, not the complete browser scene: it does not build city-grid's sidewalks or square/park
-furniture, passes empty plaza/park site lists to street-details, and omits building, landmark and bridge colliders.
-Its network and crosswalk counts therefore differ from the grid-and-furniture measurement snapshot in
+furniture, passes empty plaza/park site lists to street-details, and omits landmark and bridge colliders. It builds the
+city-block colliders once per process and passes them to the pedestrian route builder, so fallback connectors cannot cut
+through building walls; landmark walls only add a little at this scale. Its network and crosswalk counts therefore differ
+from the grid-and-furniture measurement snapshot in
 [`world.md`](world.md#measurement-snapshot-2026-10-29) and from the full browser world. Compare runs with the same
 builder inputs, seed, population rules and sample window.
+
+Empty-ending counts are not printed by the benchmark. They were taken from the same `buildWorld()` result by exposing
+`links` with the source replacement in `tests/pedestrian-route-sinks.test.cjs` and asking `links(track, ±1)` for every
+crosswalk track end. That makes the 2026-11-07 before/after pair (269 → 246 ends, 247 → 225 never-entered tracks)
+reproducible without a separate tool; crosswalk count and the harness's omissions must be reported with it. The direct
+fit (up to 8 m) and the 32 m fallback (5 m corridor) are measured together, as are the 2 m rail keep and building
+colliders.
 
 Per district it prints the cars sampled, mean speed (and of the moving ones), the share stopped (< 0.5 m/s), the longest
 stopped queue in a lane, the distribution of finished waits (p50/p90/max), cars held over 60 and 120 s, why the stopped
