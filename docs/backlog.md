@@ -23,25 +23,27 @@ Implementation details and completed measurements live in the [topic docs](../AG
   the landing gets a short kerb spur (≤ 6 m, `landing: true`) along its outline; the spur keeps 2.22 m from every rail
   centreline, is rejected by the lane/lot/wall checks, and its far end is a terminus (the dead-end guard keeps it out of
   through routes). On the 2026-11-07 headless world (`tools/bench-world.mjs`, city-block colliders; city-grid curbs,
-  landmarks and bridges omitted) empty ends fall **156 → 62** and tracks with an empty end **143 → 58**, with
-  crosswalks unchanged at 3,270, `laneHits` 0, rail hits 0 and building hits 0. The bare network falls 109/98 → 32/31.
+  landmarks and bridges omitted) empty ends fall **156 → 47** and tracks with an empty end **143 → 41**, with
+  crosswalks unchanged at 3,270, `laneHits` 0, rail hits 0 and building hits 0; the 16,046 split runs keep
+  `splitLaneHits` 0 (closest sample 0.8 m beyond half a lane + 0.8 m). The bare network falls 109/98 → 38/33.
   The five named nodes are linked: **Okrąglak** (`-841.5, 30.6`), **Okrąglak / Święty Marcin** (`-1120.1, 112`),
   **Miła / Dąbrowskiego** (`-3269.1, -884.3`; its far end at `-3263, -901.3` lies on an ordinary block and stays
   isolated), **Promienista / Grochowska** (both lines) and **Wierzbięcice / Górna Wilda** (both lines). The audit
   reproduces the counts, re-checks every fallback leg and now re-checks the generated spurs (`spur*` fields: 5 links
-  on 4 tracks, closest rail 2.48 m, 0 rail/building/block hits). The remaining 62 ends are ordinary blocks and roadway
-  cases; `reasonCounts` (overlapping categories) are lane 57, length 34, lot 34, walkable 15, rail 9, building 8,
-  corridor 4 and block 2. Stage 2's 16 m fallback corridor and 32 m `FALLBACK_MAX` stay; a 40/48 m limit adds only
-  6/7 ends. The dead-end guard still covers sidewalk-track landings. Still open: a production full-scene count (the
+  on 4 tracks, closest rail 2.48 m, 0 rail/building/block hits) and the split runs' lane distance (`splitLaneHits` 0,
+  `splitMinLane` 0.8 m). The remaining 47 ends are ordinary blocks and roadway cases; `reasonCounts` (overlapping
+  categories) are lane 36, length 29, lot 22, walkable 10, rail 5, building 4, corridor 3 and block 1. Stage 2's 16 m
+  fallback corridor and 32 m `FALLBACK_MAX` stay; a 40/48 m limit adds only 6/7 ends. The dead-end guard still covers sidewalk-track landings. Still open: a production full-scene count (the
   benchmark omits landmark/bridge colliders and city-grid curbs).
   [Routing observations](observations/ped-overlaps-2026-11-05.md#follow-up-2026-11-07-kerb-tracks-on-tram-cut-islands).
-- **Other missing signal heads (15.5):** the overhead fallback now serves 30 of the 73 historical Category C
-  approaches from 11 new 6.2 m masts and 19 reused signal poles (arm ≤ 11.717 m, mean 8.702 m); the audit is
-  114/0/43/10 after placement (67/73 B/C before; the kerb tracks moved 7 approaches out of B). The arm, head and foot
+- **Other missing signal heads (15.5):** the overhead fallback now serves 32 of the 75 historical Category C
+  approaches from 10 new 6.2 m masts and 22 reused signal poles (arm ≤ 11.717 m, mean 8.819 m); the audit is
+  114/0/43/10 after placement (65/75 B/C before; the kerb tracks moved 9 approaches from B to C against the stage-2
+  74/66 split). The arm, head and foot
   keep 2.22 m from every track axis at 0.5 m samples, and the
   foot keeps a conservative 3.1 m from every track (above the 1.75 m tram-pole and 2.6 m railway-mast setbacks);
   the built tram and railway layouts put every arm, foot and head at least 7.26 m from a pole or mast. Three
-  first-pass arms crossed a tram envelope and are rejected. 15 heads reach the stricter ≥ 10.5 m band and one more the
+  first-pass arms crossed a tram envelope and are rejected. 17 heads reach the stricter ≥ 10.5 m band and one more the
   ≥ 8 m band; 14 use the stop-line fallback (12 at 1.75 m past P-14, one reused pole at 0.03 m and one at −0.82 m).
   A 0.5 × 0.4 m sweep of the −15…−8 m corridor found 12,510 candidate mast feet, none clear; the closest existing support was 12.96 m
   from an −8 m head, so no fallback head can reach either band without a gantry or span wire. The remaining 43 have no

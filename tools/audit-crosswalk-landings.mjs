@@ -191,6 +191,44 @@ for (const track of tracks) {
   }
 }
 
+// Split runs (`split: true`) are the new road-edge fragments. A lane check by projection: the old fallback test's
+// segment distance is conservative at a lane end, while the signed lateral distance inside the lane segment is the
+// number the review measured (Św. Marcin, -3.92 m against half 9.75). Every sample must keep half + 0.8 m.
+const STREET_CELL = 64, streetCells = new Map();
+for (const e of edges) {
+  const x1 = e.sx, z1 = e.sz, x2 = x1 + e.dx * e.len, z2 = z1 + e.dz * e.len;
+  const pad = e.half + 1;
+  const ix0 = Math.floor((Math.min(x1, x2) - pad) / STREET_CELL);
+  const ix1 = Math.floor((Math.max(x1, x2) + pad) / STREET_CELL);
+  const iz0 = Math.floor((Math.min(z1, z2) - pad) / STREET_CELL);
+  const iz1 = Math.floor((Math.max(z1, z2) + pad) / STREET_CELL);
+  for (let ix = ix0; ix <= ix1; ix++) for (let iz = iz0; iz <= iz1; iz++) {
+    const key = ix * 100000 + iz;
+    if (!streetCells.has(key)) streetCells.set(key, []);
+    streetCells.get(key).push(e);
+  }
+}
+let splitTracks = 0, splitLaneHits = 0, splitMinLane = Infinity;
+const splitSeen = new Set();
+for (const edge of edges) {
+  for (const track of routes.along(edge)) {
+    if (!track.split || splitSeen.has(track)) continue;
+    splitSeen.add(track);
+    splitTracks++;
+    const steps = Math.max(1, Math.ceil(track.len / 0.5));
+    for (let i = 0; i <= steps; i++) {
+      const x = track.ax + track.ux * track.len * i / steps, z = track.az + track.uz * track.len * i / steps;
+      for (const e of streetCells.get(Math.floor(x / STREET_CELL) * 100000 + Math.floor(z / STREET_CELL)) || []) {
+        const s = (x - e.sx) * e.dx + (z - e.sz) * e.dz;
+        if (s < 0 || s > e.len) continue;
+        const lateral = Math.abs((x - e.sx) * e.rx + (z - e.sz) * e.rz);
+        splitMinLane = Math.min(splitMinLane, lateral - e.half);
+        if (lateral < e.half + 0.8) { splitLaneHits++; break; }
+      }
+    }
+  }
+}
+
 // One count per empty end: every non-base reason any candidate or nearby track offers. `none` marks an end with no
 // candidate at all beyond its own/sibling lines. The categories overlap, so the counts sum above `emptyEnds`.
 const reasonCounts = {};
@@ -223,6 +261,9 @@ const summary = {
   spurBuildingHits,
   spurBlockHits,
   spurMinRail: Number.isFinite(spurMinRail) ? +spurMinRail.toFixed(2) : null,
+  splitTracks,
+  splitLaneHits,
+  splitMinLane: Number.isFinite(splitMinLane) ? +splitMinLane.toFixed(2) : null,
   reasonCounts
 };
 console.log(JSON.stringify(summary, null, 2));

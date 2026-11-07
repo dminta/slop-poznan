@@ -330,8 +330,12 @@ Promienista / Grochowska (both lines) and Wierzbięcice / Górna Wilda (both lin
 ### Fix
 
 - `js/pedestrian-routes.js`: when a road-edge line is not one clear block, `splitAlong` keeps its maximal clear
-  same-block runs (`split: true`). Each run gets `from`/`to` only when it actually reaches the edge end, so a partial
-  run is a terminus rather than a false node port.
+  same-block runs (`split: true`), split again at 0.5 m samples around a pole, a wall or a lane corridor so a local
+  obstacle shortens the sidewalk instead of deleting the 40 m of clear run on either side. Each run keeps geometric
+  `from`/`to` null and carries `portFrom`/`portTo` only where its endpoint really reaches the line start/end; adjacent
+  runs chain through `chain`, and `ports(n)` uses the explicit port rather than every fragment of the edge. A
+  tram-island run with no onward step is marked `terminus`, which `next()` may still choose as the legal end of the
+  crossing; ordinary dead ends keep the guard.
 - `fileCurb`/`curbPorts` index every sidewalk-track end by the block it stands on. For a crosswalk end, `baseLinks`
   offers the same-block ends within `CURB_LINK_MAX` 8 m, choosing the nearest end per track. This is the short curb
   step, not the 32 m fallback; the fallback still runs only when no base link exists.
@@ -351,24 +355,27 @@ Promienista / Grochowska (both lines) and Wierzbięcice / Górna Wilda (both lin
 
 | metric | before | after |
 |---|---|---|
-| empty crosswalk ends | 156 | **62** |
-| tracks with an empty end | 143 | **58** |
-| fallback ends / connector legs | 209 / 1,004 | 128 / 774 |
+| empty crosswalk ends | 156 | **47** |
+| tracks with an empty end | 143 | **41** |
+| fallback ends / connector legs | 209 / 1,004 | 87 / 581 |
 | sibling U-turn links | 0 | **0** |
 | laneHits / railHits / buildingHits | 0 / 0 / 0 | **0 / 0 / 0** |
 | spur links / spur tracks | - | **5 / 4** |
 | spur rail / building / block hits | - | **0 / 0 / 0** |
 | closest spur sample to a rail | - | **2.48 m** |
+| split runs / `splitLaneHits` | - | **16,046 / 0** |
+| closest split sample to a lane (beyond half) | - | **0.8 m** |
 
 The five named landings now link: Okrąglak (4 same-block run ends), Święty Marcin (2), Miła (1 spur), Promienista (4,
 both lines) and Wierzbięcice (2, both lines). Miła's far end at `-3263, -901.3` is on an ordinary block and stays
 isolated; it is not one of the named keys. On the bare `buildRoadNetwork([], [])` network ends with no links fall
-**109 → 32** and tracks with an empty end **98 → 31**.
+**109 → 38** and tracks with an empty end **98 → 33**.
 
-The remaining 62 ends are ordinary blocks and roadway cases; the audit's overlapping `reasonCounts` are lane 57,
-length 34, lot 34, walkable 15, rail 9, building 8, corridor 4 and block 2. The new tracks also move 7 historical
-signal approaches from B to C (no ground pole site), but runtime placement finds more overhead heads: 30 instead of 26,
-with 15 in the strict ≥10.5 m band, 19 reused poles and 11 new masts; all pedestrian approaches remain class A.
+The remaining 47 ends are ordinary blocks and roadway cases; the audit's overlapping `reasonCounts` are lane 36,
+length 29, lot 22, walkable 10, rail 5, building 4, corridor 3 and block 1. The new tracks also move 9 historical
+signal approaches from B to C (no ground pole site), but runtime placement finds more overhead heads: 32 instead of 26,
+with 17 in the strict ≥10.5 m band, 22 reused poles and 10 new masts; all pedestrian approaches remain class A.
 
-`node --test tests/*.cjs`: 420 pass. The landing test pins all five keys, their rail/building/block clearance and the
-new bare-network ceilings; the signal-audit fixture is updated to the new counts and placement hash.
+`node --test tests/*.cjs`: 421 pass. The landing test pins all five keys, their rail/building/block/lane clearance, `next()`
+for six city goals per end and the new bare-network ceilings; the signal-audit fixture is updated to the new counts and
+placement hash.

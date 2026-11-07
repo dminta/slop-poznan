@@ -16,18 +16,18 @@ test('the furnished audit classifies historical approaches before and after runt
   const before = audit('--before'), after = audit();
   assert.equal(before.rows.length, 167);
   assert.equal(after.rows.length, 167);
-  assert.deepEqual(before.summary.counts, { A: 17, B: 67, C: 73, D: 10 });
+  assert.deepEqual(before.summary.counts, { A: 17, B: 65, C: 75, D: 10 });
   assert.deepEqual(after.summary.counts, { A: 114, B: 0, C: 43, D: 10 });
   assert.equal(before.summary.vehicleHeads, 903);
   assert.equal(after.summary.vehicleHeads, 1001);
   assert.equal(after.summary.pedestrianHeads, 1572);
-  assert.equal(after.summary.runtimePoles, 73);
-  assert.equal(after.summary.reusedPoles, 25);
-  assert.equal(after.summary.overheadHeads, 30);
-  assert.equal(after.summary.overheadPoles, 11);
-  assert.equal(after.summary.overheadReused, 19);
-  assert.equal(after.summary.overheadStrict, 15);
-  assert.equal(after.summary.overheadBand, 16);
+  assert.equal(after.summary.runtimePoles, 70);
+  assert.equal(after.summary.reusedPoles, 28);
+  assert.equal(after.summary.overheadHeads, 32);
+  assert.equal(after.summary.overheadPoles, 10);
+  assert.equal(after.summary.overheadReused, 22);
+  assert.equal(after.summary.overheadStrict, 17);
+  assert.equal(after.summary.overheadBand, 18);
   assert.equal(after.summary.overheadException, 14);
   assert.deepEqual(after.summary.overheadFallbackAlong,
     [1.75, 1.75, 1.75, 1.75, 1.75, 0.031, 1.75, 1.75, -0.816, 1.75, 1.75, 1.75, 1.75, 1.75]);
@@ -49,7 +49,7 @@ test('the furnished audit classifies historical approaches before and after runt
   const placements = after.summary.placements.map((row) => row.map((v) =>
     typeof v === 'number' ? Number(v.toFixed(3)) : v));
   assert.equal(createHash('sha256').update(JSON.stringify(placements)).digest('hex'),
-    '3815ffac35ec84042c47dae59ef06c6928548e40478c05c9bfcd963fdea9556b');
+    '1f83459c288fc36042e916903c9646bbc61ce8f316e66284818e8c4f132b19fb');
   for (const [x, z] of [[1374.2, 566.1], [1060.7, 1452.8]]) {
     assert.ok(before.rows.some((r) => Math.hypot(r.node[0] - x, r.node[1] - z) < 0.01 && r.class === 'B'));
     assert.ok(after.rows.some((r) => Math.hypot(r.node[0] - x, r.node[1] - z) < 0.01 && r.class === 'A'));

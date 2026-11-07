@@ -280,7 +280,14 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
   const lanes = (net) => Array.from(net.edges, (e) => [e.sx, e.sz, e.dx, e.dz, e.len, ...e.lanes]);
   const crossings = (r) => Array.from(r.crosswalks, (c) => [c.ax, c.az, c.bx, c.bz]);
   const localRoutes = (r, p) => {
-    const tracks = r.segmentsNear(p.x, p.z, 2);
+    // `segmentsNear` returns a long edge whole, so a track whose end is 30-40 m away can still be listed. A pole
+    // footprint is about 0.3 m; 4 m is the near-route neighbourhood whose links the pole must not disturb.
+    const nearTrack = (track) => {
+      const dx = track.ux * track.len, dz = track.uz * track.len, len2 = dx * dx + dz * dz;
+      const t = len2 ? Math.max(0, Math.min(1, ((p.x - track.ax) * dx + (p.z - track.az) * dz) / len2)) : 0;
+      return Math.hypot(p.x - track.ax - dx * t, p.z - track.az - dz * t) <= 4;
+    };
+    const tracks = Array.from(r.segmentsNear(p.x, p.z, 2)).filter(nearTrack);
     const key = (s) => [s.ax, s.az, s.ux, s.uz, s.len].join(',');
     const records = Array.from(tracks, (track) => `segment:${key(track)}`);
     for (const track of tracks) for (const dir of [-1, 1]) {

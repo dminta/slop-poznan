@@ -96,8 +96,8 @@ connector up to 32 m may use the 16 m corridor. The connector clearance measures
 distance (four endpoint projections plus a crossing test): the old line-line form read 5.39 m where the pair was
 2.0 m and let 17 fallback legs into a lane by up to 1.09 m. On the headless benchmark world (`tools/bench-world.mjs`,
 street furniture plus city-block colliders, no city-grid curbs, landmarks or bridges) empty ends fall **269 → 212 →
-156 → 62** and tracks with an empty end (never entered by the full routing) **247 → 197 → 143 → 58**, with crosswalk
-count unchanged at 3,270; `laneHits`, rail hits and building hits stay 0, and 128 ends now use 774 fallback
+156 → 47** and tracks with an empty end (never entered by the full routing) **247 → 197 → 143 → 41**, with crosswalk
+count unchanged at 3,270; `laneHits`, rail hits and building hits stay 0, and 87 ends now use 581 fallback
 connector legs (209 / 1,004 before stage 3). Removing the node gate accounts for 16 ends; the 8 → 16 m corridor with
 its courtyard sight line for 20 more alone and 44 together. The 16 m corridor gains 56 of the 68 ends that even a
 32 m corridor would, and a 40/48 m `FALLBACK_MAX` adds only 6/7, so 32 m stays. The 2 m rail keep replaces the earlier
@@ -113,13 +113,14 @@ the clear same-block runs separately (`split: true`), indexes every sidewalk-tra
 still has no road-edge run at the landing (Miła), `links` adds a short kerb spur (`landing: true`, at most 6 m) along
 the landing's block outline; it keeps 2.22 m from every rail centreline and is rejected if it would cross a lane, a
 lot or a wall. A spur is a terminus: its far end has no node, so `next()`'s dead-end guard never routes a walker into it
-as a through path; it only gives the zebra a legal place to land. On the headless world this leaves **62 empty ends /
-58 tracks** (bare network **32 / 31**, down from 109 / 98), with 5 spur links on 4 generated tracks, `spurRailHits`,
+as a through path; it only gives the zebra a legal place to land. On the headless world this leaves **47 empty ends /
+41 tracks** (bare network **38 / 33**, down from 109 / 98), with 16,046 split runs whose `splitLaneHits` is 0
+(`splitMinLane` 0.8 m), 5 spur links on 4 generated tracks, `spurRailHits`,
 `spurBuildingHits` and `spurBlockHits` all 0, and the closest spur sample 2.48 m from a rail. The five named nodes are
 linked: Okrąglak, Okrąglak / Święty Marcin, Miła / Dąbrowskiego (the `-3269.1, -884.3` end; its far end on the ordinary
 block at `-3263, -901.3` stays isolated), Promienista / Grochowska (both lines) and Wierzbięcice / Górna Wilda (both
-lines). Route build rises 182 → 242 ms and `links()` over all ends 5.33 → 6.3 s (worst call 33.4 → 37 ms), still lazy
-and once per end; the split runs add no per-frame work. The remaining isolated landings are ordinary blocks and
+lines). Route build stays ~223 ms and `links()` over all ends rises 6.3 → 8.8 s (worst call 57.6 ms) after the 16,046
+split runs; it is still lazy and cached per end, and the split runs add no per-frame work. The remaining isolated landings are ordinary blocks and
 roadway cases, listed in the [backlog](backlog.md) with reasons;
 `tools/audit-crosswalk-landings.mjs` counts them, re-checks every fallback leg's lane, rail and building clearance, and
 re-checks the generated spurs' rail/building/block clearance. A pedestrian that still
