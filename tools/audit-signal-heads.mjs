@@ -97,4 +97,6 @@ console.log(JSON.stringify({ counts, total: initial.length, vehicleHeads: street
   overheadHeads: street.runtimeHeads.filter((h) => h.overhead).length,
   overheadPoles: street.runtimeHeads.filter((h) => h.overhead && !h.existing).length,
   overheadReused: street.runtimeHeads.filter((h) => h.overhead && h.existing).length,
+  overheadBand: street.runtimeHeads.filter((h) => h.overhead && h.band).length,
+  overheadException: street.runtimeHeads.filter((h) => h.overhead && !h.band).length,
   placements: street.runtimeHeads.map((h) => [h.node.x, h.node.z, h.p.x, h.p.z, h.existing]) }));

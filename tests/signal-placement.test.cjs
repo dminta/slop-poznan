@@ -324,6 +324,14 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
       assert.ok(arm <= 12.01, `overhead arm ${arm}`);
       assert.ok(e.lanes.some((lane) => Math.abs(lane - ((h.p.x - x) * e.rx + (h.p.z - z) * e.rz)) < 0.01),
         `overhead head over a lane at ${h.p.x}, ${h.p.z}`);
+      const steps = Math.max(1, Math.ceil(arm / 0.5));
+      for (let i = 0; i <= steps; i++) {
+        const px = h.pole.x + (h.p.x - h.pole.x) * i / steps;
+        const pz = h.pole.z + (h.p.z - h.pole.z) * i / steps;
+        assert.ok(gridModule.railClearance(px, pz, 20) >= 2.22,
+          `overhead arm keeps 2.22 m from rails at ${px}, ${pz}`);
+      }
+      if (h.band) assert.ok(along <= -8 + 1e-6, `band head along ${along}`);
       assert.ok(config.roadClearance(h.pole.x, h.pole.z) >= 0.8);
       assert.ok(gridModule.railClearance(h.pole.x, h.pole.z, 20) >= 2.22);
     } else {
