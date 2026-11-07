@@ -353,8 +353,19 @@ exemption is not in the code and the car-in-the-box release comes from the stopp
 `tools/audit-tram-overlaps.mjs` finds 55 car–tram body overlaps over 8 seeds × 7 districts (32 with the car moving
 over 1 m/s), from 62 at the previous HEAD and 52 at 907b555; the [investigation](observations/tram-overlaps-2026-11-04.md)
 records the runs, rejected variants and remaining clusters. The 2026-11-05 opposing-lane pass moves only Głogowska 3015
-and Małopolska 3201, outside the sampled districts, so these pairs are unchanged; moving the Rynek Jeżycki stubs would
-lower holds but raise the pairs and add a deadlock, so it is not in the code.
+and Małopolska 3201, outside the sampled districts, so those pairs are unchanged; moving the Rynek Jeżycki stubs would
+lower holds but raise the pairs and add a deadlock, so it is not in the code. At the 2026-11-07 tree (`10b4594`) the same
+audit measures **138 → 71 pairs** (110 → 41 with the car moving over 1 m/s): Jeżyce 83 → 31, Centrum 24 → 8, Kaponiera
+16 → 17, Stare Miasto 12 → 12, Rataje 3 → 3. The remaining stopped pairs are mostly cars touching a stopped tram in a
+shared lane or parked in a close opposing lane; the moving Kaponiera pair is the short-link commitment race.
+
+**Rear-end proxy for a tram waiting ahead.** `occupyTrams` dropped a lane's whole proxy when the tram was braking for
+`t.obstacle`, wherever that vehicle was. A tram waiting behind a queue therefore had no proxy under its own body, and
+following cars and buses drove into its rear in shared lanes (Jeżyce: eight pairs in the seed 4242 run, all with
+`tramWait = car`, six in the `-2167, -498` cluster). The proxy is now dropped only when the obstacle is inside the proxy span, where
+it must be allowed to clear. This is the 138 → 71 pair change above; seed 1 Jeżyce moves mean 16.0 → 15.7 km/h and
+longest hold 32 → 36 s with no deadlock or car over 60 s there (Centrum stays at 62 s), and the seed 4242 deadlock is the
+separate pedestrian box jam.
 
 **Car in the box, tram waiting for it.** A lane proxy on a crossing must keep a stopped car's nose outside the tram's
 body too: `pad` is (tram 1.2 + car 0.92 m) times the crossing's sine plus 0.5 m, so a car stopped at the proxy edge

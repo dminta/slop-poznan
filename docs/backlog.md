@@ -86,12 +86,17 @@ Implementation details and completed measurements live in the [topic docs](../AG
   lane-lead braking relaxations without their regressions.
   [Trace, measurements and rejected variants](observations/merge-starvation-2026-11-07.md),
   [per-second left-turn/tram trace](observations/left-turn-tram-2026-11-04.md).
-- **Car–tram body overlaps:** address the short-link car forecast blind spot at Kaponiera and Centrum, cars
-  stopped inside the tram envelope (27 in the recorded audit, mostly Jeżyce buses), and 58 remaining close lanes
-  (62 runs, 626 m: short junction/shared-tram stubs, curved and constant-shift cases, off-street lanes and tracks
-  unused by routes). Use `tools/audit-tram-opposing-lanes.mjs`; forecast and hard-stop variants previously raised
-  Kaponiera holds to 134–153 s and introduced up to four deadlocks. Moving the Rynek Jeżycki stubs also increased
-  overlaps and added a deadlock. [Mechanisms, pins and rejected variants](observations/tram-overlaps-2026-11-04.md).
+- **Car–tram body overlaps:** the short-link car forecast blind spot remains at Kaponiera and Centrum, and cars can
+  still stop inside the tram envelope, but the 2026-11-07 proxy pass removes the largest Jeżyce rear-end cluster. A tram
+  braking for an obstacle outside its body no longer loses the whole lane proxy, so the 8-seed audit falls **138 → 71
+  pairs** (110 → 41 with the car moving over 1 m/s; Jeżyce 83 → 31, Centrum 24 → 8, Kaponiera 16 → 17). The remaining
+  27 stopped first contacts are mostly shared-lane touches and close opposing lanes; the moving Kaponiera/Stare Miasto
+  pairs are the commitment race where a car enters a 10 m link before the tram's curve is held. `enter` hard-stops for
+  cars on short links and longer forecasts were measured again and rejected (they replaced one pair with another and
+  raised turns). `tools/audit-tram-opposing-lanes.mjs` drops the `< 12 m` exception (edge 305 clears) and reports only
+  used street-running tracks: **47 runs / 45 lanes / 417 m** remain, with 14 runs / 12 lanes / 200 m off-street or unused
+  tracks listed under `--all`. Moving the Rynek Jeżycki stubs still increases overlaps and adds a deadlock.
+  [Eight-seed results and rejected variants](observations/tram-overlaps-2026-11-04.md).
 
 ## Park surfaces and road clearance: remaining visual review
 
