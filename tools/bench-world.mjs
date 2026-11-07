@@ -61,6 +61,134 @@ function loadBuildingColliders() {
   return buildingColliders;
 }
 
+// The production route factory keeps its public shape, but an audit needs the lazy `links` and the connector
+// candidates behind an empty landing. Source-sliced like the route tests (docs/testing.md). `diagnoseFallback` mirrors
+// `fallbackPaths`' acceptance test and names the first rejected rule, so an audit can explain the isolated landings.
+let pedestrianRoutesModule = null;
+function loadPedestrianRoutes(rn) {
+  if (pedestrianRoutesModule) return pedestrianRoutesModule;
+  if (!rn) throw new Error('loadPedestrianRoutes: call buildWorld first or pass the road-network module');
+  const diagnose = `
+  function walkWhy(a, b) {
+    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.5));
+    for (let i = 0; i <= steps; i++) {
+      const x = a.x + (b.x - a.x) * i / steps, z = a.z + (b.z - a.z) * i / steps;
+      if (!walkable(x - 0.4, x + 0.4, z - 0.4, z + 0.4)) return 'walk';
+    }
+    return null;
+  }
+  // The exact clear body: variable 1 m steps, and walkable tested over the box swept between consecutive samples.
+  // A plain 0.5 m point test can miss a narrow footprint and report a same-block candidate as accepted.
+  function clearWhy(a, b, block) {
+    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z)));
+    let x = a.x, z = a.z;
+    for (let i = 0; i <= steps; i++) {
+      const nx = a.x + (b.x - a.x) * i / steps, nz = a.z + (b.z - a.z) * i / steps;
+      if (!walkable(Math.min(x, nx) - 0.4, Math.max(x, nx) + 0.4,
+        Math.min(z, nz) - 0.4, Math.max(z, nz) + 0.4)) return 'walk';
+      if (blockAt(nx, nz) !== block) return 'block';
+      x = nx; z = nz;
+    }
+    return null;
+  }
+  function hazardWhy(a, b) {
+    if (!clearOfStreets(a, b)) return 'lane';
+    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.5));
+    for (let i = 0; i <= steps; i++) {
+      const x = a.x + (b.x - a.x) * i / steps, z = a.z + (b.z - a.z) * i / steps;
+      if (railClearance && railClearance(x, z, RAIL_KEEP) < RAIL_KEEP) return 'rail';
+      if (hitsBuilding(x, z)) return 'building';
+      const blk = blockAt(x, z);
+      if (blk && inLot(x, z, blk)) return 'lot';
+    }
+    return null;
+  }
+  // Mirror fallbackPaths' two loops: the direct loop owns ports within DIRECT_MAX (and requires a target block);
+  // the long loop owns the rest up to FALLBACK_MAX and has no 16 m cross-block limit. clearGap already contains
+  // clearHazards, so the walkable reason is tested first and the hazard reason (lane/rail/building/lot) next.
+  function candidateWhy(a, b, block, direct) {
+    const targetBlock = blockAt(b.x, b.z);
+    if (direct) {
+      if (!targetBlock) return 'noBlock';
+      if (targetBlock === block) {
+        const why = clearWhy(a, b, block);
+        if (why) return why;
+      } else if (!clearGap(a, b)) {
+        return walkWhy(a, b) || hazardWhy(a, b) || 'gap';
+      }
+    } else if (!clearGap(a, b)) {
+      return walkWhy(a, b) || hazardWhy(a, b) || 'gap';
+    }
+    if (hazardWhy(a, b)) return hazardWhy(a, b);
+    return withinBlockEdge(a, b, block, direct ? DIRECT_CORRIDOR : FALLBACK_CORRIDOR) ? 'ok' : 'corridor';
+  }
+  function nearWhy(a, b, block, sameBlock) {
+    if (sameBlock) {
+      const why = clearWhy(a, b, block);
+      if (why) return why;
+      if (!withinBlockEdge(a, b, block, FALLBACK_CORRIDOR)) return 'corridor';
+    } else if (!clearGap(a, b)) {
+      return walkWhy(a, b) || hazardWhy(a, b) || 'gap';
+    }
+    if (hazardWhy(a, b)) return hazardWhy(a, b);
+    return withinBlockEdge(a, b, block, FALLBACK_CORRIDOR) ? 'ok' : 'corridor';
+  }
+  function diagnoseFallback(track, dir) {
+    const end = dir > 0 ? 1 : 0, a = point(track, end), n = end ? track.to : track.from;
+    const block = blockAt(a.x, a.z), out = { a, block: !!block, candidates: [], near: [] };
+    if (!block || !n) return out;
+    const candidates = ports(n).concat((islandPorts.get(block) || []).filter((p) => p.track.node !== n));
+    for (const port of candidates) {
+      const next = port.track;
+      const b = point(next, port.end), distance = Math.hypot(b.x - a.x, b.z - a.z);
+      const targetBlock = blockAt(b.x, b.z), r = { x: +b.x.toFixed(1), z: +b.z.toFixed(1),
+        distance: +distance.toFixed(1), targetBlock: !!targetBlock, sameBlock: targetBlock === block };
+      if (next === track) r.why = 'self';
+      else if (track.arm && next.arm === track.arm) r.why = 'sibling';
+      else if (distance <= 0.01) r.why = 'zero';
+      else if (distance > FALLBACK_MAX) r.why = 'length';
+      else r.why = candidateWhy(a, b, block, distance <= DIRECT_MAX);
+      out.candidates.push(r);
+    }
+    const seen = new Set(), near = [];
+    const cells = indexStreets();
+    const ix0 = Math.floor((a.x - FALLBACK_MAX) / 64), ix1 = Math.floor((a.x + FALLBACK_MAX) / 64);
+    const iz0 = Math.floor((a.z - FALLBACK_MAX) / 64), iz1 = Math.floor((a.z + FALLBACK_MAX) / 64);
+    for (let ix = ix0; ix <= ix1; ix++) for (let iz = iz0; iz <= iz1; iz++) {
+      for (const e of cells.get(ix * 100000 + iz) || []) {
+        if (seen.has(e)) continue;
+        seen.add(e);
+        for (const q of along(e)) {
+          if (q === track || !q.edge) continue;
+          const proj = Math.max(0, Math.min(q.len, (a.x - q.ax) * q.ux + (a.z - q.az) * q.uz));
+          if (proj <= 0.01 || proj >= q.len - 0.01) continue;
+          const x = q.ax + q.ux * proj, z = q.az + q.uz * proj;
+          const distance = Math.hypot(a.x - x, a.z - z);
+          if (distance > FALLBACK_MAX) continue;
+          const targetBlock = blockAt(x, z);
+          if (!targetBlock) continue;
+          near.push({ q, x, z, distance, targetBlock });
+        }
+      }
+    }
+    near.sort((p, q) => p.distance - q.distance);
+    for (const c of near.slice(0, 8)) {
+      const r = { x: +c.x.toFixed(1), z: +c.z.toFixed(1), distance: +c.distance.toFixed(1),
+        sameBlock: c.targetBlock === block };
+      r.why = nearWhy(a, { x: c.x, z: c.z }, block, c.targetBlock === block);
+      out.near.push(r);
+    }
+    return out;
+  }
+  `;
+  pedestrianRoutesModule = loadModule(js('pedestrian-routes.js')
+    .replace('return { along, across, next, crosswalks, segments, segmentsNear };',
+      `${diagnose}\n  return { along, across, next, crosswalks, segments, segmentsNear, baseLinks, links, ` +
+      'fallbackPaths, ports, diagnoseFallback };')
+  , { imports: { './road-network.js': rn }, globals: G, filename: 'pedestrian-routes.js' });
+  return pedestrianRoutesModule;
+}
+
 // The furnished network as main.js builds it, less the buildings (none stands in a lane) and the curb rectangles
 function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSeed = 1922 } = {}) {
   const rn = loadModule(js('road-network.js'), {
@@ -80,7 +208,7 @@ function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSe
     globals: { ...G, document: inert() }, filename: 'street-details.js'
   });
   const { footprints, roadNetwork } = buildStreetDetails(inert());
-  const routes = loadModule(js('pedestrian-routes.js'), { imports: { './road-network.js': rn }, globals: G });
+  const routes = loadPedestrianRoutes(rn);
   const actors = loadModule(js('actor-models.js'), {
     imports: { ...three, './tsl-materials.js': inert() },
     globals: { ...G, document: inert() }, filename: 'actor-models.js'
@@ -138,7 +266,7 @@ function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSe
   });
   const trams = createTramSystem(inert(), { network: traffic.network, stops, traffic, seed: tramSeed });
   if (!noTrams) traffic.setTrams(trams);
-  return { traffic, trams, network: traffic.network };
+  return { traffic, trams, network: traffic.network, railClearance: grid.railClearance };
 }
 
-export { buildWorld };
+export { buildWorld, loadBuildingColliders, loadPedestrianRoutes };

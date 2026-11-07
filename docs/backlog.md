@@ -17,21 +17,28 @@ Implementation details and completed measurements live in the [topic docs](../AG
   is the untried fix for the first two. The 20 s recovery is still postponed while a pedestrian is in `nearView`.
   [Mechanisms, fix and per-seed results](observations/ped-overlaps-2026-11-05.md#follow-up-2026-11-07-coincident-lines-and-blocked-exits),
   [room audit](observations/jezyce-gridlock-2026-11-07.md#follow-up-tramroom-boundary-fix-and-room-audit-2026-11-07).
-- **Isolated crosswalk landings:** connect the remaining 212 empty ends (197 tracks with an empty end) without
-  restoring U-turns or crossing roads, rails, buildings or water. Examples: Okrąglak (both side-1 lines),
-  Miła / Dąbrowskiego, Święty Marcin / Wysoka, Promienista / Grochowska and Wierzbięcice / Górna Wilda.
-  Most are unused second lines of two-line crossings. The route builder receives the real building colliders
-  (`main.js`: landmark + city-block) and uses them in fallback-connector clearance. Direct and fallback links share
-  an 8 m corridor from the block edge (5 → 8 m on 2026-11-07), every connector stays `RAIL_KEEP` 2 m from tracks, and
-  the long loop still caps at 32 m. The connector clearance now measures exact segment-to-segment distance; the old
-  line-line form read 5.39 m where the pair was 2.0 m and let 17 fallback legs into a lane by up to 1.09 m. In the
-  2026-11-07 headless world (`tools/bench-world.mjs`, city-block colliders included; city-grid curbs, landmarks and
-  bridges omitted) empty ends moved **269 → 246 → 212** and tracks with an empty end **247 → 225 → 197**, with
-  crosswalks unchanged at 3,270 and `laneHits` 0. The older grid-and-furniture 230/218 snapshot predates these inputs
-  and is not directly comparable. Still open: a corridor wider than 8 m (10/12/16 m leave 204/192/182 ends but reach
-  into forecourts and courtyards), a longer 32 m limit (40/48 m connected only 4/5 more), and a production full-scene
-  count. The fallback keeps a 2 m building-lot pad and rejects connectors through building walls; the benchmark still
-  omits landmark and bridge colliders.
+- **Isolated crosswalk landings:** stage 2 connects the remaining empty ends without restoring U-turns or crossing
+  roads, rails, buildings or water. The long fallback now accepts sidewalk track ends (the old `!next.node` gate
+  skipped 16 ends) and the corridor grows 8 → 16 m, with a sight line to the block edge that keeps closed courtyards
+  off limits. On the 2026-11-07 headless world (`tools/bench-world.mjs`, city-block colliders; city-grid curbs,
+  landmarks and bridges omitted) empty ends fall **212 → 156** and tracks with an empty end **197 → 143**, with
+  crosswalks unchanged at 3,270, `laneHits` 0, rail hits 0 and building hits 0. The bare network leaves 109/98.
+  `node tools/audit-crosswalk-landings.mjs` reproduces the counts and re-checks every fallback leg.
+  Still isolated are the key nodes the backlog named: **Okrąglak** (`-841.5, 30.6`; the 351 m² tram-cut
+  island has no sidewalk track at all, and its only ports are 15.6-16.7 m across the roadway, crossing a lane and
+  coming within 0.13 m of a rail), **Okrąglak / Święty Marcin** (`-1120.1, 112`; 12.5-21.3 m across the roadway),
+  **Miła / Dąbrowskiego** (`-3269.1, -884.3`; 19.2 m through a building lot or 26 m across a lane and 0.10 m from a
+  rail), **Promienista / Grochowska** (both lines at `-3541.4, 1448.4` and `-3540.3, 1449.4`; only sibling/self ports
+  within 11 m, the nearest sidewalk 23-25 m across the road) and **Wierzbięcice / Górna Wilda** (both lines at
+  `-851.4, 1662.7/1664.2`; nearest sidewalk 17.7-19.2 m across a lane and 0.10 m from a rail). Święty Marcin /
+  Wysoka has no empty end in the audit. Connecting these would need a new sidewalk track on the island/curb, not a
+  fallback connector: every existing candidate crosses a lane, a building lot or a rail, or lies beyond the 16 m
+  corridor. The audit's `reasonCounts` (overlapping, one per remaining end) are lane 138, length 70, lot 51, walkable
+  32, rail 14, corridor 14, building 8, block 4 and none 2. A 40/48 m `FALLBACK_MAX` adds only 6/7 ends, and a corridor
+  beyond 16 m connects no other key node, so both stay. Follow-up: extend `next()`'s dead-end guard to sidewalk tracks
+  (`target.edge`); the long fallback now leaves 346 path ends on a sidewalk track with no further link (333 before),
+  and one of a projection sub-track's `from`/`to` is not geometric, so the guard needs a sampled test. Still open: a
+  production full-scene count (the benchmark omits landmark and bridge colliders and city-grid curbs).
   [Routing observations](observations/ped-overlaps-2026-11-05.md).
 - **Other missing signal heads (15.5):** the overhead fallback now serves 26 of the 66 historical Category C
   approaches from 12 new 6.2 m masts and 14 reused signal poles (arm ≤ 11.7 m, mean 9.11 m); the audit is
