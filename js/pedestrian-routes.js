@@ -5,6 +5,11 @@ import { CROSSWALK, CROSSWALK_REACH } from './road-network.js';
 // just over traffic.js QUEUE_GAP 0.62 m; a walker's body keeps 0.25 m inside the offset line. A track records a
 // bit per clear side: 1 for the +right lane, 2 for -right; both are set on ordinary two-way sidewalks.
 const LANE_INSET = 0.34, LANE_BODY = 0.25;
+const RAIL_KEEP = 2.0;
+// A projection sub-track that runs back along its parent reverses its travel direction, so its right side is the
+// parent's left. The lane bit mask has to turn with it (the 2026-11-07 review found three sub-tracks still using
+// the parent's blocked side).
+const mirrorLane = (mask) => ((mask & 1) ? 2 : 0) | ((mask & 2) ? 1 : 0);
 
 // Small, lazily connected sidewalk tracks. Junctions only connect points on the same curb island;
 // crossing the roadway is a separate, signal-controlled track owned by traffic.js, on the crosswalks laid out here once
@@ -41,23 +46,36 @@ function createPedestrianRoutes(
   // its travel side only, which is enough because it is walked one way. Tracks shorter than the inset keep no lane.
   function laneClear(a, b, block) {
     if (!block) return 0;
-    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    const dx = b.x - a.x, dz = b.z - a.z;
+    const len = Math.hypot(dx, dz);
     if (len < 2 * LANE_INSET) return 0;
-    const rx = -(b.z - a.z) / len, rz = (b.x - a.x) / len;
-    // 1 m samples, at most 24 per side: the lane is only 0.34 m off a centreline `clear` already sampled at 1 m,
-    // so a pinch narrower than the sample spacing is not reachable without the centreline leaving its block first.
-    const steps = Math.min(24, Math.max(1, Math.ceil(len)));
+    const rx = -dz / len, rz = dx / len;
+    // Block identity and rail clearance at 0.5 m, never capped: a 220 m track cannot hide a short block excursion
+    // or a rail corner between samples (the review found 5 block and 37 rail cases when the old check stopped at 24
+    // points). The swept body box runs every second sample (1 m) and covers the half-step point between them. Rail
+    // clearance is checked at the offset point only where the centre line itself is clear: a track that already
+    // crosses the rails (both points inside RAIL_KEEP) keeps its crossing as before.
+    const steps = Math.max(1, Math.ceil(len / 0.5));
     let lanes = 0;
     for (const side of [-1, 1]) {
       let clearSide = true;
+      let px = a.x + rx * side * LANE_INSET, pz = a.z + rz * side * LANE_INSET;
       for (let i = 0; i <= steps; i++) {
-        const x = a.x + (b.x - a.x) * i / steps + rx * side * LANE_INSET;
-        const z = a.z + (b.z - a.z) * i / steps + rz * side * LANE_INSET;
+        const t = i / steps, cx = a.x + dx * t, cz = a.z + dz * t;
+        const x = cx + rx * side * LANE_INSET, z = cz + rz * side * LANE_INSET;
+        const swept = i % 2 === 0 || i === steps;
         if (blockAt(x, z) !== block ||
-            !walkable(x - LANE_BODY, x + LANE_BODY, z - LANE_BODY, z + LANE_BODY)) {
+            (swept && !walkable(Math.min(px, x) - LANE_BODY, Math.max(px, x) + LANE_BODY,
+              Math.min(pz, z) - LANE_BODY, Math.max(pz, z) + LANE_BODY))) {
           clearSide = false;
           break;
         }
+        if (railClearance && railClearance(cx, cz, RAIL_KEEP) >= RAIL_KEEP &&
+            railClearance(x, z, RAIL_KEEP) < RAIL_KEEP) {
+          clearSide = false;
+          break;
+        }
+        if (swept) { px = x; pz = z; }
       }
       if (clearSide) lanes |= side > 0 ? 1 : 2;
     }
@@ -163,7 +181,6 @@ function createPedestrianRoutes(
   // Measured on the furnished network: of the 16 strip ends paired, 9 lay within 2 m of a track (4 within 0.6 m).
   const ZEBRA_HALF = (CROSSWALK - 0.3) / 2; // the painted zebra, 0.15 m inside the CROSSWALK band
   const STRIP_MIN = 3.2, STRIP_MAX = 14, STRIP_RUN = 15, STRIP_OFFSET = 12, STRIP_LAND = 1.6;
-  const RAIL_KEEP = 2.0;
   // Room to wait at a strip end: from its curb at (x, z) inward along (wx, wz), STRIP_LAND clear of RAIL_KEEP
   const roomToWait = (x, z, wx, wz) => {
     if (!railClearance) return true;
@@ -727,7 +744,7 @@ function createPedestrianRoutes(
       if (distance <= 0.01 || distance > DIRECT_MAX || !targetBlock) continue;
       if (targetBlock === block ? !clear(a, b, block) : distance > 16 || !clearGap(a, b)) continue;
       if (!clearHazards(a, b) || !withinBlockEdge(a, b, block, DIRECT_CORRIDOR)) continue;
-      const inset = targetBlock === block && laneClear(a, b, block);
+      const inset = targetBlock === block ? laneClear(a, b, block) : 0;
       result.push([{ track: segment(a, b, { insetLane: inset }), dir: 1 }, { track: next, dir: nextDir }]);
     }
     for (const port of candidates) {
@@ -775,7 +792,7 @@ function createPedestrianRoutes(
           !withinBlockEdge(a, { x: c.x, z: c.z }, block, FALLBACK_CORRIDOR)) continue;
       added++;
       const q = c.q, extra = { edge: q.edge, block: q.block, blockTo: q.blockTo, underpass: q.underpass };
-      const inset = c.targetBlock === block && laneClear(a, { x: c.x, z: c.z }, block);
+      const inset = c.targetBlock === block ? laneClear(a, { x: c.x, z: c.z }, block) : 0;
       const connector = c.distance > 0.01
         ? [{ track: segment(a, { x: c.x, z: c.z }, { insetLane: inset }), dir: 1 }] : [];
       // The sub-tracks start at the projection point c (end 0) and run to one of q's ends (end 1). A walker arriving
@@ -786,7 +803,7 @@ function createPedestrianRoutes(
       // ports at c instead of at the end it actually reached.)
       if (c.proj > 0.01) {
         const sub = segment({ x: c.x, z: c.z }, point(q, 0), {
-          ...extra, from: null, to: q.from, insetLane: q.insetLane
+          ...extra, from: null, to: q.from, insetLane: mirrorLane(q.insetLane)
         });
         result.push([...connector, { track: sub, dir: 1 }]);
       }

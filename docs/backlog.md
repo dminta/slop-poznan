@@ -10,11 +10,11 @@ Implementation details and completed measurements live in the [topic docs](../AG
   route object, tests entrances and oncoming queues in world space, and lets a blocked crossing exit age. The
   direction-specific inset-lane follow-up then gives every walking track a `LANE_INSET` 0.34 m lane on its clear
   right-hand sides; each direction keeps its own side and the offset fades at both track ends. On the dworzec/wilda
-  audit (seeds 4242/77, 3 min) clusters fall 8 → 1, longest 20 → 16 s, biggest 6 → 4, mean overlapping pairs/s
-  13.25 → 5.15, crosswalk entries hold at 125.7 → 126.2/min. The 24 s Most Dworcowy two-way knot and the 8 s /
-  8-body Droga Dębińska queue are gone. Wilda's `bench-traffic.mjs --ped-rooms` freeze falls 5,025 → 4,008 ped-s of
+  audit (seeds 4242/77, 3 min) clusters fall 8 → 1, longest 20 → 9 s, biggest 6 → 4, mean overlapping pairs/s
+  13.25 → 5.68, crosswalk entries hold at 125.7 → 126.6/min. The 24 s Most Dworcowy two-way knot and the 8 s /
+  8-body Droga Dębińska queue are gone. Wilda's `bench-traffic.mjs --ped-rooms` freeze falls 5,025 → 4,306 ped-s of
   about 50,000 sampled, longest 20.1 s (entrance → merge); the `tramRoom` boundary trap stays fixed. Remaining: a
-  16 s / 4-body same-direction pile at the 5.3 m Most Dworcowy corner link waiting for its crosswalk (no longer a
+  9 s / 4-body same-direction queue on an 11.8 m Droga Dębińska corner link feeding a crosswalk (no longer a
   two-way knot), conversation pairs meeting within a body width of another pair, and the 20 s recovery still
   postponed while a pedestrian is in `nearView`.
   [Mechanisms, fix and per-seed results](observations/ped-overlaps-2026-11-05.md#follow-up-2026-11-07-coincident-lines-and-blocked-exits),

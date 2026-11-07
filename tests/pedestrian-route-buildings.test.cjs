@@ -83,6 +83,34 @@ function laneLinks(lane = true) {
   return routes.fallbackPaths(landing, 1);
 }
 
+// A sparse landing that projects onto a one-sided sidewalk track. The walkable strip ends at x = 8.75, so the
+// track at x = 8.3 has room on its left only (bit 1). `fallbackPaths` cuts that track at the projection point and
+// offers a backward sub (opposite the parent) and a forward sub; the backward one must mirror the lane mask.
+function projectionLinks() {
+  const block = { poly: [{ x: -100, z: 3 }, { x: 100, z: 3 }, { x: 100, z: -3 }, { x: -100, z: -3 }], rects: [] };
+  const from = { x: 10, z: -100 }, to = { x: 10, z: 100 };
+  const edge = { sx: 10, sz: -100, dx: 0, dz: 1, rx: -1, rz: 0, len: 200, half: 0, from, to };
+  const node = { x: 0, z: 0, signal: false, arms: [], in: [], out: [] };
+  const landing = { ax: 0.5, az: 0, ux: 1, uz: 0, len: 0.5, node, side: 0, sides: null, group: 0, line: 0,
+    from: node, to: node };
+  const routes = createPedestrianRoutes({ nodes: [node], edges: [edge], walkable: (_minX, maxX) => maxX <= 8.75 },
+    () => block);
+  return { tracks: routes.along(edge), paths: routes.links(landing, 1) };
+}
+
+test('a backward fallback projection mirrors its parent lane bits', () => {
+  const { tracks, paths } = projectionLinks();
+  const parent = tracks.find((t) => t.insetLane === 1 && t.ax > 8 && t.ux === 0 && t.uz === 1);
+  assert.ok(parent, 'the one-sided parent track at x = 8.3 is present');
+  const subs = paths.flatMap((path) => path).map((leg) => leg.track)
+    .filter((t) => t.from === null && Math.abs(t.ax - parent.ax) < 1e-9);
+  const backward = subs.find((t) => t.to === parent.from);
+  const forward = subs.find((t) => t.to === parent.to);
+  assert.ok(backward && forward, 'both projection sub-tracks are offered');
+  assert.equal(forward.insetLane, 1, 'the forward sub keeps the parent mask');
+  assert.equal(backward.insetLane, 2, 'the backward sub turns the parent mask with its direction');
+});
+
 test('fallback pedestrian connectors reject real building colliders outside the lot rects', () => {
   assert.ok(fallbackLinks().length > 0, 'the unblocked landing connects to the nearby sidewalk');
   const wall = { minX: 4, maxX: 5, minZ: -1, maxZ: 1, minY: 0, maxY: 12 };

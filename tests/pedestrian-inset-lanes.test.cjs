@@ -120,11 +120,13 @@ test('walking tracks carry an inset lane only where that side is walkable on the
       if (!track.insetLane) continue;
       marked++;
       const rx = -track.uz, rz = track.ux;
+      const steps = Math.max(1, Math.ceil(track.len / 0.5));
       for (const side of [-1, 1]) {
         if (!(track.insetLane & (side > 0 ? 1 : 2))) continue;
-        for (let i = 0; i <= 4; i++) {
-          const x = track.ax + track.ux * track.len * i / 4 + rx * side * LANE_INSET;
-          const z = track.az + track.uz * track.len * i / 4 + rz * side * LANE_INSET;
+        for (let i = 0; i <= steps; i++) {
+          const along = track.len * i / steps;
+          const x = track.ax + track.ux * along + rx * side * LANE_INSET;
+          const z = track.az + track.uz * along + rz * side * LANE_INSET;
           assert.ok(config.blockAt(x, z), `the inset line stays on a block at ${x.toFixed(1)},${z.toFixed(1)}`);
           assert.ok(network.walkable(x - LANE_BODY, x + LANE_BODY, z - LANE_BODY, z + LANE_BODY),
             `the inset line stays walkable at ${x.toFixed(1)},${z.toFixed(1)}`);
