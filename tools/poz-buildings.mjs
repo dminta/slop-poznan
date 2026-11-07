@@ -41,9 +41,11 @@ const HOSPITAL_NAME = /szpital|klinik|przychodni|centrum medyczne|ambulator|sana
 const UNIVERSITY_NAME = /collegium|uniwers|uczel|akadem|politechnik|instytut/i;
 const buildingUse = (t) => {
   const name = `${t.name || ''} ${t['name:pl'] || ''}`;
-  if (t.building === 'hospital' || t.amenity === 'hospital' || t.healthcare === 'hospital' || HOSPITAL_NAME.test(name)) return 1;
+  if (t.building === 'hospital' || t.amenity === 'hospital' || t.healthcare === 'hospital' ||
+    HOSPITAL_NAME.test(name)) return 1;
   if (t.building === 'university' || t.building === 'college' || t.building === 'dormitory' ||
-    t.amenity === 'university' || t.amenity === 'college' || t.office === 'university' || UNIVERSITY_NAME.test(name)) return 2;
+    t.amenity === 'university' || t.amenity === 'college' || t.office === 'university' ||
+    UNIVERSITY_NAME.test(name)) return 2;
   return 0;
 };
 
@@ -115,9 +117,8 @@ const blockStats = blocks.map((b) => {
   const universities = list.filter((x) => x.use === 2).length;
   // A campus needs two tagged public buildings, or one hospital building on a 4-40 ha block that is otherwise
   // sparsely built (some Poznań hospitals tag only one wing). University blocks in the fairground keep FAIRGROUND
-  const program = hospitals >= 2 || (hospitals === 1 && b.area >= 40000 && b.area <= 400000 && built <= 0.25 && list.length >= 30)
-    ? 1
-    : universities >= 2 ? 2 : 0;
+  const soloHospital = hospitals === 1 && b.area >= 40000 && b.area <= 400000 && built <= 0.25 && list.length >= 30;
+  const program = hospitals >= 2 || soloHospital ? 1 : universities >= 2 ? 2 : 0;
   return [built, medianLevels(list), list.length, program];
 });
 

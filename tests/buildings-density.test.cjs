@@ -131,6 +131,16 @@ test('villa districts, Chartowo and the hospital campuses come out near their re
     assert.ok(share > b.built * 0.8 && share < b.built * 1.2,
       `campus ${id}: generated ${(100 * share).toFixed(1)}% vs real ${(100 * b.built).toFixed(1)}%`);
   }
+  // Dense central blocks tagged with a campus keep their district profile: the campus alley grid could not spend their
+  // steep share on fragmented lots and fell below the pre-change result (192 43.4 -> 22.0 %, 814 26.4 -> 19.4,
+  // 769 39.1 -> 35.8, 827 41.8 -> 35.7). The gate is area >= 5 ha and built <= 0.4 in blockProfile.
+  for (const [id, before] of [[192, 0.434], [814, 0.264], [769, 0.391], [827, 0.418]]) {
+    const b = config.BLOCKS[id];
+    assert.ok(b.program > 0, `block ${id} is still tagged as a campus`);
+    const share = (gen.get(id) || 0) / b.area;
+    assert.ok(share >= before - 0.005,
+      `gated campus ${id}: generated ${(100 * share).toFixed(1)}% vs pre-change ${(100 * before).toFixed(1)}%`);
+  }
 });
 
 test('a block with no mapped building stays empty', async () => {

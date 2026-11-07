@@ -2064,7 +2064,11 @@ function buildCityBlocks(scene) {
     const L = srcBlock && srcBlock.levels >= 2 ? srcBlock.levels : 0;
     const lv = srcBlock ? srcBlock.levels : 0;
     if (FAIR_BLOCK && srcBlock === FAIR_BLOCK) return FAIRGROUND;
-    if (srcBlock && srcBlock.program && srcBlock.park <= 0.5) return srcBlock.program === 2 ? UNIVERSITY : HOSPITAL;
+    // Large, sparse campuses only: on dense central blocks (827, 769, 814, 192 and the like) the campus grid cannot
+    // spend their steep share on the fragmented lot rects and would build less than the district profile did
+    if (srcBlock && srcBlock.program && srcBlock.park <= 0.5 && srcBlock.area >= 50000 && srcBlock.built <= 0.4) {
+      return srcBlock.program === 2 ? UNIVERSITY : HOSPITAL;
+    }
     if (OFFICE_SITES.some((t) => Math.hypot(t.x - wx, t.z - wz) < OFFICE_REACH)) return OFFICES;
     if (inBox(CESARSKA_BOX, wx, wz)) return CESARSKA;
     if (blk.rynekSides) return RYNEK;

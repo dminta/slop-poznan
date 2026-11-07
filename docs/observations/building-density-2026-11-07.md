@@ -34,9 +34,11 @@ Measured before the change:
    adds a fourth `blockStats` value, `program`: 0 none, 1 hospital/clinic, 2 university. A block needs two public
    buildings, or one hospital building on a 4–40 ha block with at most 25 % built. `js/city-config.js` exposes it as
    `BLOCKS[i].program`; the generated `js/geodata.js` was rebuilt.
-2. **Campus profile and layout.** `blockProfile` returns `HOSPITAL` or `UNIVERSITY` before the osiedle switch, but
-   not on park blocks (`park > 0.5`). `steerProfile` gives the campus the block's real built share over its lot area,
-   like the villas. `campusBlock` spends that budget on 2–5-storey institutional blocks along the street frontage
+2. **Campus profile and layout.** `blockProfile` returns `HOSPITAL` or `UNIVERSITY` before the osiedle switch only
+   for large, sparse campuses (`area >= 5 ha && built <= 0.4`, not a park block). Dense central blocks that OSM tags as
+   campuses keep their district profile: the campus grid cannot spend their steep share on fragmented lots and would
+   build less than before (see the gated blocks below). `steerProfile` gives the campus the block's real built share
+   over its lot area, like the villas. `campusBlock` spends that budget on 2–5-storey institutional blocks along the street frontage
    (60 %) and then on clinics/institutes in a 12–18 m alley grid inside the block; frontage-frame slivers get one
    small hall (`campusShed`) sized to the remaining budget. University buildings get a minority of pitched roofs and
    some balcony stacks (dormitories); hospitals stay flat-roofed with plant rooms.
@@ -63,17 +65,33 @@ District totals on the same raster (generated / real): Łazarz 31.3 / 26.5 %, Je
 above their OSM share before the change (Łazarz 30.9, Jeżyce 34.5, Ogrody 17.3); the campus work moves the named
 blocks to their own real share without adding a district-wide jump.
 
+Dense central blocks with a campus tag are excluded by the `area >= 5 ha && built <= 0.4` gate, so the campus layout
+cannot underfill them. Their generated share returns to the pre-change district result:
+
+| block | district | area ha | real | before | with the gate | program |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 192 | Stare Winogrady | 2.3 | 33 % | 43.4 % | 43.4 % | 2 |
+| 814 | Stare Miasto | 3.9 | 40 % | 26.4 % | 26.4 % | 2 |
+| 769 | Stare Miasto | 12.0 | 50 % | 39.1 % | 39.1 % | 2 |
+| 827 | Stare Miasto | 4.8 | 50 % | 41.8 % | 41.8 % | 1 |
+| 579 | Stare Miasto | 3.0 | 49 % | 38.5 % | 38.5 % | 2 |
+| 733 | Stare Miasto | 4.0 | 37 % | 42.9 % | 42.9 % | 2 |
+| 582 | Stare Miasto | 2.5 | 27 % | 30.1 % | 30.1 % | 2 |
+| 221 | Sołacz | 3.6 | 18 % | 18.8 % | 18.8 % | 2 |
+
 The campus blocks also take balconies away from the kamienice they replace. The city-wide pool moved from about
-16.5 k stacks / 48 k landings to 15.2 k / 44.6 k, still well inside the 2,400-stack and 256-near-landing runtime caps;
-`tests/buildings-density.test.cjs` now records the lower expected range.
+16.5 k stacks / 48 k landings to 15.4 k / 45.3 k, still well inside the 2,400-stack and 256-near-landing runtime caps;
+`tests/buildings-density.test.cjs` now records the lower expected range and guards the four gated blocks against a
+regression below their pre-change share.
 
 ## Verification
 
 - `node --test tests/buildings-density.test.cjs` — 8/8 pass. The district test now also asserts that blocks 666, 577,
-  427 and 476 are `program = 1` and within ±20 % of their real built share.
+  427 and 476 are `program = 1` and within ±20 % of their real built share, and that the gated blocks 192, 814, 769
+  and 827 stay at or above their pre-change share.
 - `node --test tests/*.cjs` — 420/420 pass.
-- `node --test tests/` also includes the geodata rebuild test; the new `blockStats` fourth field was rebuilt and is
-  covered by the existing shape checks.
+- `node --test tests/geodata.test.mjs` — pass; its `blockStats` shape check now destructures the fourth field and
+  requires `program` to be 0, 1 or 2, with at least five hospital and five university blocks in the snapshot.
 - No browser check was performed. The campus layout, roof/balcony mix and the view along Bukowska/Marcelińska still
   need a WebGPU/WebGL2 look.
 
