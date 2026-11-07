@@ -16,11 +16,25 @@ road near Krzywoustego. Road-network footprints retain their existing bounds. Pa
 Skromna, Zmartwychwstańców and selected service roads; the Milczańska and Tysiąclecia outlines are also intersected
 with their blocks. The local regressions record generated surfaces and check the corresponding road corridors.
 
+The 2026-11-07 review resolved the leftover scan candidates with lane-level checks rather than the summed corridor
+areas. Park Sołacki's block 262 lawn keeps its three pond holes (1,264, 34,174 and 402 m²) and covers 0 of the
+1,187 road-network lane samples at 1 m along Grudzieniec (0 of 11,843 in the block's neighbourhood); the OSM
+corridor overlap lies at the block edge, so the lawn is left uncut. At Chartowo, block 1304's lawn and bed covered
+2 of 1,808 lane samples at 1 m (5 at 0.5 m) around `2443, 2489`, both on Bolesława Krzywoustego where its outer
+lane reaches the park corner; the backlog's `2490, 2478` point itself is on the unnamed slip lane and no emitted
+park surface covers it in the current geodata. `city-config.js` now cuts that carriageway corridor (half width
++ 0.5 m) from the raised surfaces and from ground-height queries, while `parkBedInset` keeps the usual 5 m bed: the
+lane coverage falls to 0 and the lawn is emitted as 41 convex pieces. Wioślarska's unpaved service piece (width 5,
+`463.6…569.1, 1574.6…1600.1`) has no `roadGraph` link and no traffic lanes (service roads are excluded by default),
+and `blockAt` returns Park Nad Wartą's block 966 along its whole centreline, so its paving and lawn are the intended
+surface and no greenery is cut there.
+
 The tram-corridor intersection fix also restores cuts where track segments cross block edges, including Kaponiera;
 `tests/kaponiera-clearance.test.cjs` checks two affected points. Chrome/WebGPU spot checks covered the vicinity of
 Chopina, Milczańska and Cicha / Pułaskiego; they are not whole-road or WebGL2 checks. The user confirmed the first
 Witosa lawn correction and reported a separate opposite-side sidewalk, subsequently corrected in geometry and tests.
-The remaining audit candidates and visual checks are in [the backlog](backlog.md#park-surfaces-and-road-clearance-further-review).
+The remaining visual checks are in
+[the backlog](backlog.md#park-surfaces-and-road-clearance-remaining-visual-review).
 
 ## Measurement snapshot (2026-10-29)
 

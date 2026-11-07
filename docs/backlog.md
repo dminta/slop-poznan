@@ -62,14 +62,11 @@ Implementation details and completed measurements live in the [topic docs](../AG
   Kaponiera holds to 134–153 s and introduced up to four deadlocks. Moving the Rynek Jeżycki stubs also increased
   overlaps and added a deadlock. [Mechanisms, pins and rejected variants](observations/tram-overlaps-2026-11-04.md).
 
-## Park surfaces and road clearance: further review
+## Park surfaces and road clearance: remaining visual review
 
-- Verify the candidate lawn/road intersection on Grudzieniec through Park Sołacki, around
-  `−2671…−2590, −1389…−1361`, over about 80 m. The user reported that it looks OK in the game; do not cut it on
-  the scan alone. Any geometry change must preserve the park's three pond holes through triangulation.
-- Review Chartowo near `2490, 2478` and Wioślarska in Park Nad Wartą. Wioślarska is a mapped unpaved service road,
-  so verify its intended appearance before cutting greenery. Scan areas sum segment intersections rather than
-  their union; bridge levels need separate checks.
+The Grudzieniec, Chartowo and Wioślarska candidates are resolved headlessly (measurements in
+[world.md](world.md#park-and-road-clearance-follow-up-2026-11-02)); the remaining work is visual only.
+
 - Visually review the later Witosa / Niestachowska opposite-sidewalk correction and the Armii Poznań / Pułaskiego
   island, Przepadek and Roosevelt cuts, including WebGL2. Some planting margins are narrow.
 
