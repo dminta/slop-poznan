@@ -64,7 +64,8 @@ Implementation details and completed measurements live in the [topic docs](../AG
   all use frontage frames (raising the frame caps 12/10 to 18/16 changes 8 of 27 sets and the coverage by -0.65 to
   +1.14 pp; above 18/16 there is no change), and OSM vs BDOT10k is closed for this snapshot. Remaining: the
   western `detailBox` edge at x = −3,675.4 leaves King Cross, Business Garden and Ławica in the coarse outskirts; moving
-  it needs new snapshots, a rebuild of every layer and an outskirts re-check.
+  it needs new snapshots, a rebuild of every layer and an outskirts re-check. Feasibility, measurements and a staged
+  plan are in [the west-expansion study](observations/detailbox-west-expansion-2026-11-08.md).
   [Density record and measurements](observations/building-density-2026-11-07.md#follow-up-2026-11-08-visual-review-lot-cap-and-service-alleys),
   [sparse-block BDOT audit](observations/sparse-blocks-2026-11-04.md),
   [Density test harness](tests/buildings-density.test.cjs),
