@@ -130,12 +130,14 @@ Measured on the same 1 m property-line raster as `maskRects`, at the current cap
 | 807 | 15.8 | 1 | 27 | 6 | 93.0 % | 240 |
 
 The largest gap is the largest axis-aligned rectangle of uncovered property-line cells, not a missing buildable lot.
-All 27 `program > 0` blocks of at least 5 ha use frontage frames (they are irregular), so the 8-lot cap is not on
-their path; the frame path's own caps are 12/10. Raising the caps changed neither the rect sets nor the coverage for
-any of the 27 blocks: the greedy search stops at 93 % coverage or at a 2 % residual rectangle first, so the caps never
-bind. (The 27-block average is 85.6 %, range 71.5–93.4 %; the low end is park-heavy or very large blocks such as 568
-20 % park, 1144 42 % and 209 45 %.) Keep the cap at 8. Filling more would require lowering the 2 % threshold or the
-93 % guard, adding sliver lots and changing the block-based clearance tests for no measured benefit.
+All 27 `program > 0` blocks of at least 5 ha are irregular and use frontage frames, so the 8-lot cap is not on their
+path; the frame path's own caps are 12/10. Raising the frame caps from 12/10 to 18/16 changes the rect sets of 8 of the
+27 blocks and the coverage by -0.65 to +1.14 pp (7 +0.44, 11 +0.68, 14 +0.79, 568 +1.14, 769 +0.49, 900 +0.03,
+1121 -0.65, 1187 0.00); 18/16 and 24/22 give identical rects, so 18/16 is the saturation point and the gain is small
+sliver lots at the top of the range. Keep 12/10 and the 8-lot cap. (The 27-block average is 85.6 %, range 71.5–93.4 %;
+the low end is park-heavy or very large blocks such as 568 20 % park, 1144 42 % and 209 45 %.) Filling more would
+require the 18/16 caps or lowering the 2 % threshold/93 % guard, adding sliver lots and changing the block-based
+clearance tests for no measured benefit.
 
 ### Unnamed service roads
 

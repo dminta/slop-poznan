@@ -60,8 +60,9 @@ Implementation details and completed measurements live in the [topic docs](../AG
   (2026-11-07) and the 2026-11-08 WebGPU/WebGL2 review is complete: blocks 666, 577, 427 and 476 sit within ±20 % of
   their OSM built share (666 20.6/21 %, 577 36.4/37 %, 427 22.5/22 %, 476 14.5/15 %), and 807/1121 land at 19.7/21 and
   16.7/18 %. The campus alley grid and `campusShed` supply the interior structure, so unnamed `highway=service` cuts
-  stay dropped; the 8-lot `maskRects` cap is not binding on the 27 `program > 0` blocks of at least 5 ha (raising the
-  caps changes neither the rect sets nor the coverage), and OSM vs BDOT10k is closed for this snapshot. Remaining: the
+  stay dropped; the 8-lot `maskRects` cap is not on the path of the 27 `program > 0` blocks of at least 5 ha, which
+  all use frontage frames (raising the frame caps 12/10 to 18/16 changes 8 of 27 sets and the coverage by -0.65 to
+  +1.14 pp; above 18/16 there is no change), and OSM vs BDOT10k is closed for this snapshot. Remaining: the
   western `detailBox` edge at x = −3,675.4 leaves King Cross, Business Garden and Ławica in the coarse outskirts; moving
   it needs new snapshots, a rebuild of every layer and an outskirts re-check.
   [Density record and measurements](observations/building-density-2026-11-07.md#follow-up-2026-11-08-visual-review-lot-cap-and-service-alleys),
