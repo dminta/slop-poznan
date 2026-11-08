@@ -229,8 +229,9 @@ const CAR_PARTS = {
 //   vans, the PRM ambulance and the PSP light rescue van).
 // Optional keys: sideGlassRear (z behind which the side glass is panelled over: a hatch's thick C pillar, a van's
 // cargo box), glassTop (y above which there is no glass: the high roof over a van's windscreen and doors), backlight
-// (false: no rear window), panelVan (door and rear-door seams on the upper body too), band ([y0, y1] of the livery
-// band), letterZ (centre of the livery lettering), barT (where along the roof the light bar stands, 0 front .. 1 rear).
+// (false: no rear window), panelVan (door and rear-door seams on the upper body too), barT (where along the roof the
+// light bar stands, 0 front .. 1 rear). The emergency livery bands are defined by livery in createLoftedCarMaterial,
+// not per spec, because traffic.js ties each service to one body class.
 const BODY_SPECS = {
   saloon: {
     name: 'saloon',
@@ -469,8 +470,6 @@ const BODY_SPECS = {
     bumpers: [[0.5, 0.06], [0.5, 0.06]],
     chrome: false,
     cladding: 0.44,
-    band: [0.8, 1.04],
-    letterZ: -0.6,
     barT: 0.03,
     sign: false,
     rails: false,
@@ -524,8 +523,6 @@ const BODY_SPECS = {
     bumpers: [[0.60, 0.08], [0.60, 0.08]],
     chrome: false,
     cladding: 0.55,
-    band: [1.35, 1.65],
-    letterZ: -0.8,
     barT: 0.02,
     sign: false,
     rails: false,
@@ -533,6 +530,11 @@ const BODY_SPECS = {
   }
 };
 BODY_SPECS.taxi = Object.assign({}, BODY_SPECS.saloon, { name: 'taxi', sign: true });
+
+// Emergency-service base paints (traffic.js turns these into per-instance paintColor). The silver Policja body is the
+// statutory silver of Dz.U. 2022 poz. 122 §31; the PRM yellow is the CMYK 10/0/90/0 (RAL 1016-class) of Dz.U. 2023
+// poz. 118, zał. 2; the PSP red is signal red (RAL 3000), the colour named in §27 of the vehicle regulation.
+const EMERGENCY_PAINT = [null, 0xc7ccd1, 0xf2e11c, 0xab1017];
 
 // Overall footprint of a body spec for traffic (lane spacing, collisions, contact shadows): the half length, the widest
 // half-width over the wheel flares, the wheel offset from the centre and the roof height
@@ -1316,9 +1318,25 @@ function fitText(ctx, text, cx, cy, maxWidth) {
   ctx.restore();
 }
 
-// Livery lettering as a mask (white on black), one row each, read by createLoftedCarMaterial: carState.w - 1 picks
-// the row on the doors; the taxi's roof lamp uses the last one
-const LETTERING = ['POLICJA', 'AMBULANS', 'STRAŻ', 'TAXI'];
+// Livery lettering as a mask (white on black), one row each, read by createLoftedCarMaterial: the main side row is
+// picked by carState.w (Policja, PRM, PSP), the long PRM team name sits below AMBULANS, the rear marks carry POLICJA
+// (Policja) or 998 (PSP), and the taxi's roof lamp uses the TAXI row.
+const LETTERING = [
+  'POLICJA',
+  'AMBULANS',
+  'STRAŻ',
+  'TAXI',
+  'ZESPÓŁ RATOWNICTWA MEDYCZNEGO',
+  '998'
+];
+const LETTERING_ROWS = {
+  POLICE: LETTERING.indexOf('POLICJA'),
+  AMBULANS: LETTERING.indexOf('AMBULANS'),
+  STRAZ: LETTERING.indexOf('STRAŻ'),
+  TAXI: LETTERING.indexOf('TAXI'),
+  PRM_TEAM: LETTERING.indexOf('ZESPÓŁ RATOWNICTWA MEDYCZNEGO'),
+  EMERGENCY: LETTERING.indexOf('998')
+};
 
 function carLetteringTexture() {
   if (_carLetteringTexture) return _carLetteringTexture;
@@ -1603,6 +1621,169 @@ function taxiNumberTexture() {
   return _taxiNumberTexture;
 }
 
+// Emergency-service badges, one per atlas cell: the Policja star, the PRM star of life, the PSP flame shield and the
+// red P roundel (podstawowy zespół ratownictwa medycznego, 40 cm diameter / 4 cm line per the PRM regulation). Drawn
+// as flat vector shapes between 8 and 50 cm on the vehicle, so the small details stay legible without a photo texture.
+function drawPoliceStar(ctx, x, y, w, h) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(w, h);
+  ctx.lineJoin = 'round';
+  // Eight-point silver star
+  ctx.beginPath();
+  for (let i = 0; i < 16; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 8;
+    const r = i % 2 ? 0.3 : 0.48;
+    const px = 0.5 + Math.cos(a) * r;
+    const py = 0.5 + Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fillStyle = '#dfe4e8';
+  ctx.fill();
+  ctx.strokeStyle = '#5b6670';
+  ctx.lineWidth = 0.018;
+  ctx.stroke();
+  // Blue centre roundel with the service name
+  ctx.beginPath();
+  ctx.arc(0.5, 0.5, 0.225, 0, Math.PI * 2);
+  ctx.fillStyle = '#1d3f8f';
+  ctx.fill();
+  ctx.strokeStyle = '#eef3f7';
+  ctx.lineWidth = 0.026;
+  ctx.stroke();
+  ctx.save();
+  ctx.translate(0.5, 0.5);
+  ctx.scale(0.012, 0.012);
+  ctx.fillStyle = '#f4f6f8';
+  ctx.font = '700 9px Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('POLICJA', 0, 0);
+  ctx.restore();
+  ctx.restore();
+}
+
+function drawPrmBadge(ctx, x, y, w, h) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(w, h);
+  ctx.lineJoin = 'round';
+  // White roundel with the blue system ring
+  ctx.beginPath();
+  ctx.arc(0.5, 0.5, 0.47, 0, Math.PI * 2);
+  ctx.fillStyle = '#f4f6f8';
+  ctx.fill();
+  ctx.strokeStyle = '#1f4fbf';
+  ctx.lineWidth = 0.055;
+  ctx.stroke();
+  // Blue six-point star of life
+  ctx.beginPath();
+  for (let i = 0; i < 12; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 6;
+    const r = i % 2 ? 0.16 : 0.35;
+    const px = 0.5 + Math.cos(a) * r;
+    const py = 0.5 + Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fillStyle = '#1f4fbf';
+  ctx.fill();
+  // White staff and serpent (laska Eskulapa) over the star
+  ctx.strokeStyle = '#f4f6f8';
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 0.045;
+  ctx.beginPath();
+  ctx.moveTo(0.5, 0.27);
+  ctx.lineTo(0.5, 0.73);
+  ctx.stroke();
+  ctx.lineWidth = 0.03;
+  ctx.beginPath();
+  ctx.moveTo(0.5, 0.35);
+  ctx.bezierCurveTo(0.63, 0.38, 0.63, 0.47, 0.5, 0.49);
+  ctx.bezierCurveTo(0.37, 0.51, 0.37, 0.6, 0.5, 0.63);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawPspBadge(ctx, x, y, w, h) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(w, h);
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(0.16, 0.1);
+  ctx.lineTo(0.84, 0.1);
+  ctx.lineTo(0.84, 0.55);
+  ctx.quadraticCurveTo(0.84, 0.82, 0.5, 0.92);
+  ctx.quadraticCurveTo(0.16, 0.82, 0.16, 0.55);
+  ctx.closePath();
+  ctx.fillStyle = '#ab1017';
+  ctx.fill();
+  ctx.strokeStyle = '#f4f6f8';
+  ctx.lineWidth = 0.045;
+  ctx.stroke();
+  // Gold flame
+  ctx.beginPath();
+  ctx.moveTo(0.5, 0.23);
+  ctx.bezierCurveTo(0.66, 0.4, 0.65, 0.53, 0.5, 0.6);
+  ctx.bezierCurveTo(0.35, 0.53, 0.34, 0.4, 0.5, 0.23);
+  ctx.closePath();
+  ctx.fillStyle = '#f2c81a';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(0.5, 0.38);
+  ctx.bezierCurveTo(0.57, 0.47, 0.56, 0.54, 0.5, 0.58);
+  ctx.bezierCurveTo(0.44, 0.54, 0.43, 0.47, 0.5, 0.38);
+  ctx.closePath();
+  ctx.fillStyle = '#f4f6f8';
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawPrmTeamBadge(ctx, x, y, w, h) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(w, h);
+  ctx.strokeStyle = '#c8161e';
+  ctx.lineWidth = 0.1;
+  ctx.beginPath();
+  ctx.arc(0.5, 0.5, 0.44, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = '#c8161e';
+  ctx.save();
+  ctx.translate(0.5, 0.5);
+  ctx.scale(0.01, 0.01);
+  ctx.font = '800 70px Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('P', 0, 4);
+  ctx.restore();
+  ctx.restore();
+}
+
+let _emergencyBadgeTexture;
+
+// One 4-cell RGBA atlas sampled by createLoftedCarMaterial: [Policja star | PRM star of life | PSP shield | PRM P].
+function emergencyBadgeTexture() {
+  if (_emergencyBadgeTexture) return _emergencyBadgeTexture;
+  const cell = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = cell * 4;
+  canvas.height = cell;
+  const ctx = canvas.getContext('2d');
+  drawPoliceStar(ctx, 0, 0, cell, cell);
+  drawPrmBadge(ctx, cell, 0, cell, cell);
+  drawPspBadge(ctx, cell * 2, 0, cell, cell);
+  drawPrmTeamBadge(ctx, cell * 3, 0, cell, cell);
+  _emergencyBadgeTexture = new THREE.CanvasTexture(canvas);
+  _emergencyBadgeTexture.colorSpace = THREE.SRGBColorSpace;
+  _emergencyBadgeTexture.anisotropy = 4;
+  return _emergencyBadgeTexture;
+}
+
 /**
  * Paint of an EU plate (PLATE size, centred on x = 0 at height plateY) on a nose (atFront 1) or tail (0), for the car
  * and bus materials: the blue strip with its ring of stars on the viewer's left, then the registration packed in
@@ -1832,45 +2013,155 @@ function createLoftedCarMaterial(spec, fixedColorHex = null) {
   );
 
   // ---- Colour ---------------------------------------------------------------------------------------------------
-  // Liveries (carState.w; the paint comes from traffic.js): a reflective band along the sides with a pinstripe above
-  // it and the lettering inside it over both doors, read left to right from either side. 1 Policja: blue band, white
-  // POLICJA, light-blue pin; 2 PRM ambulance: red band, white AMBULANS, blue pin; 3 PSP: white band, red STRAŻ, white
-  // pin. The band runs at spec.band (a van's higher up, over the cargo box), by default 0.5-0.64 m, 5 cm higher on a
-  // body with lower cladding. Vans in PRM and PSP livery also carry red-and-white / red-and-yellow chevrons on the
-  // rear doors (approximated: the only crest is the taxi's Poznań arms, below).
+  // Emergency liveries after the Polish statutory markings (carState.w; the base paint comes from traffic.js). They
+  // stay inside the shared instanced material, so there is no extra draw call and no per-livery geometry:
+  // 1 Policja (Dz.U. 2022 poz. 122 §31): silver body, a reflective blue band below the windows with white rectangular
+  //   reflectors on its top and bottom edges, white POLICJA on the band, the police star, and the optional fluorescent
+  //   yellow-green stripes along the upper and lower body.
+  // 2 PRM (Dz.U. 2023 poz. 118, zał. 2, part I): yellow (CMYK 10/0/90/0), the red and blue reflective side stripes,
+  //   the red stripe around the roof, red AMBULANS, the PRM star of life and the 40 cm red P team roundel.
+  // 3 PSP (§27 of the vehicle regulation and KG PSP order 14): signal red, a white reflective band with yellow edges,
+  //   white STRAŻ on the front doors and 998 on the rear doors. The rear-door chevrons below are unchanged.
   const livery = state.w;
   const police = step(0.5, livery).mul(step(livery, 1.5));
   const ambulance = step(1.5, livery).mul(step(livery, 2.5));
   const fire = step(2.5, livery);
   const pick = (a, b, c) => color(a).mul(police).add(color(b).mul(ambulance)).add(color(c).mul(fire));
-  const onLivery = step(0.5, livery).mul(isSide).mul(isBody);
-  const lift = spec.cladding > 0 ? 0.05 : 0;
-  const [band0, band1] = spec.band || [0.5 + lift, 0.64 + lift];
+  // The band masks use fixed heights per body class: estate (Policja), van (PRM) and fire truck (PSP). Each body type has
+  // one livery in traffic.js, so the same instanced material serves every car of that class.
   const along = smoothstep(spec.zRear + 0.22, spec.zRear + 0.3, p.z).mul(smoothstep(spec.zFront - 0.28, spec.zFront - 0.36, p.z));
-  const band = smoothstep(band0 - 0.005, band0, p.y).mul(smoothstep(band1 + 0.005, band1, p.y)).mul(along);
-  const pin = smoothstep(band1 + 0.023, band1 + 0.027, p.y).mul(smoothstep(band1 + 0.047, band1 + 0.043, p.y)).mul(along);
-  // Lettering box: 8:1 like an atlas row, 80% of the band's height, centred on the band and on the doors
-  const letterZ = spec.letterZ ?? (spec.doors[0] + spec.doors[spec.doors.length - 1]) / 2;
-  const letterH = (band1 - band0) * 0.8;
   const facing = step(0.0, n.x).mul(-2.0).add(1.0); // +x side: the text runs towards -z
-  let letterU = p.z.sub(letterZ).mul(facing).div(letterH * 8).add(0.5);
-  let letterV = p.y.sub((band0 + band1) / 2).div(letterH).add(0.5);
-  let letterRow = clamp(livery.sub(1.0), 0.0, 2.0);
+  const sideBody = isSide.mul(isBody);
+  const sidePaint = isSide.mul(max(isBody, isWindow)).mul(one.sub(glass));
+  const rearFace = max(rear, smoothstep(0.12, 0.38, n.z.negate()).mul(step(p.z, rearZone)).mul(isWindow).mul(one.sub(glass)));
+  const aboveGlass = spec.glassTop !== undefined ? step(spec.glassTop + 0.02, p.y) : float(0.0);
+  const sideUpper = isSide.mul(isWindow).mul(aboveGlass);
+  const bandMask = (y0, y1) => smoothstep(y0 - 0.005, y0, p.y).mul(smoothstep(y1 + 0.005, y1, p.y));
+  const sideAndRear = (surface) => max(surface.mul(along), rearFace);
+
+  // Policja: blue band 0.70-0.90 m (estate), white blocks at 7 cm pitch along both edges, fluorescent rails top/bottom
+  const policeBandArea = bandMask(0.70, 0.90).mul(sideBody).mul(police).mul(along);
+  const policeRearBand = bandMask(0.70, 0.90).mul(rear).mul(police);
+  const policeTopEdge = smoothstep(0.866, 0.872, p.y).mul(smoothstep(0.902, 0.896, p.y));
+  const policeBottomEdge = smoothstep(0.698, 0.704, p.y).mul(smoothstep(0.734, 0.728, p.y));
+  const policeBlocks = step(0.5, fract(p.z.div(0.14)));
+  const policeRect = max(policeTopEdge, policeBottomEdge).mul(policeBlocks).mul(policeBandArea);
+  const policeFluoro = max(
+    max(bandMask(0.94, 1.0).mul(sideBody).mul(along), bandMask(0.18, 0.24).mul(sideBody).mul(along)),
+    max(bandMask(0.94, 1.0).mul(rear), bandMask(0.82, 0.88).mul(front))
+  ).mul(police);
+
+  // PRM: red 0.88-1.03 m, blue 1.03-1.18 m, red roof stripe above the glass line (2.28-2.43 m on the van)
+  const prmSurface = sideAndRear(sideBody);
+  const prmRed = bandMask(0.88, 1.03).mul(prmSurface).mul(ambulance);
+  const prmBlue = bandMask(1.03, 1.18).mul(prmSurface).mul(ambulance);
+  const prmRoof = bandMask(2.28, 2.43).mul(max(sideUpper.mul(along), rearFace)).mul(ambulance);
+
+  // PSP: white reflective band 1.05-1.30 m with yellow rails at 0.95-1.03 and 1.32-1.40 m
+  const pspSurface = sideAndRear(sideBody);
+  const pspBandArea = bandMask(1.05, 1.30).mul(pspSurface).mul(fire);
+  const pspYellow = max(bandMask(0.95, 1.03), bandMask(1.32, 1.40)).mul(pspSurface).mul(fire);
+
+  // Main side lettering: 8:1 atlas rows on the band / cargo box / red front doors, read left to right from either side
+  const mainZ = police.mul((spec.doors[0] + spec.doors[spec.doors.length - 1]) / 2)
+    .add(ambulance.mul(-0.72)).add(fire.mul(2.05));
+  const mainH = max(police.mul(0.16).add(ambulance.mul(0.24)).add(fire.mul(0.22)), 0.001);
+  const mainY = police.mul(0.80).add(ambulance.mul(1.64)).add(fire.mul(1.45));
+  const mainAspect = max(police.mul(8).add(ambulance.mul(8)).add(fire.mul(4.0)), 1.0);
+  const mainRow = police.mul(LETTERING_ROWS.POLICE).add(ambulance.mul(LETTERING_ROWS.AMBULANS))
+    .add(fire.mul(LETTERING_ROWS.STRAZ));
+  const mainMask = max(
+    policeBandArea,
+    max(ambulance.mul(sidePaint).mul(along), fire.mul(sidePaint).mul(along))
+  );
+  let textU = p.z.sub(mainZ).mul(facing).div(mainH.mul(mainAspect)).add(0.5);
+  let textV = p.y.sub(mainY).div(mainH).add(0.5);
+  let textRow = mainRow;
+  let textInBox = step(abs(textU.sub(0.5)), 0.5).mul(step(abs(textV.sub(0.5)), 0.5));
+
+  // Secondary legal marks (one atlas sample serves all of them): Policja's rear POLICJA on the band, the PRM team name
+  // below AMBULANS (and the mirrored front AMBULANS), and PSP's 998 on the rear doors.
+  const policeDetailU = p.x.mul(-1.0).div(0.14 * 8).add(0.5);
+  const policeDetailV = p.y.sub(0.80).div(0.14).add(0.5);
+  const policeDetailBox = step(abs(policeDetailU.sub(0.5)), 0.5).mul(step(abs(policeDetailV.sub(0.5)), 0.5))
+    .mul(policeRearBand);
+  const ambSideU = p.z.add(0.72).mul(facing).div(0.075 * 16).add(0.5);
+  const ambSideV = p.y.sub(1.32).div(0.075).add(0.5);
+  const ambSideBox = step(abs(ambSideU.sub(0.5)), 0.5).mul(step(abs(ambSideV.sub(0.5)), 0.5))
+    .mul(sidePaint).mul(ambulance).mul(along);
+  const ambFrontU = p.x.mul(-1.0).div(0.16 * 8).add(0.5);
+  const ambFrontV = p.y.sub(1.10).div(0.16).add(0.5);
+  const ambFrontBox = step(abs(ambFrontU.sub(0.5)), 0.5).mul(step(abs(ambFrontV.sub(0.5)), 0.5))
+    .mul(front).mul(ambulance);
+  const ambDetailU = mix(ambSideU, ambFrontU, ambFrontBox);
+  const ambDetailV = mix(ambSideV, ambFrontV, ambFrontBox);
+  const ambDetailBox = max(ambSideBox, ambFrontBox);
+  const ambDetailRow = mix(float(LETTERING_ROWS.PRM_TEAM), float(LETTERING_ROWS.AMBULANS), ambFrontBox);
+  const fireDetailU = p.x.mul(-1.0).div(0.18 * 3.2).add(0.5);
+  const fireDetailV = p.y.sub(1.54).div(0.18).add(0.5);
+  const fireDetailBox = step(abs(fireDetailU.sub(0.5)), 0.5).mul(step(abs(fireDetailV.sub(0.5)), 0.5))
+    .mul(rearFace).mul(fire);
+  const detailU = police.mul(policeDetailU).add(ambulance.mul(ambDetailU)).add(fire.mul(fireDetailU));
+  const detailV = police.mul(policeDetailV).add(ambulance.mul(ambDetailV)).add(fire.mul(fireDetailV));
+  const detailRow = police.mul(LETTERING_ROWS.POLICE).add(ambulance.mul(ambDetailRow))
+    .add(fire.mul(LETTERING_ROWS.EMERGENCY));
+  const detailBox = max(police.mul(policeDetailBox), max(ambulance.mul(ambDetailBox), fire.mul(fireDetailBox)));
+
+  textU = mix(textU, detailU, detailBox);
+  textV = mix(textV, detailV, detailBox);
+  textRow = mix(textRow, detailRow, detailBox);
+  textInBox = step(abs(textU.sub(0.5)), 0.5).mul(step(abs(textV.sub(0.5)), 0.5));
+  const textMask = max(mainMask, detailBox);
+  const textColor = pick(0xf4f6f8, 0xc8161e, 0xf4f6f8);
+
+  let signGlyph = float(0.0);
   if (spec.sign) {
     // The roof lamp's TAXI faces front and back: a box 75% of the lamp's height at the atlas rows' 8:1 aspect (the word
     // fills about a quarter of its row, so about half the lamp's width)
     const faceSign = step(0.0, n.z).mul(2.0).sub(1.0);
-    letterU = mix(letterU, p.x.mul(faceSign).div(TAXI_LAMP.hh * 12).add(0.5), isSign);
-    letterV = mix(letterV, p.y.sub(signY).div(TAXI_LAMP.hh * 1.5).add(0.5), isSign);
-    letterRow = mix(letterRow, float(LETTERING.length - 1), isSign);
+    textU = mix(textU, p.x.mul(faceSign).div(TAXI_LAMP.hh * 12).add(0.5), isSign);
+    textV = mix(textV, p.y.sub(signY).div(TAXI_LAMP.hh * 1.5).add(0.5), isSign);
+    textRow = mix(textRow, float(LETTERING_ROWS.TAXI), isSign);
+    textInBox = step(abs(textU.sub(0.5)), 0.5).mul(step(abs(textV.sub(0.5)), 0.5));
   }
-  const inBox = step(abs(letterU.sub(0.5)), 0.5).mul(step(abs(letterV.sub(0.5)), 0.5));
-  const atlasV = letterV.add(float(LETTERING.length - 1).sub(letterRow)).div(LETTERING.length);
-  const glyph = texture(carLetteringTexture(), vec2(letterU, atlasV)).r.mul(inBox);
-  let painted = mix(paint, pick(0x1d3f8f, 0xc8161e, 0xf1f2f0), band.mul(onLivery));
-  painted = mix(painted, pick(0x6fa8dc, 0x1f4fbf, 0xf1f2f0), pin.mul(onLivery));
-  painted = mix(painted, pick(0xf4f6f8, 0xf4f6f8, 0xc8161e), glyph.mul(band).mul(onLivery));
-  let signGlyph = float(0.0);
+  const atlasV = textV.add(float(LETTERING.length - 1).sub(textRow)).div(LETTERING.length);
+  const glyph = texture(carLetteringTexture(), vec2(textU, atlasV)).r.mul(textInBox);
+
+  // One badge atlas sample: Policja star on the front door, PRM star of life on the cargo box / rear doors and the P
+  // roundel on the front door, PSP shield on the locker band.
+  const badgeSide = sidePaint;
+  const ambIsP = step(-0.8, p.z);
+  const ambBadgeZ = mix(-2.05, 0.42, ambIsP);
+  const ambBadgeY = mix(mix(1.66, 1.55, ambIsP), 1.85, rearFace);
+  const ambBadgeSize = mix(mix(0.50, 0.40, ambIsP), 0.50, rearFace);
+  const ambBadgeCell = mix(mix(1.0, 3.0, ambIsP), 1.0, rearFace);
+  const badgeZ = police.mul(0.70).add(ambulance.mul(ambBadgeZ)).add(fire.mul(-2.0));
+  const badgeY = police.mul(0.80).add(ambulance.mul(ambBadgeY)).add(fire.mul(1.17));
+  const badgeSize = max(police.mul(0.13).add(ambulance.mul(ambBadgeSize)).add(fire.mul(0.24)), 0.001);
+  const badgeCell = police.mul(0.0).add(ambulance.mul(ambBadgeCell)).add(fire.mul(2.0));
+  const badgeSideU = p.z.sub(badgeZ).mul(facing).div(badgeSize).add(0.5);
+  const badgeRearU = p.x.mul(-1.0).div(badgeSize).add(0.5);
+  const badgeU = mix(badgeSideU, badgeRearU, rearFace);
+  const badgeV = p.y.sub(badgeY).div(badgeSize).add(0.5);
+  const badgeArea = step(abs(badgeU.sub(0.5)), 0.5).mul(step(abs(badgeV.sub(0.5)), 0.5)).mul(
+    max(
+      max(police.mul(badgeSide).mul(along), ambulance.mul(badgeSide).mul(along)),
+      max(fire.mul(badgeSide).mul(along), ambulance.mul(rearFace))
+    )
+  );
+  const badge = texture(emergencyBadgeTexture(), vec2(badgeU.add(badgeCell).div(4.0), badgeV));
+
+  let painted = paint;
+  painted = mix(painted, color(0x1d3f8f), max(policeBandArea, policeRearBand));
+  painted = mix(painted, color(0xf4f6f8), policeRect);
+  painted = mix(painted, color(0xc8f000), policeFluoro);
+  painted = mix(painted, color(0xc8161e), prmRed);
+  painted = mix(painted, color(0x1f4fbf), prmBlue);
+  painted = mix(painted, color(0xc8161e), prmRoof);
+  painted = mix(painted, color(0xf4f6f8), pspBandArea);
+  painted = mix(painted, color(0xf2c81a), pspYellow);
+  painted = mix(painted, textColor, glyph.mul(textMask));
+  painted = mix(painted, badge.rgb, badge.a.mul(badgeArea));
   if (spec.sign) {
     signGlyph = glyph.mul(signFace);
     // Poznań taxi side marking, after the city's uchwała (XX/342/VIII/2019, § 10): the black & yellow chequered strip
@@ -1948,7 +2239,7 @@ function createLoftedCarMaterial(spec, fixedColorHex = null) {
     const divider = max(smoothstep(0.025, 0.005, abs(p.z.sub(0.3))), smoothstep(0.025, 0.005, abs(p.z.add(1.5))));
     const slat = step(0.5, fract(p.y.mul(22.0)));
     const shutter = mix(color(0x9aa2aa), color(0x7e868e), slat).mul(one.sub(divider.mul(0.6)));
-    const lockerFinal = mix(shutter, painted.mul(ao), band.mul(onLivery));
+    const lockerFinal = mix(shutter, painted.mul(ao), pspBandArea);
     body = mix(body, lockerFinal, isLocker);
   }
 
@@ -1979,7 +2270,7 @@ function createLoftedCarMaterial(spec, fixedColorHex = null) {
   // Glasshouse: tinted glass, black seals & B / C pillars, painted roof & A pillars, chrome sill strip, CHMSL; on a
   // van the painted upper body with its seams, rear chevrons and the high stop lamp
   const glassCol = mix(color(0x0a1016), color(0x1a2632), smoothstep(0.2, 0.9, n.y));
-  let windowCol = mix(mix(mix(mix(paint, color(0x111315), seal), glassCol, glass), color(0xc9ced3), chromeBelt), color(0x6a0a0e), chmsl);
+  let windowCol = mix(mix(mix(mix(painted, color(0x111315), seal), glassCol, glass), color(0xc9ced3), chromeBelt), color(0x6a0a0e), chmsl);
   windowCol = mix(windowCol, color(0x15181b), rearWiper);
   if (spec.panelVan) {
     windowCol = mix(windowCol, chevronCol, chevrons);
@@ -3415,6 +3706,9 @@ function createTramMaterial(signMap = null, rows = 1) {
 export {
   CAR_PARTS,
   BODY_SPECS,
+  EMERGENCY_PAINT,
+  LETTERING,
+  LETTERING_ROWS,
   carDimensions,
   PLATE_FONT_FAMILY,
   polishRegistration,
@@ -3422,6 +3716,10 @@ export {
   carLayout,
   carBodyHalfWidthAt,
   drawPoznanCrest,
+  drawPoliceStar,
+  drawPrmBadge,
+  drawPspBadge,
+  drawPrmTeamBadge,
   buildCarSidePatch,
   buildSteerableWheelGeo,
   buildCarGeometry,

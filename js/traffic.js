@@ -6,6 +6,7 @@ import { cityUniforms, createContactShadowMaterial } from './tsl-materials.js';
 import { HEADLIGHTS, createVehicleHeadlight, placeVehicleHeadlight } from './vehicle-lights.js';
 import {
   BODY_SPECS,
+  EMERGENCY_PAINT,
   BUS_SPEC,
   BUS_18_SPEC,
   carDimensions,
@@ -315,9 +316,14 @@ function createTrafficSystem(
     new THREE.Color(0x7b8189),
     new THREE.Color(0x1f3558)
   ];
-  // Emergency liveries (carState.w, painted by createLoftedCarMaterial): 1 Policja (silver-white with the blue band) on
-  // the estate, 2 PRM ambulance (yellow) and 3 PSP light rescue van (red) on the van
-  const LIVERY_PAINT = [null, new THREE.Color(0xe6e9ec), new THREE.Color(0xf0dc2a), new THREE.Color(0xb3121b)];
+  // Emergency base paints (EMERGENCY_PAINT in actor-models.js): 1 Policja silver, 2 PRM yellow, 3 PSP signal red. The
+  // statutory marking bands, lettering and badges are painted by createLoftedCarMaterial from carState.w.
+  const LIVERY_PAINT = [
+    null,
+    new THREE.Color(EMERGENCY_PAINT[1]),
+    new THREE.Color(EMERGENCY_PAINT[2]),
+    new THREE.Color(EMERGENCY_PAINT[3])
+  ];
   // Golden-ratio pick: the mix rules below tie each body type to fixed index residues, which `i % length` would map
   // onto only part of a palette
   const pick = (palette, i) => palette[Math.floor(((i * 0.6180339887) % 1) * palette.length)];
