@@ -80,6 +80,30 @@ Implementation details and completed measurements live in the [topic docs](../AG
   before adding more. Browser checks were WebGPU (Apple `metal-3`) and WebGL2 at the drone, a 35–140 m helicopter POV
   over Ratajczaka and a street-level Św. Marcin/Piekary run; no curb or sidewalk overlap and no z-fighting were seen.
   [Measurements and code changes](observations/central-density-2026-11-08.md).
+- **Non-residential building coverage and specialized profiles (2026-11-08 audit):** the comprehensive audit
+  (`tools/audit-nonresidential.mjs`, [record](observations/non-residential-audit-2026-11-08.md)) revealed that
+  almost all missing non-residential buildings stem from morphology replacement (shopping malls, industrial halls,
+  railway depots and stadiums being turned into generic kamienice, villas or panel estates by district fallback)
+  rather than empty blocks. Only two blocks ≥ 1,500 m² generate 0 m²: block 1254 (Głogowska tram depot hall cut by
+  railway landuse) and block 575 (Collegium Maius landmark reserve). In-box: 31 large objects (9.3 ha) have 0%
+  coverage and 211 (74.0 ha footprint) only partial/fragmented coverage. 34 large objects (29.8 ha) sit outside the
+  detail box (Pestka, Makro, Plaza, Karolin, M1, IKEA, Selgros, Franowo, VW Antoninek). Outstanding backlog tasks:
+  1. *Specialized building profiles:* introduce `MALL`, `RETAIL_PARK`, `INDUSTRIAL_HALL`, `DEPOT`, `STADIUM`, `ARENA`
+     and `UTILITY` layouts with matched `KIND_SHARE` in `js/buildings.js` instead of district residential fallbacks.
+  2. *Dominant block program in `GEO.blockStats`:* expand `buildingUse` in `tools/poz-buildings.mjs` beyond 1 (hospital)
+     and 2 (university) to classify retail (3), industrial (4), rail/depot (5), sports/arena (6), utility (7), and
+     pick program by dominant footprint area (≥ 40%) before district switch.
+  3. *Building anchors (`GEO.blockAnchors`):* emit 1–3 largest non-residential footprints per block so `buildings.js`
+     can place solitary big-box structures at their true OSM location and fill remainder with parking/service lots.
+  4. *Park clearance carve-out:* update `parkFreeCells` to preserve mapped building footprints (Enea Stadion, Hala Arena,
+     Chwiałka ice rink) so sports facilities in park grounds are not cleared to zero.
+  5. *Railway building preservation:* in `tools/poz-blocks.mjs`, carve out building footprints (Dworzec Garbary,
+     Dworzec Letni, LCS, Głogowska depot hall) from `landuse=railway` and track buffers so they receive block lots.
+  6. *Outskirts satellite sites (`SATELLITE_SITES`):* lightweight placement of true-dimension OSM big-box silhouettes
+     in `js/outskirts.js` for major out-of-box hubs (Pestka, Makro, Plaza, King Cross, M1, Franowo, VW, Karolin) without
+     expanding the costly geodata raster.
+  7. *Industrial tagging supplement:* snapshot `poz_industry.json` for cooling towers, power plants and chimneys,
+     plus regression tests in `tests/buildings-density.test.cjs`.
 - **Merge starvation and short-link left turns:** the 2026-11-07 Centrum seed 99 10-minute hold (`waitMax`/`longestHeld`
   184 s at `(-1117, 132)`) is fixed. A blocked lead no longer reserves the 9.4 m link between signals, and a left turn
   that cannot clear falls back to a straight move from the same lane, so it no longer waits on the link. That run is
