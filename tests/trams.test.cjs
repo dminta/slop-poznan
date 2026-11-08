@@ -1030,7 +1030,7 @@ test('on the Poznań network track signals attach to junctions with valid signal
   }
 });
 
-test('a stopped tram waits for a car committed to its road conflict and releases it after the car clears', () => {
+test('a tram waits for a car committed to its road conflict, moving or stopped, and releases it after the car clears', () => {
   const { createTramSystem } = load(() => 'green', true);
   const node = {};
   const approach = { to: node };
@@ -1068,5 +1068,13 @@ test('a stopped tram waits for a car committed to its road conflict and releases
   car.waitReason = '';
   t.speed = 3;
   sys.drive(t, 3);
-  assert.notEqual(t.waitReason, 'car', 'does not introduce a new gate for a moving tram');
+  assert.equal(t.waitReason, 'car', 'a moving tram also waits for the car already committed to its conflict');
+  // A car still on a connector into a 10 m link, too fast to stop by its far end: the tram yields before entering.
+  approach.len = 10;
+  Object.assign(car, { edge: {}, conn: { len: 5 }, cs: 0, s: 0, move: { to: approach, out: [0] }, out: 0,
+    speed: 10, half: 2.3, driver: { b: 3 }, waitReason: '' });
+  t.speed = 3;
+  t.obstacle = null;
+  sys.drive(t, 4);
+  assert.equal(t.waitReason, 'car', 'a car committed on a connector into the short link holds the tram');
 });

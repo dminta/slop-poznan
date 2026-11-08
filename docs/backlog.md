@@ -1,6 +1,6 @@
 # Poznań backlog
 
-Updated 2026-11-08. Only remaining work, open decisions and outstanding browser checks are listed below.
+Updated 2026-11-09. Only remaining work, open decisions and outstanding browser checks are listed below.
 Implementation details and completed measurements live in the [topic docs](../AGENTS.md#docs) and
 [observation records](observations/). Original phase references refer to the [archived port plan](archive/poznan-plan.md).
 
@@ -190,20 +190,18 @@ Implementation details and completed measurements live in the [topic docs](../AG
   [Trace, measurements and rejected variants](observations/kaponiera-traffic-2026-11-08.md),
   [Centrum trace](observations/merge-starvation-2026-11-07.md),
   [per-second left-turn/tram trace](observations/left-turn-tram-2026-11-04.md).
-- **Car–tram body overlaps:** the short-link car forecast blind spot is fixed for the default seed-4242 run. A car
-  that cannot stand on a link under 12 m now waits at the upstream line while a tram owns the link's exit curve
-  (`shortLinkTramBlocked`, with a stand-at-the-nose test), and the tram restart gate reaches 8 m and counts a car
-  physically committed on a short link (`ROAD_GATE_REACH`, `unable`). That moves the default audit **9 → 5 pairs**
-  (Kaponiera 4 → 1, Stare Miasto 2 → 0, Centrum 0 → 1 stopped, Jeżyce unchanged at 3) with no deadlock or car held over
-  120 s; Kaponiera's worst wait falls 120 → 112 s and held over 60 s 13 → 11. The remaining 27 stopped first contacts
-  from the eight-seed audit are still shared-lane touches and close opposing lanes, and the Kaponiera pair 38:1 is the
-  same race one link on, where the car was already on the link when the curve was claimed. Rejected in the same pass:
-  the stand test in every short-link `tramBlocks` call or a long-connector stop (Kaponiera worst wait 191 s, 12 cars
-  over 120 s), the feeder two-step (pairs moved around), and the old `enter` hard stop for cars. The earlier
-  2026-11-07 proxy pass remains in the tree: the 8-seed audit fell **138 → 71 pairs** (110 → 41 moving; Jeżyce 83 → 31,
-  Centrum 24 → 8, Kaponiera 16 → 17). `enter` hard stops for cars on short links and longer forecasts were measured
-  again and rejected (they replaced one pair with another and raised turns); do not revive the rejected early-arrival
-  and lane-lead braking relaxations without their regressions.
+- **Car–tram body overlaps:** the 2026-11-09 moving-tram gate is in. On the current world the default seed-4242 audit
+  re-baselines at 16 pairs and falls to **6** (Jeżyce 10 → 5, Kaponiera 5 → 1, Stare Miasto 1 → 0); eight seeds
+  **77 → 54** (moving 55 → 37, stopped 22 → 17; Kaponiera 11 → 8, Centrum 10 → 7, Stare Miasto 17 → 4, Jeżyce
+  39 → 35). The gate now runs while the tram is moving and yields to a car already committed to the conflict
+  (`entering`, `tail`, `unable`, or `arriving` on a connector into a short link); a car that can still stop before the
+  link does not hold it. Benchmark mean 14.8 → 15.4 km/h, stopped 35.1 → 33.5 %, worst wait 88 → 112 s (under 120) and
+  the single deadlock is gone. Remaining: 54 contacts dominated by stopped Jeżyce shared-lane touches (35); the default
+  Kaponiera 22:1 at (−1386, −217) is a 15-pair-frame side graze after the car was already on its connector. Rejected in
+  this pass: the unheld-curve arrival forecast (same 54, pairs moved), a 1.5 m gate standoff (60 pairs, Centrum
+  4 → 10), projected entry speed (Kaponiera 3, Centrum 1, mean 11.3 km/h, switch waits 40.9 s) and the old `enter` hard
+  stop. Do not revive the earlier rejected variants either: the stand test in every short-link `tramBlocks` call or a
+  long-connector stop, the feeder two-step, the unrestricted sibling lane, or the rear-gap rule for every moving queue.
   `tools/audit-tram-opposing-lanes.mjs` now reports **40 runs / 38 lanes / 293 m** of used street-running tracks with
   close opposing traffic, with 15 runs / 13 lanes / 205 m off-street or unused under `--all` (55 / 51 / 498); the 37
   short stubs (35 lanes, 252 m) and three curved runs (41 m) still need per-station lane geometry. The 2026-11-08
@@ -226,8 +224,10 @@ Implementation details and completed measurements live in the [topic docs](../AG
   residual below the audit's 5 m floor was rejected (it hides the 1.5 m overlap left at 5523).
   [Short-stub and crossing-track measurements](observations/tram-opposing-lanes-2026-11-08.md). Moving the Rynek
   Jeżycki stubs still increases overlaps and adds a deadlock, so the pass leaves that cluster alone.
-  [Short-link pass and rejected variants](observations/car-tram-overlaps-2026-11-08.md),
-  [eight-seed results and earlier variants](observations/tram-overlaps-2026-11-04.md).
+  [Moving-gate measurements](observations/car-tram-overlaps-2026-11-09.md),
+  [short-link pass and rejected variants](observations/car-tram-overlaps-2026-11-08.md),
+  [eight-seed results](observations/tram-overlaps-2026-11-04.md),
+  [opposing lanes](observations/tram-opposing-lanes-2026-11-08.md).
 
 ## Optional features and fidelity
 

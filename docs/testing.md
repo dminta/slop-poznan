@@ -188,8 +188,9 @@ benchmark for 5 simulated minutes at Jeżyce and Centrum as a regression test. I
 Jeżyce run reaches the separate pedestrian-in-the-box gridlock at `(-2069, -470)` (pedestrian-overlap backlog), which is
 not a car–tram flow regression. A 3-minute seed 4242 Jeżyce run is kept as a bound (`deadlocks <= 1`, longest hold
 under 130 s) so the known cycle cannot hide a new one. The same file runs `tools/audit-tram-overlaps.mjs` on Jeżyce seed
-4242 and requires at most four car–tram first contacts; the pre-proxy baseline was eight, all with `tramWait = car`, six
-in the `-2167, -498` cluster.
+4242 and requires at most 11 car–tram first contacts (the west expansion's seeded order); the current tree settles at 5,
+all stopped shared-lane touches. The pre-proxy baseline was eight, all with `tramWait = car`, six in the
+`-2167, -498` cluster.
 
 ## Car–tram body overlap audit
 

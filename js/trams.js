@@ -1572,8 +1572,13 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     // within 8 m count: a 10 m window held trams for cars further off and, over 8 seeds × 7 districts, raised cars
     // held over 120 s 16 → 21 and added a Jeżyce car–tram wait cycle. Eight metres cover a tram stopped just before
     // the curve (Kaponiera 3116 at 5.9 m) while staying short of that rejected window.
+    // The gate also runs while the tram is moving: a car already committed to the conflict cannot be stopped by the
+    // car-side short-link guard any more (Kaponiera's 10 m links). A moving tram otherwise swept only for a body
+    // already in its path, which saw a crossing car too late. Only committed cars count: one entering the curve, a
+    // tail still on it, one that cannot stop on a short link, or one on a connector into a short link. A car that can
+    // still stop before the link does not hold the tram.
     let roadCarGate = false;
-    if (traffic && (t.speed < 1 || t._roadCarGate)) {
+    if (traffic) {
       for (let j = ic; j < path.n; j++) {
         const base = path.start[j];
         if (base - u > ROAD_GATE_REACH) break;
@@ -1595,7 +1600,12 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
               const unable = v.edge === c.e && v.lane === c.i && c.e.len < 12 && !v.conn && v.speed > 1 &&
                 v.move && v.move.to === c.f && v.move.out[v.lane] === c.j &&
                 v.speed * v.speed > 2 * v.driver.b * (c.e.len - v.s - v.half);
-              if (!entering && !tail && !unable) continue;
+              // Committed on a connector into this short link: the car has not reached c.e yet, but its braking
+              // distance no longer fits between its front and the end of the link.
+              const arriving = !entering && !unable && v.conn && v.move && v.out === c.i && v.move.to === c.e &&
+                c.e.len < 12 && v.speed > 1 &&
+                v.speed * v.speed > 2 * v.driver.b * (v.conn.len - v.cs + c.e.len - v.half);
+              if (!entering && !tail && !unable && !arriving) continue;
               roadCarGate = true;
               t.clearance = Math.min(t.clearance, entry);
               const before = _acc;
