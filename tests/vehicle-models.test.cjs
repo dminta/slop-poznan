@@ -22,7 +22,10 @@ function inert() {
   });
 }
 
-const { BODY_SPECS, BUS_SPEC, BUS_18_SPEC, carDimensions, PLATE_FONT_FAMILY, polishRegistration, encodeRegistration } = loadModule(
+const {
+  BODY_SPECS, BUS_SPEC, BUS_18_SPEC, carDimensions, PLATE_FONT_FAMILY, polishRegistration,
+  encodeRegistration, drawPoznanCrest
+} = loadModule(
   readFileSync(join(__dirname, '../js/actor-models.js'), 'utf8'),
   {
     imports: {
@@ -45,6 +48,24 @@ function decode(code) {
   }
   return `${text.slice(0, 2)} ${text.slice(2)}`;
 }
+
+test('Poznań crest draws the city arms in the statutory colours', () => {
+  const fills = [], strokes = [], rects = [];
+  const ctx = {
+    save() {}, restore() {}, translate() {}, scale() {}, beginPath() {}, closePath() {},
+    moveTo() {}, lineTo() {}, quadraticCurveTo() {}, bezierCurveTo() {}, arc() {}, ellipse() {},
+    fill() { fills.push(this.fillStyle); },
+    stroke() { strokes.push(this.strokeStyle); },
+    fillRect() { rects.push(this.fillStyle); }
+  };
+  drawPoznanCrest(ctx, 0, 0, 100, 133);
+  assert.ok(fills.includes('#0091c9'), 'official city blue field');
+  assert.ok(fills.includes('#eef3f7'), 'white walls, towers and saints');
+  assert.ok(fills.includes('#e8b923'), 'gold crown, keys, stars and crescents');
+  assert.ok(fills.includes('#b4222c'), 'red gothic shield of the Piast eagle');
+  assert.ok(strokes.includes('#006b96') && strokes.includes('#e8b923'), 'shield rim and gold details');
+  assert.ok(rects.length > 8, 'three crenellated towers and the wall');
+});
 
 test('registrations are plausible Poznań plates and the same for the same seed', () => {
   const seen = new Set();

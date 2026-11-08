@@ -97,7 +97,7 @@ Implementation details and completed measurements live in the [topic docs](../AG
 
 ## Optional features and fidelity
 
-- Taxi crests and exact vehicle livery/marking fidelity; verify sources before use.
+- Exact emergency-vehicle livery/marking fidelity (Policja/PRM/PSP) beyond the current colour bands; verify sources before use.
 - Real OSM street-tree positions.
 - Road levels and richer road-priority classification; revisit only with a runtime consumer.
 - Additional height sources (nDSM/LoD1/LoD2) and GEOPOZ machine-readable data: research candidates.
@@ -142,6 +142,9 @@ Implementation details and completed measurements live in the [topic docs](../AG
 - Check tram rails without a track bed for appearance and shader errors (flush heads on road, grass and curb islands);
   mainline railway sleepers should remain visible.
 - Inspect P-22 BUS markings on WebGPU and WebGL2. [Placement scope](world.md).
+- Inspect the Poznań city crest on the player's taxi stripe and street taxis from both sides, by day and under street
+  lights, on WebGPU and WebGL2: legibility at door scale, the white number panel and the front-door centring.
+  [Taxi markings](actors.md#vehicle-lights-and-turn-signal-conventions).
 - Inspect black locust foliage, bark, LOD and wind. [Tree models](world.md).
 
 ### Signals, traffic and audio
