@@ -22,11 +22,16 @@ Importuje dokładnie ten sam potok co build:
 - `tools/poz-buildings.mjs` — przypisanie obrysu do kwartału i `GEO.blockStats`,
 - `js/buildings.js` — `buildCityBlocks()` w harnessie `tests/helpers/module.cjs` z inertnym three.js/TSL.
 
+Repozytorium nie ma osobnych `poz_amenity.json`, `poz_leisure.json` ani `poz_landuse.json`: tagi `amenity`, `shop`,
+`leisure`, `historic`, `power` i `man_made` są w `poz_buildings.json` / `poz_industry.json`, a zieleń w
+`poz_parks.json`. Dlatego klasyfikacja obiektu opiera się na tagach jego obrysu, nie na warstwie użytkowania terenu
+(poza parkiem, który pochodzi z `GEO.parks`).
+
 Obrys jest **obecny**, gdy spełnia jeden z warunków:
 
 - **landmark** — centroid leży w pierścieniu jednego z 36 modeli `GEO.landmarks` (lub nazwa wskazuje ten model),
-- **anchor** — centroid leży w jednym z 104 `GEO.blockAnchors` (dedykowana bryła na obrysie OSM),
-- **satellite** — obrys poza detail boxem leży w jednym z 14 stanowisk `SATELLITE_SITES` (15 dopasowanych obrysów),
+- **anchor** — centroid leży w jednej z 64 `GEO.blockAnchors` (104 dopasowane obrysy; dedykowana bryła na obrysie OSM),
+- **satellite** — obrys poza detail boxem leży w jednym z 14 stanowisk `SATELLITE_SITES` (20 dopasowanych obrysów),
 - **generated** — co najmniej 50 % komórek obrysu na rastrze 2 m leży pod jakimkolwiek wygenerowanym budynkiem.
 
 Reszta jest **pominięta**. Przyczyna jest przypisywana do etapu, który obrys zgubił:
@@ -67,10 +72,10 @@ Status obecności (23 579 obrysów):
 | status | obrysy | uwaga |
 |---|---:|---|
 | landmark | 37 | 36 modeli + powtórzenia relacji |
-| anchor | 104 | 104 kotwice w 36 kwartałach |
+| anchor | 104 | 64 kotwice w 36 kwartałach |
 | generated ≥ 50 % | 7 365 | 36,3 % obrysów w boxie |
-| satellite | 15 | obiekty poza boxem |
-| **pominięte** | **16 058** | **502,4 ha** |
+| satellite | 20 | obiekty poza boxem (14 stanowisk) |
+| **pominięte** | **16 053** | **496,9 ha** |
 
 Pominięte dzielą się na trzy warstwy:
 
@@ -78,7 +83,7 @@ Pominięte dzielą się na trzy warstwy:
 |---|---:|---:|---|
 | strukturalna (`in box`, nie `in lots`) | 4 023 | 76,1 ha | obiekt nie ma działki albo nie ma kwartału |
 | profilowa (`in lots, unbuilt`) | 8 835 | 307,4 ha | działka jest, ale generator postawił coś innego |
-| poza detail boxem | 3 200 | 118,9 ha | renderuje to generyczne outskirts, nie konkretny obiekt |
+| poza detail boxem | 3 195 | 113,4 ha | renderuje to generyczne outskirts, nie konkretny obiekt |
 
 Kontrola jakości: 2 159 obrysów w boxie **nie ma żadnej działki** (21,1 ha), a 7 415 obrysów ma **zerowe pokrycie**
 (107,4 ha). To najlepsze miary „twardych” braków, niezależne od 50-procentowego progu.
@@ -91,7 +96,7 @@ Kontrola jakości: 2 159 obrysów w boxie **nie ma żadnej działki** (21,1 ha),
 | kwartały z efektywnymi działkami (`blockLots`) | 754 |
 | kwartały bez efektywnych działek | 664 |
 | w tym bez surowych `rects` | 567 |
-| w tym mediany tramwajowe (< 9 m) | 65 |
+| w tym mediany tramwajowe (< 9 m) | 65 (kategorie częściowo się nakładają) |
 | mediany z jakimkolwiek budynkiem OSM | **0** |
 | działki (`blockLots`) | 12 765 |
 | powierzchnia działek | 2 073 ha (52,0 % z 3 989 ha) |
@@ -112,8 +117,8 @@ poza boxem. Kategorie są heurystyczne, po tagach `building`, `amenity`, `shop`,
 |---|---:|---:|---:|---:|---:|---:|
 | residential | 19 368 | 12 872 | 66,5 % | 265,5 | 59,4 | 206,0 |
 | education | 292 | 222 | 76,0 % | 31,7 | 1,7 | 30,0 |
-| industrial | 679 | 547 | 80,6 % | 10,7 | 1,5 | 9,1 |
-| retail | 679 | 479 | 70,5 % | 18,5 | 2,8 | 15,7 |
+| industrial | 679 | 543 | 80,0 % | 10,7 | 1,5 | 9,1 |
+| retail | 679 | 478 | 70,4 % | 18,5 | 2,8 | 15,7 |
 | health | 96 | 74 | 77,1 % | 10,3 | 0,1 | 10,2 |
 | office | 224 | 153 | 68,3 % | 9,3 | 0,8 | 8,4 |
 | military | 64 | 59 | 92,2 % | 4,7 | 2,8 | 1,9 |
@@ -136,7 +141,7 @@ ma najwięcej obrysów, ale to głównie tło (generyk stoi gdzie indziej); nie 
 | przyczyna | obrysy | ha | kategorie (liczba obrysów) |
 |---|---:|---:|---|
 | `in lots, unbuilt` | 8 835 | 307,4 | residential:7 029, garage:522, outbuilding:276, industrial:238, retail:206, education:190, office:97, health:61, sacral:59, civic:46 |
-| `outside detail box (outskirts)` | 3 200 | 118,9 | residential:2 620, outbuilding:139, industrial:124, retail:100, garage:99 |
+| `outside detail box (outskirts)` | 3 195 | 113,4 | residential:2 620, outbuilding:139, industrial:120, retail:99, garage:99 |
 | `property-line gap (maskRects/frames)` | 2 829 | 53,9 | residential:2 257, garage:167, retail:134, industrial:123, outbuilding:60 |
 | `splitDeep/minLot gap` | 585 | 9,8 | residential:493, garage:38, industrial:22, outbuilding:11, retail:9 |
 | `park carve` | 219 | 4,5 | residential:146, industrial:29, military:14, ruins:7 |
@@ -152,8 +157,8 @@ ma najwięcej obrysów, ale to głównie tło (generyk stoi gdzie indziej); nie 
 | `building=yes` | 15 020 | 10 218 | 68,0 % | 240,2 | głównie profil dzielnicy; część to szkoły/kościoły bez tagu |
 | `building=apartments` | 2 038 | 1 044 | 51,2 % | 69,2 | generyk kamienic/osiedli |
 | `building=residential` | 875 | 556 | 63,5 % | 32,1 | generyk |
-| `building=industrial` | 187 | 134 | 71,7 % | 25,7 | hale → LOWRISE/kamienice, skipP |
-| `building=retail` | 385 | 264 | 68,6 % | 18,0 | MALL/RETAIL_PARK tylko w 18 kwartałach |
+| `building=industrial` | 187 | 130 | 69,5 % | 25,4 | hale → LOWRISE/kamienice, skipP |
+| `building=retail` | 385 | 263 | 68,3 % | 12,8 | MALL/RETAIL_PARK tylko w 18 kwartałach |
 | `building=school` | 113 | 92 | **81,4 %** | 15,1 | brak profilu szkoły; `building=school` nie jest civic w `anchorUse` |
 | `building=university` | 88 | 64 | 72,7 % | 12,6 | campus tylko ≥ 5 ha i ≤ 40 % built; pojedyncze wydziały → generyk |
 | `building=house` | 1 486 | 1 122 | 75,5 % | 12,3 | generyk willi |
@@ -176,13 +181,23 @@ Dodatkowo:
 
 - **`building=roof`** — 1 038 elementów, 852 w boxie (7,6 ha). Nie wchodzi do masy zabudowy (brak ścian) i jest
   poprawnie kierowany do `GEO.canopies`. Ale tylko 157 dachów ma canopy (5,5 ha); 12 dużych dachów ≥ 60 m²
-  (0,63 ha) i 683 małe (1,95 ha) nie mają odpowiednika. To wiaty, zadaszenia peronów, stacji paliw i targowisk.
+  (0,63 ha) i 683 małe (1,55 ha) nie mają odpowiednika. To wiaty, zadaszenia peronów, stacji paliw i targowisk.
 - **`building=no`** — 0 w snapshocie.
 - **`building=construction`** — jest liczone jako masa (celowo), ale nie dostaje profilu placu budowy; 47/71
   pominiętych, 5,5 ha.
 - **`man_made=*` / `power=*`** — 401 elementów w `poz_industry.json`, 52 obrysy wchodzą do masy; resztę widzi tylko
-  runtime jako kominy/chłodnie. To nie „brakujące budynki”, ale brakuje im often pełnego kontekstu (kotłownie,
+  runtime jako kominy/chłodnie. To nie „brakujące budynki”, ale brakuje im często pełnego kontekstu (kotłownie,
   komory fermentacyjne, stacje 110 kV).
+
+### Infrastruktura komunalna, stacje i małe obiekty
+
+`poz_industry.json` ma 301 `power=substation`, 23 `street_cabinet`, 62 `storage_tank`, 3 `silo`, 6 `man_made=works`
+i 2 `power=plant`. Runtime rysuje osobno tylko kominy i chłodnie (`GEO.industry` → `IndustryCoolingTowers` /
+`IndustryChimneys`); zbiorniki, silosy, stacje transformatorowe i szafki uliczne nie mają własnej geometrii — zostają
+jako tło lub tylko klasyfikują kwartał. W `poz_buildings.json` jest też 233 `building=service`, 28 `building=kiosk`,
+37 `building=stall`, 2 `building=water_tower` i 1 `pumping_station`; `service`/`water_tower` wchodzą do
+`INDUSTRIAL_BUILDING`, `kiosk`/`stall` do `RETAIL_BUILDING`, ale żaden nie ma profilu ani kotwicy. To najbardziej
+„niewidzialna” grupa: pojedynczo mała, ale odpowiada za charakter ulicy (szafki, przepompownie, kioski, wiaty).
 
 ## Co już działa (nie otwierać ponownie)
 
@@ -366,14 +381,15 @@ program 0. `anchorUse` ma tylko 5 użyć (retail, industrial, rail, sport, utili
 (5 ha, 40 % built) dostają generyk. 138 kwartałów bez programu ma ≥ 500 m² pominiętej niemieszkalnej zabudowy;
 największe to 887 (23,5 tys. m²), 328 (20,2 tys.), 345 (19,9 tys.), 1166 (14,4 tys.), 1238 (10,9 tys.).
 
-### 4. Poza kwartałami i poza detail boxem — 255 + 65 + 3 200 obrysów
+### 4. Poza kwartałami i poza detail boxem — 255 + 65 + 3 195 obrysów
 
 - **255 obrysów / 3,1 ha** nie ma kwartału (jezdnia, tor, woda, skraj placu). Największe: Andersia Business Centre
   (3 105 m², plac), Społem przy Wiatracznej (904 m²).
 - **65 obrysów / 0,5 ha** leży w kwartałach bez surowych działek.
-- **3 200 obrysów / 118,9 ha** leży poza detail boxem, w padded snapshot. Renderuje je generyczne `outskirts.js`
-  (47 tys. budynków), ale tylko 14 stanowisk `SATELLITE_SITES` (15 obrysów) ma konkretne sylwetki. Poza boxem zostają m.in.
-  M1, Galeria Polskie Meble, Panorama, Pasaż Rondo, Bricomarché, Parowozownia Wąskotorowa, Franowo PF2/3.
+- **3 195 obrysów / 113,4 ha** leży poza detail boxem, w padded snapshot. Renderuje je generyczne `outskirts.js`
+  (47 tys. budynków), ale tylko 14 stanowisk `SATELLITE_SITES` (20 dopasowanych obrysów) ma konkretne sylwetki.
+  M1 jest już satelitą; poza boxem zostają m.in. Galeria Polskie Meble, Panorama, Pasaż Rondo, Bricomarché,
+  Parowozownia Wąskotorowa i Franowo PF2/3.
 - Tereny kolejowe: `poz-blocks.mjs` oddaje tylko **9 wysp budynków kolejowych (19 098 m²)** i tylko dla
   `RAIL_BUILDING`/nazw typu dworzec/zajezdnia. Zwykłe magazyny i warsztaty w `landuse=railway` zostają wycięte.
 
@@ -385,7 +401,7 @@ największe to 887 (23,5 tys. m²), 328 (20,2 tys.), 345 (19,9 tys.), 1166 (14,4
 - **park carve: 219 obrysów / 4,5 ha.** To już tylko resztka po zmianach 2026-11-08 (wcześniej park usuwał 518 ha
   działek), ale wciąż giną Fort IV (20 110 m²), Lodowisko Malta (852 m²), bunkry i schrony.
 - **dachy: 852 w boxie / 7,6 ha, tylko 157 canopy / 5,5 ha.** 12 dużych dachów ≥ 60 m² (0,63 ha) i 683 małe
-  (1,95 ha) nie mają odpowiednika. To najbardziej „widoczny z ulicy” brak po tramwajach, stacjach i targowiskach.
+  (1,55 ha) nie mają odpowiednika. To najbardziej „widoczny z ulicy” brak po tramwajach, stacjach i targowiskach.
 
 ## Rekomendacje architektoniczne
 
@@ -398,13 +414,13 @@ odchudzać — miasto jest już o ok. 2,3 pp powyżej OSM.
 |---:|---|---|---:|---|
 | 1 | **Kotwice dla wszystkich obiektów ≥ 200 m²** (nie tylko 1–3 największe na kwartał), z nowymi użyciami: 6 education, 7 sacral, 8 civic/health, 9 office | `tools/poz-buildings.mjs` `blockAnchors`, `js/buildings.js` `anchorProfile` | edukacja 30,0 ha, zdrowie 10,2, sakral 3,8, handel 15,7, przemysł 9,1, civic 5,2 — do ~74 ha pominiętych obrysów w boxie | średnie: trzeba capować `anchorArea` do realnego `b.built × b.area`, inaczej powstanie overbuild |
 | 2 | **Programy 9 education, 10 sacral, 11 civic/health** w `buildingUse` + `blockStats`; `building=school` i `place_of_worship` jako civic w `anchorUse` | `tools/poz-buildings.mjs`, `js/buildings.js` `blockProfile` | 138 kwartałów bez programu z ≥ 500 m² non-res; 222 szkoły, 92 sakralne, 74 zdrowotne obrysy | niskie: program wybierany po 40 % obrysu, więc nie zmieni gęstych kwartałów bez wyraźnej dominacji |
-| 3 | **Fallback działki z obrysu OSM** dla każdego budynku ≥ 60 m², który nie leży w żadnej działce; dodać jako non-facility do `blockFootprints` (analogicznie do `blockParkBuildings`) | `tools/poz-buildings.mjs`, `js/city-config.js` `blockLots` | 2 159 obrysów bez działki (21,1 ha) + 2 829 property-line gap (53,9 ha); maks. 75 ha, realnie mniej | niskie: `srcTarget` nadal capuje do realnego built; trzeba usuwać kolizje z anchorami i rezerwami |
+| 3 | **Fallback działki z obrysu OSM** dla każdego budynku ≥ 60 m², który nie leży w żadnej działce; dodać jako non-facility do `blockFootprints` (analogicznie do `blockParkBuildings`) | `tools/poz-buildings.mjs`, `js/city-config.js` `blockLots` | 2 159 obrysów bez działki (21,1 ha) + 2 829 property-line gap (53,9 ha) + 585 split/minLot (9,8 ha); maks. ~85 ha, realnie mniej | niskie: `srcTarget` nadal capuje do realnego built; trzeba usuwać kolizje z anchorami i rezerwami |
 | 4 | **Podnieść capy `maskRects`/`frames`**: 8→16, 2 %→1 %, 93 %→97 %, `minSide` 8→5; frames 12+10→16+14, `minSide` 12→8 | `tools/poz-blocks.mjs` | część z 53,9 ha property-line gap | średnie: więcej sliverów; poprzedni test 12/10→18/16 dał −0,65…+1,14 pp tylko w 7/27 kampusów, więc to nie pierwsza dźwignia |
 | 5 | **Oddać wszystkie budynki w `landuse=railway`** ≥ 60 m², nie tylko dworce/zajezdnie | `tools/poz-blocks.mjs` sekcja „Railway buildings” | 9 wysp → potencjalnie kilkadziesiąt; magazyny ZNTK/Górczyn | niskie: nadal poza korytarzem torów, z `SIDEWALK` |
 | 6 | **Rozszerzyć `blockParkBuildings`** z park > 0,4 na park > 0 i próg 60→40 m², z gate'em po `b.built` | `tools/poz-buildings.mjs`, `js/city-config.js` | 219 obrysów / 4,5 ha (Fort IV, Lodowisko Malta, bunkry) | średnie: więcej szop w parkach; gate po realnym built |
 | 7 | **Rezerwa landmarku po pierścieniu, nie po AABB**, +1–2 m zamiast +3 m; dodać modele dla Urzędu Miasta, Urzędu Wojewódzkiego, Dworca autobusowego, Pawilonu 12, klasztoru | `js/buildings.js` `LANDMARK_RESERVE` | 59 obrysów / 4,2 ha | niskie: mniejsza rezerwa może postawić generyk bliżej modelu; test wizualny |
-| 8 | **Canopy od 30 m²** i dla `building=carport`; dodać 12 dużych dachów bez canopy | `tools/poz-canopies.mjs`, `js/canopies.js` | 0,63 ha dużych + część 1,95 ha małych; głównie widoczność | niskie: więcej instancji, bez nowych materiałów |
-| 9 | **Satelity dla brakujących obiektów poza boxem**: Galeria Polskie Meble, Panorama, Pasaż Rondo, Bricomarché, Parowozownia, Franowo PF2/3 | `js/satellite-sites.js` | 3 200 obrysów / 118,9 ha poza boxem; tylko nazwane, duże | niskie: kilka brył, bez rastrów; resztę pokrywa outskirts |
+| 8 | **Canopy od 30 m²** i dla `building=carport`; dodać 12 dużych dachów bez canopy | `tools/poz-canopies.mjs`, `js/canopies.js` | 0,63 ha dużych + część 1,55 ha małych; głównie widoczność | niskie: więcej instancji, bez nowych materiałów |
+| 9 | **Satelity dla brakujących obiektów poza boxem**: Galeria Polskie Meble, Panorama, Pasaż Rondo, Bricomarché, Parowozownia, Franowo PF2/3 | `js/satellite-sites.js` | 3 195 obrysów / 113,4 ha poza boxem; tylko nazwane, duże | niskie: kilka brył, bez rastrów; resztę pokrywa outskirts |
 | 10 | **Test regresyjny listy znanych obiektów**: Posnania, Avenida, Stary Browar, IKEA, Castorama, Enea, Arena, Termy, Zajezdnia Głogowska + nowe kotwice szkół/kościołów | `tests/buildings-density.test.cjs` lub nowy `tests/missing-objects.test.cjs` | — | brak; chroni przed cofnięciem |
 
 ### Kolejność wdrożenia
@@ -427,8 +443,8 @@ node --test tests/*.cjs
 
 Wynik 2026-11-08:
 
-- audyt: 23 579 obrysów, 20 357 w detail box, 16 058 pominiętych (502,4 ha), w tym 4 023 strukturalne (76,1 ha),
-  8 835 profilowych (307,4 ha), 3 200 poza boxem (118,9 ha);
+- audyt: 23 579 obrysów, 20 357 w detail box, 16 053 pominiętych (496,9 ha), w tym 4 023 strukturalne (76,1 ha),
+  8 835 profilowych (307,4 ha), 3 195 poza boxem (113,4 ha);
 - `node --test tests/*.cjs` — **456/456 pass** (74 s). Audyt jest narzędziem w `tools/`, nie zmienia runtime'u ani
   `js/geodata.js`, więc nie wpływa na testy.
 
@@ -438,6 +454,10 @@ Wynik 2026-11-08:
   kotwice są oceniane po obecności, nie po jakości modelu.
 - Snapshot OSM jest z 2026-10-28. Poznań Plaza, King Cross, VW Antoninek, UAM Morasko i stacje Starołęka/Dębiec
   są poza padded boxem; ich brak wynika z zasięgu danych, nie z generatora.
+- Audyt nie pobiera ponownie BDOT10k. Porównanie OSM/BDOT z
+  [sparse-blocks-2026-11-04](sparse-blocks-2026-11-04.md) nie wykazało brakujących klastrów zabudowy (różnice
+  ≤ 0,08 pp na kwartał), więc liczby tutaj są OSM-owe; BDOT dopisałby przede wszystkim małe budynki gospodarcze,
+  nie duże obiekty cywilne.
 - „In lots, unbuilt” nie zawsze oznacza zły profil: część obrysów to tylne oficyny i szopy, które generyk słusznie
   zastępuje podwórzem. Dlatego raport podaje osobno 7 415 obrysów z zerowym pokryciem i 2 159 bez działki.
 - 47 obrysów ma zdegenerowaną geometrię i nie wchodzi do pomiaru pokrycia.
