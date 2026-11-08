@@ -264,6 +264,60 @@ function carve(r, holes, axis = 'x') {
   return out.map(([u0, u1, v0, v1]) => (flip ? rect(v0, v1, u0, u1) : rect(u0, u1, v0, v1)));
 }
 
+// Ground-floor shop fronts: one canvas awning and the illuminated fascia sign above it, built from a blk.awnings
+// entry { x, y, z, w, d, nx, nz, ry }. The geometry lives here so the overlap resolver checks exactly the boxes the
+// instanced meshes draw, in world axes (placeInFrame has already turned x / z and stored the frame's ry).
+const SHOP_AWNING_H = 0.75;
+const SHOP_SIGN_H = 0.86;
+const SHOP_SIGN_Y = 4.68;
+const SHOP_SIGN_BACK = 0.75; // sign centre 0.75 m behind the awning centre: 0.15 m proud of the wall
+const SHOP_SIGN_THICKNESS = 0.28;
+const SHOP_CLEARANCE = 0.15; // air kept between neighbouring shop fronts after a trim (m)
+const SHOP_MIN_LENGTH = 2.0; // a front trimmed below this length is dropped instead (m)
+const SHOP_CELL = 12; // collision hash cell (m)
+
+function shopBox(cx, cz, ry, hx, hz, y0, y1) {
+  const c = Math.cos(ry);
+  const s = Math.sin(ry);
+  return { cx, cz, ax: c, az: -s, bx: s, bz: c, hx, hz, y0, y1 };
+}
+
+/** World boxes of the awning and of the fascia sign above it for one blk.awnings entry. */
+function shopFrontBoxes(a, ry) {
+  const c = Math.cos(ry);
+  const s = Math.sin(ry);
+  const ox = a.nx * c + a.nz * s; // wall normal turned into the world
+  const oz = a.nz * c - a.nx * s;
+  const awning = shopBox(a.x, a.z, ry, a.w * 0.5, a.d * 0.5,
+    a.y - SHOP_AWNING_H * 0.5, a.y + SHOP_AWNING_H * 0.5);
+  const sign = shopBox(a.x - ox * SHOP_SIGN_BACK, a.z - oz * SHOP_SIGN_BACK, ry,
+    a.nx !== 0 ? SHOP_SIGN_THICKNESS * 0.5 : a.w * 0.46,
+    a.nx !== 0 ? a.d * 0.46 : SHOP_SIGN_THICKNESS * 0.5,
+    SHOP_SIGN_Y - SHOP_SIGN_H * 0.5, SHOP_SIGN_Y + SHOP_SIGN_H * 0.5);
+  return { awning, sign };
+}
+
+const boxRadius = (b, nx, nz) => b.hx * Math.abs(b.ax * nx + b.az * nz) + b.hz * Math.abs(b.bx * nx + b.bz * nz);
+
+/** Separating-axis test of two yawed boxes, after their y ranges reject most pairs. */
+function boxesOverlap(a, b) {
+  if (a.y1 <= b.y0 || b.y1 <= a.y0) return false;
+  const dx = b.cx - a.cx;
+  const dz = b.cz - a.cz;
+  const axes = [[a.ax, a.az], [a.bx, a.bz], [b.ax, b.az], [b.bx, b.bz]];
+  for (const [nx, nz] of axes) {
+    if (Math.abs(dx * nx + dz * nz) >= boxRadius(a, nx, nz) + boxRadius(b, nx, nz)) return false;
+  }
+  return true;
+}
+
+/** True when two shop fronts (awning plus fascia sign) intersect in world space. */
+function shopFrontsOverlap(a, ryA, b, ryB) {
+  const A = shopFrontBoxes(a, ryA);
+  const B = shopFrontBoxes(b, ryB);
+  return boxesOverlap(A.awning, B.awning) || boxesOverlap(A.sign, B.sign);
+}
+
 function buildCityBlocks(scene) {
   const group = new THREE.Group();
   group.name = 'CityBlocks';
@@ -3727,6 +3781,129 @@ function buildCityBlocks(scene) {
     }
     xf = null;
   }
+
+  // Shop fronts are emitted per building part, so two lots can put storefronts across the same street corner or back
+  // to back at a piece seam. Resolve them once every block is in world space: trim the candidate along its own facade
+  // (the far end stays put) or, if that leaves nothing worth showing, trim the earlier front instead; only when both
+  // are too short does the candidate go. Trimming only ever shrinks a box, so an accepted front can never be pushed
+  // into a later one.
+  function resolveShopFrontOverlaps() {
+    const grid = new Map();
+    const cellsOf = (rec) => {
+      const { awning, sign } = shopFrontBoxes(rec.a, rec.ry);
+      const extents = (b) => {
+        const ex = b.hx * Math.abs(b.ax) + b.hz * Math.abs(b.bx);
+        const ez = b.hx * Math.abs(b.az) + b.hz * Math.abs(b.bz);
+        return [b.cx - ex, b.cx + ex, b.cz - ez, b.cz + ez];
+      };
+      const [ax0, ax1, az0, az1] = extents(awning);
+      const [sx0, sx1, sz0, sz1] = extents(sign);
+      const x0 = Math.min(ax0, sx0) - SHOP_CLEARANCE;
+      const x1 = Math.max(ax1, sx1) + SHOP_CLEARANCE;
+      const z0 = Math.min(az0, sz0) - SHOP_CLEARANCE;
+      const z1 = Math.max(az1, sz1) + SHOP_CLEARANCE;
+      const cells = [];
+      for (let i = Math.floor(x0 / SHOP_CELL); i <= Math.floor(x1 / SHOP_CELL); i++) {
+        for (let j = Math.floor(z0 / SHOP_CELL); j <= Math.floor(z1 / SHOP_CELL); j++) cells.push(`${i}|${j}`);
+      }
+      return cells;
+    };
+    const add = (rec) => {
+      rec.cells = cellsOf(rec);
+      for (const key of rec.cells) {
+        const list = grid.get(key);
+        if (list) list.push(rec);
+        else grid.set(key, [rec]);
+      }
+    };
+    const drop = (rec) => {
+      for (const key of rec.cells) {
+        const list = grid.get(key);
+        const i = list ? list.indexOf(rec) : -1;
+        if (i >= 0) list.splice(i, 1);
+      }
+      rec.cells = null;
+    };
+    const nearby = (rec) => {
+      const seen = new Set();
+      for (const key of cellsOf(rec)) {
+        const list = grid.get(key);
+        if (list) for (const r of list) seen.add(r);
+      }
+      return seen;
+    };
+    // Shorten rec along its facade until it clears otherRec. false when rec is already shorter than worth keeping.
+    const trimAlongFacade = (rec, otherRec) => {
+      const a = rec.a;
+      const alongX = a.nx === 0; // storefronts on n / s walls run along local x, on w / e walls along local z
+      const c = Math.cos(rec.ry);
+      const s = Math.sin(rec.ry);
+      const fx = alongX ? c : s;
+      const fz = alongX ? -s : c;
+      const mine = shopFrontBoxes(a, rec.ry);
+      const other = shopFrontBoxes(otherRec.a, otherRec.ry);
+      const awningHit = boxesOverlap(mine.awning, other.awning);
+      const signHit = boxesOverlap(mine.sign, other.sign);
+      if (!awningHit && !signHit) return true;
+      // A sign is 92% of its awning's width; trim the narrower box when only the signs touch, and map the result back.
+      const signOnly = !awningHit;
+      const m = signOnly ? mine.sign : mine.awning;
+      const o = signOnly ? other.sign : other.awning;
+      const scale = signOnly ? 0.92 : 1;
+      const half = (alongX ? a.w : a.d) * 0.5 * scale;
+      const off = (o.cx - m.cx) * fx + (o.cz - m.cz) * fz;
+      const reach = boxRadius(o, fx, fz);
+      let lo = -half;
+      let hi = half;
+      if (off >= 0) hi = off - reach - SHOP_CLEARANCE;
+      else lo = off + reach + SHOP_CLEARANCE;
+      if (hi - lo < SHOP_MIN_LENGTH * scale) return false;
+      const shift = (lo + hi) * 0.5;
+      a.x += fx * shift;
+      a.z += fz * shift;
+      const len = (hi - lo) / scale;
+      if (alongX) a.w = len;
+      else a.d = len;
+      return true;
+    };
+
+    for (const blk of allBlocks) {
+      if (!blk.awnings.length) continue;
+      const ry = blk.ry || 0;
+      const keep = [];
+      for (const a of blk.awnings) {
+        const rec = { a, ry, cells: null };
+        let resolved = false;
+        for (let attempt = 0; attempt < 8; attempt++) {
+          let hit = null;
+          for (const other of nearby(rec)) {
+            if (shopFrontsOverlap(a, ry, other.a, other.ry)) {
+              hit = other;
+              break;
+            }
+          }
+          if (!hit) {
+            resolved = true;
+            break;
+          }
+          if (trimAlongFacade(rec, hit)) continue;
+          if (trimAlongFacade(hit, rec)) {
+            drop(hit);
+            add(hit);
+            continue;
+          }
+          break;
+        }
+        if (resolved) {
+          keep.push(a);
+          add(rec);
+        }
+      }
+      blk.awnings = keep;
+    }
+  }
+  resolveShopFrontOverlaps();
+
   minLot = 15;
   srcBlock = null;
   srcAnchors = [];
@@ -4163,7 +4340,10 @@ function buildCityBlocks(scene) {
     for (let bIdx = 0; bIdx < nearbyBlocks.length; bIdx++) {
       const blk = nearbyBlocks[bIdx];
       // every piece of a block turned into a frontage frame shares its turn (see placeInFrame)
-      dummy.rotation.set(0, blk.ry || 0, 0);
+      const blkRy = blk.ry || 0;
+      const blkCs = Math.cos(blkRy);
+      const blkSn = Math.sin(blkRy);
+      dummy.rotation.set(0, blkRy, 0);
       const collectNearLights = bIdx < 20;
 
       // 1. Stone cornices & setback ledges, hung just below their roof line (top 0.1h under it, so no two ledges or
@@ -4211,7 +4391,7 @@ function buildCityBlocks(scene) {
       for (let i = 0; i < blk.awnings.length && awningCount < MAX_AWNINGS; i++) {
         const a = blk.awnings[i];
         dummy.position.set(a.x, a.y, a.z);
-        dummy.scale.set(a.w, 0.75, a.d);
+        dummy.scale.set(a.w, SHOP_AWNING_H, a.d);
         dummy.updateMatrix();
         awningInst.setMatrixAt(awningCount, dummy.matrix);
         awningInst.setColorAt(awningCount, awningPalette[a.colorIdx % awningPalette.length]);
@@ -4220,9 +4400,12 @@ function buildCityBlocks(scene) {
         // signs used to change as the player moved
         const themeIdx = ((Math.imul(Math.round(a.x * 4), 73856093) ^ Math.imul(Math.round(a.z * 4), 19349663)) >>> 0) % signThemes.length;
         if (signCount < MAX_AWNINGS) {
-          dummy.position.set(a.x - a.nx * 0.75, 4.68, a.z - a.nz * 0.75);
-          if (a.nx !== 0) dummy.scale.set(0.28, 0.86, a.d * 0.92);
-          else dummy.scale.set(a.w * 0.92, 0.86, 0.28);
+          // The wall normal is a local-frame vector; turn it with the block before stepping back toward the wall
+          const ox = a.nx * blkCs + a.nz * blkSn;
+          const oz = a.nz * blkCs - a.nx * blkSn;
+          dummy.position.set(a.x - ox * SHOP_SIGN_BACK, SHOP_SIGN_Y, a.z - oz * SHOP_SIGN_BACK);
+          if (a.nx !== 0) dummy.scale.set(SHOP_SIGN_THICKNESS, SHOP_SIGN_H, a.d * 0.92);
+          else dummy.scale.set(a.w * 0.92, SHOP_SIGN_H, SHOP_SIGN_THICKNESS);
           dummy.updateMatrix();
           signInst.setMatrixAt(signCount, dummy.matrix);
           signCellAttr.setXY(signCount, themeIdx % SIGN_ATLAS_COLS, Math.floor(themeIdx / SIGN_ATLAS_COLS));
@@ -4386,4 +4569,4 @@ function buildCityBlocks(scene) {
   };
 }
 
-export { Quadtree, buildCityBlocks };
+export { Quadtree, buildCityBlocks, shopFrontBoxes, shopFrontsOverlap };
