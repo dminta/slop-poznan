@@ -73,8 +73,8 @@ test.before(async () => {
   }).buildStreetDetails(inert(), { buildingColliders });
   const network = road.buildRoadNetwork(grid.sidewalks, [...grid.footprints, ...street.footprints]);
   const { createPedestrianRoutes } = loadModule(source('pedestrian-routes').replace(
-    'return { along, across, next, crosswalks, segments, segmentsNear };',
-    'return { along, across, next, crosswalks, segments, segmentsNear, links };'), {
+    'return { along, across, next, crosswalks, segments, segmentsNear, ways: wayTracks, waysNear };',
+    'return { along, across, next, crosswalks, segments, segmentsNear, ways: wayTracks, waysNear, links };'), {
     imports: { './road-network.js': road }, globals
   });
   const tramInfra = loadModule(source('tram-infra'), {

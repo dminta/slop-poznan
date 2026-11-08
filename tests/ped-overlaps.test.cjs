@@ -107,10 +107,10 @@ test('conversations need a body width of clear space around both partners', () =
 });
 
 test('a connector is keyed by the physical line it lands on, not its own span', () => {
-  const routesReturn = 'return { along, across, next, crosswalks, segments, segmentsNear };';
+  const routesReturn = 'return { along, across, next, crosswalks, segments, segmentsNear, ways: wayTracks, waysNear };';
   assert.ok(routeSource.includes(routesReturn), 'the route factory return line is intact');
   const routes = loadModule(routeSource.replace(routesReturn,
-    'return { along, across, next, crosswalks, segments, segmentsNear, links };'), {
+    'return { along, across, next, crosswalks, segments, segmentsNear, ways: wayTracks, waysNear, links };'), {
     imports: { './road-network.js': { CROSSWALK: 4.3, CROSSWALK_REACH: 4 } },
     globals: { console: quiet, Math }, filename: 'pedestrian-routes.js'
   });

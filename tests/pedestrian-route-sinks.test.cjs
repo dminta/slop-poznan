@@ -19,8 +19,8 @@ test('pedestrian routes do not U-turn over a crossing line or cross into a dead 
   });
   const { createPedestrianRoutes } = loadModule(
     readFileSync(join(__dirname, '../js/pedestrian-routes.js'), 'utf8').replace(
-      'return { along, across, next, crosswalks, segments, segmentsNear };',
-      'return { along, across, next, crosswalks, segments, segmentsNear, links };'
+      'return { along, across, next, crosswalks, segments, segmentsNear, ways: wayTracks, waysNear };',
+      'return { along, across, next, crosswalks, segments, segmentsNear, ways: wayTracks, waysNear, links };'
     ),
     { imports: { './road-network.js': road }, globals: { Math } }
   );
