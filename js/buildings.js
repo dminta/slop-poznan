@@ -937,14 +937,43 @@ function buildCityBlocks(scene) {
         : pickW([['L', 4], ['U', L >= 16 ? 2.5 : 0], ['ring', wd >= 16 && L >= 15 ? 1 : 0], ['none', 1.2]]);
       const wf = Math.max(2, k.floors - (chance(0.5) ? 0 : 1));
       const wings = [];
+      let wingAt = 0;
+      let back = 0;
       if (plan === 'L') {
         const ea = chance(0.5) ? 0 : L - wing;
+        wingAt = ea;
         wings.push(sideRect(lot, side, ea, ea + wing, front, front + wd));
       } else if (plan === 'U' || plan === 'ring') {
         wings.push(sideRect(lot, side, 0, wing, front, front + wd), sideRect(lot, side, L - wing, L, front, front + wd));
-        if (plan === 'ring') wings.push(sideRect(lot, side, wing, L - wing, front + wd - range(6, 7.5), front + wd));
+        if (plan === 'ring') {
+          back = range(6, 7.5);
+          wings.push(sideRect(lot, side, wing, L - wing, front + wd - back, front + wd));
+        }
       }
       mass(b, wings, 0, wf);
+      // Deep dense frontage lots (rear >= 22 m) get a transverse oficyna through the courtyard, as Poznań's centre
+      // does: it turns a long open yard into two studnie (or, on an L plan, closes all but one light well) and fills
+      // the 15-30 m behind the front house the row used to leave empty
+      if (cfg.dense && rear >= 22) {
+        const cd = range(6, 8.5);
+        let a0 = 0;
+        let a1 = 0;
+        let vMax = wd;
+        if (plan === 'L') {
+          const gap = range(6, 9);
+          a0 = wingAt === 0 ? wing : gap;
+          a1 = wingAt === 0 ? L - gap : L - wing;
+        } else if (plan === 'U' || plan === 'ring') {
+          a0 = wing;
+          a1 = L - wing;
+          if (plan === 'ring') vMax = wd - back - 2;
+        }
+        const clear = vMax - cd;
+        if (a1 - a0 >= 4 && clear >= 7) {
+          const v = front + clear * range(0.35, 0.65);
+          mass(b, [sideRect(lot, side, a0, a1, v, v + cd)], 0, Math.max(2, wf - (chance(0.5) ? 0 : 1)));
+        }
+      }
     }
     pitch(house, pickW(cfg.roofs), pickW(cfg.roofMats), alongRidge(side), range(32, 42));
     commit(blk, b, { chimneys: true, skylights: true, shops: cfg.shops, balconies: chance(BALCONY_P), dormers: DORMER_P });
@@ -1060,7 +1089,11 @@ function buildCityBlocks(scene) {
       const lotW = range(kind.w[0], kind.w[1]);
       const mat = pickW(kind.mats || cfg.mats);
       const floorsRun = irange(fl[0], fl[1]);
-      const depthRun = range(kind.depth[0], kind.depth[1]);
+      let depthRun = range(kind.depth[0], kind.depth[1]);
+      // Deep frontage strips in the centre (50-70 m) built only the first 34 m of kamienica and left the rest of the
+      // lot empty; a dense lot takes the whole reach, up to 48 m, so its oficyny and rear wing fill the depth. This
+      // also closes the 0-6 m slit two back-to-back rows left through a 50-60 m block.
+      if (cfg.dense && kindName === 'kamienica') depthRun = Math.min(depth, DENSE_REACH);
       for (let i = 0; i < run && a1 - a > 0.5; i++) {
         let w = lotW * range(0.96, 1.04);
         if (a1 - a - w < kind.w[0] * 0.6) w = a1 - a;
@@ -1155,7 +1188,10 @@ function buildCityBlocks(scene) {
       const floors = Math.max(3, irange(kf[0], kf[1]) - (chance(0.5) ? 1 : 0));
       const mat = pickW(cfg.mats || RES_BASE.mats);
       const dep = Math.min(wid, range(11, 14));
-      const court = cfg.dense ? Math.max(9, floors * storeys[mat] * 0.6) : Math.max(14, floors * storeys[mat]);
+      // A dense centre's rear rows stand on 7-9 m light wells (Poznań's studnie), not the 11-14 m of an outer block
+      const court = cfg.dense
+        ? Math.max(7, Math.min(9, floors * storeys[mat] * 0.5))
+        : Math.max(14, floors * storeys[mat]);
       const rows = Math.max(1, Math.floor((wid + court) / (dep + court)));
       const v0 = (wid - rows * dep - (rows - 1) * court) * 0.5;
       const runs = len > 70 ? [[0, len * 0.5 - 4], [len * 0.5 + 4, len]] : [[0, len]];
@@ -1323,13 +1359,20 @@ function buildCityBlocks(scene) {
       fillFrontage(blk, s, strip[s][0], strip[s][1], depth, rows, cfg);
     }
     // The core the rows leave in a big rect (at most ROW_REACH deep from each frontage, the corner houses less) is
-    // built up like a frontless lot; sides without a frontage face the block's other lot rects
-    const inset = (s) => (reach[s] ? Math.min(reach[s], ROW_REACH) : 0) + (cfg.dense ? 3 : INNER_YARD);
+    // built up like a frontless lot; sides without a frontage face the block's other lot rects. Dense centre blocks
+    // keep cores only 8 m across (the common 45-55 m block leaves an 8-15 m sliver behind its deep rows, which was
+    // discarded when the threshold was 16 m); elsewhere a core that narrow stays a yard.
+    const maxRow = cfg.dense ? DENSE_REACH : ROW_REACH;
+    const inset = (s) => (reach[s] ? Math.min(reach[s], maxRow) : 0) + (cfg.dense ? 3 : INNER_YARD);
     const core = rect(R.x0 + inset('w'), R.x1 - inset('e'), R.z0 + inset('n'), R.z1 - inset('s'));
-    if (!cfg.noCore && Math.min(rectW(core), rectD(core)) >= 16) innerBuildings(blk, core, cfg.inner || INNER_RES, cfg);
+    if (!cfg.noCore && Math.min(rectW(core), rectD(core)) >= (cfg.dense ? 8 : 14)) {
+      innerBuildings(blk, core, cfg.inner || INNER_RES, cfg);
+    }
   }
-  // Deepest a row lot builds: kamienica depth 34 m × the ±5% run jitter (fillFrontage), rounded up
+  // Deepest a row lot builds: kamienica depth 34 m × the ±5% run jitter (fillFrontage), rounded up; dense centre lots
+  // may reach 48 m on deep frontage strips
   const ROW_REACH = 36;
+  const DENSE_REACH = 48;
 
   // Dzielnica Cesarska: a monumental public building on a big lot rect with two or more frontages, grand sandstone
   // kamienice elsewhere
@@ -1871,7 +1914,7 @@ function buildCityBlocks(scene) {
     cornerFloors: [4, 5],
     turretP: 0.15,
     shops: 0.6,
-    rows: [['kamienica', 7], ['infill', 1], ['postwarBlock', 0.8], ['low', 0.6], ['gap', 1]],
+    rows: [['kamienica', 7], ['infill', 1], ['postwarBlock', 0.8], ['low', 0.38], ['gap', 0.18]],
     kf: { kamienica: [3, 5], postwarBlock: [4, 5] }
   });
   // Stary Rynek: the frontages facing the square are rows of rynekHouses, the back streets Old Town
@@ -2018,7 +2061,12 @@ function buildCityBlocks(scene) {
         out.inner = inner.length ? inner : INNER_RES.filter(([k]) => k !== 'yard');
         // Well above the typical share (the centre's 50-85% blocks): oficyny round every courtyard, rear houses on
         // tighter light courts, yards 3 m wide
-        if (q >= 1.3) out.dense = true;
+        if (q >= 1.3) {
+          out.dense = true;
+          // Deep central courtyards are filled from the inside out: rear houses across the lot and workshop/oficyna
+          // halls, with only the odd free-standing pavilion (the centre's yards were studnie, not suburban lawns)
+          out.inner = [['rear', 7], ['works', 3], ['pavilion', 0.5]];
+        }
       } else {
         // Thinned from the inside out, so the streets keep their frontages. Only very sparse blocks lose the core;
         // between 0.5 and 0.8 the core keeps low pavilions and rear houses (the 100-150 m hospital and campus

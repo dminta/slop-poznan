@@ -69,10 +69,10 @@ test('seeded species assignment preserves the full built city tree sites and col
   // Street placement and production crossing constants change these pins; park/grid colliders changed only when the
   // Chartowo corridor moved three block 1304 lamps off the new cut curb.
   // See docs/observations/street-tree-clearance-2026-11-06.md for each deliberate pin change.
-  assert.deepEqual(before, [18695, 22614, 8739, 0]);
-  assert.deepEqual(after, [17928, 21715, 8385, 2020]);
-  assert.equal(siteHash, 'dd5faf6f835a774d0ca8fa9963baa262a6ed3b5dbec4da26ec30dbfa8ae6c95d');
-  assert.equal(digest(grid.propColliders), 'c5b4e900b1b065dcd04e65ebd248b6696b8cde4b64b16d4cd23edb38635107d9');
+  assert.deepEqual(before, [18694, 22614, 8739, 0]);
+  assert.deepEqual(after, [17927, 21715, 8385, 2020]);
+  assert.equal(siteHash, 'a8eda0e907e088e5fe396f4db32895f5e7ef00200277bacc3872a5683b6622c5');
+  assert.equal(digest(grid.propColliders), '47fe61199ef3204842393df05dd6d1b56f9431240acefcf6316f8612ea4d2c6b');
   assert.equal(digest(details.colliders), '8cb2524d7bf91560e84ec364d796e9f0994f7f51c235d7bb9288c7049edbc0aa');
   const meshCount = (pick) => {
     const types = new Set();

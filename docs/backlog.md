@@ -69,6 +69,17 @@ Implementation details and completed measurements live in the [topic docs](../AG
   [sparse-block BDOT audit](observations/sparse-blocks-2026-11-04.md),
   [Density test harness](tests/buildings-density.test.cjs),
   [Phase 14 archive](archive/poznan-plan.md#phase-14-real-building-density-from-osm).
+- **Central density (2026-11-08):** the 190 central blocks (Stare Miasto, Jeżyce, Łazarz, Wilda) at least 35% built
+  in OSM now generate 43.2% against 45.3% real (was 40.3%), and blocks below 75% of their real share fall 49 → 46.
+  The named blocks moved: 708 35.4 → 39.7%, 688 37.3 → 39.9%, 836 42.1 → 44.8% and 1365 40.0 → 45.5%; 801 stayed
+  35.8% and 868 slipped 34.7 → 33.4%. Deep frontage lots now use up to 48 m, dense cores count from 8 m, rear rows
+  stand on 7–9 m wells and dense courtyards get transverse oficyny. Remaining: Stare Miasto is still at 0.82× its OSM
+  share because blocks 575 (Collegium Maius reserve), 816 (Stary Browar/offices) and 868 (office profile) are mostly
+  landmark or office layouts; `officeBlock` still builds only street slabs and no interior core. Jeżyce and Łazarz
+  now sit above their whole-district OSM share (1.19× / 1.20×), so a later pass should thin already-built blocks
+  before adding more. Browser checks were WebGPU (Apple `metal-3`) and WebGL2 at the drone, a 35–140 m helicopter POV
+  over Ratajczaka and a street-level Św. Marcin/Piekary run; no curb or sidewalk overlap and no z-fighting were seen.
+  [Measurements and code changes](observations/central-density-2026-11-08.md).
 - **Merge starvation and short-link left turns:** the 2026-11-07 Centrum seed 99 10-minute hold (`waitMax`/`longestHeld`
   184 s at `(-1117, 132)`) is fixed. A blocked lead no longer reserves the 9.4 m link between signals, and a left turn
   that cannot clear falls back to a straight move from the same lane, so it no longer waits on the link. That run is
