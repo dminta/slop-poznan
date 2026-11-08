@@ -20,39 +20,36 @@ Implementation details and completed measurements live in the [topic docs](../AG
   [Mechanisms, fix and per-seed results](observations/ped-overlaps-2026-11-05.md#follow-up-2026-11-07-coincident-lines-and-blocked-exits),
   [inset lanes](observations/ped-overlaps-2026-11-05.md#follow-up-2026-11-07-direction-specific-inset-lanes),
   [room audit](observations/jezyce-gridlock-2026-11-07.md#follow-up-tramroom-boundary-fix-and-room-audit-2026-11-07).
-- **Isolated crosswalk landings:** stage 2 connects the remaining empty ends without restoring U-turns or crossing
-  roads, rails, buildings or water. The long fallback now accepts sidewalk track ends (the old `!next.node` gate
-  skipped 16 ends) and the corridor grows 8 → 16 m, with a sight line to the block edge that keeps closed courtyards
-  off limits. On the 2026-11-07 headless world (`tools/bench-world.mjs`, city-block colliders; city-grid curbs,
-  landmarks and bridges omitted) empty ends fall **212 → 156** and tracks with an empty end **197 → 143**, with
-  crosswalks unchanged at 3,270, `laneHits` 0, rail hits 0 and building hits 0. The bare network leaves 109/98.
-  `node tools/audit-crosswalk-landings.mjs` reproduces the counts and re-checks every fallback leg.
-  Still isolated are the key nodes the backlog named: **Okrąglak** (`-841.5, 30.6`; the 351 m² tram-cut
-  island has no sidewalk track at all, and its only ports are 15.6-16.7 m across the roadway, crossing a lane and
-  coming within 0.13 m of a rail), **Okrąglak / Święty Marcin** (`-1120.1, 112`; 12.5-21.3 m across the roadway),
-  **Miła / Dąbrowskiego** (`-3269.1, -884.3`; 19.2 m through a building lot or 26 m across a lane and 0.10 m from a
-  rail), **Promienista / Grochowska** (both lines at `-3541.4, 1448.4` and `-3540.3, 1449.4`; only sibling/self ports
-  within 11 m, the nearest sidewalk 23-25 m across the road) and **Wierzbięcice / Górna Wilda** (both lines at
-  `-851.4, 1662.7/1664.2`; nearest sidewalk 17.7-19.2 m across a lane and 0.10 m from a rail). Święty Marcin /
-  Wysoka has no empty end in the audit. Connecting these would need a new sidewalk track on the island/curb, not a
-  fallback connector: every existing candidate crosses a lane, a building lot or a rail, or lies beyond the 16 m
-  corridor. The audit's `reasonCounts` (overlapping, one per remaining end) are lane 138, length 70, lot 51, walkable
-  32, rail 14, corridor 14, building 8, block 4 and none 2. A 40/48 m `FALLBACK_MAX` adds only 6/7 ends, and a corridor
-  beyond 16 m connects no other key node, so both stay. The dead-end guard now also covers sidewalk-track landings
-  (`target.edge`): of the 346 path ends that used to land on a sidewalk track with no onward link, 11 gain a non-empty
-  link after the fallback projection sub-tracks' `from`/`to` were made geometric and the remaining 335 are rejected by
-  `next()` (sampled route choices into such dead ends fall 517 → 0). Still open: a production full-scene count (the
-  benchmark omits landmark and bridge colliders and city-grid curbs).
-  [Routing observations](observations/ped-overlaps-2026-11-05.md).
-- **Other missing signal heads (15.5):** the overhead fallback now serves 26 of the 66 historical Category C
-  approaches from 12 new 6.2 m masts and 14 reused signal poles (arm ≤ 11.717 m, mean 9.282 m); the audit is
-  117/0/40/10 (was 91/0/66/10). The arm, head and foot keep 2.22 m from every track axis at 0.5 m samples, and the
+- **Isolated crosswalk landings:** stage 3 (2026-11-07) splits every road-edge sidewalk line into its clear same-block
+  runs instead of dropping the whole line when it leaves a block, indexes every sidewalk-track end by block
+  (`curbPorts`) and offers a crosswalk end the same-block ends within 8 m. A tram-cut island or median with no run at
+  the landing gets a short kerb spur (≤ 6 m, `landing: true`) along its outline; the spur keeps 2.22 m from every rail
+  centreline, is rejected by the lane/lot/wall checks, and its far end is a terminus (the dead-end guard keeps it out of
+  through routes). On the 2026-11-07 headless world (`tools/bench-world.mjs`, city-block colliders; city-grid curbs,
+  landmarks and bridges omitted) empty ends fall **156 → 47** and tracks with an empty end **143 → 41**, with
+  crosswalks unchanged at 3,270, `laneHits` 0, rail hits 0 and building hits 0; the 16,046 split runs keep
+  `splitLaneHits` 0 (closest sample 0.8 m beyond half a lane + 0.8 m). The bare network falls 109/98 → 38/33.
+  The five named nodes are linked: **Okrąglak** (`-841.5, 30.6`), **Okrąglak / Święty Marcin** (`-1120.1, 112`),
+  **Miła / Dąbrowskiego** (`-3269.1, -884.3`; its far end at `-3263, -901.3` lies on an ordinary block and stays
+  isolated), **Promienista / Grochowska** (both lines) and **Wierzbięcice / Górna Wilda** (both lines). The audit
+  reproduces the counts, re-checks every fallback leg and now re-checks the generated spurs (`spur*` fields: 5 links
+  on 4 tracks, closest rail 2.48 m, 0 rail/building/block hits) and the split runs' lane distance (`splitLaneHits` 0,
+  `splitMinLane` 0.8 m). The remaining 47 ends are ordinary blocks and roadway cases; `reasonCounts` (overlapping
+  categories) are lane 36, length 29, lot 22, walkable 10, rail 5, building 4, corridor 3 and block 1. Stage 2's 16 m
+  fallback corridor and 32 m `FALLBACK_MAX` stay; a 40/48 m limit adds only 6/7 ends. The dead-end guard still covers sidewalk-track landings. Still open: a production full-scene count (the
+  benchmark omits landmark/bridge colliders and city-grid curbs).
+  [Routing observations](observations/ped-overlaps-2026-11-05.md#follow-up-2026-11-07-kerb-tracks-on-tram-cut-islands).
+- **Other missing signal heads (15.5):** the overhead fallback now serves 32 of the 75 historical Category C
+  approaches from 10 new 6.2 m masts and 22 reused signal poles (arm ≤ 11.717 m, mean 8.819 m); the audit is
+  114/0/43/10 after placement (65/75 B/C before; the kerb tracks moved 9 approaches from B to C against the stage-2
+  74/66 split). The arm, head and foot
+  keep 2.22 m from every track axis at 0.5 m samples, and the
   foot keeps a conservative 3.1 m from every track (above the 1.75 m tram-pole and 2.6 m railway-mast setbacks);
   the built tram and railway layouts put every arm, foot and head at least 7.26 m from a pole or mast. Three
-  first-pass arms crossed a tram envelope and are rejected. 10 heads reach the stricter ≥ 10.5 m band and one more the
-  ≥ 8 m band; 15 use the stop-line fallback (13 at 1.75 m past P-14, two reused poles at 0.03 and −0.82 m). A 0.5 × 0.4 m
-  sweep of the −15…−8 m corridor found 12,510 candidate mast feet, none clear; the closest existing support was 12.96 m
-  from an −8 m head, so no fallback head can reach either band without a gantry or span wire. The remaining 40 have no
+  first-pass arms crossed a tram envelope and are rejected. 17 heads reach the stricter ≥ 10.5 m band and one more the
+  ≥ 8 m band; 14 use the stop-line fallback (12 at 1.75 m past P-14, one reused pole at 0.03 m and one at −0.82 m).
+  A 0.5 × 0.4 m sweep of the −15…−8 m corridor found 12,510 candidate mast feet, none clear; the closest existing support was 12.96 m
+  from an −8 m head, so no fallback head can reach either band without a gantry or span wire. The remaining 43 have no
   clear mast foot within 12 m or no support in the −15…+10 m approach band. Run `node tools/audit-signal-heads.mjs` with
   attention to the fixture's missing building, landmark and bridge colliders; browser counts can differ.
   [Signal placement](world.md#street-furniture-street-detailsjs).

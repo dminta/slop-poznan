@@ -375,3 +375,76 @@ rail at 2.2 m from a centre line whose 0.34 m inset reaches 1.86 m, and asserts 
 `tests/pedestrian-route-buildings.test.cjs` projects a landing onto a one-sided track and asserts that the backward
 sub-track mirrors the parent mask (bit 1 → bit 2). A separate 3-minute jump check found one >1 m same-frame step in
 2,701 frames (worst 3.5 m) versus two (worst 15.3 m) before the change, so the inset does not introduce teleports.
+
+## Follow-up 2026-11-08: kerb tracks on tram-cut islands
+
+Stage 2 left 156 empty crosswalk ends on the headless world. The five keys in the backlog were all the same shape: a
+zebra landed on a kerb island, but no sidewalk track stood on that island, so the only onward ports were 15.6-26 m
+across the roadway (sometimes within 0.10-0.13 m of a rail) and the fallback correctly refused them. The named sites
+were Okrąglak (`-841.5, 30.6`), Okrąglak / Święty Marcin (`-1120.1, 112`), Miła / Dąbrowskiego (`-3269.1, -884.3`),
+Promienista / Grochowska (both lines) and Wierzbięcice / Górna Wilda (both lines).
+
+### Mechanisms
+
+1. **A sidewalk line was all-or-nothing.** `along(edge)` built one track per lateral line only when the whole line lay
+   on one block and passed `clear()`. A tram cut nulls `blockAt` through an island, so a line that was 4-25 m long on
+   the island and then crossed the cut was dropped whole. Okrąglak's island (351 m²) had no sidewalk track at all;
+   Święty Marcin, Promienista and Wierzbięcice lost the same way.
+2. **Track ends were indexed only for median crosswalks.** `islandPorts` joined the two crossings of a median refuge,
+   but an ordinary kerb island or a tram-cut island had no index, so a landing could not see a track end on the same
+   block even when it stood 2-4 m away.
+3. **Miła had no road-edge line at all.** The landing sits on a concave tip of block 376; the nearest offset line was
+   outside the block or 35.8 m away, and a straight connector crossed a null block (road) and a building.
+
+### Fix
+
+- `js/pedestrian-routes.js`: when a road-edge line is not one clear block, `splitAlong` keeps its maximal clear
+  same-block runs (`split: true`), split again at 0.5 m samples around a pole, a wall or a lane corridor so a local
+  obstacle shortens the sidewalk instead of deleting the 40 m of clear run on either side. Each run keeps geometric
+  `from`/`to` null and carries `portFrom`/`portTo` only where its endpoint really reaches the line start/end; adjacent
+  runs chain through `chain`, and `ports(n)` uses the explicit port rather than every fragment of the edge. A
+  tram-island run with no onward step is marked `terminus`, which `next()` may still choose as the legal end of the
+  crossing; ordinary dead ends keep the guard.
+- `fileCurb`/`curbPorts` index every sidewalk-track end by the block it stands on. For a crosswalk end, `baseLinks`
+  offers the same-block ends within `CURB_LINK_MAX` 8 m, choosing the nearest end per track. This is the short curb
+  step, not the 32 m fallback; the fallback still runs only when no base link exists.
+- A tram-cut island or median with no run at the landing gets a short kerb spur (`landing: true`, at most 6 m) from
+  `landingSpur`. It starts at the zebra end, follows the nearest block-outline direction, keeps `LANDING_RAIL_KEEP`
+  2.22 m from every rail centreline, and is rejected by `clear`/`clearHazards` (lane, lot, building, water). Its far
+  end has no node, so `next()`'s dead-end guard never routes a walker into it as a through path; it only gives the
+  landing a legal kerb surface.
+- `tools/audit-crosswalk-landings.mjs`: besides the fallback legs, it re-checks every generated spur path at 0.5 m
+  samples and reports `spurLinks`, `spurEnds`, `spurTracks`, `spurRailHits`, `spurBuildingHits`, `spurBlockHits` and
+  `spurMinRail`. Split runs are ordinary sidewalk lines (some legitimately pass under a railway viaduct, where the 2D
+  rail distance is small); the named nodes are pinned at 2.22 m by the new test.
+
+### Before / after
+
+`buildWorld` from `tools/bench-world.mjs`, 3,270 crosswalks and 4,527 tracks in both runs.
+
+| metric | before | after |
+|---|---|---|
+| empty crosswalk ends | 156 | **47** |
+| tracks with an empty end | 143 | **41** |
+| fallback ends / connector legs | 209 / 1,004 | 87 / 581 |
+| sibling U-turn links | 0 | **0** |
+| laneHits / railHits / buildingHits | 0 / 0 / 0 | **0 / 0 / 0** |
+| spur links / spur tracks | - | **5 / 4** |
+| spur rail / building / block hits | - | **0 / 0 / 0** |
+| closest spur sample to a rail | - | **2.48 m** |
+| split runs / `splitLaneHits` | - | **16,046 / 0** |
+| closest split sample to a lane (beyond half) | - | **0.8 m** |
+
+The five named landings now link: Okrąglak (4 same-block run ends), Święty Marcin (2), Miła (1 spur), Promienista (4,
+both lines) and Wierzbięcice (2, both lines). Miła's far end at `-3263, -901.3` is on an ordinary block and stays
+isolated; it is not one of the named keys. On the bare `buildRoadNetwork([], [])` network ends with no links fall
+**109 → 38** and tracks with an empty end **98 → 33**.
+
+The remaining 47 ends are ordinary blocks and roadway cases; the audit's overlapping `reasonCounts` are lane 36,
+length 29, lot 22, walkable 10, rail 5, building 4, corridor 3 and block 1. The new tracks also move 9 historical
+signal approaches from B to C (no ground pole site), but runtime placement finds more overhead heads: 32 instead of 26,
+with 17 in the strict ≥10.5 m band, 22 reused poles and 10 new masts; all pedestrian approaches remain class A.
+
+`node --test tests/*.cjs`: 421 pass. The landing test pins all five keys, their rail/building/block/lane clearance, `next()`
+for six city goals per end and the new bare-network ceilings; the signal-audit fixture is updated to the new counts and
+placement hash.
