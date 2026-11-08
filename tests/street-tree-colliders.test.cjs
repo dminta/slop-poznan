@@ -50,7 +50,7 @@ test('street trees carry player colliders, including Rybaki', async () => {
   // Before 2026-11-04 all of these had no player collider; now every one does. This fixture omits landmark and
   // bridge walls; the default clearance audit uses the same scope.
   const streetTrees = sites.filter((t) => t.tier === 2 || t.tier === 1 && t.pitRot !== undefined);
-  assert.equal(streetTrees.length, 18101, 'street trees in the headless build');
+  assert.equal(streetTrees.length, 18102, 'street trees in the headless build');
 
   const colliders = details.colliders;
   const trunkColliders = colliders.filter((c) => c.isTrunk);

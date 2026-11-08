@@ -87,9 +87,11 @@ Implementation details and completed measurements live in the [topic docs](../AG
   rather than empty blocks. Only two blocks ≥ 1,500 m² generate 0 m²: block 1254 (Głogowska tram depot hall cut by
   railway landuse) and block 575 (Collegium Maius landmark reserve). In-box: 31 large objects (9.3 ha) have 0%
   coverage and 211 (74.0 ha footprint) only partial/fragmented coverage. 34 large objects (29.8 ha) sit outside the
-  detail box (Pestka, Makro, Plaza, Karolin, M1, IKEA, Selgros, Franowo, VW Antoninek). Outstanding backlog tasks:
-  1. *Specialized building profiles:* introduce `MALL`, `RETAIL_PARK`, `INDUSTRIAL_HALL`, `DEPOT`, `STADIUM`, `ARENA`
-     and `UTILITY` layouts with matched `KIND_SHARE` in `js/buildings.js` instead of district residential fallbacks.
+  detail box (Pestka, Makro, Plaza, Karolin, M1, IKEA, Selgros, Franowo, VW Antoninek). The audit's outstanding work:
+  1. *Specialized building profiles* (done 2026-11-08): `MALL`, `RETAIL_PARK`, `INDUSTRIAL_HALL`, `DEPOT`,
+     `STADIUM`, `ARENA` and `UTILITY` now have layouts, `KIND_SHARE` weights, a morphology classifier and site
+     anchors in `js/buildings.js`; Posnania, Castorama and ZNTK are low halls (see
+     [record](observations/building-profiles-nonres-2026-11-08.md)). Remaining:
   2. *Dominant block program in `GEO.blockStats`:* expand `buildingUse` in `tools/poz-buildings.mjs` beyond 1 (hospital)
      and 2 (university) to classify retail (3), industrial (4), rail/depot (5), sports/arena (6), utility (7), and
      pick program by dominant footprint area (≥ 40%) before district switch.
@@ -150,6 +152,10 @@ Implementation details and completed measurements live in the [topic docs](../AG
 
 ### Geometry, materials and collisions
 
+- Inspect the new non-residential silhouettes from a free camera and street level: Posnania (#953, 11–16 m mall with
+  rooflights), Castorama (#21, 7.6 m retail park), ZNTK (#847, 11.4 m halls), EC Garbary (#266) and the Główna halls
+  (blocks 36/78/95), on WebGPU and WebGL2, including yard/apron joins and any z-fighting.
+  [Profiles record](observations/building-profiles-nonres-2026-11-08.md).
 - Inspect all 11 historic landmarks on WebGPU and WebGL2: Biblioteka Raczyńskich, Pałac Działyńskich, Hotel Bazar,
   Muzeum Narodowe, Teatr Polski, Collegium Maius, Kościół Bernardynów, Kościół Franciszkanów, Kościół NMP in Summo,
   Kościół św. Wojciecha and Kościół Bożego Ciała. Check silhouette, materials, window rhythm, panes 3.5 cm proud

@@ -261,10 +261,11 @@ test('balcony stacks city-wide count and distribution', async () => {
     stacks += b.balconies.length;
     for (const bal of b.balconies) landings += bal.landings;
   }
-  // Campus blocks replace kamienice with clinics and halls (balconies only on some university buildings), so the
-  // city-wide total sits a little below the pre-campus ~16.5k / 48k
-  assert.ok(stacks > 15000 && stacks < 18000, `Expected ~15-18k stacks, got ${stacks}`);
-  assert.ok(landings > 43000 && landings < 52000, `Expected ~44-52k landings, got ${landings}`);
+  // Campus blocks replace kamienice with clinics and halls (balconies only on some university buildings), and the
+  // non-residential profiles (mall, retail park, industrial hall, depot, arena) replace whole blocks of housing, so
+  // the city-wide total sits below the pre-campus ~16.5k / 48k and the pre-non-res ~16.5k.
+  assert.ok(stacks > 14000 && stacks < 18000, `Expected ~14-18k stacks, got ${stacks}`);
+  assert.ok(landings > 40000 && landings < 52000, `Expected ~40-52k landings, got ${landings}`);
 });
 
 test('streamed balcony stacks never exceed MAX_STACKS (2400) and keep comfortable margin', async () => {

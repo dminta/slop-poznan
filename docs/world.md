@@ -373,6 +373,42 @@ Built before the road network, so everything that stands near a lane is checked 
     axis-aligned rectangle is 125-352 m². Unnamed `highway=service` cuts stay dropped:
     `campusBlock` supplies the interior structure with its pavilion grid and `campusShed`, so no raster block needs to
     be split into unnamed-service slivers. [Review record](observations/building-density-2026-11-07.md#follow-up-2026-11-08-visual-review-lot-cap-and-service-alleys).
+  - **Non-residential profiles** (added 2026-11-08, [audit](observations/non-residential-audit-2026-11-08.md) and
+    [record](observations/building-profiles-nonres-2026-11-08.md)): blocks that are not housing, hospitals or the
+    fairground now get one of seven layouts instead of the osiedle fallback. `blockProfile` checks two things before
+    `OFFICE_SITES` and the district switch: a list of known sites (`SPECIAL_SITES`: Enea Stadion, Hala Arena, EC
+    Garbary, the Głogowska/Madalińskiego/Historical depots and the Główna halls) and a morphology test,
+    `bigBoxKind`. The test treats a block as non-residential when its mapped footprints average at least 900 m²
+    (`BIG_BOX`), its median is at most 3 storeys, it is at least 12% built, and it is not a small park block
+    (`park > 0.45`, or `park > 0.3` with a modest average or under 3 ha); the average is
+    `built × area / buildings`. A very large average (≥ 12,000 m² and ≥ 45% built) takes `MALL`; 2,500 m² and up
+    takes `RETAIL_PARK` outside the industrial districts (Główna, Wilda, Antoninek, Starołęka) and `INDUSTRIAL_HALL`
+    inside them; smaller hall-scale averages take a retail park or an industrial hall by district and storey median.
+    This is the interim classifier until `GEO.blockStats` carries the use programme (backlog item 2); the known
+    sites keep the stadium, arena, utility and depot cases, which their stats alone cannot name. `KIND_SHARE` gains
+    `mall` 0.75, `retail` 0.6, `industrial` 0.55, `depot` 0.5, `stadium` 0.25, `arena` 0.6 and `utility` 0.45;
+    `steerProfile` returns its usual skip for the three morphology kinds, keeps a site-anchored profile unthinned
+    (`exact`), and measures hall heights within their band (industrial/depot 2–3 storeys, mall 3–4) rather than
+    collapsing them to OSM's one-storey tag. The layouts:
+    - `mallBlock`: one broad flat-roofed box 3–4 storeys (11.4–15.6 m at the existing 3.8–3.9 m floor heights),
+      set back 3–12 m on its main front; a glazed entrance pavilion fills the setback, the roof carries a central
+      9–14 m rooflight run and five packaged plant units, and the body is `WALL_KINDS.blankStone`. Its lots keep
+      about 75% coverage, so slivers under 20 m stay car park and apron.
+    - `retailParkBlock`: one to three two-storey halls (7.6 m) behind a 8–22 m front car park with aisles between
+      them, flat roofs with rooflights and plant; `RETAIL_PARK` (0.6) covers the rest as parking.
+    - `industrialBlock`: one long hall split into 18–26 m gabled bays with a 0.8 m gap so the sheds' eaves do not
+      overlap (the sawtooth/north-light rhythm), 2–3 storeys (7.6–11.4 m), plus a two-storey office on the front
+      strip. `DEPOT` uses the same roof band on long halls spaced for tracks and service yards.
+    - `stadiumBlock`: four grandstands round a grass pitch (`cfg.pitch` 104 × 68 m, rotated to the lot's long axis),
+      main stands 6–8 storeys (23–31 m), end stands two storeys lower, corners open; the pitch stays a lawn.
+    - `arenaBlock`: a two-storey podium with an octagonal 5–7-storey hall above it (19–27 m), flat roof with plant.
+    - `utilityBlock`: a low turbine hall (4–6 storeys) and a taller boiler house (5–7 storeys, 19–27 m) in
+      industrial brick or render, with blank walls.
+    The audit's measured silhouettes: Posnania's generated height falls 23 → 16 m and its OSM outline coverage rises
+    43.5 → 68%; Castorama 31 → 7.6 m and 17.7 → 22.1%; ZNTK Robocza 27 → 11.4 m and 25.9 → 34.2%; EC Garbary
+    0 → 31.2% at 22.9 m mean; the Główna halls fall to 10–11.4 m and gain coverage (6.57 ha hall 31.4 → 80.4%).
+    Enea Stadion and Hala Arena keep their 0% coverage until `parkFreeCells` preserves mapped building footprints
+    (backlog item 4), and block 1254 still has no lot rects (item 5).
   - **Profiles** (`blockProfile`): offices within 240 m of Bałtyk, Andersia/AND2/PFC and Collegium Altum; `CESARSKA` in a box round Zamek Cesarski, Collegium Minus, Teatr Wielki and the 1956 crosses (+160 m); `RYNEK` for rects with a front facing the `Stary Rynek` plaza (`blk.rynekSides`: probes 11 m out land inside its outline); then by osiedle (Stare Miasto splits into Old Town/Garbary/Chwaliszewo and Centrum at `OLD_TOWN_BOX`, Ostrów Tumski/Śródka within 650 m of the Katedra). In the 8.2 × 5.7 km detail box, Nowe Winogrady, Żegrze and Piątkowo are `ESTATE` (panel slabs that `steerProfile` does not turn into kamienice; a strip lot too narrow for a slab row gets one slab along it); Stary Grunwald, Grunwald Północ and Górczyn, Sołacz, Winiary, the garden suburbs (Ogrody, Grunwald Południe, Naramowice, ...) and the industrial east and south (Antoninek-Zieliniec-Kobylepole, Starołęka) pick their kind per block from its real median storeys (`GEO.blockStats`: slabs from 7, villas up to 3; a 4–6-storey block is kamienice when 20% built or more, else slabs in their greenery, `midKind`). Chartowo is `ESTATE` (as `PROJECTS` its 5-storey median turned the slabs into kamienice: 18.7 % built against 12.1). Their 1–3-storey blocks, and Warszawskie-Pomet-Maltańskie's, are halls (`LOWRISE`) where the block's mapped buildings average over `LOW_HALL` 450 m², else villas (`lowKind`). Measured built share, generated / real, over the land of the blocks built on (`tests/buildings-density.test.cjs` holds the villa districts and Chartowo to ±20%): Sołacz 8.9 / 9.1 %, Winiary 17.4 / 17.0, Ogrody 17.2 / 15.9, Grunwald Południe 9.5 / 10.3, Warszawskie-Pomet-Maltańskie 11.9 / 11.2, Chartowo 12.5 / 12.5, Antoninek-Zieliniec-Kobylepole 5.2 / 6.7. Over each whole district (measured before the 2026-11-03 park-block carve-out, so Sołacz is now lower) Sołacz was 8.8 / 8.9 % and Antoninek 5.1 / 6.6 %: park blocks with mapped OSM buildings
 (`b.park > 0.6 && b.buildings > 0`, such as Park Sołacki, Ogród Dendrologiczny and Polana Harcerza) build only on
 non-park cells clear of park rings (`parkFreeCells`), while purely unmapped park blocks remain unbuilt green space. Facade materials are named in `F` (four plaster colours, red and yellow brick, grey sandstone 4.4 m storeys, four Rynek pastels, three glass, and five `createPanelBlockMaterial` colours at 2.8 m storeys (`PANELS`: grey, cream and three repainted ones with accent bands) for the osiedle slabs and `postwarBlock`). Buildings are massed in whole storeys of their facade's `floorHeight` (the `storeys` list reads it from the options), so a new facade must carry one.
