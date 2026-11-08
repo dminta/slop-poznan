@@ -292,9 +292,10 @@ function surfaceCoverage() {
 test('park blocks with buildings: no curb or paving under footprints, granite and lawn match the intended region', () => {
   const { tot, perBlock, footprint, blocks } = surfaceCoverage();
   assert.equal(blocks, 41, 'all 41 park blocks with buildings checked');
-  // ground footprint union across the 41 blocks, 0.5 m raster (238,791 m² measured 2026-11-05; 239,736 m² on
-  // 2026-11-08 after the central density pass filled courtyards behind the frontages)
-  assert.ok(footprint > 239000 && footprint < 240500, `footprint union ~239.7k m² (got ${footprint})`);
+  // ground footprint union across the 41 blocks, 0.5 m raster (239,736 m² after the central density pass on
+  // 2026-11-08; 243,502 m² after the park facility carve-out put Hala Arena, Enea Stadion and the other mapped
+  // sports centres back on their OSM lots)
+  assert.ok(footprint > 243000 && footprint < 244000, `footprint union ~243.5k m² (got ${footprint})`);
   const fmt = (k) => JSON.stringify(tot[k]);
   for (const row of perBlock) {
     assert.equal(row.curb.underFp, 0, `block ${row.id} curb under footprints`);
@@ -385,8 +386,9 @@ test('real triangulation: every park surface mesh of the 41 blocks triangulates 
     }
     assert.equal(inHoles, 0, `Block ${id} ${SURFACE_KIND(m)} must have 0 m² of triangles inside holes (got ${inHoles})`);
   }
-  // 252 curb, 252 paving, 266 granite and 262 lawn meshes on 2026-11-05
-  assert.ok(checked > 1000, `all park surface meshes checked (got ${checked}, worst error ${worst.toFixed(2)} m²)`);
+  // 252 curb, 252 paving, 266 granite and 262 lawn meshes on 2026-11-05; 894 after the park facility carve-out merged
+  // the many small cell lots of block 342's sports centre into one envelope (the remaining blocks keep their meshes)
+  assert.ok(checked > 800, `all park surface meshes checked (got ${checked}, worst error ${worst.toFixed(2)} m²)`);
 });
 
 test('pond coverage: Park Sołacki ponds have 0 m² park paving coverage', () => {

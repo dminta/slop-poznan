@@ -9,7 +9,7 @@ import { levelCrossings, pieces, plazas, rail, roads, signalNodes, tramRoutes, t
 import { water, land, landHoles, outskirts, outskirtsHoles } from './poz-water.mjs';
 import { parks, landmarks, districts, labels } from './poz-extra.mjs';
 import { blocks, STRIP, SIDEWALK } from './poz-blocks.mjs';
-import { blockStats } from './poz-buildings.mjs';
+import { blockStats, blockFootprints } from './poz-buildings.mjs';
 import { buildRoadGraph } from './poz-roadgraph.mjs';
 
 const OUT = process.argv[2] || fileURLToPath(new URL('../js/geodata.js', import.meta.url));
@@ -98,6 +98,10 @@ const GEO = {
   // median building:levels of the buildings centred in it (0 if none tagged), building count, program (0 none, 1
   // hospital/clinic campus, 2 university campus)] (poz-buildings.mjs)
   blockStats,
+  // { block id: [[x0, x1, z0, z1, area], ...] }: axis-aligned envelopes of the mapped sport/show/public facilities
+  // (>= 150 m²) in blocks with any park share, plus their OSM footprint area. city-config turns them into lots so
+  // parkFreeCells does not clear Hala Arena, Enea Stadion, Chwiałka or Termy Maltańskie to lawn.
+  blockFootprints,
   parks,
   // { name: { x, z, w, d, h, area, ring, ang } }: w and d along the turned axes (ang, radians)
   landmarks

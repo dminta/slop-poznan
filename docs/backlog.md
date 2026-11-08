@@ -98,16 +98,23 @@ Implementation details and completed measurements live in the [topic docs](../AG
   1. *Specialized building profiles* (done 2026-11-08): `MALL`, `RETAIL_PARK`, `INDUSTRIAL_HALL`, `DEPOT`,
      `STADIUM`, `ARENA` and `UTILITY` now have layouts, `KIND_SHARE` weights, a morphology classifier and site
      anchors in `js/buildings.js`; Posnania, Castorama and ZNTK are low halls (see
-     [record](observations/building-profiles-nonres-2026-11-08.md)). Remaining:
+     [record](observations/building-profiles-nonres-2026-11-08.md)).
   2. *Dominant block program in `GEO.blockStats`:* expand `buildingUse` in `tools/poz-buildings.mjs` beyond 1 (hospital)
      and 2 (university) to classify retail (3), industrial (4), rail/depot (5), sports/arena (6), utility (7), and
      pick program by dominant footprint area (≥ 40%) before district switch.
   3. *Building anchors (`GEO.blockAnchors`):* emit 1–3 largest non-residential footprints per block so `buildings.js`
      can place solitary big-box structures at their true OSM location and fill remainder with parking/service lots.
-  4. *Park clearance carve-out:* update `parkFreeCells` to preserve mapped building footprints (Enea Stadion, Hala Arena,
-     Chwiałka ice rink) so sports facilities in park grounds are not cleared to zero.
-  5. *Railway building preservation:* in `tools/poz-blocks.mjs`, carve out building footprints (Dworzec Garbary,
-     Dworzec Letni, LCS, Głogowska depot hall) from `landuse=railway` and track buffers so they receive block lots.
+  4. *Park clearance carve-out* (done 2026-11-08): `GEO.blockFootprints` emits the OSM envelopes of mapped sport/show/public
+     facilities (≥ 150 m²) in park blocks; `parkFreeCells` in `js/city-config.js` keeps them as dedicated lots for
+     `facilityBlock` in `js/buildings.js`. Hala Arena (block 927) coverage rises 0 → 74 %, Enea Stadion (939) 0 → 67 %
+     and Lodowisko Chwiałka (939) 4 → 65 %, while lawn meshes and non-facility park land stay clear.
+     [Record](observations/park-sports-facilities-2026-11-08.md).
+  5. *Railway building preservation* (done 2026-11-08): in `tools/poz-blocks.mjs`, mapped station, depot and signal-box
+     footprints are given back from `landuse=railway` and track buffers grown by `SIDEWALK` (keeping 1 m outside the track
+     corridors and 1 cell short of adjacent blocks). Restores 9 railway islands (19,098 m²): Głogowska tram depot
+     block #1254 (1,176 m², 0 lots) becomes #1250 with 8,196 m², 13 lots and 820 m² built (50 % outline coverage);
+     LCS Poznań Główny (#1003) and Dworzec Letni (#804) gain their own blocks.
+     [Record](observations/railway-building-islands-2026-11-08.md).
   6. *Outskirts satellite sites (`SATELLITE_SITES`):* **done 2026-11-08** — `js/satellite-sites.js` places 14 OSM
      big-box and utility sites (Pestka, Makro, Plaza, King Cross, M1, IKEA, Selgros, Franowo, VW Antoninek, Karolin)
      as 27 instanced rectangles plus 52 roof HVAC boxes in `js/outskirts.js`, and two instanced structures for Karolin's

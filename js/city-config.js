@@ -586,6 +586,11 @@ function nearestRoads(x, z, radius = 60) {
 //   (0..1), levels: area-weighted median building:levels of its OSM buildings (0 if none tagged), buildings: their count,
 //   program: 0 none, 1 hospital/clinic campus, 2 university campus (GEO.blockStats, from OSM building tags)
 // ---------------------------------------------------------------------------------------------------------------------
+// Mapped OSM facilities in blocks with park land (GEO.blockFootprints: block id -> [x0, x1, z0, z1, area] envelopes).
+// The lot layout keeps a hall lot on each, so facilities standing on parkland (Hala Arena, Enea Stadion, Chwiałka,
+// Termy Maltańskie) are built instead of being cleared like the rest of the park.
+const BLOCK_FOOTPRINTS = GEO.blockFootprints || {};
+
 const BLOCKS = GEO.blocks.map(([flat, rects, park, parkName, isRect, frames], id) => {
   const poly = toPts(flat);
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity, a = 0, cx = 0, cz = 0;
@@ -600,6 +605,7 @@ const BLOCKS = GEO.blocks.map(([flat, rects, park, parkName, isRect, frames], id
   const [built, levels, buildings, program = 0] = GEO.blockStats[id];
   return {
     id, poly, rects, frames: frames || null, park, parkName, rect: !!isRect, area, built, levels, buildings, program,
+    parkFootprints: BLOCK_FOOTPRINTS[id] || null,
     minX, maxX, minZ, maxZ,
     cx: a ? cx / (6 * a) : (minX + maxX) / 2,
     cz: a ? cz / (6 * a) : (minZ + maxZ) / 2,
@@ -641,11 +647,77 @@ function pieceInPark(x0, x1, z0, z1, xf = null) {
   return corners.filter(([x, z]) => pointInPark(...toWorld(x, z))).length >= 2;
 }
 
-function parkFreeCells(x0, x1, z0, z1, xf = null) {
-  if (!pieceInPark(x0, x1, z0, z1, xf)) return [[x0, x1, z0, z1]];
+// A facility's OSM envelope [x0, x1, z0, z1, area] shrunk to the share its real outline occupies in the bbox (an oval
+// stadium covers ~76 % of its rectangle; a plain way with no area entry stays as it is).
+function facilityEnvelope(f) {
+  const area = f[4];
+  const bw = f[1] - f[0];
+  const bd = f[3] - f[2];
+  if (!(area > 0) || !(bw > 0) || !(bd > 0)) return f;
+  const s = Math.min(1, Math.sqrt(area / (bw * bd)));
+  const mx = (bw * (1 - s)) / 2;
+  const mz = (bd * (1 - s)) / 2;
+  return [f[0] + mx, f[1] - mx, f[2] + mz, f[3] - mz];
+}
+
+// World envelope -> lot-frame envelope. The footprint envelopes are world-axis-aligned, so a turned frame only needs
+// their four corners: the local bbox is conservative by the frame's few degrees.
+function footprintInFrame(f, xf) {
+  if (!xf) return f;
+  let lx0 = Infinity, lx1 = -Infinity, lz0 = Infinity, lz1 = -Infinity;
+  for (const [x, z] of [[f[0], f[2]], [f[1], f[2]], [f[1], f[3]], [f[0], f[3]]]) {
+    const dx = x - xf.px, dz = z - xf.pz;
+    const lx = xf.px + dx * xf.cs - dz * xf.sn;
+    const lz = xf.pz + dx * xf.sn + dz * xf.cs;
+    if (lx < lx0) lx0 = lx;
+    if (lx > lx1) lx1 = lx;
+    if (lz < lz0) lz0 = lz;
+    if (lz > lz1) lz1 = lz;
+  }
+  return [lx0, lx1, lz0, lz1];
+}
+
+// [x0, x1, z0, z1] minus one hole, as up to four slabs (strips across the full depth first).
+function subtractRect(r, h) {
+  const [x0, x1, z0, z1] = r;
+  if (h[0] >= x1 || h[1] <= x0 || h[2] >= z1 || h[3] <= z0) return [r];
+  const out = [];
+  if (h[0] > x0) out.push([x0, h[0], z0, z1]);
+  if (h[1] < x1) out.push([h[1], x1, z0, z1]);
+  const mx0 = Math.max(x0, h[0]);
+  const mx1 = Math.min(x1, h[1]);
+  if (h[2] > z0) out.push([mx0, mx1, z0, h[2]]);
+  if (h[3] < z1) out.push([mx0, mx1, h[3], z1]);
+  return out;
+}
+
+function parkFreeCells(x0, x1, z0, z1, xf = null, footprints = null) {
+  const out = [];
+  const facilityRects = [];
+  // A mapped facility keeps a lot the size of its own envelope (clipped to this lot rect), not the 20 m park cells:
+  // a stadium trybuna, arena or ice rink needs one big footprint and its own height, not rows of kamienice. The array
+  // carries `facility` so buildings.js can pick the hall layout for this piece.
+  if (footprints) {
+    for (const f of footprints) {
+      const [fx0, fx1, fz0, fz1] = footprintInFrame(facilityEnvelope(f), xf);
+      const r = [Math.max(x0, fx0), Math.min(x1, fx1), Math.max(z0, fz0), Math.min(z1, fz1)];
+      if (r[1] - r[0] < 6 || r[3] - r[2] < 6 || !pieceInPark(...r, xf)) continue;
+      r.facility = true;
+      facilityRects.push(r);
+      out.push(r);
+    }
+  }
+  if (!pieceInPark(x0, x1, z0, z1, xf)) {
+    // A lot rect entirely off the park keeps whatever it held, less the facility envelopes inside it. The stadium's
+    // frame rects, for one, hold the pitch at one end and ordinary streets at the other.
+    if (!facilityRects.length) return [[x0, x1, z0, z1]];
+    let parts = [[x0, x1, z0, z1]];
+    for (const f of facilityRects) parts = parts.flatMap((p) => subtractRect(p, f));
+    for (const p of parts) if (p[1] - p[0] >= 1 && p[3] - p[2] >= 1) out.push(p);
+    return out;
+  }
   const nx = Math.ceil((x1 - x0) / PARK_CELL);
   const nz = Math.ceil((z1 - z0) / PARK_CELL);
-  const out = [];
   for (let i = 0; i < nx; i++) {
     for (let j = 0; j < nz; j++) {
       const c = [
@@ -654,7 +726,10 @@ function parkFreeCells(x0, x1, z0, z1, xf = null) {
         z0 + ((z1 - z0) * j) / nz,
         z0 + ((z1 - z0) * (j + 1)) / nz
       ];
-      if (!pieceInPark(...c, xf)) out.push(c);
+      // Park land is lawn; a facility envelope keeps its own lot above (both its park and its street side, so the
+      // wholesale cell does not duplicate the hall). Every other non-park cell is kept exactly as before.
+      const covered = facilityRects.some(([a, b, d, e]) => a < c[1] && b > c[0] && d < c[3] && e > c[2]);
+      if (!covered && !pieceInPark(...c, xf)) out.push(c);
     }
   }
   return out;
@@ -684,7 +759,7 @@ function blockLots(b) {
       : [x, z]);
     for (const r of rects) {
       for (const piece of splitDeep(r)) {
-        for (const [x0, x1, z0, z1] of (b.park > 0 ? parkFreeCells(...piece, xf) : [piece])) {
+        for (const [x0, x1, z0, z1] of (b.park > 0 ? parkFreeCells(...piece, xf, b.parkFootprints) : [piece])) {
           if (x1 - x0 < minLot || z1 - z0 < minLot) continue;
           const [cx, cz] = toWorld((x0 + x1) * 0.5, (z0 + z1) * 0.5);
           const hx = (x1 - x0) * 0.5, hz = (z1 - z0) * 0.5;

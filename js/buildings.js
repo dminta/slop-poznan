@@ -2296,8 +2296,30 @@ function buildCityBlocks(scene) {
     campusPavilions(blk, core, cfg, budget - spent);
   }
 
+  // Mapped sports/show/public facility on parkland (GEO.blockFootprints through parkFreeCells): one hall fills the
+  // building's own OSM envelope, inset a little for its walls. The district profile would spend the same lot on a row
+  // of kamienice or a sparse inner core — before this Hala Arena got 20 % of its outline under 3-8 m houses and Enea
+  // Stadion 0.2 %. Floors come from the block's median OSM storeys (Wilda 3), with one more for a big footprint.
+  function facilityBlock(blk) {
+    const R = blockRect(blk);
+    blk.yards.push(insetAll(R, 1.5));
+    const w = rectW(R);
+    const d = rectD(R);
+    const inset = Math.max(2, Math.min(8, Math.min(w, d) * 0.07));
+    const hall = insetAll(R, inset);
+    if (rectW(hall) < 6 || rectD(hall) < 6) return;
+    const floors = Math.max(3, Math.min(5, Math.round(((srcBlock && srcBlock.levels) || 3) * 0.9) +
+      (rectW(hall) * rectD(hall) > 12000 ? 1 : 0)));
+    const b = building(blk, pickW([[F.glassSilver, 2], [F.cream, 2], [F.greyGreen, 2], [F.brick, 1]]), R);
+    mass(b, [hall], 0, floors);
+    commit(blk, b, {
+      cornice: false, hvac: true, hvacH: range(2.4, 3.6), skylights: true, shops: 'none', awnings: false, freestanding: true
+    });
+  }
+
   const LAYOUTS = {
     res: residentialBlock,
+    facility: facilityBlock,
     rynek: residentialBlock, // with cfg.rynekRows on the frontages facing the square
     cesarska: cesarskaBlock,
     offices: officeBlock,
@@ -2840,7 +2862,7 @@ function buildCityBlocks(scene) {
    * high-detail architectural features (stone cornices, chimney stacks, skylights, rooftop penthouses, balconies,
    * awnings, storefront fascia signs and renovation scaffolding) into the Quadtree.
    */
-  function populateBlock(minX, maxX, minZ, maxZ, district = null) {
+  function populateBlock(minX, maxX, minZ, maxZ, district = null, facility = false) {
     const bw = maxX - minX;
     const bd = maxZ - minZ;
     if (bw < minLot || bd < minLot) return;
@@ -2879,7 +2901,7 @@ function buildCityBlocks(scene) {
     const roofMark = roofs.mark();
     rand = mulberry32((Math.imul(Math.round(minX * 4), 73856093) ^ Math.imul(Math.round(minZ * 4), 19349663) ^ 10019) >>> 0);
 
-    const profile = steerProfile(blockProfile(blockDetail, district), srcBlock);
+    const profile = facility ? { kind: 'facility' } : steerProfile(blockProfile(blockDetail, district), srcBlock);
     if (!(profile.skipP && chance(profile.skipP))) LAYOUTS[profile.kind](blockDetail, profile, minX, maxX);
     openOntoVoidLots(blockDetail);
 
@@ -3063,9 +3085,10 @@ function buildCityBlocks(scene) {
             if (piece[1] - piece[0] >= minLot && piece[3] - piece[2] >= minLot) {
               fullLotArea += (piece[1] - piece[0]) * (piece[3] - piece[2]);
             }
-            for (const [x0, x1, z0, z1] of (b.park > 0) ? parkFreeCells(...piece, xf) : [piece]) {
+            for (const cell of (b.park > 0) ? parkFreeCells(...piece, xf, b.parkFootprints) : [piece]) {
+              const [x0, x1, z0, z1] = cell;
               if (x1 - x0 < minLot || z1 - z0 < minLot) continue;
-              pieces.push([xf, x0, x1, z0, z1]);
+              pieces.push([xf, x0, x1, z0, z1, !!cell.facility]);
               srcLotArea += (x1 - x0) * (z1 - z0);
             }
           }
@@ -3082,11 +3105,11 @@ function buildCityBlocks(scene) {
       srcBuiltArea = 0;
       srcLeftArea = srcLotArea;
     }
-    for (const [f, x0, x1, z0, z1] of pieces) {
+    for (const [f, x0, x1, z0, z1, facility] of pieces) {
       xf = f;
       const pieceArea = (x1 - x0) * (z1 - z0);
       srcPieceBudget = srcLeftArea > 0 ? Math.max(0, (srcTarget - srcBuiltArea) * (pieceArea / srcLeftArea)) : 0;
-      populateBlock(x0, x1, z0, z1, b.district);
+      populateBlock(x0, x1, z0, z1, b.district, facility);
       srcLeftArea = Math.max(0, srcLeftArea - pieceArea);
     }
     xf = null;

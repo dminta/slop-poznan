@@ -10,7 +10,9 @@
 // - every at-grade drivable piece except unnamed highway=service, bridges included (D7 decks sit at street level);
 // - linear highway=pedestrian ways, outside plazas (inside, the plaza already clears them and they would cut the
 //   buildings given back);
-// - landuse=railway areas and the corridors of off-street tracks.
+// - landuse=railway areas and the corridors of off-street tracks;
+// - except the cells under a mapped railway building (station, depot, signal box), given back grown by SIDEWALK like
+//   the buildings on plazas, but only outside the track corridor itself (see "Railway buildings" below).
 //
 // Only named service roads (167 pieces: Podwale, Wysoka, Stolarska, Za Cytadelą...) are stamped. The other 2,415 are
 // courtyard and car-park lanes, many through building_passage gates. Stamped at 4 m, they cut 1,154 blocks against 802
@@ -20,8 +22,8 @@
 // Exports: blocks [{ id, poly, area, bbox, rect, rects, frames, park, parkName }] (poly an open [[x, z]] ring, negative
 // winding; rects [[x0, x1, z0, z1]] axis-aligned lots; frames [[θ, px, pz, rects]] lots in the block's frame turned by θ
 // about (px, pz), or null), STRIP, SIDEWALK, blockRaster, blockLabels.
-import { log, DETAIL_BOX } from './poz-base.mjs';
-import { Raster, rdpRing, ringArea } from './geo-util.mjs';
+import { load, log, toWorld, DETAIL_BOX } from './poz-base.mjs';
+import { Raster, elemRings, rdpRing, ringArea } from './geo-util.mjs';
 import { TRAM_W, pieces, plazas, pedestrianWays, railCorridors } from './poz-roads.mjs';
 import { isLandAt } from './poz-water.mjs';
 import { parkCellsByLabel } from './poz-extra.mjs';
@@ -66,29 +68,31 @@ const W = R.w, H = R.h, D = R.d;
 }
 
 // --- Stamping helpers ----------------------------------------------------------------------------------------------
-// Clear (to `val`) every cell whose centre is within r of segment a-b and that `skip` does not mark
-function stampSegment(ax, az, bx, bz, r, val = 0, skip = null) {
-  const ix0 = Math.max(0, Math.floor((Math.min(ax, bx) - r - R.x0) / RES));
-  const ix1 = Math.min(W - 1, Math.ceil((Math.max(ax, bx) + r - R.x0) / RES));
-  const iz0 = Math.max(0, Math.floor((Math.min(az, bz) - r - R.z0) / RES));
-  const iz1 = Math.min(H - 1, Math.ceil((Math.max(az, bz) + r - R.z0) / RES));
+// Set (to `val`) every cell of raster M whose centre is within r of segment a-b and that `skip` does not mark
+function stampSegmentOn(M, ax, az, bx, bz, r, val = 0, skip = null) {
+  const { res, x0, z0, w, h, d } = M;
+  const ix0 = Math.max(0, Math.floor((Math.min(ax, bx) - r - x0) / res));
+  const ix1 = Math.min(w - 1, Math.ceil((Math.max(ax, bx) + r - x0) / res));
+  const iz0 = Math.max(0, Math.floor((Math.min(az, bz) - r - z0) / res));
+  const iz1 = Math.min(h - 1, Math.ceil((Math.max(az, bz) + r - z0) / res));
   if (ix0 > ix1 || iz0 > iz1) return;
   const dx = bx - ax, dz = bz - az;
   const L2 = dx * dx + dz * dz || 1e-9;
   const r2 = r * r;
   for (let j = iz0; j <= iz1; j++) {
-    const pz = R.z0 + (j + 0.5) * RES;
+    const pz = z0 + (j + 0.5) * res;
     for (let i = ix0; i <= ix1; i++) {
-      const k = j * W + i;
-      if (D[k] === val || (skip && skip[k])) continue;
-      const px = R.x0 + (i + 0.5) * RES;
+      const k = j * w + i;
+      if (d[k] === val || (skip && skip[k])) continue;
+      const px = x0 + (i + 0.5) * res;
       let t = ((px - ax) * dx + (pz - az) * dz) / L2;
       t = t < 0 ? 0 : t > 1 ? 1 : t;
       const ex = ax + t * dx - px, ez = az + t * dz - pz;
-      if (ex * ex + ez * ez <= r2) D[k] = val;
+      if (ex * ex + ez * ez <= r2) d[k] = val;
     }
   }
 }
+const stampSegment = (ax, az, bx, bz, r, val = 0, skip = null) => stampSegmentOn(R, ax, az, bx, bz, r, val, skip);
 const stampLine = (pts, r, skip) => {
   for (let n = 0; n + 1 < pts.length; n++) stampSegment(pts[n][0], pts[n][1], pts[n + 1][0], pts[n + 1][1], r, 0, skip);
 };
@@ -147,13 +151,86 @@ for (const p of pieces) {
   stamped++;
 }
 for (const p of pedestrianWays) stampLine(p.pts, p.w / 2, plazaMask);
+// Cells the rail stamp takes from an otherwise buildable cell: the station and depot buildings are given back out of
+// this set only, so a rail building never reopens a road or water cell.
+const railCleared = D.slice();
 {
   const M = new Raster(R.x0, R.z0, R.x0 + (W - 1) * RES, R.z0 + (H - 1) * RES, RES);
   M.d = D;
   for (const r of railCorridors.rings) M.fillRing(r, 0);
   for (const l of railCorridors.lines) stampLine(l.pts, l.w / 2, null);
 }
+for (let k = 0; k < W * H; k++) if (railCleared[k] && D[k]) railCleared[k] = 0;
 log(`blocks: ${stamped} road pieces stamped (${service} unnamed service pieces not), ${pedestrianWays.length} pedestrian ways, rail land ${railCorridors.rings.length} rings + ${railCorridors.lines.length} track corridors`);
+
+// --- Railway buildings: islands inside the cleared rail land --------------------------------------------------------
+// `landuse=railway` and the track corridors clear the whole yard, stations and depots included. OSM maps those
+// buildings, so give their footprints back grown by SIDEWALK (the property line, as for the buildings on plazas) and
+// leave the track corridor itself clear: the rail stamp is 5 m wide per mainline track and 4 m per tram, and the
+// restored cells keep one more metre off the axes so no lot or building can stand on the trackbed.
+const RAIL_BUILDING = new Set(['train_station', 'transportation', 'station', 'railway_station', 'bus_station',
+  'engine_shed']);
+const RAIL_BUILDING_NAME = /dworzec|zajezdni|parowozownia|lokomotywownia|pkp|kolejow|zntk|bocznica|nastawni|signal.?box|centrum sterowania/i;
+{
+  const K = new Raster(R.x0, R.z0, R.x0 + (W - 1) * RES, R.z0 + (H - 1) * RES, RES);
+  const trackKeep = new Uint8Array(W * H);
+  K.d = trackKeep;
+  for (const l of railCorridors.lines) {
+    const r = l.w / 2 + 1;
+    for (let n = 0; n + 1 < l.pts.length; n++) stampSegmentOn(K, l.pts[n][0], l.pts[n][1], l.pts[n + 1][0], l.pts[n + 1][1], r, 1);
+  }
+  const osm = load('poz_buildings.json');
+  let islands = 0, cells = 0, skipped = 0;
+  for (const e of osm.elements) {
+    const t = e.tags || {};
+    const kind = String(t.building || '').toLowerCase().split(';')[0];
+    if (!kind || kind === 'roof' || kind === 'no') continue;
+    const name = `${t.name || ''} ${t['name:pl'] || ''}`;
+    if (!RAIL_BUILDING.has(kind) && !t.railway && !RAIL_BUILDING_NAME.test(name)) continue;
+    const outer = elemRings(e, toWorld).filter((r) => r.length > 3);
+    if (!outer.length) { skipped++; continue; }
+    const inner = elemRings(e, toWorld, 'inner').filter((r) => r.length > 3);
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const r of outer) for (const [x, z] of r) {
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (z < z0) z0 = z;
+      if (z > z1) z1 = z;
+    }
+    if (x1 < R.x0 - SIDEWALK || x0 > R.x0 + W * RES + SIDEWALK ||
+      z1 < R.z0 - SIDEWALK || z0 > R.z0 + H * RES + SIDEWALK) { skipped++; continue; }
+    const local = new Raster(x0 - SIDEWALK - 2, z0 - SIDEWALK - 2, x1 + SIDEWALK + 2, z1 + SIDEWALK + 2, RES);
+    for (const r of outer) local.fillRing(r, 1);
+    for (const r of inner) local.fillRing(r, 0);
+    const dist = local.edt((v) => v === 1);
+    const r2 = (SIDEWALK / RES) ** 2;
+    let restored = 0;
+    for (let j = 0; j < local.h; j++) {
+      for (let i = 0; i < local.w; i++) {
+        if (dist[j * local.w + i] > r2) continue;
+        const gi = Math.round((local.x0 - R.x0) / RES) + i, gj = Math.round((local.z0 - R.z0) / RES) + j;
+        if (gi < 0 || gj < 0 || gi >= W || gj >= H) continue;
+        const k = gj * W + gi;
+        const footprint = local.d[j * local.w + i] === 1;
+        // The footprint itself comes back whole: a depot hall covers its yard tracks, and those tracks are under the
+        // roof. Only the SIDEWALK margin stops at the track corridor, so the property line never runs along the bed.
+        if (D[k] || !railCleared[k] || (trackKeep[k] && !footprint)) continue;
+        // The margin must not bridge two existing curb islands across a narrow rail strip. A one-cell moat keeps the
+        // restored building a block of its own; only a footprint touching a block outright (a station on the street)
+        // joins it.
+        if (!footprint && (
+          (gi > 0 && D[k - 1] && !railCleared[k - 1]) || (gi < W - 1 && D[k + 1] && !railCleared[k + 1]) ||
+          (gj > 0 && D[k - W] && !railCleared[k - W]) || (gj < H - 1 && D[k + W] && !railCleared[k + W]))) continue;
+        const x = R.x0 + (gi + 0.5) * RES, z = R.z0 + (gj + 0.5) * RES;
+        if (!isLandAt(x, z)) continue;
+        D[k] = 1;
+        restored++;
+      }
+    }
+    if (restored) { islands++; cells += restored; }
+  }
+  log(`blocks: ${islands} railway building islands given back from rail land (${cells} m², ${skipped} footprints outside the box or with no cells)`);
+}
 
 // --- Label curb islands (4-connected) ------------------------------------------------------------------------------
 const lab = new Int32Array(W * H);

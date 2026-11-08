@@ -75,7 +75,7 @@ test('the unpaved Wioślarska service road stays park ground rather than a cut c
     const len = Math.hypot(bx - ax, bz - az);
     for (let t = 0; t <= len; t += 5) {
       const x = ax + (bx - ax) * t / len, z = az + (bz - az) * t / len;
-      assert.equal(config.blockAt(x, z)?.id, 966, `Wioślarska at ${x.toFixed(1)}, ${z.toFixed(1)} is park ground`);
+      assert.equal(config.blockAt(x, z)?.id, 968, `Wioślarska at ${x.toFixed(1)}, ${z.toFixed(1)} is park ground`);
     }
   }
 });
@@ -87,7 +87,7 @@ test('partial park lawns keep the six mapped service-road corridors clear', asyn
   const marker = 'for (const piece of pieces) parkLawnGeos.push(createExtrudedPolygonMesh(piece, SW_TOP - 0.02, 0.06, lawnMat).geometry);';
   assert.ok(source.includes(marker));
   const clipped = new Map();
-  const ids = new Set([149, 209, 266, 328, 608, 885]);
+  const ids = new Set([149, 209, 266, 328, 608, 887]);
   const grid = loadModule(source.replace(marker, 'recordPieces(b, lawn, pieces, segs);\n          ' + marker), {
     imports: { 'three/webgpu': inert(), 'three/tsl': inert(),
       'three/addons/utils/BufferGeometryUtils.js': inert(), './tsl-materials.js': inert(),
@@ -111,7 +111,7 @@ test('partial park lawns keep the six mapped service-road corridors clear', asyn
     }
     const remaining = pieces.reduce((sum, piece) => sum + area(piece), 0);
     assert.ok(remaining > area(lawn) * 0.8 && remaining <= area(lawn) + 0.01, `block ${id} keeps most of the lawn without overlapping pieces`);
-    if (id === 885) {
+    if (id === 887) {
       const boundary = config.BLOCKS[id].poly;
       const onBoundary = (x, z) => boundary.some((a, i) => {
         const b = boundary[(i + 1) % boundary.length], dx = b.x - a.x, dz = b.z - a.z;

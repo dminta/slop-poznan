@@ -125,6 +125,14 @@ test('Poznań geodata builds offline with default paths in a checkout containing
     GEO.blocks.forEach((b, i) => { const a = blockArea(b[0]); built += a * stats[i][0]; land += a; });
     assert.ok(built / land > 0.12 && built / land < 0.35, `area-weighted built share ${(built / land).toFixed(3)}`);
     assert.ok(stats.reduce((t, s) => t + s[2], 0) > 8000, 'buildings counted in blocks');
+    // blockFootprints: [x0, x1, z0, z1, area] sport/show/public envelopes in park blocks, for parkFreeCells
+    const footprints = GEO.blockFootprints;
+    assert.ok(footprints && Object.keys(footprints).length >= 20, 'park facility envelopes emitted');
+    const holds = (id, area) => (footprints[id] || []).some(([x0, x1, z0, z1, a]) => x1 > x0 && z1 > z0 &&
+      a >= area * 0.95 && a <= area * 1.05);
+    assert.ok(holds(927, 7843), 'Hala Arena envelope in block 927');
+    assert.ok(holds(939, 52909), 'Enea Stadion envelope in block 939');
+    assert.ok(Object.values(footprints).every((list) => list.every((f) => f.length === 5 && f.every(Number.isFinite))));
     // frame.ll puts the Ratusz (the D1 origin) at the world origin
     const ll = GEO.frame.ll;
     const [lon, lat] = [16.93401, 52.40856];

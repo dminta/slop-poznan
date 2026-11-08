@@ -96,6 +96,69 @@ function generatedByBlock(config, city) {
   return gen;
 }
 
+// Generated coverage of one OSM building envelope on the same 2 m raster: share of the envelope's cell centres under a
+// generated footprint, plus the tallest generated part over it. Used for the park sports facilities, whose own OSM
+// outline is the target (block generation includes the rest of the park and the streets).
+function footprintCoverage(city, [x0, x1, z0, z1], C = 2) {
+  const inQuad = (pts, x, z) => {
+    let s = 0;
+    for (let i = 0; i < 4; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % 4];
+      const c = (b.x - a.x) * (z - a.z) - (b.z - a.z) * (x - a.x);
+      if (c > 0) s |= 1;
+      else if (c < 0) s |= 2;
+    }
+    return s !== 3;
+  };
+  const covered = new Map();
+  for (const blk of city.allBlocks) {
+    for (const f of blk.footprints) {
+      const i0 = Math.floor(Math.max(x0, f.x0) / C);
+      const i1 = Math.ceil(Math.min(x1, f.x1) / C);
+      const j0 = Math.floor(Math.max(z0, f.z0) / C);
+      const j1 = Math.ceil(Math.min(z1, f.z1) / C);
+      if (i1 <= i0 || j1 <= j0) continue;
+      for (let j = j0; j <= j1; j++) {
+        for (let i = i0; i <= i1; i++) {
+          const x = (i + 0.5) * C;
+          const z = (j + 0.5) * C;
+          if (x < x0 || x > x1 || z < z0 || z > z1) continue;
+          if (f.pts && !inQuad(f.pts, x, z)) continue;
+          const k = j * 100000 + i;
+          covered.set(k, Math.max(covered.get(k) || 0, f.h));
+        }
+      }
+    }
+  }
+  let total = 0;
+  for (let j = Math.floor(z0 / C); j <= Math.ceil(z1 / C); j++) {
+    for (let i = Math.floor(x0 / C); i <= Math.ceil(x1 / C); i++) {
+      const x = (i + 0.5) * C;
+      const z = (j + 0.5) * C;
+      if (x >= x0 && x <= x1 && z >= z0 && z <= z1) total++;
+    }
+  }
+  return { share: covered.size / total, hMax: Math.max(0, ...covered.values()) };
+}
+
+// Convex-polygon SAT for two 4-corner footprints (x/z); true when their interiors overlap by more than a hair.
+function polygonsOverlap(a, b) {
+  const axes = (p) => p.map((q, i) => {
+    const r = p[(i + 1) % p.length];
+    const dx = r.x - q.x, dz = r.z - q.z;
+    const L = Math.hypot(dx, dz) || 1;
+    return { x: -dz / L, z: dx / L };
+  });
+  for (const n of [...axes(a), ...axes(b)]) {
+    let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity;
+    for (const p of a) { const v = p.x * n.x + p.z * n.z; a0 = Math.min(a0, v); a1 = Math.max(a1, v); }
+    for (const p of b) { const v = p.x * n.x + p.z * n.z; b0 = Math.min(b0, v); b1 = Math.max(b1, v); }
+    if (a1 <= b0 + 1e-6 || b1 <= a0 + 1e-6) return false;
+  }
+  return true;
+}
+
 // Generated vs real (GEO.blockStats) built share of the land of the district's blocks that buildings.js builds on
 // (park blocks with mapped buildings in OSM are built; purely unmapped park blocks stay unbuilt)
 function districtShares(config, gen, district) {
@@ -134,7 +197,7 @@ test('villa districts, Chartowo and the hospital campuses come out near their re
   // Dense central blocks tagged with a campus keep their district profile: the campus alley grid could not spend their
   // steep share on fragmented lots and fell below the pre-change result (192 43.4 -> 22.0 %, 814 26.4 -> 19.4,
   // 769 39.1 -> 35.8, 827 41.8 -> 35.7). The gate is area >= 5 ha and built <= 0.4 in blockProfile.
-  for (const [id, before] of [[192, 0.434], [814, 0.264], [769, 0.391], [827, 0.418]]) {
+  for (const [id, before] of [[192, 0.434], [815, 0.264], [769, 0.391], [828, 0.418]]) {
     const b = config.BLOCKS[id];
     assert.ok(b.program > 0, `block ${id} is still tagged as a campus`);
     const share = (gen.get(id) || 0) / b.area;
@@ -144,7 +207,7 @@ test('villa districts, Chartowo and the hospital campuses come out near their re
   // Office courtyard fill (2026-11-08): the deep frontage lots and core wings move 868 from 33.4% to 48.2%, 814 from
   // 26.4% to 32.0% and 769 from 40.2% to 47.8%. Blocks already over their real share (593 36.8%, 786 44.8%) keep
   // their plazas because steerProfile leaves cfg.core off; neither may grow from the old office layout.
-  for (const [id, floor] of [[868, 0.47], [814, 0.31], [769, 0.46], [816, 0.14]]) {
+  for (const [id, floor] of [[869, 0.47], [815, 0.31], [769, 0.46], [817, 0.14]]) {
     const share = (gen.get(id) || 0) / config.BLOCKS[id].area;
     assert.ok(share >= floor, `office block ${id}: generated ${(100 * share).toFixed(1)}% below ${(100 * floor).toFixed(1)}%`);
   }
@@ -172,6 +235,47 @@ test('park blocks with mapped buildings are built while unmapped park blocks sta
   for (const b of parkWithoutBldgs) assert.equal(gen.get(b.id) || 0, 0);
   const solaczParks = parkWithBldgs.filter((b) => b.district === 'Sołacz');
   for (const b of solaczParks) assert.ok((gen.get(b.id) || 0) > 0, `Park block ${b.id} should have buildings`);
+});
+
+test('park sports facilities keep their mapped OSM footprint', async () => {
+  const { config, city } = await buildCity();
+  // OSM envelopes from tools/data/poz_buildings.json (way 279682863 Arena, relation 8512283 Enea Stadion, way
+  // 183357024 Lodowisko Chwiałka). Before the park carve-out parkFreeCells cleared their park cells to lawn and the
+  // district profile left 0 %, 0 % and 4 % of these outlines under any building.
+  const targets = [
+    ['Hala Arena', 927, [-2903.6, -2803.4, 1157.1, 1257.1]],
+    ['Enea Stadion', 939, [-442.1, -193.1, 1231.6, 1510.5]],
+    ['Lodowisko Chwiałka', 939, [-376.3, -322.3, 1759.7, 1847.1]]
+  ];
+  for (const [name, id, envelope] of targets) {
+    const b = config.BLOCKS[id];
+    assert.ok(b.park > 0 && b.parkFootprints && b.parkFootprints.length, `${name}: block ${id} carries park footprints`);
+    const { share, hMax } = footprintCoverage(city, envelope);
+    assert.ok(share > 0.5, `${name}: only ${(100 * share).toFixed(1)} % of its OSM envelope is built`);
+    assert.ok(hMax >= 8 && hMax <= 25, `${name}: generated facility is ${hMax.toFixed(1)} m tall`);
+  }
+});
+
+test('park facility halls on 927/939 do not overlap each other or a roadway', async () => {
+  const { config, city } = await buildCity();
+  // Arena, Enea and Chwiałka generate as one large hall per lot piece (>= 2,000 m² each); ordinary houses and
+  // kamienice on Wilda's edges are below that, so this reads the facility massing directly.
+  const big = city.allBlocks.filter((b) => b.srcBlockId === 927 || b.srcBlockId === 939)
+    .flatMap((b) => b.footprints)
+    .filter((f) => (f.x1 - f.x0) * (f.z1 - f.z0) >= 2000)
+    .map((f) => ({
+      h: f.h,
+      pts: f.pts || [[f.x0, f.z0], [f.x1, f.z0], [f.x1, f.z1], [f.x0, f.z1]].map(([x, z]) => ({ x, z }))
+    }));
+  assert.ok(big.length >= 5, `${big.length} large facility parts generated on 927/939`);
+  for (let i = 0; i < big.length; i++) {
+    for (let j = i + 1; j < big.length; j++) {
+      assert.ok(!polygonsOverlap(big[i].pts, big[j].pts), `facility parts ${i} and ${j} overlap`);
+    }
+    for (const p of big[i].pts) {
+      assert.ok(config.roadClearance(p.x, p.z) >= 0, `facility part ${i} reaches the roadway at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`);
+    }
+  }
 });
 
 test('villa blocks are detached houses with gardens between them', async () => {

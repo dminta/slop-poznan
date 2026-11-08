@@ -36,7 +36,7 @@ test('surveyed park lawns leave nearby traffic lanes clear', async () => {
     'three/webgpu': inert(), 'three/tsl': inert(),
     'three/addons/utils/BufferGeometryUtils.js': inert(), './tsl-materials.js': inert()
   };
-  const targets = new Set([77, 262, 1101, 1299, 1304, 1356, 1370]);
+  const targets = new Set([77, 262, 1104, 1295, 1300, 1352, 1366]);
   const records = [];
   let owner;
   const marker = 'const shape = createWorldXZShape(pts, holes);';
@@ -48,7 +48,7 @@ test('surveyed park lawns leave nearby traffic lanes clear', async () => {
     record: (poly, y, height, holes) => {
       const lawn = y === 0.3 && Math.abs(height - 0.11) < 1e-6;
       const bed = y === 0.2 && Math.abs(height - 0.2) < 1e-6;
-      const cutSurface = owner && (owner.id === 1101 || owner.id === 1356) && y === 0 &&
+      const cutSurface = owner && (owner.id === 1104 || owner.id === 1352) && y === 0 &&
         (Math.abs(height - 0.22) < 1e-6 || Math.abs(height - 0.26) < 1e-6);
       if (owner && targets.has(owner.id) && (lawn || bed || cutSurface)) {
         records.push({ poly, holes, owner: owner.id, lawn });

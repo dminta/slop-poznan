@@ -66,15 +66,6 @@ test('seeded species assignment preserves the full built city tree sites and col
   const siteHash = digest(sites);
   for (const site of sites) { before[site.species || 0]++; after[treeSpecies(site)]++; }
   assert.equal(digest(sites), siteHash, 'assignment must not mutate sites');
-  // Street placement and production crossing constants change these pins; park/grid colliders changed only when the
-  // Chartowo corridor moved three block 1304 lamps off the new cut curb. The 2026-11-08 non-residential profiles
-  // changed one lot's building colliders, which moved one street tree into the seeded site set.
-  // See docs/observations/building-profiles-nonres-2026-11-08.md for the deliberate pin change.
-  assert.deepEqual(before, [18694, 22614, 8740, 0]);
-  assert.deepEqual(after, [17927, 21715, 8386, 2020]);
-  assert.equal(siteHash, '984ee5e402c5a593197433bfdeba264bc8a14dc0cb9055cad3d72eb6ebc05c71');
-  assert.equal(digest(grid.propColliders), '47fe61199ef3204842393df05dd6d1b56f9431240acefcf6316f8612ea4d2c6b');
-  assert.equal(digest(details.colliders), '4250b345aa131cf0a51710501224f767422b0d77ef94cab47a84c3a3cb79ff8b');
   const meshCount = (pick) => {
     const types = new Set();
     for (const t of sites) {
@@ -86,8 +77,17 @@ test('seeded species assignment preserves the full built city tree sites and col
     }
     return types.size;
   };
-  assert.equal(meshCount((t) => t.species || 0), 13848);
-  assert.equal(meshCount(treeSpecies), 16791);
+  // Street placement and production crossing constants change these pins; park/grid colliders changed only when the
+  // Chartowo corridor moved three block 1304 lamps off the new cut curb. The 2026-11-08 railway-island and park
+  // facility carve-outs restored blocks and kept mapped sports centres on their OSM lots.
+  // See docs/observations/railway-building-islands-2026-11-08.md and park-sports-facilities-2026-11-08.md.
+  assert.deepEqual(before, [18630, 22583, 8703, 0]);
+  assert.deepEqual(after, [17866, 21686, 8352, 2012]);
+  assert.equal(siteHash, '4e14e313ee40078b9717b70e549d2b0eef3cc311909931908e44be5ea6eb9f09');
+  assert.equal(digest(grid.propColliders), 'ddbab232ebba16b7dbfbe259162e8c74899ee0cdf825aad2f5e5d0612ca72cde');
+  assert.equal(digest(details.colliders), '8bf56f42472ebc3216b994e70af0cc7ab6a5f118fadaf458c97b76cd242fb390');
+  assert.equal(meshCount((t) => t.species || 0), 13857);
+  assert.equal(meshCount(treeSpecies), 16798);
 });
 
 // Exercise the real field's transform, allocation and regrouping with cheap stand-ins for the generated geometries.
