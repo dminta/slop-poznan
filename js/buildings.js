@@ -1700,9 +1700,10 @@ function buildCityBlocks(scene) {
   }
 
   // Hospital and university campuses: institutional blocks along the streets and a loose grid of clinics and
-  // institutes inside, with 12-18 m service alleys between them. `cfg.share` is the block's real OSM built share over
-  // its lot area (steerProfile), so each lot rect builds its target: the frontage takes up to 60% of that budget and
-  // the core pavilions the rest. Before this, a 16 ha hospital block in Łazarz/Grunwald built 14.9% against 21% real.
+  // institutes inside, with 9-16 m clear service alleys (10-16 m along a row, 16 m in the wide cores). `cfg.share` is
+  // the block's real OSM built share over its lot area (steerProfile), so each lot rect builds its target: the frontage
+  // takes up to 60% of that budget and the core pavilions the rest. Before this, a 16 ha hospital block in
+  // Łazarz/Grunwald built 14.9% against 21% real.
   function campusBuilding(blk, r, cfg) {
     const b = building(blk, pickW(cfg.mats), r);
     const floors = irange(cfg.floors[0], cfg.floors[1]);

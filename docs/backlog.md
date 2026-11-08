@@ -56,19 +56,15 @@ Implementation details and completed measurements live in the [topic docs](../AG
 - **Building accuracy (4.4, 7):** the Fara front gable/cross and the Teatr Wielki portico/Pegasus now use GUGiK
   NMPT − NMT sub-heights; only the four Fara niche statues (below the 1 m DSM resolution) remain visual estimates.
   [Height audit](observations/landmark-heights-2026-11-03.md#2026-11-07--refined-fara-and-teatr-sub-heights).
-- **Building density and campus/pavilion complexes (Bukowska, hospital/academic grounds):** the campus profile and the
-  graduated core for large blocks are in (2026-11-07): blocks 666, 577, 427 and 476 now sit within ±20% of their OSM
-  built share (666 14.9 → 20.6% against 21%, 577 47.7 → 36.4% against 37%, 427 23.8 → 22.5% against 22%, 476 15.4 →
-  14.5% against 15%), and real hospital blocks 807 and 1121 land at 19.7/21 and 16.7/18%. Remaining:
-  1. Unnamed `highway=service` cuts: still dropped globally (stamping all cut 1,154 blocks against 802, mostly slivers);
-     a named/major-service rule inside blocks over 5 ha is untried and needs a block-raster rebuild.
-  2. `maskRects` still caps at 8 lot rects; the uncovered share of irregular campus interiors after the profile change
-     was not measured, and a higher cap would alter lot rectangles and block-based clearance tests.
-  3. The western `detailBox` edge at x = −3,675.4 still leaves King Cross, Business Garden and Ławica in the coarse
-     outskirts; moving it needs new snapshots and an outskirts re-check.
-  4. OSM vs BDOT10k is closed for the current snapshot: the 36 large sparse blocks show no omission (BDOT exceeds OSM
-     by at most 0.08 pp), and the Bukowska campuses are not sparse blocks.
-  [Density record and measurements](observations/building-density-2026-11-07.md),
+- **Building density follow-up (Bukowska, hospital/academic grounds):** the campus profile and graduated core are in
+  (2026-11-07) and the 2026-11-08 WebGPU/WebGL2 review is complete: blocks 666, 577, 427 and 476 sit within ±20 % of
+  their OSM built share (666 20.6/21 %, 577 36.4/37 %, 427 22.5/22 %, 476 14.5/15 %), and 807/1121 land at 19.7/21 and
+  16.7/18 %. The campus alley grid and `campusShed` supply the interior structure, so unnamed `highway=service` cuts
+  stay dropped; the 8-lot `maskRects` cap is not binding on the 27 `program > 0` blocks of at least 5 ha (raising the
+  caps changes neither the rect sets nor the coverage), and OSM vs BDOT10k is closed for this snapshot. Remaining: the
+  western `detailBox` edge at x = −3,675.4 leaves King Cross, Business Garden and Ławica in the coarse outskirts; moving
+  it needs new snapshots, a rebuild of every layer and an outskirts re-check.
+  [Density record and measurements](observations/building-density-2026-11-07.md#follow-up-2026-11-08-visual-review-lot-cap-and-service-alleys),
   [sparse-block BDOT audit](observations/sparse-blocks-2026-11-04.md),
   [Density test harness](tests/buildings-density.test.cjs),
   [Phase 14 archive](archive/poznan-plan.md#phase-14-real-building-density-from-osm).

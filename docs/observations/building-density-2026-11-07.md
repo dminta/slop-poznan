@@ -89,22 +89,70 @@ regression below their pre-change share.
 - `node --test tests/buildings-density.test.cjs` — 8/8 pass. The district test now also asserts that blocks 666, 577,
   427 and 476 are `program = 1` and within ±20 % of their real built share, and that the gated blocks 192, 814, 769
   and 827 stay at or above their pre-change share.
-- `node --test tests/*.cjs` — 420/420 pass.
+- `node --test tests/*.cjs` — 420/420 pass at the time; 428/428 on the 2026-11-08 follow-up.
 - `node --test tests/geodata.test.mjs` — pass; its `blockStats` shape check now destructures the fourth field and
   requires `program` to be 0, 1 or 2, with at least five hospital and five university blocks in the snapshot.
-- No browser check was performed. The campus layout, roof/balcony mix and the view along Bukowska/Marcelińska still
-  need a WebGPU/WebGL2 look.
+- The 2026-11-08 follow-up performed the browser check on WebGPU and WebGL2 and measured the `maskRects` cap and the
+  service-road question; see [below](#follow-up-2026-11-08-visual-review-lot-cap-and-service-alleys).
+
+## Follow-up 2026-11-08: visual review, lot cap and service alleys
+
+### Visual review
+
+Chrome 157 (headless, 1440 × 757) loaded the full scene on WebGPU (Apple `metal-3`) and on the WebGL2 fallback through
+`?backend=webgl`; the canvas context confirmed `webgl2` on the second run. The five named blocks were inspected from a
+free aerial camera 280–330 m up looking down at 45–55°, from street level along Bukowska, Marcelińska, Grodziska and
+Szpitalna (chase and low-angle cameras), and on the full street map at 50 m scale. University block 622 was added for
+the pitched-roof/balcony comparison.
+
+- The interior pavilion rows and their 9–16 m clear alleys are visible in all five named blocks; 577 (37 % built) is
+  the densest, while 666/807 (21 %) and 476 (15 %) keep the expected lawns between the rows. The map view shows the
+  same grid of footprints and alleys, not one flat yard.
+- Hospital blocks keep mostly flat roofs with small plant rooms (the dark boxes on the roofs) and only a minority of
+  pitched roofs; university block 622 mixes pitched roofs and balcony stacks.
+- No building crossed a curb or sidewalk: the frontage blocks stay behind the 4.6 m lot inset, and the walking views
+  showed clear sidewalks and crossings. No floating parts, z-fighting or missing facades were seen on either backend,
+  and neither run logged a console or shader error.
+- The open lawns are not a missing-lot artefact. The named blocks build 15–37 % of their area and the rest is lawn,
+  alley and parking; the frame rects cover 90.6–93.4 % of the property-line area inside those blocks.
+
+### `maskRects` cap (8 lot rects)
+
+Measured on the same 1 m property-line raster as `maskRects`, at the current caps and with the lot/frame caps raised to
+16/18/16 and 24/24/22:
+
+| block | area ha | program | frame rects | lot rects | frame coverage | largest gap m² |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 427 | 9.9 | 1 | 19 | 4 | 91.5 % | 272 |
+| 476 | 9.3 | 1 | 2 | 6 | 93.4 % | 125 |
+| 577 | 8.6 | 1 | 6 | 7 | 90.6 % | 252 |
+| 666 | 16.2 | 1 | 35 | 4 | 91.5 % | 352 |
+| 807 | 15.8 | 1 | 27 | 6 | 93.0 % | 240 |
+
+The largest gap is the largest axis-aligned rectangle of uncovered property-line cells, not a missing buildable lot.
+All 27 `program > 0` blocks of at least 5 ha use frontage frames (they are irregular), so the 8-lot cap is not on
+their path; the frame path's own caps are 12/10. Raising the caps changed neither the rect sets nor the coverage for
+any of the 27 blocks: the greedy search stops at 93 % coverage or at a 2 % residual rectangle first, so the caps never
+bind. (The 27-block average is 85.6 %, range 71.5–93.4 %; the low end is park-heavy or very large blocks such as 568
+20 % park, 1144 42 % and 209 45 %.) Keep the cap at 8. Filling more would require lowering the 2 % threshold or the
+93 % guard, adding sliver lots and changing the block-based clearance tests for no measured benefit.
+
+### Unnamed service roads
+
+The global rule still drops 4,484 unnamed `highway=service` pieces. Stamping all of them cut 1,154 blocks against 802,
+mostly courtyard slivers (258 blocks under 300 m² against 193; 300–2,000 m² 289 against 143). Named service roads
+(167 pieces) remain stamped. The review shows `campusBlock` supplies the interior structure with its frontage blocks,
+pavilion rows and alleys, and `campusShed` fills the frontage slivers; no campus needed a service-road cut to reach its
+interior and no block was split into unnamed-service slivers. No change to the road-stamping rule.
 
 ## Remaining causes from the backlog
 
-1. **Unnamed service cuts.** The global rule still drops 4,484 unnamed `highway=service` pieces, because stamping all
-   of them cut 1,154 blocks against 802 and mostly produced courtyard slivers (258 blocks under 300 m² against 193).
-   The campus layout now supplies the missing interior structure with its alleys, but a named/major-service rule
-   inside blocks over 5 ha is still untried and would need a block-raster rebuild and a block-id review.
-2. **`maskRects` cap.** The 8-rect lot cap remains. The campus profile builds on the existing lots; how much of an
-   irregular campus interior the cap still leaves uncovered was not measured after the profile change. Raising the
-   cap for blocks over 5 ha would change the generated lot rectangles (and some block-based clearance tests) and needs
-   its own measurement.
+1. **Unnamed service cuts — closed 2026-11-08.** The global rule still drops the 4,484 unnamed `highway=service` pieces,
+   but the campus review shows the alley grid and `campusShed` supply the interior structure and no service cut is
+   needed inside these blocks. A named/major-service rule remains untried and would need a block-raster rebuild; it is
+   not required for the Bukowska/Ogrody campuses.
+2. **`maskRects` cap — closed 2026-11-08.** The 8-rect cap is not binding: all campus blocks of at least 5 ha use
+   frontage frames, and raising the lot/frame caps changes neither the rects nor the coverage. Keep the cap at 8.
 3. **Detail box west edge.** `detailBox` still ends at x = −3,675.4, so King Cross, Business Garden and Ławica stay in
    the coarse outskirts. Moving it would require new Overpass snapshots, a rebuild of every layer and a re-check of the
    outskirts zones; not started.
@@ -112,6 +160,10 @@ regression below their pre-change share.
    ([sparse-blocks-2026-11-04](sparse-blocks-2026-11-04.md)) found no OSM omission: BDOT10k exceeded OSM by at most
    0.08 percentage points in any block, and BDOT's building count was lower almost everywhere. The Bukowska campuses
    are not sparse blocks, so this item is closed as "no data supplement needed" until a new snapshot says otherwise.
+
+Follow-up verification: `node --test tests/buildings-density.test.cjs` 8/8 and `node --test tests/*.cjs` 428/428.
+The 2026-11-08 review changed documentation and one comment in `js/buildings.js`; no generator or layout behavior
+changed.
 
 Files changed: `tools/poz-buildings.mjs`, `tools/build-poznan.mjs` (contract comment), `js/geodata.js` (regenerated),
 `js/city-config.js`, `js/buildings.js`, `tests/buildings-density.test.cjs`, `docs/world.md`, `docs/geodata.md`,
