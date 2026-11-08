@@ -47,15 +47,21 @@ test('street trees carry player colliders, including Rybaki', async () => {
   }).buildStreetDetails(stub, { buildingColliders: bld.colliders, grid });
 
   // Street trees are the tree sites on the raised sidewalks. The colliders array now carries their trunk boxes.
-  // Before 2026-11-04 all of these had no player collider; now every one does. This fixture omits landmark and
-  // bridge walls; the default clearance audit uses the same scope.
+  // Before 2026-11-04 all of these had no player collider; now every one does, including the 7,207 surveyed OSM
+  // positions that stand in a curb row. This fixture omits landmark and bridge walls; the default clearance audit
+  // uses the same scope.
   const streetTrees = sites.filter((t) => t.tier === 2 || t.tier === 1 && t.pitRot !== undefined);
-  assert.equal(streetTrees.length, 22044, 'street trees in the headless build');
+  assert.equal(streetTrees.length, 28168, 'street trees in the headless build');
+  // Surveyed OSM park trees have no city-grid site of their own, so street-details.js adds their trunk boxes to the
+  // same player list as the street rows; count them separately rather than letting them hide a missing street trunk.
+  const osmParkTrees = sites.filter((t) => t.source === 'osm' && t.tier === 0).length;
+  assert.equal(osmParkTrees, 25319, 'surveyed OSM park trees');
 
   const colliders = details.colliders;
   const trunkColliders = colliders.filter((c) => c.isTrunk);
-  assert.equal(trunkColliders.length, streetTrees.length,
-    `every street tree should have a trunk collider (${streetTrees.length} trees, ${trunkColliders.length} colliders)`);
+  assert.equal(trunkColliders.length, streetTrees.length + osmParkTrees,
+    `every street and mapped park tree should have a trunk collider (${streetTrees.length} street + ` +
+    `${osmParkTrees} mapped park trees, ${trunkColliders.length} colliders)`);
 
   // Rybaki runs roughly (-193.5, 642.4) -> (-297, 893); its sidewalk trees stand within a few metres of the curb.
   const rybaki = streetTrees.filter((t) => t.x >= -310 && t.x <= -190 && t.z >= 630 && t.z <= 905);

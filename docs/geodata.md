@@ -5,7 +5,10 @@
 - `tools/merge-extent.mjs`: one-off, not part of the build. Merges a wider western Overpass fetch into the committed snapshots (old elements stay, new ones with `max lon ≤ 16.883` and reaching the new padded box are appended) and writes the compact `tools/data/poz_*.json`. Used for the 2026-11-08 west expansion; commit its output as input data.
 - `tools/poz-base.mjs`: the frame (`toWorld`, `llAffine`, `DETAIL_BOX`) and the snapshot loader. Side-effect free apart from reading `GEO_DATA`.
 - `tools/geo-util.mjs`: the pure geometry and raster helpers (`ringArea`, `bbox`, `rdp`/`rdpRing`, `pointInRing`, `centroid`, the `Raster` class, `scanRings` (even-odd scanline over several rings), `elemRings` (outer rings, or inner ones with `role = 'inner'`) for Overpass elements, and `labelComponents`/`traceComponents` for the land components). It has no inputs, no frame and no import-time work: helpers that project lon/lat take a `project(lon, lat)` function (`toWorld`). Keep city constants and file reads out of it.
-- `poz-roads.mjs`, `poz-water.mjs`, `poz-extra.mjs`, `poz-blocks.mjs`, `poz-buildings.mjs`, `poz-canopies.mjs` do their work at import time, as top-level side effects, in that dependency order; `poz-roadgraph.mjs` exports `buildRoadGraph`, which the entry point calls. What each decides is under [Pipeline](#pipeline-toolsbuild-poznanmjs).
+- `poz-roads.mjs`, `poz-water.mjs`, `poz-extra.mjs`, `poz-blocks.mjs`, `poz-buildings.mjs`, `poz-canopies.mjs`,
+  `poz-trees.mjs` do their work at import time, as top-level side effects, in that dependency order; `poz-roadgraph.mjs`
+  exports `buildRoadGraph`, which the entry point calls. What each decides is under
+  [Pipeline](#pipeline-toolsbuild-poznanmjs).
 - The only active city pipeline is `build-poznan.mjs` and its `poz-*.mjs` modules. The original city pipeline lives in git history (commit `fc38ef6` and earlier). Historical design decisions are in the [archived port plan](archive/poznan-plan.md); remaining data work is in the [backlog](backlog.md).
 
 ## Regenerate
@@ -14,12 +17,16 @@ node --max-old-space-size=8192 tools/build-poznan.mjs            # writes js/geo
 node --max-old-space-size=8192 tools/build-poznan.mjs /tmp/x.js  # writes elsewhere (diff before replacing)
 GEO_DATA=/some/dir node ... tools/build-poznan.mjs                # read inputs from another directory (default tools/data/)
 ```
-- The run takes about 36–42 s with the west expansion (most of it the block outlines, lots and frames; the building and industry pass, snapshot load included, logs ≈ 0.6 s), with a peak RSS of ≈ 1.27–1.43 GB (`/usr/bin/time -l`, 2026-11-08; the old 8.2 × 5.7 km box took 29 s and 1.27 GB, the 6.1 × 3.7 km box 14 s and 0.81 GB). Keep the 8 GB heap flag that the header usage line and `tests/geodata.test.mjs` pass, because the 1 m rasters and the EDTs are large.
+- The run takes about 42–45 s with the west expansion and the OSM tree snapshot (most of it the block outlines, lots and
+  frames; the building and industry pass, snapshot load included, logs ≈ 0.6 s), with a peak RSS of ≈ 1.27–1.43 GB
+  (`/usr/bin/time -l`, 2026-11-08; the old 8.2 × 5.7 km box took 29 s and 1.27 GB, the 6.1 × 3.7 km box 14 s and
+  0.81 GB). Keep the 8 GB heap flag that the header usage line and `tests/geodata.test.mjs` pass, because the 1 m
+  rasters and the EDTs are large.
 - The output is deterministic. A rebuild from the committed `tools/data` reproduces the committed `js/geodata.js` byte for byte (verified for the west-expansion output on 2026-11-08). After any change to tools/, build to a temporary path and `cmp` it against the committed file: an unexpected diff means a behaviour change.
 - `tests/geodata.test.mjs` compares its fresh offline build byte for byte with the committed file, including the
   deterministic header. It also checks the exact 36 landmark names and validates their placement and footprints,
   so a missing site cannot pass through the map tests unnoticed.
-- `js/geodata.js` is GENERATED: its header says "do not edit by hand", and its single JSON line is about 3.07 MB. To change any geodata value, change the tools or the inputs and rebuild. Commit the regenerated file together with the tool change.
+- `js/geodata.js` is GENERATED: its header says "do not edit by hand", and its single JSON line is about 3.84 MB. To change any geodata value, change the tools or the inputs and rebuild. Commit the regenerated file together with the tool change.
 - Read the build's `[geodata]` log lines (counts, the frame, the per-key KB at the end). They are the quickest sanity check after a change.
 - Inspect the output with `head -c 1500 js/geodata.js`, or `import('./js/geodata.js')` in node. Never read the whole file.
 
@@ -32,7 +39,7 @@ GEO_DATA=/some/dir node ... tools/build-poznan.mjs                # read inputs 
 - Rings and polylines are flat `[x0, z0, x1, z1, ...]` arrays, rounded to 0.1 m. Outer rings have a negative shoelace area in (x, z); hole rings are positive.
 
 ## Output shape and consumers
-- `GEO` has these keys: `version` (2), `frame{bearingDeg, origin, lat0, lon0, units, strip, sidewalk, detailBox, ll}`, `land`, `landHoles`, `water`, `outskirts`, `outskirtsHoles`, `districts`, `labels`, `roads`, `roadGraph`, `rail`, `levelCrossings`, `tramRoutes`, `tramStops`, `plazas`, `blocks`, `blockStats`, `blockFootprints`, `blockParkBuildings`, `blockAnchors`, `industry`, `canopies`, `parks`, `landmarks`. The positional tuple layouts of `roads`, `roadGraph.links`, `blocks`, `blockStats`, `blockFootprints`, `blockParkBuildings` and `blockAnchors` and the `industry` object layout are documented in comments next to the `GEO` literal in `build-poznan.mjs`. Keep those comments in sync when you change a layout. `GEO.canopies` is an array of objects `{ x0, x1, z0, z1, h, clearance, kind, cx, cz, w, d, ang, area, columns }`: the axis-aligned bounds, the oriented rectangle (long side `w`, `ang` in radians from +x towards +z), the roof top `h` and underside `clearance`, the OSM ring `area`, and the flat world `[x, z, ...]` column posts. `kind` is `platform`, `tram`, `fuel`, `market`, `shelter` or `roof`.
+- `GEO` has these keys: `version` (2), `frame{bearingDeg, origin, lat0, lon0, units, strip, sidewalk, detailBox, ll}`, `land`, `landHoles`, `water`, `outskirts`, `outskirtsHoles`, `districts`, `labels`, `roads`, `roadGraph`, `rail`, `levelCrossings`, `tramRoutes`, `tramStops`, `plazas`, `blocks`, `blockStats`, `blockFootprints`, `blockParkBuildings`, `blockAnchors`, `industry`, `canopies`, `trees`, `parks`, `landmarks`. The positional tuple layouts of `roads`, `roadGraph.links`, `blocks`, `blockStats`, `blockFootprints`, `blockParkBuildings` and `blockAnchors` and the `industry` object layout are documented in comments next to the `GEO` literal in `build-poznan.mjs`. Keep those comments in sync when you change a layout. `GEO.canopies` is an array of objects `{ x0, x1, z0, z1, h, clearance, kind, cx, cz, w, d, ang, area, columns }`: the axis-aligned bounds, the oriented rectangle (long side `w`, `ang` in radians from +x towards +z), the roof top `h` and underside `clearance`, the OSM ring `area`, and the flat world `[x, z, ...]` column posts. `kind` is `platform`, `tram`, `fuel`, `market`, `shelter` or `roof`. `GEO.trees` is a flat `[x, z, species, height, ...]` array (0.1 m positions; species -1 untagged/other, 0 lime, 1 Norway maple, 2 horse chestnut, 3 black locust; height in metres, 0 when untagged): one entry per `natural=tree` node inside the detail box, after dropping duplicate positions under 0.5 m. `city-config.js` exposes it as `OSM_TREES` `[{ x, z, species, height }]`, and `street-details.js` plants those points before the procedural rows.
 - `js/city-config.js` is the main consumer. It turns `GEO` into `{x, z}` rings and named exports: `LAND_RINGS`/`LAND_HOLES`, `WATER`, `OUTSKIRTS`/`OUTSKIRTS_HOLES`, `RAIL`, `PLAZAS`, `DISTRICTS` (`districtAt`), `BRIDGES` (the bridge-flagged graph links chained per name), `SIGNAL_SITES` (from `roadGraph.signals`, with each junction's arms), `roadClearance` (distance outside the road graph's runs, for street furniture), `ROADS`, `BLOCKS` (each with `built`, `levels`, `buildings` and `program` from `GEO.blockStats`, `parkFootprints` from `GEO.blockFootprints` and `GEO.blockParkBuildings`, and `anchors` from `GEO.blockAnchors`), `LANDMARK_SITES`, and the land raster behind `isLand`/`isWater`/`distToWater`/`clampToLand` (2 m cells; bridge decks count as land). Prefer those exports in runtime code. A few modules read `GEO` directly:
   - `road-network.js`: `roadGraph`
   - `city-grid.js`, `buildings.js`, `city-map.js`: `parks`, `plazas`, `frame`
@@ -84,6 +91,7 @@ western strip was fetched (OSM base 2026-11-08T17:54Z) and merged into the commi
 | `poz_admin.json` | `q_poz_admin.overpassql` | city | 344 (148 relations, 26 ways, 170 nodes) | 2.1 MB |
 | `poz_buildings.json` | `q_poz_buildings.overpassql` | padded box | 30,316 (30,135 ways, 181 relations) | 18.2 MB |
 | `poz_industry.json` | `q_poz_industry.overpassql` | padded box | 440 (437 ways, 3 relations): substations, storage tanks, works, chimneys, silos and plants | 0.3 MB |
+| `poz_trees.json` | `q_poz_trees.overpassql` | padded box | 40,957 `natural=tree` nodes (OSM base 2026-08-25T05:55Z) | 13.5 MB |
 
 The 2026-11-08 west expansion fetched the new padded strip and merged it into these committed snapshots; the file sizes
 are the compact `JSON.stringify` output of `tools/merge-extent.mjs`, not the raw Overpass pretty print. It carries
@@ -94,6 +102,9 @@ and 204 m chimney are outside it and already in `js/satellite-sites.js`); EC Gar
   order). Relations carry `bounds` and `members`: way members have `geometry`, node members have `lat`/`lon`, relation
   members (e.g. `subarea`) have neither. Multipolygon outers are split across member ways and must be chained.
   `poz_landmarks.json` ways use `out tags geom` (no `nodes`); its relations use `body` because `tags` drops `members`.
+  `poz_trees.json` contains nodes only: `lat`, `lon` and tags (`species`, `genus`, `height`, `circumference`,
+  `diameter_crown`, ...). The snapshot was fetched from `overpass.openstreetmap.fr` because the three usual endpoints
+  timed out; `tools/overpass.sh` still works unchanged when one of its endpoints answers.
 - Roads drop `footway|path|cycleway|steps|track|bridleway|proposed|construction|…` and `service=driveway|parking_aisle|
   drive-through`. Of `area:highway` only `=pedestrian` is kept: the other ~5,500 outlines (sidewalks, islands, lane
   surfaces) were two thirds of a 23.5 MB first fetch. Plazas come from `highway=pedestrian` areas/multipolygons,
@@ -233,6 +244,11 @@ The build reads only the committed `poz_*.json` snapshots. The current output co
     platform (Poznań Główny, Dworzec Letni, Garbary), 3 tram, 10 fuel and 132 ordinary open roofs; 828 rings were under
     60 m², 11 too irregular, 1 had no clear post and 41 lay outside the box. The snapshot has no `building=roof` market
     hall (market halls are walled buildings in the other snapshots), so `market` has no records here.
+  - `poz-trees.mjs`: the individually mapped `natural=tree` nodes. It keeps only nodes inside the detail box, projects
+    them through the shared frame, drops a second node within 0.5 m of an already kept one (180 duplicates in the
+    2026-08-25 snapshot), and maps `Tilia`/`Acer`/`Aesculus`/`Robinia` taxa to model species 0–3. The output is the
+    flat `GEO.trees` array described above: 38,588 in-box trees, of which 13,972 have a model species and 24,017 a
+    height. The runtime gives them priority over procedural rows; see [`world.md`](world.md).
   - `poz-roadgraph.mjs`: `buildRoadGraph(pieces, signalNodes, { service })`, called by the build script.
 - Speed limits (`speedLimit` in `poz-roads.mjs`, the last element of each `roadGraph.links` tuple, km/h): OSM `maxspeed`,
   else the lower of `maxspeed:forward`/`:backward`, else a zone tag (`zone:maxspeed`, `maxspeed:type` or
@@ -274,13 +290,13 @@ The build reads only the committed `poz_*.json` snapshots. The current output co
   2026-11-08 west-expansion output: 45 links right, 847 left; the pre-expansion 8.2 × 5.7 km box had 44 right, 799 left
   (52.5 km) and 200 with the tracks on the carriageway (the 6.1 × 3.7 km box: 35, 475 (32 km), 156); the build logs
   `tram strip right … / left … links`. Blocks went from 821 to 796 (outer curbs moved in, slivers merged) when it came in.
-- Current committed output (read directly from `js/geodata.js`, 2026-11-08 after the west expansion): 3,071,585 bytes
-  including its header, 1,647 blocks and block-stat entries, 75 anchors in 43 blocks, 7,608 road pieces, 8,342 graph
-  links, 485 parks, 35 osiedla, 1,172 rail chains (645 tram, 527 mainline) and 181 canopies with 2,283 columns
-  (12 platform, 3 tram, 10 fuel, 156 other). There are 233 tram stop nodes and 38 directional route records.
-  Physical tram chains total 129.6 km; mainline chains 127.2 km. Directed runtime tram edges have a different
-  denominator (two-way chains contribute twice); see [actors.md](actors.md#trams-jstramsjs). The historical
-  smaller-box output was 1.42 MB.
+- Current committed output (read directly from `js/geodata.js`, 2026-11-08 after the west expansion and the OSM tree
+  snapshot): 3,835,968 bytes including its header, 1,647 blocks and block-stat entries, 75 anchors in 43 blocks, 7,608
+  road pieces, 8,342 graph links, 485 parks, 35 osiedla, 1,172 rail chains (645 tram, 527 mainline), 181 canopies with
+  2,283 columns (12 platform, 3 tram, 10 fuel, 156 other) and 38,588 individually mapped trees. There are 233 tram stop
+  nodes and 38 directional route records. Physical tram chains total 129.6 km; mainline chains 127.2 km. Directed
+  runtime tram edges have a different denominator (two-way chains contribute twice); see
+  [actors.md](actors.md#trams-jstramsjs). The historical smaller-box output was 1.42 MB.
 - Holes are separate keys: `landHoles` and `outskirtsHoles` are `[{ outer, ring }]` with positive winding, where `outer`
   indexes `land` or `outskirts`. `water[i].holes` (islands) and `plazas[i].holes` (buildings on a square) are nested and
   optional. Keep the comments next to the `GEO` literal in `build-poznan.mjs` in sync with the layouts.

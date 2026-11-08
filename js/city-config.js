@@ -44,6 +44,11 @@ const OUTSKIRTS_HOLES = GEO.outskirtsHoles.map((h) => ({ outer: h.outer, ring: t
 const RAIL = GEO.rail.map((r) => ({ kind: r.kind, street: r.street, tracks: r.tracks, pts: toPts(r.pts) }));
 /** Pedestrian areas & squares: [{ name, ring, holes }] (holes are the buildings standing on them) */
 const PLAZAS = GEO.plazas.map((p) => ({ name: p.name, ring: toPts(p.ring), holes: (p.holes || []).map(toPts) }));
+/** Individually mapped OSM trees inside the detail box: [{ x, z, species, height }] (species -1 unknown/other) */
+const OSM_TREES = [];
+for (let i = 0; i + 3 < GEO.trees.length; i += 4) {
+  OSM_TREES.push({ x: GEO.trees[i], z: GEO.trees[i + 1], species: GEO.trees[i + 2], height: GEO.trees[i + 3] });
+}
 /** Osiedla (OSM admin_level 9): [{ name, ring, minX, maxX, minZ, maxZ }] */
 const DISTRICTS = GEO.districts.map((d) => {
   const ring = toPts(d.ring);
@@ -1676,6 +1681,7 @@ export {
   OUTSKIRTS_HOLES,
   RAIL,
   PLAZAS,
+  OSM_TREES,
   DISTRICTS,
   FOOTBRIDGES,
   RAIL_BRIDGES,
