@@ -282,16 +282,28 @@ Built before the road network, so everything that stands near a lane is checked 
   opposed (dot ≤ 0.82); a head from the other group never counts. Pedestrian-only plans run one shared phase for
   both groups (edge.axisIndex 0), so either group's head counts there. B has a sampled clear site or an overhead
   fallback; C has no such site; D is inactive. The audit reports each failed constraint's count over up to 300 samples, the
-  fewest failures at any one sample, and each A head's raw `group0`/`axis0`/`swap` inputs. An overhead fallback now
-  recovers 26 of those 66 C edges: when the ordinary curbside search finds no candidate, a head is hung from an
-  existing signal pole or a new 6.2 m mast within 12 m, over the nearest real lane. Supports may stand on medians,
-  on sidewalk points 6–12 m behind the curb that the ordinary search never samples, or up to 10 m ahead of the
-  stop line. The arm and head keep **2.22 m** from every track axis at each
-  0.5 m sample; the three first-pass arms whose closest arm or head approach was 0.05, 0.10 and 1.88 m from a track
-  axis are rejected. The mast foot keeps a conservative **3.1 m** from every track centreline, above the 1.75 m
-  tram-pole and 2.6 m railway-mast setbacks; the closest overhead foot measures 7.67 m. The built tram and railway
-  layouts are checked separately: every overhead arm, foot and head is at least **7.26 m** from a tram pole or
-  railway mast.
+  fewest failures at any one sample, and each A head's raw `group0`/`axis0`/`swap` inputs.
+  The current placement closes 42 of the 43 C edges with an expanded overhead search and a new span-wire
+  fallback. The overhead search now samples the approach −30…+20 m and up to ±(half + 24) m laterally, still with a
+  12 m cantilever. When no cantilever reaches a visibility band, two stays from existing signal poles or new 10 m
+  masts up to 55 m away meet 10 m above the head and drop vertically to the 5.3 m S-1 centre. The stays run above
+  the 7.6 m tram poles, 9.6 m railway portal masts and 8.9 m portal beams, so they may cross a track; only the head
+  and the vertical drop need the 2.22 m horizontal track clearance. The head stays over a real lane, sliding up to
+  1.5 m across the lane envelope when a tram occupies the lane axis, and every foot, head and cantilever arm keeps
+  **3.1 m** from every real tram pole, railway mast and portal mast. New span masts also keep 3.1 m from every
+  track; reused signal poles keep their existing 2.22 m track clearance. `main.js` computes the tram and railway
+  layouts once after the network, hands their supports to `addRuntimeSignalHeads`, and reuses the same layouts in
+  `buildTramInfrastructure`. An 8 m bucket grid makes the support checks cheap.
+  The furnished-grid audit is **156/0/1/10** after placement (from **114/0/43/10**): 48 cantilever heads (16 new
+  6.2 m masts, 32 reused poles) and 26 span heads (25 new 10 m masts, 26 reused anchors; 18 span heads use at least
+  one new mast and 8 sit entirely on existing poles). Vehicle heads increase **1,001 → 1,043**; pedestrian heads
+  and audio entries remain **1,572**. The cantilever arms run at most 11.759 m (mean 8.281 m); the span stays at
+  most 54.604 m (mean 27.824 m). The closest new foot is 3.141 m from a track, the closest span head 2.298 m and
+  the closest cantilever arm 2.604 m; the signal-placement test checks every foot, head and arm against the real
+  tram poles and railway masts (3.1 m) and confirms the stays run above the 9.6 m portal masts. One C remains at
+  **Górna Wilda** (`-448.8, 947.4`, approach `0.480, -0.877`): its only nearby signal pole is 14.5 m away and the
+  first clear ground lies 46–52 m past the stop line, with no second anchor that keeps the 3.1 m support clearance;
+  it needs a site-specific span from the tram traction poles or a gantry on the far side.
   C does not exclude other, unsampled sites. This is geometric visibility, without occlusion checks.
 
   `addRuntimeSignalHeads` uses the configured runtime edges, phase and facing. It prefers an unused existing pole on
@@ -306,24 +318,15 @@ Built before the road network, so everything that stands near a lane is checked 
   axis, while tall colliders and bridge decks are sampled too. The S-1 centre sits at 5.3 m and its top at 5.73 m,
   below the 5.8 m tram contact wire. The first search puts the head at least 8 m before the stop line, where table 7.2
   places overhead signals at a 4.5 m mounting; a successful arm is then retargeted to the stricter 10.5 m row for
-  the 5.3 m head when the 12 m reach allows. **10 of the 26** heads reach the stricter 10.5 m band, **one** reaches
-  only the 8 m band, and **15** fall back to the support's position (13 at 1.75 m past the stop line; two reused
-  poles put them at 0.03 and −0.82 m) because no support within 12 m reaches either band. That fallback is a
-  documented visibility deviation pending a browser check, not an occlusion result. A 0.5 m × 0.4 m sweep of the
-  −15…−8 m corridor found 12,510 candidate mast feet within the 12 m arm; none passed the curb, roadway, lane,
-  curve, landing, pedestrian-route, rail and furniture checks (curb/roadway dominate; 1,496 rail, 5,320 crosswalk).
-  The closest existing support was 12.96 m from a −8 m head, 0.96 m beyond the 12 m arm; the other 14 were
-  13.5–461 m away. No fallback head can therefore reach either band without a gantry or span wire. In the
-  furnished-grid fixture, runtime placement measured **≈3.55 s** (≈4.3 s including the diagnostic pass; 3.5–4.7 s
-  across headless runs, buildings, landmarks and bridge colliders omitted), up from 2.89 s before the fallback.
-  Ground heads keep the earlier along/lateral range; the 26 overhead arms run at most 11.717 m (mean 9.282 m).
-  New poles carry S-1 heads only; their footprints and player colliders are registered before controllers are built
-  and their shafts get a runtime instanced mesh. Vehicle heads increase **903 → 1,004** (81 new and 20 reused
-  runtime poles; 12 overhead masts and 14 overhead pole reuses among them); pedestrian heads and audio entries
-  remain **1,572**. The audit of the historical approaches moves from
-  **91/0/66/10** to **117/0/40/10** (A/B/C/D), with one earlier redundant ground placement dropped because its
-  approach already had a same-plan head. The furnished-grid regression rebuilds the road and pedestrian networks
-  with the new footprints and compares all lanes, crossings, and route segments and connections near each new pole.
+  the 5.3 m head when the 12 m reach allows. The current fallback places **7 cantilever heads** at the stop line
+  (six at 1.75 m past it, one reused pole at 0.03 m) and **one span head** at 1.75 m; the rest reach the 8 m or
+  10.5 m band (65 strict, 66 in either band). The span search itself samples targets at 10.5 m, 8 m and 1.75 m and
+  picks the pair of anchors with the lowest stay cost. In the furnished-grid fixture the after pass measured
+  ≈27 s (≈23 s before the span fallback; the two tram/rail layouts add ≈6 s), and the runtime placement stays
+  within the earlier 3.5–4.7 s range because the support grid replaces the all-pairs test. New poles carry S-1
+  heads only; their footprints and player colliders are registered before controllers are built and their shafts
+  get a runtime instanced mesh. The furnished-grid regression rebuilds the road and pedestrian networks with the
+  new footprints and compares all lanes, crossings, and route segments and connections near each new pole.
   An earlier exhaustive comparison also found all route segments unchanged. The audit fixture omits building,
   landmark and bridge colliders; the browser passes them, so actual placements and counts may differ. Browser
   appearance and visibility remain unverified.

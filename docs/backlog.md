@@ -39,20 +39,20 @@ Implementation details and completed measurements live in the [topic docs](../AG
   fallback corridor and 32 m `FALLBACK_MAX` stay; a 40/48 m limit adds only 6/7 ends. The dead-end guard still covers sidewalk-track landings. Still open: a production full-scene count (the
   benchmark omits landmark/bridge colliders and city-grid curbs).
   [Routing observations](observations/ped-overlaps-2026-11-05.md#follow-up-2026-11-07-kerb-tracks-on-tram-cut-islands).
-- **Other missing signal heads (15.5):** the overhead fallback now serves 32 of the 75 historical Category C
-  approaches from 10 new 6.2 m masts and 22 reused signal poles (arm ≤ 11.717 m, mean 8.819 m); the audit is
-  114/0/43/10 after placement (65/75 B/C before; the kerb tracks moved 9 approaches from B to C against the stage-2
-  74/66 split). The arm, head and foot
-  keep 2.22 m from every track axis at 0.5 m samples, and the
-  foot keeps a conservative 3.1 m from every track (above the 1.75 m tram-pole and 2.6 m railway-mast setbacks);
-  the built tram and railway layouts put every arm, foot and head at least 7.26 m from a pole or mast. Three
-  first-pass arms crossed a tram envelope and are rejected. 17 heads reach the stricter ≥ 10.5 m band and one more the
-  ≥ 8 m band; 14 use the stop-line fallback (12 at 1.75 m past P-14, one reused pole at 0.03 m and one at −0.82 m).
-  A 0.5 × 0.4 m sweep of the −15…−8 m corridor found 12,510 candidate mast feet, none clear; the closest existing support was 12.96 m
-  from an −8 m head, so no fallback head can reach either band without a gantry or span wire. The remaining 43 have no
-  clear mast foot within 12 m or no support in the −15…+10 m approach band. Run `node tools/audit-signal-heads.mjs` with
-  attention to the fixture's missing building, landmark and bridge colliders; browser counts can differ.
-  [Signal placement](world.md#street-furniture-street-detailsjs).
+- **Other missing signal heads (15.5):** the widened overhead search and the new span-wire fallback now serve 74
+  approaches: 48 cantilever heads (16 new 6.2 m masts, 32 reused poles) and 26 span heads (25 new 10 m masts,
+  26 reused anchors; 18 span heads use at least one new mast and 8 sit entirely on existing poles). The furnished
+  audit is **156/0/1/10** after placement (from 114/0/43/10), and vehicle heads rise **1,001 → 1,043**. The span
+  stays meet 10 m above the head, above the 7.6 m tram poles, 9.6 m railway portal masts and 8.9 m portal beams;
+  every foot, head and cantilever arm keeps **3.1 m** from the real tram poles and railway masts (checked in
+  `tests/signal-placement.test.cjs`), the head and anchors keep **2.22 m** from every track axis, and a new span
+  mast keeps 3.1 m from every track. The head may slide up to 1.5 m across its lane to clear a track. One C remains
+  at **Górna Wilda** (`-448.8, 947.4`, approach `0.480, -0.877`): its only nearby signal pole is 14.5 m away and
+  the first clear ground lies 46–52 m past the stop line, with no second anchor that keeps the 3.1 m support
+  clearance; it needs a site-specific span from the tram traction poles or a gantry on the far side. Run
+  `node tools/audit-signal-heads.mjs`; the fixture omits building, landmark and bridge colliders.
+  [Measurements](observations/missing-signal-heads-2026-11-08.md),
+  [placement](world.md#street-furniture-street-detailsjs).
 - **Building accuracy (4.4, 7):** the Fara front gable/cross and the Teatr Wielki portico/Pegasus now use GUGiK
   NMPT − NMT sub-heights; only the four Fara niche statues (below the 1 m DSM resolution) remain visual estimates.
   [Height audit](observations/landmark-heights-2026-11-03.md#2026-11-07--refined-fara-and-teatr-sub-heights).

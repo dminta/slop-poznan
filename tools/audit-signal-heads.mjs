@@ -35,14 +35,26 @@ const gridModule = loadModule(source('city-grid') +
 const grid = gridModule.buildCityGrid(inert());
 const liveGrid = { ...gridModule, ...gridModule.snapshot() };
 const audit = {};
-const streetSource = source('street-details').replace('  function addRuntimeSignalHeads(network, pedRoutes = null) {',
-  '  Object.assign(audit, { signalArmPoles, vehicleHeadSites });\n  function addRuntimeSignalHeads(network, pedRoutes = null) {');
+const streetSource = source('street-details').replace(
+  '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null) {',
+  '  Object.assign(audit, { signalArmPoles, vehicleHeadSites });\n' +
+  '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null) {');
 const street = loadModule(streetSource, { imports: { ...rendering, './city-config.js': config,
   './road-network.js': road, './city-grid.js': liveGrid, './trees.js': { createTreeField: () => ({ group: inert() }) } },
   globals: { ...globals, audit } }).buildStreetDetails(inert());
 const network = road.buildRoadNetwork(grid.sidewalks, [...grid.footprints, ...street.footprints]);
 const { createPedestrianRoutes } = loadModule(source('pedestrian-routes'), { imports: { './road-network.js': road }, globals });
 const pedRoutes = createPedestrianRoutes(network, config.blockAt, gridModule.railClearance);
+const before = process.argv.includes('--before');
+let supports = null;
+if (!before) {
+  const tramInfra = loadModule(source('tram-infra'), {
+    imports: { ...rendering, './geodata.js': { GEO }, './city-config.js': config }, globals
+  });
+  const tramLayout = tramInfra.layoutTramInfrastructure(network);
+  const railLayout = tramInfra.layoutRailInfrastructure(network);
+  supports = [...tramLayout.poles, ...railLayout.masts];
+}
 const configure = source('traffic').match(/  function configureSignals\([^]*?\n  \}/)[0];
 // Preserve the original audit's pre-configuration population, including subsequently disabled nodes.
 const initial = [];
@@ -65,8 +77,7 @@ for (const node of network.nodes) {
 vm.runInNewContext(`(${configure})`, { nodes: network.nodes, pedRoutes, KERB: 1.6, signalNodes: [],
   configurePedestrianSignal: config.configurePedestrianSignal, configureSignalClearance: config.configureSignalClearance })();
 street.addRuntimeSignalHeads(network);
-const before = process.argv.includes('--before');
-if (!before) street.addRuntimeSignalHeads(network, pedRoutes);
+if (!before) street.addRuntimeSignalHeads(network, pedRoutes, supports);
 const analysis = street.auditRuntimeSignalHeads(network, pedRoutes);
 const byEdge = new Map(analysis.entries.map((entry) => [entry.edge, entry]));
 const counts = { A: 0, B: 0, C: 0, D: 0 };
@@ -105,9 +116,14 @@ const alongOf = (h) => {
   return (h.p.x - x) * e.dx + (h.p.z - z) * e.dz;
 };
 const overhead = street.runtimeHeads.filter((h) => h.overhead);
-const fallback = overhead.filter((h) => !h.band);
+const span = overhead.filter((h) => h.span);
+const cantilever = overhead.filter((h) => !h.span);
+const fallback = cantilever.filter((h) => !h.band);
+const spanFallback = span.filter((h) => !h.band);
 const fallbackAlong = fallback.map(alongOf);
-const armLengths = overhead.map((h) => Math.hypot(h.pole.x - h.p.x, h.pole.z - h.p.z));
+const spanFallbackAlong = spanFallback.map(alongOf);
+const armLengths = cantilever.map((h) => Math.hypot(h.pole.x - h.p.x, h.pole.z - h.p.z));
+const spanLengths = span.map((h) => Math.max(...h.anchors.map((p) => Math.hypot(p.x - h.p.x, p.z - h.p.z))));
 const armRail = (h) => {
   const arm = Math.hypot(h.pole.x - h.p.x, h.pole.z - h.p.z);
   const steps = Math.max(1, Math.ceil(arm / 0.5));
@@ -118,7 +134,7 @@ const armRail = (h) => {
   }
   return min;
 };
-// How close an existing signal pole would come to a head at the 8 m band: the 15 fallback heads keep the support
+// How close an existing signal pole would come to a head at the 8 m band: the fallback heads keep the support
 // position because this distance exceeds the 12 m arm.
 const supportDistance = (h) => {
   const e = h.edge, x = e.sx + e.dx * e.len, z = e.sz + e.dz * e.len;
@@ -135,6 +151,17 @@ const supportDistance = (h) => {
   }
   return min;
 };
+const spanAnchors = new Map();
+for (const h of span) h.anchors.forEach((p, i) => {
+  const k = `${p.x.toFixed(3)},${p.z.toFixed(3)}`;
+  spanAnchors.set(k, { p, existing: h.anchorExisting[i] });
+});
+const spanNewFeet = [...spanAnchors.values()].filter((a) => !a.existing).map((a) => a.p);
+const cantileverNewFeet = cantilever.filter((h) => !h.existing).map((h) => h.pole);
+const newFeet = [...spanNewFeet, ...cantileverNewFeet];
+const cantileverPoles = new Set(cantileverNewFeet
+  .map((p) => `${p.x.toFixed(3)},${p.z.toFixed(3)}`)).size;
+const spanNewHeads = span.filter((h) => h.anchorExisting.some((existing) => !existing)).length;
 console.log(JSON.stringify({ counts, total: initial.length, vehicleHeads: street.vehicleHeads,
   pedestrianHeads: street.audioSignals.length, runtimePoles: street.runtimeHeads.filter((h) => !h.existing).length,
   reusedPoles: street.runtimeHeads.filter((h) => h.existing).length,
@@ -146,13 +173,29 @@ console.log(JSON.stringify({ counts, total: initial.length, vehicleHeads: street
   overheadException: fallback.length,
   overheadFallbackAlong: fallbackAlong.map((v) => Number(v.toFixed(3))),
   overheadFallbackSupportMin: fallback.length ? Number(Math.min(...fallback.map(supportDistance)).toFixed(3)) : null,
-  overheadArmMax: overhead.length ? Number(Math.max(...armLengths).toFixed(4)) : null,
-  overheadArmMean: overhead.length
+  overheadArmMax: armLengths.length ? Number(Math.max(...armLengths).toFixed(4)) : null,
+  overheadArmMean: armLengths.length
     ? Number((armLengths.reduce((sum, v) => sum + v, 0) / armLengths.length).toFixed(4)) : null,
+  spanHeads: span.length,
+  spanPoles: new Set(spanNewFeet.map((p) => `${p.x.toFixed(3)},${p.z.toFixed(3)}`)).size,
+  spanReused: [...spanAnchors.values()].filter((a) => a.existing).length,
+  spanNewHeads,
+  spanExistingHeads: span.length - spanNewHeads,
+  cantileverPoles,
+  spanStrict: span.filter((h) => h.strict).length,
+  spanBand: span.filter((h) => h.band).length,
+  spanException: spanFallback.length,
+  spanFallbackAlong: spanFallbackAlong.map((v) => Number(v.toFixed(3))),
+  spanLengthMax: spanLengths.length ? Number(Math.max(...spanLengths).toFixed(4)) : null,
+  spanLengthMean: spanLengths.length
+    ? Number((spanLengths.reduce((sum, v) => sum + v, 0) / spanLengths.length).toFixed(4)) : null,
   pedestrianApproaches: analysis.entries.filter((entry) => entry.node.signalTiming &&
     entry.node.signalTiming.pedestrian && !entry.node.signalTiming.disabled)
     .map((entry) => ({ node: [entry.node.x, entry.node.z], class: entry.class })),
-  overheadFootRailMin: overhead.length ? Math.min(...overhead.map((h) =>
-    gridModule.railClearance(h.pole.x, h.pole.z, 20))) : null,
-  overheadArmRailMin: overhead.length ? Math.min(...overhead.map(armRail)) : null,
+  overheadFootRailMin: newFeet.length ? Math.min(...newFeet.map((p) =>
+    gridModule.railClearance(p.x, p.z, 20))) : null,
+  overheadArmRailMin: cantilever.length ? Math.min(...cantilever.map((h) =>
+    armRail(h))) : null,
+  spanHeadRailMin: span.length ? Math.min(...span.map((h) =>
+    gridModule.railClearance(h.p.x, h.p.z, 20))) : null,
   placements: street.runtimeHeads.map((h) => [h.node.x, h.node.z, h.p.x, h.p.z, h.existing]) }));

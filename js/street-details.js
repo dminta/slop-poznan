@@ -536,6 +536,14 @@ function buildStreetDetails(scene, opts = {}) {
   const OVERHEAD_ARM_Y = 5.55;
   const OVERHEAD_ARM_R = 0.045;
   const OVERHEAD_REACH = 12;
+  // A span wire hangs the head from two stays that meet above it. The stays run at 10 m, above the 7.6 m tram
+  // poles, 9.6 m railway portal masts and 8.9 m portal beams, so they may cross a track; only the head and the
+  // vertical drop below them need the 2.22 m horizontal track clearance. Two 10 m masts (or sleeves on reused 4.2 m
+  // poles) carry the stays.
+  const SPAN_Y = 10;
+  const SPAN_MAST_H = 10;
+  const SPAN_REACH = 55;
+  const SPAN_WIRE_R = 0.018;
   const armDir = new THREE.Vector3();
   const armUp = new THREE.Vector3(0, 1, 0);
   const armQuat = new THREE.Quaternion();
@@ -552,33 +560,44 @@ function buildStreetDetails(scene, opts = {}) {
   }
   // Thicker mast for an overhead head: the same footprint/collider machinery, a taller shaft and a horizontal arm
   // reaching over the arriving lane. Only the foot is a player obstacle; the arm and head clear all road users.
-  function addOverheadPole(p) {
+  function addOverheadPole(p, height = OVERHEAD_MAST_H) {
     addPole(p);
     addFootprint(p.x, p.z, 0.36, 0.36, 'signal');
-    addCollider(p.x, p.z, 0.1, 0.1, 0.1 + OVERHEAD_MAST_H);
-    dummy.position.set(p.x, 0.1 + OVERHEAD_MAST_H / 2, p.z);
+    addCollider(p.x, p.z, 0.1, 0.1, 0.1 + height);
+    dummy.position.set(p.x, 0.1 + height / 2, p.z);
     dummy.rotation.set(0, 0, 0);
-    dummy.scale.set(0.08, OVERHEAD_MAST_H, 0.08);
+    dummy.scale.set(0.08, height, 0.08);
     dummy.updateMatrix();
     signalPoleMatrices.push(dummy.matrix.clone());
+  }
+  function addRod(from, to, radius) {
+    const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z, len = Math.hypot(dx, dy, dz);
+    if (len < 0.05) return;
+    armDir.set(dx / len, dy / len, dz / len);
+    armQuat.setFromUnitVectors(armUp, armDir);
+    dummy.position.set((from.x + to.x) / 2, (from.y + to.y) / 2, (from.z + to.z) / 2);
+    dummy.quaternion.copy(armQuat);
+    dummy.scale.set(radius, len, radius);
+    dummy.updateMatrix();
+    signalPoleMatrices.push(dummy.matrix.clone());
+    dummy.rotation.set(0, 0, 0);
   }
   function addSignalArm(p, head) {
-    const dx = head.x - p.x, dz = head.z - p.z, len = Math.hypot(dx, dz);
-    if (len < 0.05) return;
-    armDir.set(dx / len, 0, dz / len);
-    armQuat.setFromUnitVectors(armUp, armDir);
-    dummy.position.set((p.x + head.x) / 2, OVERHEAD_ARM_Y, (p.z + head.z) / 2);
-    dummy.quaternion.copy(armQuat);
-    dummy.scale.set(OVERHEAD_ARM_R, len, OVERHEAD_ARM_R);
-    dummy.updateMatrix();
-    signalPoleMatrices.push(dummy.matrix.clone());
-    dummy.rotation.set(0, 0, 0);
+    addRod({ x: p.x, y: OVERHEAD_ARM_Y, z: p.z }, { x: head.x, y: OVERHEAD_ARM_Y, z: head.z }, OVERHEAD_ARM_R);
+  }
+  // Two stays from the anchor tops to a point above the head, plus the vertical drop to the S-1 centre. The stays
+  // stay above the tram contact wire; the drop is over a real lane and keeps 2.22 m from every track axis.
+  function addSpanWires(a, b, head) {
+    const top = { x: head.x, y: SPAN_Y, z: head.z };
+    addRod({ x: a.x, y: SPAN_MAST_H, z: a.z }, top, SPAN_WIRE_R);
+    addRod({ x: b.x, y: SPAN_MAST_H, z: b.z }, top, SPAN_WIRE_R);
+    addRod(top, { x: head.x, y: OVERHEAD_Y + 0.05, z: head.z }, SPAN_WIRE_R);
   }
   // A reused 4.2 m signal pole needs a sleeve up to the 5.55 m arm; the existing footing and collider stay as they are.
-  function addMastExtension(p) {
-    dummy.position.set(p.x, 4.1 + (OVERHEAD_MAST_H - 4.1) / 2, p.z);
+  function addMastExtension(p, height = OVERHEAD_MAST_H) {
+    dummy.position.set(p.x, 4.1 + (height - 4.1) / 2, p.z);
     dummy.rotation.set(0, 0, 0);
-    dummy.scale.set(0.06, OVERHEAD_MAST_H - 4.1, 0.06);
+    dummy.scale.set(0.06, height - 4.1, 0.06);
     dummy.updateMatrix();
     signalPoleMatrices.push(dummy.matrix.clone());
   }
@@ -1746,8 +1765,28 @@ function buildStreetDetails(scene, opts = {}) {
 
   // Shared by the diagnostic audit and boot-time placement. Clearance is conservative: a pole's 0.3 m square
   // is expanded by the exact margins used by lane, curve and pedestrian checks when the network is rebuilt.
-  function auditRuntimeSignalHeads(network, pedRoutes, place = false) {
+  function auditRuntimeSignalHeads(network, pedRoutes, place = false, supports = null) {
     const heads = [], entries = [], cell = 16, headReach = 30;
+    // The tram/rail supports are only needed for span anchors and heads, but checking every support for every
+    // sampled foot is quadratic; a 8 m bucket grid keeps each test to the few supports within 3.1 m.
+    const supportCell = 8;
+    const supportCells = supports ? new Map() : null;
+    if (supportCells) for (const s of supports) {
+      const k = (Math.floor(s.x / supportCell) + 4096) * 8192 + (Math.floor(s.z / supportCell) + 4096);
+      const list = supportCells.get(k);
+      if (list) list.push(s);
+      else supportCells.set(k, [s]);
+    }
+    const supportClear = (px, pz) => {
+      if (!supportCells) return true;
+      const i = Math.floor(px / supportCell), j = Math.floor(pz / supportCell);
+      for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+        const list = supportCells.get((i + di + 4096) * 8192 + (j + dj + 4096));
+        if (!list) continue;
+        for (const s of list) if (Math.hypot(px - s.x, pz - s.z) < 3.1) return false;
+      }
+      return true;
+    };
     const key = (x, z) => `${Math.floor(x / cell)},${Math.floor(z / cell)}`;
     const index = () => new Map();
     const file = (map, item, minX, maxX, minZ, maxZ) => {
@@ -1761,6 +1800,7 @@ function buildStreetDetails(scene, opts = {}) {
     };
     const lookup = (map, x, z) => map.get(key(x, z)) || [];
     const curves = index(), lanes = index(), crossings = index(), buildings = index(), overhead = index();
+    const highOverhead = index();
     for (const n of network.nodes) for (const e of n.in) for (const move of e.moves) {
       for (let i = 0; i < move.out.length; i++) {
         const j = move.out[i];
@@ -1805,6 +1845,11 @@ function buildStreetDetails(scene, opts = {}) {
     for (const c of buildingColliders) {
       if ((c.minY ?? 0) > OVERHEAD_ARM_Y + 0.6 || (c.maxY ?? Infinity) < OVERHEAD_ARM_Y - 0.6) continue;
       file(overhead, c, c.minX - 0.15, c.maxX + 0.15, c.minZ - 0.15, c.maxZ + 0.15);
+    }
+    // Span-wire stays run at 10 m, so check the tall colliders that the 5.55 m arm index filters out.
+    for (const c of buildingColliders) {
+      if ((c.minY ?? 0) > SPAN_MAST_H + 0.3 || (c.maxY ?? Infinity) < SPAN_Y - 0.6) continue;
+      file(highOverhead, c, c.minX - 0.15, c.maxX + 0.15, c.minZ - 0.15, c.maxZ + 0.15);
     }
     // Segment intersects a square around the candidate (the rectangle query used by walkable/pathClear).
     const intersects = (s, x, z) => {
@@ -1904,8 +1949,20 @@ function buildStreetDetails(scene, opts = {}) {
           const steps = Math.max(1, Math.ceil(len / 0.5));
           for (let i = 0; i <= steps; i++) {
             const px = from.x + dx * i / steps, pz = from.z + dz * i / steps;
-            if (!clearOfRails(px, pz, 0.22)) return false;
+            if (!clearOfRails(px, pz, 0.22) || !supportClear(px, pz)) return false;
             if (lookup(overhead, px, pz).some((c) => px >= c.minX - 0.15 && px <= c.maxX + 0.15 &&
+              pz >= c.minZ - 0.15 && pz <= c.maxZ + 0.15)) return false;
+          }
+          return true;
+        };
+        // A span stay is above the contact wire, so only tall walls and bridge decks matter; the drop to the head
+        // still samples the 5.55 m index.
+        const wireClear = (from, to, high) => {
+          const dx = to.x - from.x, dz = to.z - from.z, len = Math.hypot(dx, dz);
+          const steps = Math.max(1, Math.ceil(len / 0.5));
+          for (let i = 0; i <= steps; i++) {
+            const px = from.x + dx * i / steps, pz = from.z + dz * i / steps;
+            if (lookup(high, px, pz).some((c) => px >= c.minX - 0.15 && px <= c.maxX + 0.15 &&
               pz >= c.minZ - 0.15 && pz <= c.maxZ + 0.15)) return false;
           }
           return true;
@@ -1928,14 +1985,13 @@ function buildStreetDetails(scene, opts = {}) {
             return { x: x + edge.dx * t + edge.rx * lane, z: z + edge.dz * t + edge.rz * lane, along: t };
           };
           // Keep the mast foot 3.1 m from every track as a conservative buffer above the 1.75 m tram-pole and
-          // 2.6 m railway-mast setbacks. The later layouts cannot be read here; signal-placement.test.cjs builds
-          // them and checks every arm, foot and head against the real poles and masts (closest 7.26 m).
-          const mastClear = (px, pz) => clearOfRails(px, pz, 1.1);
+          // 2.6 m railway-mast setbacks, and 3.1 m from the real tram poles and railway masts handed in by main.js.
+          const mastClear = (px, pz) => clearOfRails(px, pz, 1.1) && supportClear(px, pz);
           const search = (maxAlong, band, strict = false) => {
             let best = null;
             for (const record of signalArmPoles.values()) for (const item of record.poles) {
               const p = item.p, along = (p.x - x) * edge.dx + (p.z - z) * edge.dz;
-              if (along < -15 || along > 10 || !mastClear(p.x, p.z)) continue;
+              if (along < -30 || along > 20 || !mastClear(p.x, p.z)) continue;
               const lat = (p.x - x) * edge.rx + (p.z - z) * edge.rz;
               const target = targetFor(along, lat, maxAlong);
               const reach = Math.hypot(p.x - target.x, p.z - target.z);
@@ -1945,8 +2001,8 @@ function buildStreetDetails(scene, opts = {}) {
               if (!armClear(p, target)) continue;
               best = { foot: p, existing: true, reach, score, target, band, strict };
             }
-            for (let along = -15; along <= 10; along += 1) {
-              for (let lat = -edge.half - OVERHEAD_REACH; lat <= edge.half + OVERHEAD_REACH; lat += 0.8) {
+            for (let along = -30; along <= 20; along += 1) {
+              for (let lat = -edge.half - 24; lat <= edge.half + 24; lat += 0.8) {
                 const px = x + edge.dx * along + edge.rx * lat;
                 const pz = z + edge.dz * along + edge.rz * lat;
                 const target = targetFor(along, lat, maxAlong);
@@ -1963,6 +2019,88 @@ function buildStreetDetails(scene, opts = {}) {
           if (!band) return search(STOP_SETBACK, false);
           if (band.target.along <= -10.5 + 1e-6) return { ...band, strict: true };
           return search(-10.5, true, true) || band;
+        };
+        // When no 12 m cantilever reaches a visibility band, hang the head from two stays. A span can use existing
+        // signal poles or new 10 m masts up to 55 m away, which covers the wider corners the ground and cantilever
+        // searches miss; the stays meet above the head and stay above the traction poles. The head itself still sits
+        // over a real lane and keeps 2.22 m from every track axis.
+        const findSpan = () => {
+          // The task keeps every span foot and head 3.1 m from a traction pole. The tram/rail layouts are built
+          // after the network, so main.js hands their poles and masts in; without them (a bare fixture) the 3.1 m
+          // track buffer below is the conservative stand-in.
+          const newFootClear = (px, pz) => clearOfRails(px, pz, 1.1) && supportClear(px, pz);
+          const existingFootClear = (px, pz) => clearOfRails(px, pz, 0.22) && supportClear(px, pz);
+          const headClear = (px, pz) => clearOfRails(px, pz, 0.22) && supportClear(px, pz);
+          const mastClear = newFootClear;
+          const feet = [];
+          for (let along = -40; along <= 60; along += 1.5) {
+            for (let lat = -40; lat <= 40; lat += 1.5) {
+              const px = x + edge.dx * along + edge.rx * lat;
+              const pz = z + edge.dz * along + edge.rz * lat;
+              if (Math.hypot(px - x, pz - z) > 70 || !mastClear(px, pz)) continue;
+              if (failures(px, pz, true).length) continue;
+              feet.push({ p: { x: px, z: pz }, lat, existing: false });
+            }
+          }
+          const poles = [];
+          for (const record of signalArmPoles.values()) for (const item of record.poles) {
+            if (existingFootClear(item.p.x, item.p.z)) poles.push(item.p);
+          }
+          const pick = (target, lane) => {
+            const list = [];
+            for (const p of poles) {
+              const d = Math.hypot(p.x - target.x, p.z - target.z);
+              if (d <= SPAN_REACH) list.push({ p, d, lat: (p.x - x) * edge.rx + (p.z - z) * edge.rz, existing: true });
+            }
+            for (const foot of feet) {
+              const d = Math.hypot(foot.p.x - target.x, foot.p.z - target.z);
+              if (d <= SPAN_REACH) list.push({ p: foot.p, d, lat: foot.lat, existing: false });
+            }
+            if (list.length < 2) return null;
+            const cost = (item) => item.d + (item.existing ? 0 : 0.4);
+            list.sort((a, b) => cost(a) - cost(b));
+            const left = list.filter((item) => item.lat < lane - 0.5).slice(0, 8);
+            const right = list.filter((item) => item.lat > lane + 0.5).slice(0, 8);
+            const pairs = [];
+            const add = (a, b, extra) => {
+              if (Math.hypot(a.p.x - b.p.x, a.p.z - b.p.z) <= 2) return;
+              pairs.push({ a, b, score: cost(a) + cost(b) + extra });
+            };
+            for (const a of left) for (const b of right) add(a, b, 0);
+            const top = list.slice(0, 12);
+            for (let i = 0; i < top.length; i++) for (let j = i + 1; j < top.length; j++) add(top[i], top[j], 8);
+            pairs.sort((a, b) => a.score - b.score);
+            const topPoint = { x: target.x, y: SPAN_Y, z: target.z };
+            for (const pair of pairs.slice(0, 24)) {
+              const { a, b } = pair;
+              if (!wireClear(a.p, a.p, highOverhead) || !wireClear(b.p, b.p, highOverhead) ||
+                !wireClear(a.p, topPoint, highOverhead) || !wireClear(b.p, topPoint, highOverhead) ||
+                !wireClear(topPoint, target, overhead)) continue;
+              return { target, anchors: [a, b], band: true, strict: false };
+            }
+            return null;
+          };
+          for (const [along, band, strict] of [[-10.5, true, true], [-8, true, false], [1.75, false, false]]) {
+            let best = null;
+            for (const lane of edge.lanes) {
+              // A tram in the lane's centre may leave no 2.22 m spot at the lane axis. Slide the head across the
+              // lane envelope until it clears the tracks; it still hangs over the same lane.
+              for (const shift of [0, -0.5, 0.5, -1, 1, -1.5, 1.5]) {
+                const lat = lane + shift;
+                if (Math.abs(lat) > 15) continue;
+                const target = { x: x + edge.dx * along + edge.rx * lat, z: z + edge.dz * along + edge.rz * lat, along };
+                if (!headClear(target.x, target.z)) continue;
+                const site = pick(target, lat);
+                if (!site) continue;
+                site.band = band;
+                site.strict = strict;
+                const score = site.anchors[0].d + site.anchors[1].d;
+                if (!best || score < best.score) { best = site; best.score = score; }
+              }
+            }
+            if (best) return best;
+          }
+          return null;
         };
         // The first clear sample is placed, so the order is the preference: near, narrow sites first, then wider offsets,
         // then further back, where the head is harder to see from the stop line. Placing stops at the first failed
@@ -2004,20 +2142,41 @@ function buildStreetDetails(scene, opts = {}) {
         }
         if (!pole && !candidates.length) {
           const overheadSite = findOverhead();
-          if (!overheadSite) continue;
-          if (!overheadSite.existing) addOverheadPole(overheadSite.foot);
-          else addMastExtension(overheadSite.foot);
-          addSignalArm(overheadSite.foot, overheadSite.target);
+          if (overheadSite) {
+            if (!overheadSite.existing) addOverheadPole(overheadSite.foot);
+            else addMastExtension(overheadSite.foot);
+            addSignalArm(overheadSite.foot, overheadSite.target);
+            const site = { timing: node.signalTiming }, group0 = edge.axisIndex === 0;
+            const a = { ux: -edge.dx, uz: -edge.dz, w: edge.half * 2, lanes: edge.lanes.length };
+            const target = overheadSite.target;
+            const m = setFacing(target.x + a.ux * 0.18, OVERHEAD_Y, target.z + a.uz * 0.18, a.ux, a.uz);
+            const head = { site, a, p: target, group0, existing: overheadSite.existing, node, edge,
+              overhead: true, pole: overheadSite.foot, m, band: overheadSite.band, strict: overheadSite.strict };
+            heads.push(head);
+            vehicleHeadSites.push(head);
+            entry.class = 'B';
+            entry.candidate = { x: target.x, z: target.z, side: 0, overhead: true };
+            continue;
+          }
+          const spanSite = findSpan();
+          if (!spanSite) continue;
+          for (const anchor of spanSite.anchors) {
+            if (anchor.existing) addMastExtension(anchor.p, SPAN_MAST_H);
+            else addOverheadPole(anchor.p, SPAN_MAST_H);
+          }
+          addSpanWires(spanSite.anchors[0].p, spanSite.anchors[1].p, spanSite.target);
           const site = { timing: node.signalTiming }, group0 = edge.axisIndex === 0;
           const a = { ux: -edge.dx, uz: -edge.dz, w: edge.half * 2, lanes: edge.lanes.length };
-          const target = overheadSite.target;
+          const target = spanSite.target;
           const m = setFacing(target.x + a.ux * 0.18, OVERHEAD_Y, target.z + a.uz * 0.18, a.ux, a.uz);
-          const head = { site, a, p: target, group0, existing: overheadSite.existing, node, edge,
-            overhead: true, pole: overheadSite.foot, m, band: overheadSite.band, strict: overheadSite.strict };
+          const head = { site, a, p: target, group0, existing: spanSite.anchors.every((anchor) => anchor.existing),
+            node, edge, overhead: true, span: true, pole: spanSite.anchors[0].p,
+            anchors: spanSite.anchors.map((anchor) => anchor.p),
+            anchorExisting: spanSite.anchors.map((anchor) => anchor.existing), m, band: spanSite.band, strict: spanSite.strict };
           heads.push(head);
           vehicleHeadSites.push(head);
           entry.class = 'B';
-          entry.candidate = { x: target.x, z: target.z, side: 0, overhead: true };
+          entry.candidate = { x: target.x, z: target.z, side: 0, overhead: true, span: true };
           continue;
         }
         const p = pole || candidates[0];
@@ -2034,7 +2193,7 @@ function buildStreetDetails(scene, opts = {}) {
 
   // Some mapped one-way arms acquire an incoming lane only after the network merges and centres the roads. Reuse
   // the left pole that the ordinary search already placed; the network, pedestrian routes and furniture stay fixed.
-  function addRuntimeSignalHeads(network, pedRoutes = null) {
+  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null) {
     const matrices = [], ave = [], street = [], backplates = [], aveIndices = [], streetIndices = [];
     const planRoot = (plan) => {
       while (plan && plan.alias) plan = plan.alias;
@@ -2080,7 +2239,7 @@ function buildStreetDetails(scene, opts = {}) {
     }
     if (pedRoutes) {
       const poleStart = signalPoleMatrices.length;
-      const additions = auditRuntimeSignalHeads(network, pedRoutes, true);
+      const additions = auditRuntimeSignalHeads(network, pedRoutes, true, supports);
       result.runtimeHeads.push(...additions.heads);
       for (const head of additions.heads) {
         const { site, a, p, group0 } = head;

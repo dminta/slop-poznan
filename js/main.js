@@ -13,7 +13,7 @@ import { buildStreetDetails, plateLabel } from './street-details.js';
 import { createTrafficSystem } from './traffic.js';
 import { createTramSystem } from './trams.js';
 import { buildRoadPaint } from './road-paint.js';
-import { buildTramInfrastructure } from './tram-infra.js';
+import { buildTramInfrastructure, layoutTramInfrastructure, layoutRailInfrastructure } from './tram-infra.js';
 import { ThirdPersonControllerManager } from './controllers.js';
 import { TouchControls } from './touch-controls.js';
 import { GamepadControls } from './gamepad-controls.js';
@@ -111,7 +111,10 @@ async function initApp() {
     ...streetDetails.footprints,
     ...allColliders.filter((c) => !c.obb && (c.minY ?? 0) < 3.5)
   ], streetDetails.roadNetwork, buildingColliders);
-  streetDetails.addRuntimeSignalHeads(trafficSystem.network, trafficSystem.pedestrianRoutes);
+  const tramLayout = layoutTramInfrastructure(trafficSystem.network);
+  const railLayout = layoutRailInfrastructure(trafficSystem.network);
+  const signalSupports = [...tramLayout.poles, ...railLayout.masts];
+  streetDetails.addRuntimeSignalHeads(trafficSystem.network, trafficSystem.pedestrianRoutes, signalSupports);
   markInit('traffic');
   // The street furniture's player colliders join only now: its footprints already went to the network above
   allColliders.push(...streetDetails.colliders);
@@ -122,7 +125,7 @@ async function initApp() {
   // Rails, overhead line and stops, placed clear of the car lanes just built (none of it is a traffic obstacle);
   // the player collides with the poles and stop furniture; with the mainline railway's masts, end walls and fence too,
   // and its corridor (tramInfra.railCorridor) is a keep-out for the ground modes
-  const tramInfra = buildTramInfrastructure(scene, trafficSystem.network);
+  const tramInfra = buildTramInfrastructure(scene, trafficSystem.network, { tram: tramLayout, rail: railLayout });
   allColliders.push(...tramInfra.colliders);
   markInit('tramInfra');
   // Trams on the GEO.rail track graph, stopping at tramInfra's platforms and held at the road network's signals. They
