@@ -2483,6 +2483,10 @@ function createTrafficSystem(
   const PED_BRAKE = 1.6; // m/s^2 easing to a stop
   const TURN_TIME = 0.85; // s turning round at the end of the track
   const PED_STUCK_TIME = 20; // s standing with no legitimate wait before the ped is re-placed elsewhere
+  // A body that cannot be re-placed while the camera sees it used to wait for the camera to look away; a player who
+  // stands still at a knot kept it in view forever. Past PED_STUCK_VIEW_TIME the view no longer postpones the
+  // re-placement: spawnPed still chooses the new spot out of view, so the visible pop happens once, not every frame.
+  const PED_STUCK_VIEW_TIME = 30;
   const PED_LANE_RAMP = 1.5; // m at each track end where the direction inset fades out
   const PED_LANE_RATE = 1.5; // m/s largest lateral move while easing into or out of an inset lane
   const walkedNodes = [];
@@ -2492,6 +2496,36 @@ function createTrafficSystem(
   const routePeds = new Map();
   const routeLists = [];
   const NO_PEDS = [];
+  // Placed peds in 2 m cells, rebuilt in the same pass. One physical corridor can carry several route objects under
+  // different keys (a corner link, a projection sub-track, a wide-corner connector); the line list cannot see those,
+  // so the entry and conversation checks also scan this world index. 3x3 cells cover the lookahead at any heading.
+  // The map and its lists are reused; keys are integers so no string is allocated per ped per frame.
+  const PED_CELL = 2;
+  const pedCells = new Map();
+  const pedCellLists = [];
+  function filePedCell(p) {
+    const key = Math.floor(p.x / PED_CELL) * 100000 + Math.floor(p.z / PED_CELL);
+    let list = pedCells.get(key);
+    if (!list) pedCells.set(key, list = []);
+    if (!list.length) pedCellLists.push(list);
+    list.push(p);
+  }
+  // Is any placed body (but `skipA`/`skipB`) within `radius` of (x, z)? Used by the conversation check, where every
+  // body counts: the two partners need a body width of clear space around both.
+  function pedNear(x, z, radius, skipA = null, skipB = null) {
+    const r2 = radius * radius;
+    const ix = Math.floor(x / PED_CELL), iz = Math.floor(z / PED_CELL);
+    for (let cx = ix - 1; cx <= ix + 1; cx++) {
+      for (let cz = iz - 1; cz <= iz + 1; cz++) {
+        for (const q of pedCells.get(cx * 100000 + cz) || NO_PEDS) {
+          if (q === skipA || q === skipB || !q.placed) continue;
+          const dx = q.x - x, dz = q.z - z;
+          if (dx * dx + dz * dz < r2) return true;
+        }
+      }
+    }
+    return false;
+  }
   // Lines, not route objects: one physical line can carry several route objects (the two directed edges of a two-way
   // street, one corner link per pair of tracks). Keyed by that line, they queue together; the world heading decides
   // who follows whom, so the two directions still pass each other. The string key is made once per route, not per frame.
@@ -2513,17 +2547,30 @@ function createTrafficSystem(
     }
     return key;
   }
+  function fileRoutePed(p) {
+    const key = routeKey(p.route);
+    let list = routePeds.get(key);
+    if (!list) routePeds.set(key, list = []);
+    if (!list.length) routeLists.push(list);
+    list.push(p);
+  }
   function indexRoutePeds() {
     for (const list of routeLists) list.length = 0;
     routeLists.length = 0;
+    for (const list of pedCellLists) list.length = 0;
+    pedCellLists.length = 0;
     for (const p of peds) {
-      if (!p.placed || !p.route) continue;
-      const key = routeKey(p.route);
-      let list = routePeds.get(key);
-      if (!list) routePeds.set(key, list = []);
-      if (!list.length) routeLists.push(list);
-      list.push(p);
+      if (!p.placed) continue;
+      filePedCell(p);
+      if (p.route) fileRoutePed(p);
     }
+  }
+  // A body that has stood with no legitimate wait for PED_STUCK_TIME is re-placed. The old rule never moved it while
+  // the camera could see the spot; a player standing at the knot kept it there for good. After PED_STUCK_VIEW_TIME the
+  // view stops postponing the move (spawnPed still puts the new body out of view), so the state always recovers.
+  function stuckExpired(p) {
+    return p.stuck > PED_STUCK_TIME &&
+      (p.stuck > PED_STUCK_VIEW_TIME || !nearView(p.x, p.z, 2, PED_SPAWN_DISTANCE));
   }
   // Direction-specific inset lane: on a marked two-way walking line each walker keeps to the right of its travel
   // direction (pedestrian-routes.js `insetLane`), so opposing queues pass instead of stopping body to body. The
@@ -2542,8 +2589,9 @@ function createTrafficSystem(
   }
   function walk(p, dt) {
     // Removing a ped is popping too: postpone a re-placement while the camera can see where it stands (the new spot is
-    // already protected by spawnPed). Keep counting, so it leaves as soon as it is out of view.
-    if (p.stuck > PED_STUCK_TIME && !nearView(p.x, p.z, 2, PED_SPAWN_DISTANCE)) {
+    // already protected by spawnPed). Keep counting, so it leaves as soon as it is out of view; stuckExpired stops the
+    // postponement after PED_STUCK_VIEW_TIME so a body in a held view still recovers.
+    if (stuckExpired(p)) {
       p.stuck = 0;
       if (spawnPed(p, 60, 280, true)) return;
     }
@@ -2568,9 +2616,10 @@ function createTrafficSystem(
     if (!p.nextRoute) vMax = Math.min(vMax, Math.sqrt(2 * PED_BRAKE * ahead));
     let room = Infinity;
     let roomCause = ''; // the term that set the last finite room, for the retained room audit (bench --ped-rooms)
-    // Hold the queue gap behind anyone ahead on the same line and in the same direction, all along the track and not
-    // only at a curb: a faster walker who closes up on a leader that then stops has no room to back off and the two
-    // overlap (the sidewalk clusters in the 2026-11-05 record).
+    // Hold the queue gap behind anyone ahead and in the same direction, all along the track and not only at a curb:
+    // a faster walker who closes up on a leader that then stops has no room to back off and the two overlap (the
+    // sidewalk clusters in the 2026-11-05 record). Keyed by the physical line; connector legs name the line they land
+    // on, so corner-link variants that feed one line queue together.
     // A walker who is stopping anyway must not stop inside a stationary body facing the other way (both queues at a
     // pair of crossings back up along one line and their ends interleave). Collected here and applied only once room
     // is finite: free walkers are left alone, so the guard costs no crossing throughput.
@@ -2602,8 +2651,8 @@ function createTrafficSystem(
     }
     // Keep a leg's entrance clear for people who are not already walking away from it: a queue that reaches the
     // entrance must back up on the approach, not stack several people on the same first metre. The entry point is a
-    // world position, so converging routes and the other direction compete for it too; a walker already moving is
-    // clearing it, so it does not block the follower.
+    // world position, so converging routes and the other direction compete for it too, within the walking line the
+    // track belongs to (connector legs are keyed by the line they land on).
     if (p.nextRoute && p.nextLeg < p.nextRoute.length && ahead < 2 * QUEUE_GAP) {
       const next = p.nextRoute[p.nextLeg];
       const enterX = next.track.ax + (next.dir > 0 ? 0 : next.track.ux * next.track.len);
@@ -2614,8 +2663,6 @@ function createTrafficSystem(
         if (q === p || !q.placed) continue;
         onNext++;
         if (blocked || q.v >= 0.5) continue;
-        // The entrance is a place: whoever stands on it holds it, whichever way they were going (a converging corner
-        // link or a crossing side). The old same-direction test let opposite walkers teleport onto each other there.
         if (Math.hypot(q.x - enterX, q.z - enterZ) >= QUEUE_GAP) continue;
         blocked = true;
       }
@@ -2633,6 +2680,11 @@ function createTrafficSystem(
       if (crossing) {
         const entranceX = crossing.track.ax + (crossing.dir < 0 ? crossing.track.ux * crossing.track.len : 0);
         const entranceZ = crossing.track.az + (crossing.dir < 0 ? crossing.track.uz * crossing.track.len : 0);
+        // The merge rules only order arrivals at the entrance. The old code applied the leader's walking lines to
+        // every walker whose route still contained a crossing, however far back: a ped at the start of a 20 m corner
+        // link sat on the leader's line, got zero room, and its "crossing" exemption kept it there for good (the 62 s
+        // Droga Dębińska cluster). Beyond the entry queue it has its own line and must walk on.
+        const atEntrance = Math.hypot(p.x - entranceX, p.z - entranceZ) < 2 * QUEUE_GAP;
         let leader = null, nearest = Infinity;
         for (const q of crossing.track.node.curb) {
           const next = !q.node && q.nextRoute?.find((leg, i) => i >= q.nextLeg && leg.track.node);
@@ -2651,7 +2703,7 @@ function createTrafficSystem(
             if (limit < room) { room = limit; roomCause = 'approach'; }
           }
         }
-        if (leader && leader !== p) {
+        if (atEntrance && leader && leader !== p) {
           // The closest arrival merges first. Keep other approaches outside its remaining walking lines,
           // so perpendicular queues cannot trap each other at the entrance after WALK turns green.
           const yieldToLine = (line) => {
@@ -2725,6 +2777,7 @@ function createTrafficSystem(
       t = p.dir > 0 ? Math.min(t, KERB) : Math.max(t, p.len - KERB);
       p.v = 0;
     }
+    let movedLeg = false;
     if ((p.dir > 0 ? t >= p.len : t <= 0) && !held) {
       t = p.dir > 0 ? p.len : 0;
       if (p.nextRoute) {
@@ -2736,6 +2789,7 @@ function createTrafficSystem(
         p.dir = leg.dir;
         t = p.dir > 0 ? 0 : p.len;
         p.t = t;
+        movedLeg = true;
         if (p.node) atCurb(p); // later arrivals this frame must see the newly occupied entrance
         if (p.nextLeg === p.nextRoute.length) p.nextRoute = null;
       } else {
@@ -2749,6 +2803,12 @@ function createTrafficSystem(
     const lane = laneOffset(p, dt);
     p.x = p.ax + p.ux * t - p.uz * lane;
     p.z = p.az + p.uz * t + p.ux * lane;
+    // File the new leg at once: the frame's index is already built, and a second walker entering the same corridor
+    // later in this frame must see this body at the entrance instead of walking onto it.
+    if (movedLeg) {
+      filePedCell(p);
+      fileRoutePed(p);
+    }
     // A jam or a route sink must not hold a crowd forever. Waiting at a curb or strip hold, a conversation or a pause
     // is legitimate and resets this; anything else that has not moved in 20 s is re-placed like any other distant ped.
     // Short tracks (corner links, cramped sidewalks) still count a crossing wait: a blocked exit there is exactly the
@@ -2757,10 +2817,12 @@ function createTrafficSystem(
     // Waiting at the curb for the WALK is legitimate; standing on the zebra is not. A body that crossed but cannot
     // leave the far curb (a blocked exit, typical of an unsignalised crossing where nobody yields) is exactly what the
     // clock must catch, so only the curb wait keeps a crossing walker exempt. A split crossing's strip hold (`held`)
-    // waits short of the rails and stays exempt.
+    // waits short of the rails and stays exempt. A walker far back on a long approach ages too: the old loop scanned
+    // the whole remaining route, so anyone whose route still contained a crossing never recovered (the 62 s stack).
     let waitingForCrossing = !!p.node && p.waiting;
     if (!waitingForCrossing && !held && !shortTrack && p.nextRoute) {
-      for (const leg of p.nextRoute) if (leg.track.node) { waitingForCrossing = true; break; }
+      const next = p.nextRoute[p.nextLeg];
+      if (next?.track.node && ahead < 2 * QUEUE_GAP) waitingForCrossing = true;
     }
     if (p.v < 0.05 && p.pause <= 0 && !p.conversation && !p.waiting && !waitingForCrossing) p.stuck += dt;
     else p.stuck = 0;
@@ -2781,6 +2843,10 @@ function createTrafficSystem(
 
   const meetingCells = new Map();
   let nextMeeting = 0;
+  // Two pairs could meet inside each other: the old check measured only the partners, so a second pair formed within
+  // a body width of the first and the audit saw four bodies in one spot. Both partners must have MEET_CLEAR (one
+  // body width plus the queue gap) of every other placed pedestrian before they start talking.
+  const MEET_CLEAR = 0.65;
   function meet(dt) {
     for (const p of peds) {
       const conversation = p.conversation;
@@ -2800,6 +2866,7 @@ function createTrafficSystem(
           for (const q of meetingCells.get(`${ix + dx}:${iz + dz}`) || []) {
             const distance = Math.hypot(p.x - q.x, p.z - q.z);
             if (q.conversation || p.route.block !== q.route.block || distance < 0.75 || distance > 2 || Math.random() > 0.15) continue;
+            if (pedNear(p.x, p.z, MEET_CLEAR, p, q) || pedNear(q.x, q.z, MEET_CLEAR, p, q)) continue;
             partner = q;
             break;
           }
@@ -3432,9 +3499,9 @@ function createTrafficSystem(
       pedBudget--;
       spawnPed(p, jump ? 0 : 60, jump ? NEAR_RADIUS : 280, !jump);
     }
-    meet(dt);
     gatherCurbs();
     indexRoutePeds();
+    meet(dt);
     pedCrowd.begin();
     for (let i = 0; i < NUM_PEDS; i++) {
       const p = peds[i];

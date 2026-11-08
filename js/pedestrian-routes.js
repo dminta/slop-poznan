@@ -11,6 +11,18 @@ const RAIL_KEEP = 2.0;
 // the parent's blocked side).
 const mirrorLane = (mask) => ((mask & 1) ? 2 : 0) | ((mask & 2) ? 1 : 0);
 
+// Name the physical line a connector lands on. A corner link, a wide-corner connector or a projection sub-track is
+// created once per route choice, so the same metres can exist as several track objects with slightly different spans.
+// traffic.js keys queues by `walkKey`; naming the line the connector feeds instead of the connector's own endpoints
+// lets those variants queue as one corridor instead of stacking on the shared point (the Dworzec cluster).
+function physicalLine(track) {
+  if (track.walkKey) return track.walkKey;
+  const a = `${Math.round(track.ax * 10)},${Math.round(track.az * 10)}`;
+  const b = `${Math.round((track.ax + track.ux * track.len) * 10)},` +
+    `${Math.round((track.az + track.uz * track.len) * 10)}`;
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
+
 // Small, lazily connected sidewalk tracks. Junctions only connect points on the same curb island;
 // crossing the roadway is a separate, signal-controlled track owned by traffic.js, on the crosswalks laid out here once
 // for the whole network (the zebras road-paint.js paints).
@@ -870,7 +882,9 @@ function createPedestrianRoutes(
     // `hold` path's first leg names the crosswalk walkers wait here for (traffic.js), its own end having no room
     for (const { track: next, end: nextEnd, hold } of track.refuge?.[end] || []) {
       const b = point(next, nextEnd), path = [];
-      if (Math.hypot(b.x - a.x, b.z - a.z) > 0.01) path.push({ track: segment(a, b), dir: 1 });
+      if (Math.hypot(b.x - a.x, b.z - a.z) > 0.01) {
+        path.push({ track: segment(a, b, { walkKey: physicalLine(next) }), dir: 1 });
+      }
       path.push({ track: next, dir: nextEnd ? -1 : 1 });
       if (hold) path[0].hold = next;
       result.push(path);
@@ -909,10 +923,11 @@ function createPedestrianRoutes(
       if (next === track || (track.arm && next.arm === track.arm)) continue;
       const b = point(next, port.end), distance = Math.hypot(b.x - a.x, b.z - a.z);
       if (distance > 32 || blockAt(b.x, b.z) !== block) continue;
+      const linkKey = `corner:${physicalLine(next)}`;
       const path = [];
       if (distance > 0.01) {
         if (cornerClear(a, b, block)) {
-          path.push({ track: segment(a, b, { insetLane: laneClear(a, b, block) }), dir: 1 });
+          path.push({ track: segment(a, b, { insetLane: laneClear(a, b, block), walkKey: linkKey }), dir: 1 });
         } else {
           // Meeting the two offset sidewalk lines rounds the curb instead of cutting diagonally through a lot.
           const ax = track.ux * dir, az = track.uz * dir, bx = next.ux * nextDir, bz = next.uz * nextDir;
@@ -923,9 +938,11 @@ function createPedestrianRoutes(
           if (t < 0 || t > 20 || (b.x - c.x) * bx + (b.z - c.z) * bz < 0 ||
               Math.hypot(b.x - c.x, b.z - c.z) > 20) continue;
           if (!cornerClear(a, c, block) || !cornerClear(c, b, block)) continue;
-          if (t > 0.01) path.push({ track: segment(a, c, { insetLane: laneClear(a, c, block) }), dir: 1 });
+          if (t > 0.01) {
+            path.push({ track: segment(a, c, { insetLane: laneClear(a, c, block), walkKey: linkKey }), dir: 1 });
+          }
           if (Math.hypot(b.x - c.x, b.z - c.z) > 0.01) {
-            path.push({ track: segment(c, b, { insetLane: laneClear(c, b, block) }), dir: 1 });
+            path.push({ track: segment(c, b, { insetLane: laneClear(c, b, block), walkKey: linkKey }), dir: 1 });
           }
         }
       }
@@ -949,7 +966,8 @@ function createPedestrianRoutes(
       if (targetBlock === block ? !clear(a, b, block) : distance > 16 || !clearGap(a, b)) continue;
       if (!clearHazards(a, b) || !withinBlockEdge(a, b, block, DIRECT_CORRIDOR)) continue;
       const inset = targetBlock === block ? laneClear(a, b, block) : 0;
-      result.push([{ track: segment(a, b, { insetLane: inset }), dir: 1 }, { track: next, dir: nextDir }]);
+      result.push([{ track: segment(a, b, { insetLane: inset, walkKey: `corner:${physicalLine(next)}` }), dir: 1 },
+        { track: next, dir: nextDir }]);
     }
     for (const port of candidates) {
       const next = port.track, nextDir = port.end ? -1 : 1;
@@ -961,7 +979,8 @@ function createPedestrianRoutes(
       if (distance <= DIRECT_MAX) continue;
       if (distance > FALLBACK_MAX || !clearGap(a, b)) continue;
       if (!clearHazards(a, b) || !withinBlockEdge(a, b, block, FALLBACK_CORRIDOR)) continue;
-      result.push([{ track: segment(a, b), dir: 1 }, { track: next, dir: nextDir }]);
+      result.push([{ track: segment(a, b, { walkKey: `corner:${physicalLine(next)}` }), dir: 1 },
+        { track: next, dir: nextDir }]);
     }
     const near = [], seenEdges = new Set();
     const cells = indexStreets();
@@ -998,22 +1017,24 @@ function createPedestrianRoutes(
       const q = c.q, extra = { edge: q.edge, block: q.block, blockTo: q.blockTo, underpass: q.underpass };
       const inset = c.targetBlock === block ? laneClear(a, { x: c.x, z: c.z }, block) : 0;
       const connector = c.distance > 0.01
-        ? [{ track: segment(a, { x: c.x, z: c.z }, { insetLane: inset }), dir: 1 }] : [];
+        ? [{ track: segment(a, { x: c.x, z: c.z }, { insetLane: inset, walkKey: `corner:${physicalLine(q)}` }), dir: 1 }] : [];
       // The sub-tracks start at the projection point c (end 0) and run to one of q's ends (end 1). A walker arriving
       // over the connector enters at c and continues along the sub, so both legs travel dir 1. `from`/`to` name the
       // nodes at end 0/end 1: c lies mid-track and has no node, while end 1 is q's own end, so `to` carries q.from for
       // the backward sub and q.to for the forward one. (Before, the backward sub put q.from on end 0 and travelled
       // dir -1, which started the walker at point(q, 0) and sent them back to c, and made `links` look for q.from's
       // ports at c instead of at the end it actually reached.)
+      // The sub-track is the parent's own physical line, so it carries the parent's queue key (a walker cut onto it
+      // must queue with the ordinary walkers of that sidewalk).
       if (c.proj > 0.01) {
         const sub = segment({ x: c.x, z: c.z }, point(q, 0), {
-          ...extra, from: null, to: q.from, insetLane: mirrorLane(q.insetLane)
+          ...extra, from: null, to: q.from, insetLane: mirrorLane(q.insetLane), walkKey: physicalLine(q)
         });
         result.push([...connector, { track: sub, dir: 1 }]);
       }
       if (q.len - c.proj > 0.01) {
         const sub = segment({ x: c.x, z: c.z }, point(q, 1), {
-          ...extra, from: null, to: q.to, insetLane: q.insetLane
+          ...extra, from: null, to: q.to, insetLane: q.insetLane, walkKey: physicalLine(q)
         });
         result.push([...connector, { track: sub, dir: 1 }]);
       }
@@ -1037,7 +1058,9 @@ function createPedestrianRoutes(
           const spur = landingSpur(a, block);
           if (spur) {
             const b = point(spur.track, spur.end), path = [];
-            if (Math.hypot(b.x - a.x, b.z - a.z) > 0.01) path.push({ track: segment(a, b), dir: 1 });
+            if (Math.hypot(b.x - a.x, b.z - a.z) > 0.01) {
+              path.push({ track: segment(a, b, { walkKey: `corner:${physicalLine(spur.track)}` }), dir: 1 });
+            }
             path.push({ track: spur.track, dir: spur.end ? -1 : 1 });
             result.push(path);
           }
@@ -1138,4 +1161,4 @@ function createPedestrianRoutes(
   return { along, across, next, crosswalks, segments, segmentsNear };
 }
 
-export { createPedestrianRoutes, LANE_INSET };
+export { createPedestrianRoutes, LANE_INSET, physicalLine };

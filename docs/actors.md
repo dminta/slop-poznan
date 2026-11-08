@@ -117,6 +117,12 @@ zero within
 `PED_LANE_RAMP` 1.5 m of either track end, and the stored offset moves no faster than `PED_LANE_RATE` 1.5 m/s, so a
 leg change, a dead-end reversal or a respawn never jumps a walker sideways.
 
+Connector legs (corner links, wide-corner connectors, fallback connectors) are keyed by the **physical line they land
+on** (`physicalLine`: the target's `walkKey`, else its undirected segment), and a fallback projection sub-track
+inherits its parent's key. Two spans that reach the same landing line therefore queue as that one line instead of
+stacking on the shared corridor; the 11.8 m Droga Dębińska corner link can no longer turn its crosswalk queue into a
+four-body pile.
+
 `pedestrian-routes.js` never links the two painted lines of one crosswalk to each other: that 1.5 m step is a U-turn
 back over the zebra just crossed, and at a curb with no sidewalk exit every walker funnelled through that one short
 link. A route choice also skips a crossing whose far end lands on a known block with no way off it (a park edge with no
@@ -163,11 +169,20 @@ roadway cases, listed in the [backlog](backlog.md) with reasons;
 `tools/audit-crosswalk-landings.mjs` counts them, re-checks every fallback leg's lane, rail and building clearance, and
 re-checks the generated spurs' rail/building/block clearance. A pedestrian that still
 stands with no legitimate wait (not a curb wait, strip hold, conversation or rest) for `PED_STUCK_TIME` 20 s is
-re-placed 60-280 m away with the normal view protection, and removal itself is postponed while `nearView` says the
-camera can see the old spot. Waiting at the curb for the WALK is the only crossing wait that exempts the clock; a body
-that has crossed but cannot leave the far curb (a blocked, usually unsignalised, exit) ages and is re-placed. Short
-tracks (corner links, cramped sidewalks) do not get the crossing exemption: a blocked exit there is exactly the
-bottleneck that piles people up.
+re-placed 60-280 m away with the normal view protection. Removal is postponed while `nearView` says the camera can
+see the old spot, but only for `PED_STUCK_VIEW_TIME` 30 s in total: after 10 s of a held view the body is re-placed
+anyway (`spawnPed` still picks the new spot out of view), so a player standing at a knot cannot keep it there forever.
+Waiting at the curb for the WALK is the only crossing wait that exempts the clock, and only when the **next** leg is
+the crosswalk and the walker is within 2 × `QUEUE_GAP` of its curb (or is already `waiting` on it); a body far back on
+a long approach ages and is re-placed. A body that has crossed but cannot leave the far curb (a blocked, usually
+unsignalised, exit) is treated the same way. Short tracks (corner links, cramped sidewalks) do not get the crossing
+exemption: a blocked exit there is exactly the bottleneck that piles people up. The crosswalk merge yield (the
+"closest arrival merges first" rule) runs only within 2 × `QUEUE_GAP` of the crossing entrance; beyond that a walker
+keeps to its own line, so a 20 m corner-link approach cannot be pinned at its start with zero room.
+
+Conversations need `MEET_CLEAR` 0.65 m (one body width plus the queue gap) of clear space around both partners, checked
+against every placed body (`pedNear` over the reused 2 m `pedCells` grid). Two pairs can no longer meet inside each
+other, and a conversation does not start in a crowd.
 
 Measured headlessly with `tools/audit-ped-overlaps.mjs` (8 focus points, seeds 4242 and 77, 3 simulated minutes each,
 one sample per second after 20 s): clusters of >= 4 peds with centres under 0.5 m lasting over 5 s fall **27 → 20**, the
@@ -184,13 +199,18 @@ biggest **7 → 8**, overlapping pairs/s **18.8 → 14.1** and crosswalk entries
 direction-inset follow-up (same two districts, seeds 4242/77, 3 min, measured again on this tree, including the
 review fixes) moves clusters **8 → 1**, longest **20 → 9 s**, biggest **6 → 4**, overlapping pairs/s
 **13.25 → 5.68** and crosswalk entries **125.7 → 126.6/min**. The 24 s / 5-body Most Dworcowy two-way knot and the
-8 s / 8-body Droga Dębińska queue are gone. Remaining are a 9 s / 4-body same-direction queue on an 11.8 m Droga
-Dębińska corner link feeding a crosswalk (no longer a two-way knot), crosswalk pairs at Most Dworcowy lasting 7-8 s,
-and conversation pairs meeting within a body width of another pair. `traffic.update` stays at
+8 s / 8-body Droga Dębińska queue are gone. The 2026-11-08 overlap-remnant follow-up (all eight districts, same seeds
+and duration) moves clusters **2 → 1**, longest **18 → 7 s**, biggest **5 → 5**, overlapping pairs/s **4.41 → 4.84**
+and crosswalk entries **116.7 → 118.3/min**. The Rondo Kaponiera 11 s / 4-body cluster is gone; Wilda has no cluster in
+either seed and the 11.8 m Droga Dębińska link no longer turns its crosswalk queue into one (its remaining longest
+pair is 18 s, two bodies at a 1.4 m link during a red light). The remaining 7 s / 5-body cluster is the Most Dworcowy
+short-link knot, where corner-link starts and a crosswalk curb share one point. `bench-traffic.mjs --ped-rooms`
+falls **23,660 → 21,829 frozen ped-s** of about 642,800 sampled (-7.7%), longest hold 20.1 s. `traffic.update` stays at
 **0.789 → 0.780 ms/frame** at Centrum (noise); on the bare network, materialising every walking track rises
 1.23 → 4.81 s and `segments()` 5.69 → 11.81 s (the 0.5 m block/rail sweep runs once at build time), with no
 per-frame allocation. Method, counts and the before/after tables are in
-[the observation record](observations/ped-overlaps-2026-11-05.md).
+[the remnant record](observations/ped-overlap-remnants-2026-11-08.md); earlier phases are in
+[the 2026-11-05 record](observations/ped-overlaps-2026-11-05.md).
 
 ## Population around the camera (spawn/despawn)
 - Pools have a fixed size, and nothing is created or destroyed. **Only as many vehicles drive as the lanes around the focus carry at `VEHICLE_DENSITY`** (12 per km of lane, both ways counted, at least `MIN_VEHICLES` 30, at most the pool of 212): `refreshNear` sums the lane length within `NEAR_RADIUS` (`nearLanes`) and sets `nearTarget`. A vehicle retired beyond `VEHICLE_RADIUS` is placed again only while fewer than that drive; otherwise it is parked (`park()`: no edge, moved to 1e6 so the radar draws no stale blip; everything that reads `cars` skips `!v.edge` or draws off-map). A camera jump parks the excess at once. Until 2026-10 the whole pool filled whatever the network: the sparse single-lane grids (2.9–5 lane-km within 350 m at Wilda, Łazarz, Jeżyce, Stare Miasto) carried 40–70 vehicles per lane-km, a jam, and 62% of the cars stood even with no pedestrians, trams or signals (`tools/bench-traffic.mjs --no-peds --no-trams`). Now 28–80 vehicles drive within 300 m (37 at Stare Miasto, 61 at Kaponiera, 79 at Rataje). A rotating cursor scans the pool each frame with an **attempt** budget (4 vehicles, 6 pedestrians), so awkward spots can't monopolize a frame.
