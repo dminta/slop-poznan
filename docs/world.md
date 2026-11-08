@@ -193,13 +193,18 @@ Per frame: `cityBlocks.update(camX, camZ)` (detail streaming), `cityBlocks.updat
     at the repaired base (`a302005`) with this change it is **62 runs / 58 lanes / 626 m**: only Głogowska 3015
     (+0.66 m) and Małopolska 3201 (−0.11) move. The 2026-11-07 pass also applies the same test to edges under 12 m:
     that moves the 10 m edge 305 at `−1823, −3` clear (9 m close run), so the full audit is
-    **61 runs / 57 lanes / 617 m**. The default
-    report now counts only street-running tracks a route uses: off-street/grade-separated pieces (8 runs / 8 lanes /
-    161 m, mostly Most Chrobrego) and tracks no route uses (6 runs / 4 lanes / 39 m) go to the summary's `skipped`
-    block and appear again with `--all`, leaving **47 runs / 45 lanes / 417 m** of car-tram overlap candidates. Edge
-    305's lane and paint move still needs a browser check.
+    **61 runs / 57 lanes / 617 m**.
+    The 2026-11-08 short-stub pass adds a second look at the audit's own 5 m minimum: an edge with no 10 m close run
+    gets its 5–10 m stubs cleared too, targeting 0.6 m beyond the audit and ignoring moves under 0.5 m. Those stub moves
+    keep their placed stop lines: re-placing a bend neighbour turned a 9 m move into new >15° straight connectors
+    without changing the cleared run (Głogowska at `−1604, 659`). The pass clears the 5 m edge at `−838, 1662`, the 6 m
+    edge at `379, −1965` and the 5/8 m pair at `−955, 1791` / `−877, 1700`; at `−2090, −1632` the 9 m run becomes a 6 m
+    one, as the skewed track crosses the moved lane again. On the default report the used street-running remainder is
+    now **43 runs / 41 lanes / 390 m**; off-street/grade-separated pieces (8 runs / 8 lanes / 161 m, mostly Most
+    Chrobrego) and tracks no route uses (6 runs / 4 lanes / 39 m) stay in the summary's `skipped` block and appear again
+    with `--all`, which totals **57 runs / 53 lanes / 590 m**. Edge 305's lane and paint move still needs a browser check.
     No edge or lane is lost (8,707 edges, 11,568 lanes, 442.1 lane-km; paint keeps the new offsets). A connector check
-    keeps 165 steep (>15°) straight moves in the curbs/medians network before and after. The remaining 47 runs are 41
+    keeps 165 steep (>15°) straight moves in the curbs/medians network before and after. The remaining 43 runs are 37
     short junction/shared-tram stubs (including 4336/4337, 5758 and the Fredry and Centrum stubs), three tracks curving
     across a straight run at junctions (Roosevelta 1840 and Winogrady 4100) and three constant-shift cases (4257, 4677
     and the skewed Wierzbięcice 7930). 4257 needs a +2.34 m shift
@@ -208,7 +213,8 @@ Per frame: `cityBlocks.update(camX, camZ)` (detail streaming), `cityBlocks.updat
     the 78 m edge while the same-direction track runs +1.9 to +7.0 m, so a constant +4.12 m shift sits on that track
     from s ≈ 55 m and only ~1.6 m from the right curb at s = 0; it stays listed. The Rynek Jeżycki stubs 4336/5758 were
     measured too: moving them cuts Jeżyce's mean hold but raised its overlap pairs 20 → 21, its moving pairs 7 → 13 and
-    added a deadlock, so those moves are not in the code. `tests/opposing-tram-audit.test.mjs` pins the corrected
+    added a deadlock, so those moves are not in the code, and the short-stub pass leaves that cluster alone.
+    `tests/opposing-tram-audit.test.mjs` pins the corrected
     edges, the filtered totals and the skipped counts; `tests/shared-tram-lanes.test.cjs` checks that the correction
     adds no steep straight connector. On the repaired base (`a302005`) the 7 × 8 benchmark is
     **3560 / 211 / 13 / 0 / 55 (32 moving) before and 3557 / 211 / 13 / 0 / 55 (32 moving) after**; only Łazarz's mean

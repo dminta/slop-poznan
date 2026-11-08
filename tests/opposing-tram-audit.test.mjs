@@ -17,6 +17,9 @@ test('opposing-lane audit lists used street runs and counts off-street and unuse
   for (const road of [3015, 3201, 305]) {
     assert.ok(!rows.some((row) => row.road === road), `edge ${road} now clears its opposing track`);
   }
+  for (const road of [266, 8154, 8212, 8213]) {
+    assert.ok(!rows.some((row) => row.road === road), `the short-stub pass moved edge ${road} clear`);
+  }
   assert.ok(!rows.some((row) => [3096, 3097, 3098].includes(row.road)), 'off-street tracks are not body-overlap rows');
   const total = JSON.parse(result.stderr.trim());
   assert.equal(total.segments, rows.length);
@@ -32,5 +35,5 @@ test('opposing-lane audit lists used street runs and counts off-street and unuse
   const allTotal = JSON.parse(all.stderr.trim());
   assert.equal(allRows.length, total.segments + total.skipped.segments);
   assert.ok(allRows.some((row) => [3096, 3097, 3098].includes(row.road)), '--all restores off-street rows');
-  assert.deepEqual([allTotal.segments, allTotal.lanes, allTotal.length], [61, 57, 617]);
+  assert.deepEqual([allTotal.segments, allTotal.lanes, allTotal.length], [57, 53, 590]);
 });
