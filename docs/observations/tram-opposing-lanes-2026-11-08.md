@@ -1,5 +1,9 @@
 # Tram opposing lanes: short-stub pass (2026-11-08)
 
+> A later crossing-track pass on the same day took the default report to **42 runs / 40 lanes / 385 m**
+> (`--all` 56 / 52 / 585). The short-stub measurements below are the state before that pass; the new pass and its
+> rejected variants are at the end.
+
 `tools/audit-tram-opposing-lanes.mjs` at the parent commit listed **47 runs / 45 lanes / 417 m** of used
 street-running track with an opposing car lane closer than 2.3 m (14 runs / 12 lanes / 200 m went to `skipped`, and
 `--all` totalled 61 / 57 / 617 m). The runs fell into the groups the backlog named: 41 short junction/shared-tram
@@ -76,3 +80,55 @@ across the 78 m edge while the same-direction track runs +1.9 to +7.0 m.
   Jeżyce car-tram overlap audit stays at the 9-pair bound.
 - Full `node --test tests/*.cjs` is run with the change; no browser check was made of the new lane paint. The paint
   regression still sees the corrected offsets because the short moves do not re-place the edges.
+
+## Crossing-track pass
+
+The audit samples the tram centreline at one metre, so it also lists a tram curving across a lane at a junction where
+the track is nowhere parallel to the edge. `opposingRuns` cannot see that case: it skips a piece with
+`|dot| < 0.95`, and the audit's own rows therefore include junction crossings that are layout proxies rather than
+cars and trams running side by side.
+
+The second pass walks the used street-track chains near a non-shared edge in track metres (`crossingRuns`). It takes
+the five-metre-or-more runs whose track runs across or against the edge (`dot < 0.5`), reuses `laneShiftChoices` for
+the lateral intervals, and moves all lanes together only when:
+
+- the shift is at least 0.5 m and stays on the car part of the carriageway on the edge's own side of the centreline;
+- `laneOpen` passes;
+- **every** used track, same-direction included, is then more than 2.3 m from every lane (no lane is merely moved
+  from an opposing track onto its partner);
+- the moved edge keeps its placed stop lines, as in the short-stub pass.
+
+Only one edge qualifies: the 10.3 m Pułaskiego stub at `−1216.6, −591.4`. Its lane moves from −1.94 to −4.51 m
+(2.56 m) and the audit's 5 m run (track 56, chain 582) disappears. The default report is now:
+
+```
+{"segments":42,"lanes":40,"length":385,"skipped":{"segments":14,"lanes":12,"length":200},"clearance":2.3,"minimum":5,"all":false}
+```
+
+`--all` is **56 runs / 52 lanes / 585 m**. The remaining 42 runs are 36 short stubs (34 lanes, 240 m), the three
+curved runs on Roosevelta/Winogrady (41 m) and the three constant-shift cases (104 m). Edge and lane counts stay at
+8,707 / 11,568 (442.1 lane-km), and paint keeps the moved offset.
+
+### Rejected in this pass
+
+- **Every crossing track, not only oncoming pieces**: this cleared far more rows (including Wierzbięcice 7930), but
+  it moved about 90 edges, several of them merely away from a same-direction track. `shared-tram-lanes.test.cjs`
+  found dozens of new >15° straight connectors, and the reverse edge of a two-way pair could move without changing
+  the audited direction. Rejected.
+- **Accepting a residual under the audit's 5 m floor**: at 28 Czerwca 1956 roku (5523) a +1.25 m shift removes the
+  audited 5 m run but leaves a 1.5 m body overlap on the neighbouring chain. The audit would stop listing it while
+  cars still cross the rails, so the move is not applied.
+- **Wierzbięcice 7930, Głogowska 4257, 4677 and the curved runs**: still no constant offset clears the track pair
+  inside the curbs. 7930's same-direction track sits where the +4.12 m move would land; 4257's +2.34 m makes a 22.4°
+  connector (base limit 19.3°); 4677 would need 3.71 m against a 3.70 m curb allowance. These keep their listed runs
+  and need per-station lane geometry.
+- **Moving the Rynek Jeżycki stubs** (4336/4337/5758): unchanged from the short-stub pass; the earlier eight-seed
+  audit raised Jeżyce's overlap pairs and added a deadlock.
+
+### Verification
+
+- `node --test tests/tram-clearance.test.cjs tests/shared-tram-lanes.test.cjs tests/opposing-tram-audit.test.mjs`:
+  all pass, including the updated totals, the Pułaskiego regression and the no-new-steep-connector check.
+- `node --test tests/traffic-flow.test.mjs`: 3 pass (seed 1 no Jeżyce/Centrum deadlock, seed 4242's bounded
+  pedestrian-box cycle, Jeżyce's shared-lane rear-end bound).
+- Full `node --test tests/*.cjs` is run with the change; no browser check was made of the moved Pułaskiego lane.

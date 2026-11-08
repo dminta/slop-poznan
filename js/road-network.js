@@ -849,20 +849,19 @@ function buildRoadNetwork(sidewalks, obstacles) {
       for (const r of active.values()) runs.push(r);
       return runs.filter((r) => r.s1 - r.s0 >= minimum);
     }
-    for (const e of edges) {
-      if (!e.lanes.length || e.len < OPPOSING_STUB) continue;
-      const ids = tracksNear(e);
-      if (!ids.length) continue;
-      let close = opposingRuns(e, e.lanes, ids);
-      let minimum = OPPOSING_RUN;
-      let margin = 0;
-      if (!close.length) {
-        close = opposingRuns(e, e.lanes, ids, false, OPPOSING_STUB);
-        minimum = OPPOSING_STUB;
-        margin = e.sharedTram ? 0 : OPPOSING_MARGIN;
-      }
-      if (!close.length) continue;
-      // The lane body must stay on the car part of the carriageway: a tram strip is not road for cars.
+    // The audit samples the tram centreline, not the lane, so a tram curving across a junction stub shows up as a
+    // close run the parallel test above cannot see. Walk the used track chains near the edge the same way and return
+    // each lane's contiguous runs (in track metres) where the track is under OPPOSING_CLEAR. Use every piece of a
+    // chain the grid found near the edge: a long curving chain crosses the edge on pieces beyond the sampled cells.
+    const chainTracks = new Map();
+    for (const t of streetTracks) {
+      if (!t.used) continue;
+      const list = chainTracks.get(t.chain);
+      if (list) list.push(t);
+      else chainTracks.set(t.chain, [t]);
+    }
+    // The lateral shifts (all lanes together) that clear every close run and stay on the car carriageway.
+    function laneShiftChoices(e, close, margin) {
       const carHalf = e.half - (e.strip ? TRAM_W / 2 : 0);
       const center = e.lanes.reduce((a, b) => a + b, 0) / e.lanes.length;
       const low = center - carHalf + LANE_CLEAR;
@@ -886,6 +885,63 @@ function buildRoadNetwork(sidewalks, obstacles) {
         choices.push(p, q);
       }
       choices.sort((p, q) => Math.abs(p) - Math.abs(q));
+      return { low, high, choices };
+    }
+    function crossingRuns(e, lanes, ids, all = false) {
+      const runs = [];
+      const chains = new Set(ids.map((i) => streetTracks[i].chain));
+      for (const chain of chains) {
+        const pieces = chainTracks.get(chain);
+        if (!pieces) continue;
+        const active = new Map(); // lane -> its run along the chain
+        let s = 0;
+        for (const t of pieces) {
+          // A track running with the edge carries traffic the same way; only a crossing or oncoming piece can
+          // leave the lane in an opposing body overlap.
+          const oncoming = all || t.ux * e.dx + t.uz * e.dz < 0.5;
+          for (let d = 0; d <= t.len; d += 1) {
+            const x = t.ax + t.ux * d;
+            const z = t.az + t.uz * d;
+            const along = (x - e.sx) * e.dx + (z - e.sz) * e.dz;
+            const lat = (x - e.sx) * e.rx + (z - e.sz) * e.rz;
+            for (let i = 0; i < lanes.length; i++) {
+              const close = oncoming && along >= 0 && along <= e.len && Math.abs(lat - lanes[i]) < OPPOSING_CLEAR;
+              if (close) {
+                let r = active.get(i);
+                if (!r) {
+                  r = { lane: i, chain, s0: s + d, s1: s + d, latMin: lat, latMax: lat };
+                  active.set(i, r);
+                }
+                r.s1 = s + d;
+                r.latMin = Math.min(r.latMin, lat);
+                r.latMax = Math.max(r.latMax, lat);
+              } else if (active.has(i)) {
+                runs.push(active.get(i));
+                active.delete(i);
+              }
+            }
+          }
+          s += t.len;
+        }
+        for (const r of active.values()) runs.push(r);
+      }
+      return runs;
+    }
+    for (const e of edges) {
+      if (!e.lanes.length || e.len < OPPOSING_STUB) continue;
+      const ids = tracksNear(e);
+      if (!ids.length) continue;
+      let close = opposingRuns(e, e.lanes, ids);
+      let minimum = OPPOSING_RUN;
+      let margin = 0;
+      if (!close.length) {
+        close = opposingRuns(e, e.lanes, ids, false, OPPOSING_STUB);
+        minimum = OPPOSING_STUB;
+        margin = e.sharedTram ? 0 : OPPOSING_MARGIN;
+      }
+      if (!close.length) continue;
+      // The lane body must stay on the car part of the carriageway: a tram strip is not road for cars.
+      const { low, high, choices } = laneShiftChoices(e, close, margin);
       // A two-way link's directed edge keeps its lanes on its own side of the centreline; a one-way edge may use both.
       const rightSide = e.lanes.every((o) => o >= -1e-6);
       const leftSide = e.lanes.every((o) => o <= 1e-6);
@@ -906,6 +962,31 @@ function buildRoadNetwork(sidewalks, obstacles) {
         // A stub keeps its placed stop lines: re-placing its bend neighbours turned a 9 m move into new steep
         // straight connectors without changing the cleared run.
         if (minimum !== OPPOSING_STUB) moved.add(e);
+        break;
+      }
+    }
+    // A tram curving across a junction stub or a track pair that shifts across the lane leaves a close run the
+    // parallel pass cannot see. Move all lanes of such a non-shared edge only when they can leave every used track
+    // clear (the audit's own 2.3 m) on the car part of the carriageway. A 0.5 m minimum keeps a move from only
+    // re-placing a neighbour's stop lines; these stubs keep their own stop lines, as in the short-stub pass above.
+    // Shared tram carriageways are left alone: their lane is the trams' own formation (Rynek Jeżycki).
+    for (const e of edges) {
+      if (e.sharedTram || !e.lanes.length || e.len < OPPOSING_STUB) continue;
+      const ids = tracksNear(e);
+      if (!ids.length) continue;
+      const close = crossingRuns(e, e.lanes, ids);
+      if (!close.some((r) => r.s1 - r.s0 >= OPPOSING_STUB)) continue;
+      const { low, high, choices } = laneShiftChoices(e, close, 0);
+      const rightSide = e.lanes.every((o) => o >= -1e-6);
+      const leftSide = e.lanes.every((o) => o <= 1e-6);
+      for (const delta of choices) {
+        if (Math.abs(delta) < 0.5) continue;
+        const lanes = e.lanes.map((o) => o + delta);
+        if ((rightSide && lanes.some((o) => o < -1e-6)) || (leftSide && lanes.some((o) => o > 1e-6))) continue;
+        if (lanes.some((o) => o < low - 1e-6 || o > high + 1e-6)) continue;
+        if (!lanes.every((o) => laneOpen(e.x0, e.z0, e.dx, e.dz, e.span, o))) continue;
+        if (crossingRuns(e, lanes, ids, true).length) continue;
+        e.lanes = lanes;
         break;
       }
     }

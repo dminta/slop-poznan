@@ -199,21 +199,28 @@ Per frame: `cityBlocks.update(camX, camZ)` (detail streaming), `cityBlocks.updat
     keep their placed stop lines: re-placing a bend neighbour turned a 9 m move into new >15° straight connectors
     without changing the cleared run (Głogowska at `−1604, 659`). The pass clears the 5 m edge at `−838, 1662`, the 6 m
     edge at `379, −1965` and the 5/8 m pair at `−955, 1791` / `−877, 1700`; at `−2090, −1632` the 9 m run becomes a 6 m
-    one, as the skewed track crosses the moved lane again. On the default report the used street-running remainder is
-    now **43 runs / 41 lanes / 390 m**; off-street/grade-separated pieces (8 runs / 8 lanes / 161 m, mostly Most
+    one, as the skewed track crosses the moved lane again. A later crossing-track pass samples the used track chains
+    themselves, because the audit reports the tram centreline: a tram curving across a junction stub is a close run
+    that `opposingRuns` cannot see (`|dot| < 0.95`). It moves all lanes of a non-shared edge only when a 5 m-or-more
+    crossing/oncoming run disappears and every used track, same-direction included, then clears 2.3 m; the moved stub
+    keeps its placed stop lines. Only the 10.3 m Pułaskiego edge at `−1216.6, −591.4` qualifies (lane −1.94 → −4.51 m,
+    clearing its 5 m run). On the default report the used street-running remainder is now
+    **42 runs / 40 lanes / 385 m**; off-street/grade-separated pieces (8 runs / 8 lanes / 161 m, mostly Most
     Chrobrego) and tracks no route uses (6 runs / 4 lanes / 39 m) stay in the summary's `skipped` block and appear again
-    with `--all`, which totals **57 runs / 53 lanes / 590 m**. Edge 305's lane and paint move still needs a browser check.
+    with `--all`, which totals **56 runs / 52 lanes / 585 m**. Edge 305's lane and paint moves still need a browser check.
     No edge or lane is lost (8,707 edges, 11,568 lanes, 442.1 lane-km; paint keeps the new offsets). A connector check
-    keeps 165 steep (>15°) straight moves in the curbs/medians network before and after. The remaining 43 runs are 37
-    short junction/shared-tram stubs (including 4336/4337, 5758 and the Fredry and Centrum stubs), three tracks curving
-    across a straight run at junctions (Roosevelta 1840 and Winogrady 4100) and three constant-shift cases (4257, 4677
-    and the skewed Wierzbięcice 7930). 4257 needs a +2.34 m shift
+    keeps 165 steep (>15°) straight moves in the curbs/medians network before and after. The remaining 42 runs are 36
+    short junction/shared-tram stubs (34 lanes, 240 m; including 4336/4337, 5758 and the Fredry and Centrum stubs),
+    three tracks curving across a straight run at junctions (Roosevelta 1840 and Winogrady 4100) and three
+    constant-shift cases (4257, 4677 and the skewed Wierzbięcice 7930). 4257 needs a +2.34 m shift
     that makes a 22.4° bend connector (base 19.3°); 4677 and 7930 would land on or beside the same-direction track on a
     strip road. Wierzbięcice 7930 is a skewed merged one-way pair: its opposing track runs from −0.8 to +3.6 m across
     the 78 m edge while the same-direction track runs +1.9 to +7.0 m, so a constant +4.12 m shift sits on that track
-    from s ≈ 55 m and only ~1.6 m from the right curb at s = 0; it stays listed. The Rynek Jeżycki stubs 4336/5758 were
-    measured too: moving them cuts Jeżyce's mean hold but raised its overlap pairs 20 → 21, its moving pairs 7 → 13 and
-    added a deadlock, so those moves are not in the code, and the short-stub pass leaves that cluster alone.
+    from s ≈ 55 m and only ~1.6 m from the right curb at s = 0; it stays listed. The crossing-track pass was also tried
+    without the oncoming filter: it moved about 90 edges and added dozens of steep straight connectors, so it is not in
+    the code. The Rynek Jeżycki stubs 4336/5758 were measured too: moving them cuts Jeżyce's mean hold but raised its
+    overlap pairs 20 → 21, its moving pairs 7 → 13 and added a deadlock, so those moves are not in the code, and the
+    short-stub and crossing-track passes leave that cluster alone.
     `tests/opposing-tram-audit.test.mjs` pins the corrected
     edges, the filtered totals and the skipped counts; `tests/shared-tram-lanes.test.cjs` checks that the correction
     adds no steep straight connector. On the repaired base (`a302005`) the 7 × 8 benchmark is
@@ -229,7 +236,7 @@ Per frame: `cityBlocks.update(camX, camZ)` (detail streaming), `cityBlocks.updat
     car's width over a curb or median 3.4% → 2.3%, the outer lane over 5 m from its curb 5.4% → 3.0%, straight moves
     steeper than 15° 7.0% → 2.0%. Święty Marcin: off 4.3% (up to 7 m, on the tracks by the Kaponiera) → 0.3%, steep
     7 of 38 → 2 of 60. Franklina Roosevelta: off 1.4% (up to 6.7 m) → 0.2%, outer lane far from its curb 5.6% → 1.8%,
-    steep 12 of 118 → 0 of 124. Still open: the 47 collision-relevant close runs left by `clearOpposingTracks`
+    steep 12 of 118 → 0 of 124. Still open: the 42 collision-relevant close runs left by `clearOpposingTracks`
     (short junction/shared stubs, off-street tracks, tracks curving across a junction run and skewed strip corridors;
     see the opposing-track bullet above). Two-way streets with the tracks down the middle are included there; the pass
     moves their lanes where a 10 m close run leaves room and the move does not raise the measured overlaps.

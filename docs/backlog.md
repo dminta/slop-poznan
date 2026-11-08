@@ -177,13 +177,19 @@ Implementation details and completed measurements live in the [topic docs](../AG
   Centrum 24 → 8, Kaponiera 16 → 17). `enter` hard stops for cars on short links and longer forecasts were measured
   again and rejected (they replaced one pair with another and raised turns); do not revive the rejected early-arrival
   and lane-lead braking relaxations without their regressions.
-  `tools/audit-tram-opposing-lanes.mjs` now reports **43 runs / 41 lanes / 390 m** of used street-running tracks with
-  close opposing traffic, with 14 runs / 12 lanes / 200 m off-street or unused under `--all`; the 37 short stubs, three
-  curved runs and three constant-shift cases still need per-station lane geometry. The 2026-11-08 short-stub pass moves
-  the 5 m edge at `−838, 1662`, the 6 m one at `379, −1965` and the 5/8 m pair at `−955, 1791` / `−877, 1700` clear;
-  at `−2090, −1632` the 9 m run only becomes a 6 m one where the skewed track crosses the moved lane again.
-  [Short-stub measurements](observations/tram-opposing-lanes-2026-11-08.md). Moving the Rynek Jeżycki stubs still
-  increases overlaps and adds a deadlock, so the pass leaves that cluster alone.
+  `tools/audit-tram-opposing-lanes.mjs` now reports **42 runs / 40 lanes / 385 m** of used street-running tracks with
+  close opposing traffic, with 14 runs / 12 lanes / 200 m off-street or unused under `--all` (56 / 52 / 585); the 36
+  short stubs (34 lanes, 240 m), three curved runs and three constant-shift cases still need per-station lane
+  geometry. The 2026-11-08 short-stub pass moves the 5 m edge at `−838, 1662`, the 6 m one at `379, −1965` and the
+  5/8 m pair at `−955, 1791` / `−877, 1700` clear; at `−2090, −1632` the 9 m run only becomes a 6 m one where the
+  skewed track crosses the moved lane again. The later crossing-track pass walks the used track chains themselves
+  (the audit samples the centreline, not the lane) and moves all lanes of a non-shared edge only when a 5 m-or-more
+  crossing/oncoming run disappears and every used track then clears 2.3 m; it moves only the Pułaskiego stub at
+  `−1216.6, −591.4` (−1.94 → −4.51 m), clearing its 5 m run. Wierzbięcice 7930, Głogowska 4257, 4677 and the curved
+  runs still have no constant offset inside the curbs; accepting a residual below the audit's 5 m floor was rejected
+  (it hides the 1.5 m overlap left at 5523).
+  [Short-stub and crossing-track measurements](observations/tram-opposing-lanes-2026-11-08.md). Moving the Rynek
+  Jeżycki stubs still increases overlaps and adds a deadlock, so the pass leaves that cluster alone.
   [Short-link pass and rejected variants](observations/car-tram-overlaps-2026-11-08.md),
   [eight-seed results and earlier variants](observations/tram-overlaps-2026-11-04.md).
 
