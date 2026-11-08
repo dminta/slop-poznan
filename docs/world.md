@@ -373,6 +373,11 @@ roofs are drawn separately from `GEO.canopies` by `canopies.js`. Level crossing 
     storeys (16.4 m on Enea Stadion, 12.3 m on Hala Arena), flat roof with plant rooms. Everything else in the park
     is still cleared to lawn, and purely unmapped park blocks stay empty. Measured coverage of the OSM envelope:
     Hala Arena (block 927) 0 → 74 %, Enea Stadion (939) 0 → 67 %, Lodowisko Chwiałka (939) 4 → 65 %.
+  - **Ordinary buildings in park blocks** (2026-11-08, [record](observations/building-density-investigation-2026-11-08.md)):
+    `GEO.blockParkBuildings` holds the mapped buildings of at least 60 m² in blocks with more than 40 % park land;
+    `city-config` merges them into `parkFootprints` as non-facility entries, so `parkFreeCells` keeps their cells as
+    lots and `buildings.js` builds the district's houses or kamienice on them. This restored 875 Antoninek (17 % built,
+    no lot at all) and added lots in 968, 1166, 1271 and 886; purely unmapped park blocks still stay empty.
   - **Railway building islands** (2026-11-08, [record](observations/railway-building-islands-2026-11-08.md)):
     `poz-blocks.mjs` gives the cells under mapped station, depot and signal-box footprints back from `landuse=railway`
     and the track corridors, grown by `SIDEWALK` (see [geodata.md](geodata.md#pipeline-toolsbuild-poznanmjs)). They are

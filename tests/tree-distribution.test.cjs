@@ -80,16 +80,17 @@ test('seeded species assignment preserves the full built city tree sites and col
   // Street placement and production crossing constants change these pins; park/grid colliders changed only when the
   // Chartowo corridor moved three block 1304 lamps off the new cut curb. The 2026-11-08 railway-island and park
   // facility carve-outs restored blocks and kept mapped sports centres on their OSM lots, and the block anchors
-  // (2026-11-08) replaced 30 generic street-tree sites around the newly occupied mall/hall envelopes.
-  // See docs/observations/railway-building-islands-2026-11-08.md, park-sports-facilities-2026-11-08.md and
-  // block-anchors-2026-11-08.md.
-  assert.deepEqual(before, [18601, 22577, 8690, 0]);
-  assert.deepEqual(after, [17840, 21680, 8339, 2009]);
-  assert.equal(siteHash, '1f46cfe15c420e33b6944b4901be51e638c28b2f563185ef181d743b5f67da2b');
-  assert.equal(digest(grid.propColliders), '76a9ce263a3c830fd746d9f8f25a22d444bd5ed39f2153983b317759a744f242');
+  // (2026-11-08) replaced 30 generic street-tree sites around the newly occupied mall/hall envelopes. The park-building
+  // and estate density passes (2026-11-08) changed the building colliders and street-tree sites again.
+  // See docs/observations/railway-building-islands-2026-11-08.md, park-sports-facilities-2026-11-08.md,
+  // block-anchors-2026-11-08.md and building-density-investigation-2026-11-08.md.
+  assert.deepEqual(before, [18368, 22481, 8582, 0]);
+  assert.deepEqual(after, [17615, 21587, 8234, 1995]);
+  assert.equal(siteHash, '425078db733eab7bdeb9a2a5820f2ec0f63d381ffdb871aa8e74817c2b4cf6a1');
+  assert.equal(digest(grid.propColliders), '8ad8f9f3dc203af6e2d587c153287f5017ea1f19ff32aa3bafe3b76b64c861fa');
   assert.equal(digest(details.colliders), '8bf56f42472ebc3216b994e70af0cc7ab6a5f118fadaf458c97b76cd242fb390');
-  assert.equal(meshCount((t) => t.species || 0), 13857);
-  assert.equal(meshCount(treeSpecies), 16798);
+  assert.equal(meshCount((t) => t.species || 0), 13849);
+  assert.equal(meshCount(treeSpecies), 16786);
 });
 
 // Exercise the real field's transform, allocation and regrouping with cheap stand-ins for the generated geometries.

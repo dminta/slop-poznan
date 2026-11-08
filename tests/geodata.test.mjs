@@ -143,6 +143,11 @@ test('Poznań geodata builds offline with default paths in a checkout containing
     assert.ok(holds(927, 7843), 'Hala Arena envelope in block 927');
     assert.ok(holds(939, 52909), 'Enea Stadion envelope in block 939');
     assert.ok(Object.values(footprints).every((list) => list.every((f) => f.length === 5 && f.every(Number.isFinite))));
+    // blockParkBuildings: ordinary mapped buildings in blocks with > 40 % park land, kept as non-facility lots
+    const parkBuildings = GEO.blockParkBuildings;
+    assert.ok(parkBuildings && Object.keys(parkBuildings).length >= 50, 'ordinary park building envelopes emitted');
+    assert.ok(Object.values(parkBuildings).every((list) => list.every((f) => f.length === 5 && f.every(Number.isFinite))));
+    assert.ok((parkBuildings[875] || []).length >= 5, '875 Antoninek keeps its mapped park buildings');
     // industry: industrial structures and power/substation sites from poz_industry.json inside the detail box
     const industry = GEO.industry;
     assert.ok(Array.isArray(industry) && industry.length > 100, 'industry snapshot consumed');

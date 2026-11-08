@@ -294,8 +294,9 @@ test('park blocks with buildings: no curb or paving under footprints, granite an
   assert.equal(blocks, 41, 'all 41 park blocks with buildings checked');
   // ground footprint union across the 41 blocks, 0.5 m raster (239,736 m² after the central density pass on
   // 2026-11-08; 243,502 m² after the park facility carve-out put Hala Arena, Enea Stadion and the other mapped
-  // sports centres back on their OSM lots)
-  assert.ok(footprint > 243000 && footprint < 244000, `footprint union ~243.5k m² (got ${footprint})`);
+  // sports centres back on their OSM lots; 305,226 m² after the park-building pass restored the ordinary mapped
+  // buildings of 875, 968, 1166, 1271, 886 and 405 as lots)
+  assert.ok(footprint > 304000 && footprint < 306000, `footprint union ~305.2k m² (got ${footprint})`);
   const fmt = (k) => JSON.stringify(tot[k]);
   for (const row of perBlock) {
     assert.equal(row.curb.underFp, 0, `block ${row.id} curb under footprints`);

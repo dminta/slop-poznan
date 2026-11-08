@@ -710,8 +710,9 @@ function buildCityBlocks(scene) {
    * modern roofs), balcony stacks and street-front awnings.
    * o: { cornice, corniceH, chimneys, skylights, hvac (true | 'small'), hvacH, balconies (balcony stacks), awnings,
    *      shops: 'all' | 'none' | probability of 'all' (street fronts with storefronts on the ground floor, the others
-   *      get a residential entrance), freestanding, walls (see wallKinds), dormers (share of such buildings with
- *      roofs.js dormers on their pitched tile or slate roofs) }
+   *      get a residential entrance), freestanding, slabBalconies (freestanding panel slabs keep their long street-side
+   *      stacks despite the 8-12 m setback), walls (see wallKinds), dormers (share of such buildings with roofs.js
+   *      dormers on their pitched tile or slate roofs) }
    * Pitched roofs ride on the parts they cover (set by `pitch`) and become roofs.js instances here:
    *   part.roof = { shape: 'gable' | 'hip' | 'mansard', mat: 'tile' | 'slate' | 'copper', ridge: 'x' | 'z', rise, front? }
    * ridge: the ridge's axis in the lot frame (the gable ends face the other axis); rise: metres from the eave (the
@@ -866,7 +867,12 @@ function buildCityBlocks(scene) {
           const alongX = side === 'n' || side === 's';
           const w = alongX ? p.x1 - p.x0 : p.z1 - p.z0;
           const c = wallAt(p, side);
-          if (w < 6 || !b.street[side] || Math.abs(c - wallAt(b.lot, side)) > EPS) continue;
+          // A freestanding slab (osiedle panel block) is set back from its lot, so its `b.street` flags are all false;
+          // slabBalconies reads the block's own street side and keeps the stack on the first row within 20 m of it.
+          const edge = side === 'n' ? p.z0 - blk.minZ : side === 's' ? blk.maxZ - p.z1
+            : side === 'w' ? p.x0 - blk.minX : blk.maxX - p.x1;
+          const street = b.street[side] || (o.slabBalconies && blk.front[side] && edge < 20);
+          if (w < 6 || !street || (!o.slabBalconies && Math.abs(c - wallAt(b.lot, side)) > EPS)) continue;
           const first = shops[side] ? 2 : 1;
           const landings = Math.min(nf - first, 6);
           if (landings < 2) continue;
@@ -1668,13 +1674,24 @@ function buildCityBlocks(scene) {
     const alongX = W >= D;
     const len = alongX ? W : D;
     const wid = alongX ? D : W;
+    // Dense estate variant (steerProfile's estateP): the low-lot-cover blocks of Rataje, Chartowo and Stare Winogrady
+    // need 22-46 % of their lots built, while the standard rows (10.5-12.5 m deep, 18-30 m between segments and
+    // >= 18 m between rows) top out at 13-25 %. Interpolating to 12-14 m rows, 8-14 m segment gaps and 10-16 m row
+    // gaps closes that difference: 1166 (22 % target) gets the middle setting and 887 (41 %) the full one.
+    const dense = cfg.estateP || 0;
     let set = range(cfg.setback[0], cfg.setback[1]);
     if (wid < 2 * set + 11) set = Math.max(3, (wid - 11) * 0.5);
     const place = (u0, u1, v0, v1, floors) => {
       const r = alongX ? rect(R.x0 + u0, R.x0 + u1, R.z0 + v0, R.z0 + v1) : rect(R.x0 + v0, R.x0 + v1, R.z0 + u0, R.z0 + u1);
       const b = building(blk, pickW(PANELS), r);
       mass(b, [r], 0, floors);
-      commit(blk, b, { cornice: false, hvac: 'small', hvacH: 2.6, awnings: false, shops: 'none', freestanding: true });
+      // Panel slabs stand 8-12 m back from the lot line, so the ordinary balcony rule (a part wall flush with the lot
+      // wall) would leave every osiedle without balconies. Their long street side still gets the loggia stacks; this
+      // keeps the city-wide balcony count in its 14-18k band after Rataje/Stare Winogrady stay PROJECTS.
+      commit(blk, b, {
+        cornice: false, hvac: 'small', hvacH: 2.6, awnings: false, shops: 'none', freestanding: true,
+        balconies: floors >= 5 && chance(0.7), slabBalconies: true
+      });
     };
     // Between the slab rows and past the last one: the estate's school or przedszkole (3 storeys, rendered), a
     // pavilion of shops (pawilon handlowy, 1-2 storeys) or a row of lock-up garages, kept 6 m off the slabs, two along
@@ -1711,34 +1728,53 @@ function buildCityBlocks(scene) {
     let lastEnd = -1;
     for (let row = 0; row < 8; row++) {
       const floors = pickW(cfg.types);
-      const dep = floors >= 16 ? range(18, 22) : range(10.5, 12.5);
+      const dep = floors >= 16 ? range(18, 22) : range(10.5 + 1.5 * dense, 12.5 + 1.5 * dense);
       if (v + dep > wid - set) break;
       if (lastEnd >= 0) service(lastEnd, v);
       lastEnd = v + dep;
       if (floors >= 16) {
-        const gap = range(24, 36);
+        const gap = range(24, 36) * (1 - dense) + range(18, 26) * dense;
         const n = Math.floor((len - 2 * set + gap) / (dep + gap));
         const off = (len - n * dep - (n - 1) * gap) * 0.5;
         for (let k = 0; k < n; k++) place(off + k * (dep + gap), off + k * (dep + gap) + dep, v, v + dep, floors);
       } else {
         let u = set + range(0, 6);
-        while (len - set - u >= 24) {
-          const seg = Math.min(len - set - u, range(40, 110));
+        while (len - set - u >= 24 - 6 * dense) {
+          const seg = Math.min(len - set - u,
+            range(40, 110) * (1 - dense) + range(30, 70) * dense);
           place(u, u + seg, v, v + dep, floors);
-          u += seg + range(18, 30);
+          u += seg + range(18, 30) * (1 - dense) + range(8, 14) * dense;
         }
       }
-      v += dep + Math.max(18, floors * storeys[F.panel] * 0.9);
+      v += dep + (Math.max(18, floors * storeys[F.panel] * 0.9) * (1 - dense) +
+        Math.max(10, Math.min(16, floors * storeys[F.panel] * 0.55)) * dense);
     }
     if (lastEnd >= 0) service(lastEnd, wid - set + 6);
     // An estate's frontage frames cut its blocks into strips 12-20 m deep that hold no row above: one slab along the
-    // strip, 1-2 m off its ends (Nowe Winogrady Południe went from 4.4% to 14.9% built with it, 17.2% real)
-    if (lastEnd < 0 && cfg.estate && wid >= 11 && len >= 24) {
-      const dep = Math.min(wid - 1, range(10.5, 12.5));
-      const seg = Math.min(len - 2, range(40, 110));
-      const u0 = (len - seg) * range(0.3, 0.7);
-      const v0 = (wid - dep) * 0.5;
-      place(u0, u0 + seg, v0, v0 + dep, pickW(cfg.types));
+    // strip, 1-2 m off its ends (Nowe Winogrady Południe went from 4.4% to 14.9% built with it, 17.2% real). Rataje's
+    // PROJECTS have the same strips, so their full-density blocks take the fallback too; a piece too small for a slab
+    // gets a garage/pavilion row instead (1166's park-carved 15 x 17 m lots).
+    if (lastEnd < 0 && wid >= 10 && len >= 10) {
+      if (wid >= 11 && len >= 24 && (cfg.estate || dense >= 0.999)) {
+        const dep = Math.min(wid - 1, range(10.5 + 1.5 * dense, 12.5 + 1.5 * dense));
+        const seg = Math.min(len - 2, range(40, 110) * (1 - dense) + range(30, 70) * dense);
+        const u0 = (len - seg) * range(0.3, 0.7);
+        const v0 = (wid - dep) * 0.5;
+        place(u0, u0 + seg, v0, v0 + dep, pickW(cfg.types));
+      } else if (cfg.pieceFill > 0.05) {
+        // Too small for a slab: a garage or pavilion row covering the piece's budget share. Without it the whole block
+        // left those 200 pieces empty and stayed at 14 % of its lots.
+        const fill = Math.max(0.08, Math.min(0.5, cfg.pieceFill));
+        const depth = Math.min(wid - 1, Math.max(5, (fill * wid * len) / (len - 2)));
+        const r = alongX
+          ? rect(R.x0 + 1, R.x1 - 1, R.z0 + (wid - depth) * 0.5, R.z0 + (wid + depth) * 0.5)
+          : rect(R.x0 + (wid - depth) * 0.5, R.x0 + (wid + depth) * 0.5, R.z0 + 1, R.z1 - 1);
+        if (Math.min(rectW(r), rectD(r)) >= 5) {
+          const b = building(blk, pickW(PANELS), r);
+          mass(b, [r], 0, irange(1, 2));
+          commit(blk, b, { cornice: false, shops: 'none', awnings: false, freestanding: true });
+        }
+      }
     }
   }
 
@@ -1980,15 +2016,33 @@ function buildCityBlocks(scene) {
     blk.yards.push(insetAll(R, 0.5));
     const W = rectW(R);
     const D = rectD(R);
-    if (Math.min(W, D) < 18) return;
+    const narrow = Math.min(W, D);
+    if (narrow < 10) return;
     const front = mainFront(blk) || (W >= D ? 'n' : 'w');
     const across = front === 'n' || front === 's' ? D : W;
-    const fore = Math.min(cfg.forecourt, Math.max(8, across * 0.22));
-    const C = rect(R.x0 + (front === 'w' ? fore : 4), R.x1 - (front === 'e' ? fore : 4),
-      R.z0 + (front === 'n' ? fore : 4), R.z1 - (front === 's' ? fore : 4));
+    // Small frontage pieces (12-18 m deep in the Chartowo, Nowe Winogrady and Górczyn retail quarters) cannot take the
+    // 22 m forecourt plus the 4 m rear strip: a 13 x 14 m lot left 8 m of depth and returned nothing. They get a 2-4 m
+    // forecourt and a single 7-10 m deep hall instead, so the kept share of lots still produces the real built area.
+    const small = narrow < 18;
+    const fore = small ? Math.min(4, Math.max(2, across * 0.12))
+      : Math.min(cfg.forecourt, Math.max(8, across * 0.22));
+    const back = small ? 2 : 4;
+    const C = rect(R.x0 + (front === 'w' ? fore : back), R.x1 - (front === 'e' ? fore : back),
+      R.z0 + (front === 'n' ? fore : back), R.z1 - (front === 's' ? fore : back));
     const cw = rectW(C);
     const cd = rectD(C);
-    if (Math.min(cw, cd) < 12) return;
+    if (Math.min(cw, cd) < 6) return;
+    if (Math.min(cw, cd) < 12) {
+      const r = rect(C.x0 + 0.5, C.x1 - 0.5, C.z0 + 0.5, C.z1 - 0.5);
+      if (Math.min(rectW(r), rectD(r)) < 5) return;
+      const b = building(blk, pickW(cfg.mats), r);
+      mass(b, [r], 0, irange(cfg.floors[0], cfg.floors[1]));
+      commit(blk, b, {
+        cornice: false, hvac: true, hvacH: range(2.4, 3.6), skylights: true, shops: 'all', awnings: false,
+        freestanding: true
+      });
+      return;
+    }
     const alongX = cw >= cd;
     const len = alongX ? cw : cd;
     const wid = alongX ? cd : cw;
@@ -2620,6 +2674,7 @@ function buildCityBlocks(scene) {
     campus: 0.3, mall: 0.75, retail: 0.6, industrial: 0.55, depot: 0.5, stadium: 0.25, arena: 0.6, utility: 0.45
   };
   const RES_KINDS = new Set(['res', 'rynek', 'cesarska']);
+  const LOT_TARGET_KINDS = new Set(['retail', 'mall', 'industrial', 'utility', 'depot']);
   // Big-box and industrial blocks: a block whose mapped footprints average over BIG_BOX m² and whose buildings
   // average 1-3 storeys is a mall, retail park or hall, not a perimeter block. The threshold is measured on the
   // OSM snapshot: a kamienica or slab block averages 150-600 m² per building, while Posnania's single outline is
@@ -2673,10 +2728,27 @@ function buildCityBlocks(scene) {
       return { ...cfg, share: Math.min(0.55, (T * b.area) / Math.max(1, srcLotArea)), skipP: 0 };
     }
     const L = b.levels >= 2 ? Math.round(b.levels) : 0;
+    // The block's real built share over the lots the generator actually has (after park carve and landmark reserves),
+    // not over the island. A park-heavy or reserve-heavy block can only reach its OSM share by filling a larger part
+    // of the remaining lots; this is the target for the dense estate variant and the campus/villa budgets.
+    const lotTarget = srcLotArea > 0 ? Math.min(1, (b.built * b.area) / srcLotArea) : b.built;
     let base = cfg;
-    if (cfg.kind === 'projects' && !cfg.estate && ((L && L < 7) || T > KIND_SHARE.projects * 1.4)) base = RES_KAMIENICE;
-    const q = T / KIND_SHARE[base.kind];
+    // Five-storey panel estates (Rataje, Stare Winogrady) stay PROJECTS: the old L < 7 rule turned 887/1166/98 into
+    // perimeter kamienice with q < 0.8, noCore and frontage gaps, which left them 20-40 % below their real share.
+    // Stare Winogrady's four-storey blocks (192 among them) keep the denser kamienica layout; Rataje's four-storey
+    // blocks are panel estates too, and converting them overfilled 930/961/1122.
+    if (cfg.kind === 'projects' && !cfg.estate && L &&
+      (L < 4 || (L === 4 && b.district === 'Stare Winogrady'))) base = RES_KAMIENICE;
+    // Kamienice steer by the real built share of their lots, not of the island (report 2026-11-08, cause 1a): a block
+    // whose lots cover 37 % of the island (98) or 41 % (1166) is systematically underbuilt by the old island-share q.
+    // Halls, malls and utility plants use the same lot-aware target to set skipP (cause 1b): a block whose lots cover
+    // 61 % (1305), 68 % (417) or 63 % (266) otherwise drops q too far and loses whole pieces to Bernoulli thinning.
+    const Tq = RES_KINDS.has(base.kind)
+      ? (srcLotArea > 0 && srcLotArea < 0.5 * b.area ? Math.max(T, lotTarget) : T)
+      : LOT_TARGET_KINDS.has(base.kind) ? lotTarget : T;
+    const q = Tq / KIND_SHARE[base.kind];
     const out = { ...base };
+    if (base.kind === 'projects') out.estateP = Math.max(0, Math.min(1, (lotTarget - 0.15) / 0.2));
     if (RES_KINDS.has(base.kind)) {
       // Storeys follow the block's median but drop at most one below the profile's: OSM's area-weighted median
       // counts the oficyny and outbuildings too (3 storeys on the Kaponiera blocks of 4-5-storey kamienice)
@@ -3052,6 +3124,9 @@ function buildCityBlocks(scene) {
       : facility ? { kind: 'facility' }
         : ancillary ? { kind: 'ancillary' }
           : steerProfile(blockProfile(blockDetail, district), srcBlock);
+    // The piece's share of the block's real built area still to spend (srcPieceBudget). Small osiedle lots that cannot
+    // hold a full slab use it for a garage/pavilion row, so they still contribute their share of the real stock.
+    if (profile.kind === 'projects') profile.pieceFill = Math.max(0, Math.min(0.6, srcPieceBudget / (bw * bd)));
     if (!(profile.skipP && chance(profile.skipP))) LAYOUTS[profile.kind](blockDetail, profile, minX, maxX);
     openOntoVoidLots(blockDetail);
 
@@ -3304,10 +3379,10 @@ function buildCityBlocks(scene) {
     // The block's real building area (steerProfile's T × the curb island): offices spend what is left of it on
     // their courtyard core (see officeCore). srcLeftArea distributes the unspent budget over the remaining pieces.
     {
-      const T = (b.park > 0.6 && srcLotArea > 0 && fullLotArea > 0)
-        ? (b.built * fullLotArea) / srcLotArea
-        : b.built;
-      srcTarget = T * b.area;
+      // The budget is the real OSM built area, not steerProfile's park-adjusted T (that T rescales the island share to
+      // the surviving lots for the q decision; using it here made park blocks spend up to 2.5x their real stock on
+      // pavilions). Landmark reserves are outside srcLotArea, so the generator never builds on them.
+      srcTarget = Math.min(srcLotArea, b.built * b.area);
       srcBuiltArea = 0;
       srcLeftArea = srcLotArea;
     }
