@@ -141,6 +141,17 @@ test('villa districts, Chartowo and the hospital campuses come out near their re
     assert.ok(share >= before - 0.005,
       `gated campus ${id}: generated ${(100 * share).toFixed(1)}% vs pre-change ${(100 * before).toFixed(1)}%`);
   }
+  // Office courtyard fill (2026-11-08): the deep frontage lots and core wings move 868 from 33.4% to 48.2%, 814 from
+  // 26.4% to 32.0% and 769 from 40.2% to 47.8%. Blocks already over their real share (593 36.8%, 786 44.8%) keep
+  // their plazas because steerProfile leaves cfg.core off; neither may grow from the old office layout.
+  for (const [id, floor] of [[868, 0.47], [814, 0.31], [769, 0.46], [816, 0.14]]) {
+    const share = (gen.get(id) || 0) / config.BLOCKS[id].area;
+    assert.ok(share >= floor, `office block ${id}: generated ${(100 * share).toFixed(1)}% below ${(100 * floor).toFixed(1)}%`);
+  }
+  for (const [id, ceiling] of [[593, 0.378], [786, 0.458]]) {
+    const share = (gen.get(id) || 0) / config.BLOCKS[id].area;
+    assert.ok(share <= ceiling, `over-built office ${id}: generated ${(100 * share).toFixed(1)}% above ${(100 * ceiling).toFixed(1)}%`);
+  }
 });
 
 test('a block with no mapped building stays empty', async () => {

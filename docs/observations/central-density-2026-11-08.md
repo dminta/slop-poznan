@@ -128,6 +128,8 @@ same layouts: 1243 Wilda 47.4 → 44.4%, 672 Stare Miasto 58.1 → 55.4%, 868 34
    inner lots only use `OFFICES.inner` when a rect has no front at all. Blocks 816 and 868 are the visible result. A
    follow-up could add the same dense core/transverse-wing treatment to the office layout, but it needs its own share
    steering because offices are deliberately large-footprint and plaza-fronted.
+   **Resolved 2026-11-08** by the [office-courtyards follow-up](office-courtyards-2026-11-08.md): 868 33.4 → 48.2%,
+   814 26.4 → 32.0%, 769 40.2 → 47.8% and 752 47.7 → 53.1%; 816 is capped by its 37% park and Stary Browar landmark.
 2. **Landmark reserves.** 575 (Collegium Maius) and the landmark-covered parts of 816 and the Old Town are built by
    `landmarks*.js`, not by the generic raster, so their per-block generated share undercounts the scene on purpose.
 3. **Already-overbuilt districts.** Jeżyce and Łazarz now exceed their whole-district OSM share. The next pass should

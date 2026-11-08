@@ -373,6 +373,25 @@ Built before the road network, so everything that stands near a lane is checked 
     axis-aligned rectangle is 125-352 m². Unnamed `highway=service` cuts stay dropped:
     `campusBlock` supplies the interior structure with its pavilion grid and `campusShed`, so no raster block needs to
     be split into unnamed-service slivers. [Review record](observations/building-density-2026-11-07.md#follow-up-2026-11-08-visual-review-lot-cap-and-service-alleys).
+  - **Office courtyards** (added 2026-11-08, [record](observations/office-courtyards-2026-11-08.md)): `officeBlock`
+    still lays 26–52 m frontage lots along the main street, but a mid-depth lot (`Dfull <= 55`) now takes the whole
+    depth down to a 3–6 m rear service yard, and a floorplate of 34 m or more gets a 6–10 m central atrium/light
+    well. A deeper lot gets an `officeCore` behind each frontage lot, 12–14 m off its rear wall: 12–15 m wings round
+    a 12 m+ court in a U, ring, H, L or two parallel bars, a single rear bar, or a low 1–2-storey
+    conference/service pavilion; 1–2-storey glazed links close one end of a U, cross a parallel court or join a
+    ring. Materials are the curtain-wall glass palette (`F.glassTeal/Silver/Bronze`), cream and sandstone for the
+    pavilions; bars are 3–6 storeys. Frontless pieces (superblock interiors and frame slivers) use
+    `officeInnerLot` (the courtyard plan at 22 m+ width, else one office oficyna with 2–5 m side yards). The core is
+    budgeted by the block's real OSM share: `commit()` adds every ground footprint to `srcBuiltArea`, the block loop
+    sets `srcTarget = T × area` and each piece gets a share of the unspent target (`srcPieceBudget`);
+    `steerProfile` enables `cfg.core` only at `q >= 1.15` and `(built >= 0.4 || park >= 0.3)`, so blocks already
+    over their real share keep their plazas. Measured: 868 33.4 → 48.2%, 816 13.6 → 14.8%, 814 26.4 → 32.0%,
+    769 40.2 → 47.8%, 752 47.7 → 53.1% and 695 35.5 → 41.2%; the 32 office-reach blocks 26.8 → 30.9% against 37.4%
+    real, the 190 central blocks 43.2 → 43.7% against 45.3% and Stare Miasto 39.5 → 40.8% on their subset (0.815 →
+    0.842×). 816 stays at 14.8% because its post-park lot area is 2.26 ha (20.7% of the island) and its Stary Browar
+    landmark is not generic stock; 593/786 (over-built) keep the old layout. A frame-local audit found 0 of 775
+    office ground parts outside their lot and 0 m² of ground overlap, and Chrome 157 WebGPU/WebGL2 showed no curb
+    overlap, missing facade or console error.
   - **Profiles** (`blockProfile`): offices within 240 m of Bałtyk, Andersia/AND2/PFC and Collegium Altum; `CESARSKA` in a box round Zamek Cesarski, Collegium Minus, Teatr Wielki and the 1956 crosses (+160 m); `RYNEK` for rects with a front facing the `Stary Rynek` plaza (`blk.rynekSides`: probes 11 m out land inside its outline); then by osiedle (Stare Miasto splits into Old Town/Garbary/Chwaliszewo and Centrum at `OLD_TOWN_BOX`, Ostrów Tumski/Śródka within 650 m of the Katedra). In the 8.2 × 5.7 km detail box, Nowe Winogrady, Żegrze and Piątkowo are `ESTATE` (panel slabs that `steerProfile` does not turn into kamienice; a strip lot too narrow for a slab row gets one slab along it); Stary Grunwald, Grunwald Północ and Górczyn, Sołacz, Winiary, the garden suburbs (Ogrody, Grunwald Południe, Naramowice, ...) and the industrial east and south (Antoninek-Zieliniec-Kobylepole, Starołęka) pick their kind per block from its real median storeys (`GEO.blockStats`: slabs from 7, villas up to 3; a 4–6-storey block is kamienice when 20% built or more, else slabs in their greenery, `midKind`). Chartowo is `ESTATE` (as `PROJECTS` its 5-storey median turned the slabs into kamienice: 18.7 % built against 12.1). Their 1–3-storey blocks, and Warszawskie-Pomet-Maltańskie's, are halls (`LOWRISE`) where the block's mapped buildings average over `LOW_HALL` 450 m², else villas (`lowKind`). Measured built share, generated / real, over the land of the blocks built on (`tests/buildings-density.test.cjs` holds the villa districts and Chartowo to ±20%): Sołacz 8.9 / 9.1 %, Winiary 17.4 / 17.0, Ogrody 17.2 / 15.9, Grunwald Południe 9.5 / 10.3, Warszawskie-Pomet-Maltańskie 11.9 / 11.2, Chartowo 12.5 / 12.5, Antoninek-Zieliniec-Kobylepole 5.2 / 6.7. Over each whole district (measured before the 2026-11-03 park-block carve-out, so Sołacz is now lower) Sołacz was 8.8 / 8.9 % and Antoninek 5.1 / 6.6 %: park blocks with mapped OSM buildings
 (`b.park > 0.6 && b.buildings > 0`, such as Park Sołacki, Ogród Dendrologiczny and Polana Harcerza) build only on
 non-park cells clear of park rings (`parkFreeCells`), while purely unmapped park blocks remain unbuilt green space. Facade materials are named in `F` (four plaster colours, red and yellow brick, grey sandstone 4.4 m storeys, four Rynek pastels, three glass, and five `createPanelBlockMaterial` colours at 2.8 m storeys (`PANELS`: grey, cream and three repainted ones with accent bands) for the osiedle slabs and `postwarBlock`). Buildings are massed in whole storeys of their facade's `floorHeight` (the `storeys` list reads it from the options), so a new facade must carry one.
