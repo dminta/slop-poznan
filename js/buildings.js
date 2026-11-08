@@ -31,7 +31,8 @@ import {
   blockAt,
   pointInPark,
   parkFreeCells,
-  splitDeep
+  splitDeep,
+  roadClearance
 } from './city-config.js';
 import {
   createParkLawnMaterial,
@@ -272,6 +273,8 @@ function buildCityBlocks(scene) {
   let minLot = 15; // smallest lot side built on (frontage frames come in lots of 12 m and up, see geo-blocks.mjs)
   let srcBlock = null; // the BLOCKS entry being populated (its curb outline gives the lot rects' frontages)
   let srcAnchors = []; // its GEO.blockAnchors kept for this block (world [x0, x1, z0, z1, area, use, levels])
+  let srcObjects = []; // its GEO.blockObjects (same layout, including education/sacral/health/civic/office uses)
+  let srcFallbackLots = []; // its GEO.blockFallbackLots (world [x0, x1, z0, z1, area])
   let srcRects = []; // its lot rects { x0, x1, z0, z1 } in their frames { cs, sn, px, pz } (see frontages)
   let srcLotArea = 0; // the area of the lot pieces it builds on (m², see steerProfile)
   let fullLotArea = 0; // lot area before park carve-out (m², see steerProfile)
@@ -282,6 +285,7 @@ function buildCityBlocks(scene) {
   let srcBuiltArea = 0; // ground footprint area committed in the current block (m²)
   let srcLeftArea = 0; // lot area of the pieces still to populate (m²)
   let srcTarget = 0; // the block's real built area (m², steerProfile's T × BLOCKS[i].area)
+  let srcObjectArea = 0; // mapped objects committed before the generic pieces (their area was removed from the lots)
   let srcPieceBudget = 0; // the current piece's share of the unspent target (m²)
   const toWorld = (x, z) => (xf
     ? [xf.px + (x - xf.px) * xf.cs + (z - xf.pz) * xf.sn, xf.pz - (x - xf.px) * xf.sn + (z - xf.pz) * xf.cs]
@@ -2471,6 +2475,211 @@ function buildCityBlocks(scene) {
     });
   }
 
+  // ============================================================================
+  // MAPPED OBJECTS (GEO.blockObjects): one mapped school, church, clinic, office or hall, built on its own OSM envelope.
+  // The 2026-11-08 audit found the district profiles replaced these with generic mass; these layouts keep the object's
+  // plan and give it the massing its use implies (a nave with a tower, school wings and a gym, hospital light courts,
+  // hall bays). The envelope is the real footprint, so no forecourt or setback is added.
+  // ============================================================================
+  function fallbackEnvelope(f, shrink = true) {
+    const [x0, x1, z0, z1, area] = f;
+    if (!shrink) return [x0, x1, z0, z1];
+    const bw = x1 - x0;
+    const bd = z1 - z0;
+    const s = area > 0 && bw > 0 && bd > 0 ? Math.min(1, Math.sqrt(area / (bw * bd))) : 1;
+    return [x0 + (bw * (1 - s)) / 2, x1 - (bw * (1 - s)) / 2, z0 + (bd * (1 - s)) / 2, z1 - (bd * (1 - s)) / 2];
+  }
+  // World AABB of an oriented object rect [cx, cz, w, d, ang, area, use, levels]
+  function objectBounds(o) {
+    const [cx, cz, w, d, ang] = o;
+    const cs = Math.cos(ang), sn = Math.sin(ang);
+    const hw = w * 0.5, hd = d * 0.5;
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const [u, v] of [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]]) {
+      const x = cx + u * cs - v * sn, z = cz + u * sn + v * cs;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (z < z0) z0 = z;
+      if (z > z1) z1 = z;
+    }
+    return [x0, x1, z0, z1];
+  }
+  function objectProfile(o) {
+    const use = o[6];
+    const levels = o[7] || 0;
+    const floors = use === 7 ? [2, 3] : use === 6 ? [2, 4] : use === 8 ? [3, 5] : use === 10 ? [3, 7]
+      : use === 9 ? [3, 5] : use === 1 ? [2, 4] : use === 4 ? [4, 6] : [2, 3];
+    return { kind: 'object', objectUse: use, object: o, levels, floors };
+  }
+  function objectBlock(blk, cfg) {
+    const R = blockRect(blk);
+    const W = rectW(R);
+    const D = rectD(R);
+    if (Math.min(W, D) < 5) return;
+    blk.yards.push(insetAll(R, 0.5));
+    const use = cfg.objectUse;
+    const lv = cfg.levels;
+    const fl = (a, b) => (lv >= 1 ? Math.max(a, Math.min(b, Math.round(lv))) : irange(a, b));
+    const alongX = W >= D;
+    const len = alongX ? W : D;
+    const wid = alongX ? D : W;
+    const at = (u0, u1, v0, v1) => (alongX
+      ? rect(R.x0 + u0, R.x0 + u1, R.z0 + v0, R.z0 + v1)
+      : rect(R.x0 + v0, R.x0 + v1, R.z0 + u0, R.z0 + u1));
+
+    // A nave running along the long axis with a square tower at one end, gabled roofs; chapels too small for a tower
+    // stay a single gabled hall.
+    if (use === 7) {
+      const mat = pickW([[F.brick, 4], [F.cream, 2], [F.yellowBrick, 1], [F.sandstone, 1]]);
+      const b = building(blk, mat, R);
+      const naveF = Math.max(2, Math.min(3, lv ? Math.round(lv) : 2));
+      if (len >= 18 && wid >= 9) {
+        const ts = Math.min(wid, Math.max(6, Math.min(11, len * 0.22)));
+        const west = chance(0.5);
+        const tower = alongX
+          ? rect(west ? R.x0 : R.x1 - ts, west ? R.x0 + ts : R.x1, R.z0, R.z0 + ts)
+          : rect(R.x0, R.x0 + ts, west ? R.z0 : R.z1 - ts, west ? R.z0 + ts : R.z1);
+        const nave = alongX
+          ? rect(west ? R.x0 + ts : R.x0, west ? R.x1 : R.x1 - ts, R.z0, R.z1)
+          : rect(R.x0, R.x1, west ? R.z0 + ts : R.z0, west ? R.z1 : R.z1 - ts);
+        const navePart = mass(b, [nave], 0, naveF);
+        pitch(navePart, 'gable', pickW([['tile', 3], ['slate', 1]]), alongX ? 'x' : 'z', range(45, 55));
+        const towerPart = mass(b, [tower], 0, Math.max(3, Math.min(6, naveF + 2)));
+        pitch(towerPart, 'hip', pickW([['slate', 2], ['copper', 1], ['tile', 1]]), alongX ? 'x' : 'z', 55);
+      } else {
+        const navePart = mass(b, [insetAll(R, 0.4)], 0, naveF);
+        pitch(navePart, 'gable', pickW([['tile', 2], ['slate', 1]]), alongX ? 'x' : 'z', range(40, 50));
+      }
+      commit(blk, b, { cornice: true, corniceH: 0.5, shops: 'none', awnings: false, chimneys: false });
+      return;
+    }
+
+    // School: a long main wing with a lower gym/annex on the remaining third and a small entrance pavilion. Pitched
+    // roofs on the older schools, flat plant rooms on the newer ones.
+    if (use === 6) {
+      const mat = pickW([[F.brick, 3], [F.cream, 3], [F.greyGreen, 2], [F.yellowBrick, 1]]);
+      const b = building(blk, mat, R);
+      const f = fl(2, 4);
+      if (len >= 30 && wid >= 12) {
+        const mainLen = len * range(0.55, 0.68);
+        const gap = range(1.5, 3);
+        const main = at(0, mainLen, 0, wid);
+        const wing = mass(b, [main], 0, f);
+        if (chance(0.55)) pitch(wing, 'hip', pickW([['tile', 2], ['slate', 1]]), alongX ? 'x' : 'z', range(22, 30));
+        const annex = at(Math.min(len - 6, mainLen + gap), len, wid * 0.08, wid * 0.92);
+        if (rectW(annex) >= 6 && rectD(annex) >= 6) mass(b, [annex], 0, Math.max(1, Math.min(2, f - 1)));
+      } else {
+        mass(b, [insetAll(R, 0.4)], 0, f);
+      }
+      commit(blk, b, { cornice: !chance(0.5), hvac: 'small', hvacH: range(2.4, 3.2), skylights: true, shops: 'none',
+        awnings: false, freestanding: true });
+      return;
+    }
+
+    // Hospital / clinic: one continuous block with light courts cut into the core, so the plan reads as wings joined by
+    // links instead of a single shed; a taller plant/lift block at one end where the envelope is large.
+    if (use === 8) {
+      const mat = pickW([[F.cream, 3], [F.greyGreen, 2], [F.glassSilver, 1], [F.brick, 1]]);
+      const b = building(blk, mat, R);
+      const f = fl(3, 5);
+      const holes = [];
+      if (W * D > 1800 && len >= 30) {
+        const n = Math.max(1, Math.min(3, Math.round(len / 45)));
+        for (let k = 0; k < n; k++) {
+          const u0 = (len * (k + 0.5)) / n - len / (n * 3.4);
+          const u1 = (len * (k + 0.5)) / n + len / (n * 3.4);
+          holes.push(at(u0, u1, wid * 0.3, wid * 0.7));
+        }
+      }
+      mass(b, holes.length ? carve(R, holes, alongX ? 'x' : 'z') : [insetAll(R, 0.4)], 0, f);
+      const tower = at(len * 0.08, len * 0.08 + Math.min(14, len * 0.3), wid * 0.1, wid * 0.45);
+      if (rectW(tower) >= 8 && rectD(tower) >= 8) mass(b, [tower], 0, f + 1);
+      commit(blk, b, { cornice: false, hvac: true, hvacH: range(2.4, 4), skylights: true, shops: 'none', awnings: false,
+        freestanding: true });
+      return;
+    }
+
+    // Office: a 2-3 storey podium fills the envelope and the shaft is set back, with a corner notch on the larger plans.
+    if (use === 10) {
+      const mat = pickW([[F.glassSilver, 2], [F.glassTeal, 1], [F.cream, 2], [F.greyGreen, 1]]);
+      const b = building(blk, mat, R);
+      const f = fl(3, 7);
+      const podium = Math.min(3, f - 1);
+      mass(b, [R], 0, podium);
+      const setback = Math.min(4, Math.min(W, D) * 0.12);
+      const shaft = insetAll(R, setback);
+      if (rectW(shaft) >= 8 && rectD(shaft) >= 8) {
+        const holes = W * D > 2500 ? shapeHoles(shaft, pick(['notched', 'L', 'plain'])) : [];
+        mass(b, holes.length ? carve(shaft, holes, 'x') : [shaft], podium, f);
+      } else mass(b, [R], podium, f);
+      commit(blk, b, { cornice: false, hvac: true, hvacH: range(2.4, 3.6), shops: 'all', awnings: false,
+        freestanding: true });
+      return;
+    }
+
+    // Civic/public building: a stone institutional block with a raised central bay and a cornice.
+    if (use === 9) {
+      const mat = pickW([[F.sandstone, 2], [F.cream, 2], [F.greyGreen, 2], [F.brick, 1]]);
+      const b = building(blk, mat, R);
+      const f = fl(3, 5);
+      mass(b, [insetAll(R, 0.4)], 0, f);
+      const central = at(len * 0.3, len * 0.7, wid * 0.2, wid * 0.8);
+      if (rectW(central) >= 8 && rectD(central) >= 8) mass(b, [central], f, f + 1);
+      commit(blk, b, { cornice: true, shops: chance(0.5) ? 'all' : 'none', awnings: false });
+      return;
+    }
+
+    // Retail/commercial hall: one broad low box; the large ones get rooflights and packaged plant.
+    if (use === 1) {
+      const mat = pickW([[F.cream, 3], [F.greyGreen, 2], [F.brick, 2], [F.glassSilver, 1]]);
+      const b = building(blk, mat, R);
+      const f = W * D >= 8000 ? fl(3, 4) : fl(2, 3);
+      mass(b, [insetAll(R, 0.4)], 0, f);
+      commit(blk, b, { cornice: false, hvac: true, hvacH: range(2.4, 4), skylights: true, shops: 'all', awnings: false,
+        freestanding: true });
+      return;
+    }
+
+    // Industry, rail depot and utility: hall bays under gables, a low office at one end and (for a utility) a taller
+    // boiler house.
+    if (use === 2 || use === 3 || use === 5) {
+      const mat = pickW(use === 3 ? DEPOT.mats : use === 5 ? UTILITY.mats : INDUSTRIAL_HALL.mats);
+      const b = building(blk, mat, R);
+      const f = use === 5 ? fl(4, 7) : fl(2, 3);
+      if (use === 5 && len >= 20) {
+        const hall = at(0, len * 0.62, wid * 0.08, wid * 0.92);
+        mass(b, [hall], 0, Math.max(2, f - 2));
+        const tall = at(len * 0.7, len * 0.96, wid * 0.18, wid * 0.82);
+        if (rectW(tall) >= 6 && rectD(tall) >= 6) mass(b, [tall], 0, f);
+      } else {
+        const bays = Math.max(1, Math.min(6, Math.round(len / range(22, 32))));
+        const gap = 0.8;
+        const step = (len - gap * (bays - 1)) / bays;
+        for (let k = 0; k < bays; k++) {
+          const p = mass(b, [at(k * (step + gap), k * (step + gap) + step, 0, wid)], 0, f);
+          if (wid >= 10 && chance(0.75)) pitch(p, 'gable', pickW([['slate', 2], ['tile', 1]]), alongX ? 'z' : 'x',
+            range(10, 18));
+        }
+      }
+      commit(blk, b, { cornice: false, hvac: use === 2 && chance(0.3), hvacH: range(2.4, 3.6), shops: 'none',
+        awnings: false, walls: WALL_KINDS.blankStone, freestanding: true });
+      return;
+    }
+
+    // Sport/leisure: a hall filling the envelope, with a two-storey podium and a stepped upper volume.
+    const mat = pickW(ARENA.mats);
+    const b = building(blk, mat, R);
+    const f = fl(4, 6);
+    mass(b, [R], 0, Math.min(2, f - 1));
+    mass(b, [insetAll(R, Math.min(4, Math.min(W, D) * 0.1))], Math.min(2, f - 1), f);
+    commit(blk, b, { cornice: false, hvac: true, hvacH: range(2.4, 4), skylights: true, shops: 'none', awnings: false,
+      freestanding: true });
+  }
+
+  function objectBlockLayout(blk, cfg) {
+    objectBlock(blk, cfg);
+  }
+
   const LAYOUTS = {
     res: residentialBlock,
     facility: facilityBlock,
@@ -2491,7 +2700,8 @@ function buildCityBlocks(scene) {
     arena: arenaBlock,
     utility: utilityBlock,
     anchor: anchorBlock,
-    ancillary: ancillaryBlock
+    ancillary: ancillaryBlock,
+    object: objectBlockLayout
   };
 
   // ============================================================================
@@ -2597,6 +2807,15 @@ function buildCityBlocks(scene) {
     mats: [[F.cream, 3], [F.greyGreen, 2], [F.glassSilver, 2], [F.sandstone, 1]] };
   const UNIVERSITY = { kind: 'campus', program: 2, floors: [2, 4], pitched: 0.3,
     mats: [[F.cream, 3], [F.sandstone, 2], [F.greyGreen, 2], [F.brick, 1]] };
+  // Civil programmes from the 2026-11-08 missing-objects audit: schools, churches and civic/public blocks no longer
+  // fall back to kamienice or osiedle slabs. They keep the low campus layout, with more pitched roofs round a church
+  // and institutional stone/cream walls for offices and public buildings.
+  const SCHOOL_BLOCK = { kind: 'campus', program: 9, floors: [2, 4], pitched: 0.4,
+    mats: [[F.brick, 3], [F.cream, 3], [F.greyGreen, 2], [F.yellowBrick, 1]] };
+  const SACRAL_BLOCK = { kind: 'campus', program: 10, floors: [2, 3], pitched: 0.7,
+    mats: [[F.brick, 3], [F.cream, 2], [F.yellowBrick, 1], [F.sandstone, 1]] };
+  const CIVIC_BLOCK = { kind: 'campus', program: 11, floors: [3, 5], pitched: 0.15,
+    mats: [[F.sandstone, 2], [F.cream, 2], [F.greyGreen, 2], [F.brick, 1]] };
   // Non-residential profiles (audit 2026-11-08): one broad mall box, retail-park halls, industrial halls,
   // depots, stadium/arena bowls and technical utility volumes. Heights follow the real objects: a mall is
   // 3-4 storeys of curtain wall (12-16 m), a big-box 2 storeys (7.6 m), an industrial hall 2-3 storeys (7.6-11.4 m),
@@ -2865,6 +3084,17 @@ function buildCityBlocks(scene) {
         }
         case 7: return UTILITY;
         case 8: return ARENA;
+        case 9:
+          // Education programme: schools and kindergartens dominate the mapped footprint. Dense central blocks keep
+          // their mixed frontage (a school among kamienice), as for hospitals; sparser ones take the low campus.
+          if (srcBlock.park <= 0.5 && srcBlock.area >= 4000 && srcBlock.built <= 0.55) return SCHOOL_BLOCK;
+          break;
+        case 10:
+          if (srcBlock.park <= 0.5 && srcBlock.area >= 3000 && srcBlock.built <= 0.5) return SACRAL_BLOCK;
+          break;
+        case 11:
+          if (srcBlock.park <= 0.5 && srcBlock.area >= 4000 && srcBlock.built <= 0.55) return CIVIC_BLOCK;
+          break;
       }
     }
     // Fallbacks for blocks OSM leaves without a programme: the EC/Madalińskiego anchors, then the morphology test
@@ -3075,7 +3305,8 @@ function buildCityBlocks(scene) {
    * high-detail architectural features (stone cornices, chimney stacks, skylights, rooftop penthouses, balconies,
    * awnings, storefront fascia signs and renovation scaffolding) into the Quadtree.
    */
-  function populateBlock(minX, maxX, minZ, maxZ, district = null, facility = false, anchor = null, ancillary = false) {
+  function populateBlock(minX, maxX, minZ, maxZ, district = null, facility = false, anchor = null, ancillary = false,
+    object = null, fallback = false) {
     const bw = maxX - minX;
     const bd = maxZ - minZ;
     if (bw < minLot || bd < minLot) return;
@@ -3117,9 +3348,12 @@ function buildCityBlocks(scene) {
     // Anchors are exact by definition (their own OSM envelope); facility lots still build their mapped hall; only an
     // ordinary lot of an anchored block is limited to the low ancillary pavilion.
     const profile = anchor ? { ...anchorProfile(anchor.a), parts: anchor.parts }
-      : facility ? { kind: 'facility' }
-        : ancillary ? { kind: 'ancillary' }
-          : steerProfile(blockProfile(blockDetail, district), srcBlock);
+      : object ? objectProfile(object)
+        : facility ? { kind: 'facility' }
+          : ancillary ? { kind: 'ancillary' }
+            : steerProfile(blockProfile(blockDetail, district), srcBlock);
+    // A fallback lot is a real mapped building the property-line grid missed: never thin it away with skipP.
+    if (fallback) profile.skipP = 0;
     // The piece's share of the block's real built area still to spend (srcPieceBudget). Small osiedle lots that cannot
     // hold a full slab use it for a garage/pavilion row, so they still contribute their share of the real stock.
     if (profile.kind === 'projects') profile.pieceFill = Math.max(0, Math.min(0.6, srcPieceBudget / (bw * bd)));
@@ -3178,6 +3412,28 @@ function buildCityBlocks(scene) {
       }
       xf = saved;
     }
+  }
+
+  // One mapped object from GEO.blockObjects: its oriented OSM minimum-area rectangle, shrunk to the real outline area
+  // when the plan is not a full rectangle, in its own frame so a diagonal hall does not fill a much larger AABB.
+  // Landmark reserves are left to the hand-built models; an envelope that still reaches a roadway is skipped.
+  function populateObject(o) {
+    const [cx, cz, w0, d0, ang, area] = o;
+    const s = area > 0 && w0 * d0 > 0 ? Math.min(1, Math.sqrt(area / (w0 * d0))) : 1;
+    const w = w0 * s, d = d0 * s;
+    if (Math.min(w, d) < 4) return;
+    const th = -ang;
+    const cs = Math.cos(th), sn = Math.sin(th);
+    const hw = w * 0.5, hd = d * 0.5;
+    const x0 = cx - hw, x1 = cx + hw, z0 = cz - hd, z1 = cz + hd;
+    const corners = [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]].map(([u, v]) => [
+      cx + u * cs - v * sn, cz + u * sn + v * cs
+    ]);
+    if (corners.some(([x, z]) => roadClearance(x, z) < 0)) return;
+    const saved = xf;
+    xf = { th, cs, sn, px: cx, pz: cz };
+    populateBlock(x0, x1, z0, z1, srcBlock.district, false, null, false, o);
+    xf = saved;
   }
 
   // Turns everything a lot of the current frame emitted into place: facade boxes, roof gear, cornices, balconies,
@@ -3293,7 +3549,7 @@ function buildCityBlocks(scene) {
   // frontage frame the reserves are their bounds in the frame. Block anchors are reserves too, so no generic lot or
   // park facility lot is laid over a mapped mall, hall, depot or arena.
   function minusReserves(r) {
-    const anchors = srcAnchors.map((a) => {
+    const anchors = srcAnchors.concat(srcObjects).map((a) => {
       const b = inFrameRect(a);
       return { x0: b[0], x1: b[1], z0: b[2], z1: b[3] };
     });
@@ -3348,6 +3604,12 @@ function buildCityBlocks(scene) {
     // one 700 m² shop on block 817, and anchoring it would turn a 37%-built office block into yard.
     const anchorArea = srcAnchors.reduce((sum, a) => sum + a[4], 0);
     if (b.park > 0.6 || anchorArea < 0.03 * b.area) srcAnchors = [];
+    // Mapped objects are exact buildings of their own; a landmark model already covers the ones in its reserve.
+    srcObjects = (b.objects || []).filter((o) => {
+      const e = objectBounds(o);
+      return !LANDMARK_RESERVE.some((h) => hitR(h, e[0], e[1], e[2], e[3]));
+    });
+    srcFallbackLots = b.fallbackLots || [];
     srcRects = (b.frames || [[0, 0, 0, b.rects]]).flatMap(([th, px, pz, rects]) => rects.map(([x0, x1, z0, z1]) => (
       { cs: Math.cos(th), sn: Math.sin(th), px, pz, x0, x1, z0, z1 })));
     // The block's pieces first: their area is the lot area the villa layouts steer by (srcLotArea)
@@ -3372,6 +3634,23 @@ function buildCityBlocks(scene) {
         }
       }
     }
+    // Objects and fallback lots outside the property-line grid add their own area: the real built area target already
+    // contains them, so this only keeps srcLotArea >= srcTarget when the grid missed most of a block.
+    const fallbackPieces = [];
+    let extraLotArea = 0;
+    for (const o of srcObjects) {
+      extraLotArea += o[5];
+    }
+    for (const f of srcFallbackLots) {
+      const e = fallbackEnvelope(f);
+      for (const part of minusReserves(e)) {
+        if (part[1] - part[0] < 5 || part[3] - part[2] < 5) continue;
+        fallbackPieces.push(part);
+        extraLotArea += (part[1] - part[0]) * (part[3] - part[2]);
+      }
+    }
+    srcLotArea += extraLotArea;
+    fullLotArea += extraLotArea;
     // The block's real building area (steerProfile's T × the curb island): offices spend what is left of it on
     // their courtyard core (see officeCore). srcLeftArea distributes the unspent budget over the remaining pieces.
     {
@@ -3387,6 +3666,21 @@ function buildCityBlocks(scene) {
     const framedMinLot = minLot;
     minLot = 4;
     for (const a of srcAnchors) populateAnchor(a);
+    const beforeObjects = srcBuiltArea;
+    for (const o of srcObjects) populateObject(o);
+    srcObjectArea = srcBuiltArea - beforeObjects;
+    // The object envelopes were removed from the generic lots, so their real area is no longer in srcLotArea. Add it
+    // back before budgeting; otherwise a block whose lots were mostly mapped shops or halls loses the target it is
+    // supposed to fill. Anchors keep the old budget (their area is already in the block's lot rects).
+    if (srcObjectArea > 0) srcTarget = Math.min(srcLotArea + srcObjectArea, b.built * b.area);
+    // Fallback lots are real buildings the property-line grid missed; build them before the generic pieces so the
+    // block's remaining budget cannot spend their spot on a kamienica elsewhere.
+    for (const r of fallbackPieces) {
+      const pieceArea = (r[1] - r[0]) * (r[3] - r[2]);
+      srcPieceBudget = srcLeftArea > 0 ? Math.max(0, (srcTarget - srcBuiltArea) * (pieceArea / srcLeftArea)) : 0;
+      populateBlock(r[0], r[1], r[2], r[3], b.district, false, null, false, null, true);
+      srcLeftArea = Math.max(0, srcLeftArea - pieceArea);
+    }
     minLot = framedMinLot;
     for (const [f, x0, x1, z0, z1, facility] of pieces) {
       xf = f;
@@ -3400,10 +3694,13 @@ function buildCityBlocks(scene) {
   minLot = 15;
   srcBlock = null;
   srcAnchors = [];
+  srcObjects = [];
+  srcFallbackLots = [];
   srcRects = [];
   srcLotArea = 0;
   fullLotArea = 0;
   srcTarget = 0;
+  srcObjectArea = 0;
   srcBuiltArea = 0;
   srcLeftArea = 0;
   srcPieceBudget = 0;

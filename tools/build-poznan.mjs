@@ -9,7 +9,7 @@ import { levelCrossings, pieces, plazas, rail, roads, signalNodes, tramRoutes, t
 import { water, land, landHoles, outskirts, outskirtsHoles } from './poz-water.mjs';
 import { parks, landmarks, districts, labels } from './poz-extra.mjs';
 import { blocks, STRIP, SIDEWALK } from './poz-blocks.mjs';
-import { blockStats, blockFootprints, blockParkBuildings, industry, blockAnchors } from './poz-buildings.mjs';
+import { blockStats, blockFootprints, blockParkBuildings, blockAnchors, blockObjects, blockFallbackLots, industry } from './poz-buildings.mjs';
 import { canopies } from './poz-canopies.mjs';
 import { buildRoadGraph } from './poz-roadgraph.mjs';
 
@@ -98,13 +98,14 @@ const GEO = {
   // One per blocks entry, same order: [built share of the curb island under OSM building footprints (0..1), area-weighted
   // median building:levels of the buildings centred in it (0 if none tagged), building count, program (0 none, 1
   // hospital/clinic campus, 2 university campus, 3 retail/mall, 4 industrial, 5 rail/depot, 6 sport/stadium/arena,
-  // 7 utility, 8 leisure/water park; programs 3-8 need >= 40 % of the block's footprint area)] (poz-buildings.mjs)
+  // 7 utility, 8 leisure/water park, 9 education, 10 sacral, 11 civic/public; programs 3-11 need >= 40 % of the block's
+  // footprint area)] (poz-buildings.mjs)
   blockStats,
   // { block id: [[x0, x1, z0, z1, area], ...] }: axis-aligned envelopes of the mapped sport/show/public facilities
   // (>= 150 m²) in blocks with any park share, plus their OSM footprint area. city-config turns them into lots so
   // parkFreeCells does not clear Hala Arena, Enea Stadion, Chwiałka or Termy Maltańskie to lawn.
   blockFootprints,
-  // { block id: [[x0, x1, z0, z1, area], ...] }: axis-aligned envelopes of ordinary mapped buildings (>= 60 m²) in
+  // { block id: [[x0, x1, z0, z1, area], ...] }: axis-aligned envelopes of ordinary mapped buildings (>= 40 m²) in
   // park blocks, over their in-block footprint area. city-config adds them to blockFootprints as non-facility lots when
   // the park carve would leave less lot area than the block's real built share, so an estate standing in parkland is
   // not cleared to lawn (875 Antoninek, 968 Rataje, 886 Łazarz, 1271 Chartowo). Facility envelopes stay in
@@ -115,6 +116,17 @@ const GEO = {
   // 4 sport/leisure, 5 utility) and storeys. buildings.js puts one dedicated building on each anchor (mall box, hall,
   // depot, arena) and treats the rest of the block as service yard and low auxiliary pavilions.
   blockAnchors,
+  // { block id: [[cx, cz, w, d, ang, area, use, levels], ...] }: every mapped non-residential building (>= 100 m²)
+  // the district profile cannot represent, not just the block's largest. cx/cz/w/d/ang is the oriented minimum-area
+  // rectangle of its OSM outline (long side w, ang east from +x towards +z), area the OSM ring area. Use codes are the
+  // anchor ones plus 6 education, 7 sacral, 8 health, 9 civic and 10 office. buildings.js builds each on its own
+  // oriented envelope (nave/tower for a church, wings for a school or hospital, hall bays for industry) and leaves the
+  // rest of the block generic.
+  blockObjects,
+  // { block id: [[x0, x1, z0, z1, area], ...] }: mapped buildings (>= 60 m²) whose footprint the property-line grid
+  // never covered (the audit's property-line gap and blocks without raw lot rects). city-config turns them into extra
+  // lots, so buildings.js can build on the real spot instead of losing the object between maskRects/fitRects.
+  blockFallbackLots,
   // [{ kind: 'cooling'|'chimney'|'silo'|'tank'|'works'|'plant'|'substation', x, z, w, d, h, area, block }]: industrial
   // structures and power/substation sites from poz_industry.json inside the detail box. Cooling towers and chimneys
   // are drawn as real tower geometry; the other kinds classify their block and keep the towers company.

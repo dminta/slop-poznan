@@ -84,13 +84,13 @@ test('seeded species assignment preserves the full built city tree sites and col
   // and estate density passes (2026-11-08) changed the building colliders and street-tree sites again.
   // See docs/observations/railway-building-islands-2026-11-08.md, park-sports-facilities-2026-11-08.md,
   // block-anchors-2026-11-08.md and building-density-investigation-2026-11-08.md.
-  assert.deepEqual(before, [18368, 22481, 8582, 0]);
-  assert.deepEqual(after, [17615, 21587, 8234, 1995]);
-  assert.equal(siteHash, '425078db733eab7bdeb9a2a5820f2ec0f63d381ffdb871aa8e74817c2b4cf6a1');
-  assert.equal(digest(grid.propColliders), '8ad8f9f3dc203af6e2d587c153287f5017ea1f19ff32aa3bafe3b76b64c861fa');
-  assert.equal(digest(details.colliders), '8bf56f42472ebc3216b994e70af0cc7ab6a5f118fadaf458c97b76cd242fb390');
-  assert.equal(meshCount((t) => t.species || 0), 13849);
-  assert.equal(meshCount(treeSpecies), 16786);
+  assert.deepEqual(before, [18315, 22379, 8557, 0]);
+  assert.deepEqual(after, [17568, 21485, 8212, 1986]);
+  assert.equal(siteHash, 'f9dcb1cad51d5635176a245bfb40b31b84b48e344bd0e043f623c627e4982feb');
+  assert.equal(digest(grid.propColliders), 'e76e1fb09b5de222e19d6f25e1ff29777b96fc8f4765070546f3514234991af3');
+  assert.equal(digest(details.colliders), '6dd9090e8ac280b4a019bc3adf5bb92f06ae80bd75a7a6765081c74eb54329aa');
+  assert.equal(meshCount((t) => t.species || 0), 13807);
+  assert.equal(meshCount(treeSpecies), 16737);
 });
 
 // Exercise the real field's transform, allocation and regrouping with cheap stand-ins for the generated geometries.

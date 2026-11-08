@@ -7,10 +7,10 @@
 // - tools/poz-buildings.mjs assigns each OSM footprint (building=*, plus the industry snapshot) to a block,
 // - js/buildings.js is run headless and its generated footprints are rastered on a 2 m grid.
 //
-// A footprint is "present" when a hand-built landmark model covers it, a GEO.blockAnchors box stands on it, or at
-// least half of its 2 m cells are under a generated footprint. Building=roof is counted separately: it is not built
-// mass but it can be present as a GEO.canopies roof. Everything else is reported as omitted, with the pipeline stage
-// that dropped it:
+// A footprint is "present" when a hand-built landmark model covers it, a GEO.blockAnchors box or a GEO.blockObjects
+// oriented rectangle stands on it, or at least half of its 2 m cells are under a generated footprint. Building=roof is
+// counted separately: it is not built mass but it can be present as a GEO.canopies roof. Everything else is reported
+// as omitted, with the pipeline stage that dropped it:
 //
 //   outside detail box   centroid outside GEO.frame.detailBox (snapshot is padded to 52.380-52.437 N)
 //   no block             inside the box but the block raster has no label (road, rail corridor, water, plaza edge)
@@ -371,10 +371,13 @@ function blockAnchorAt(bd) {
   const box = bd.inBoxBox;
   if (!box || !bd.label) return null;
   const cfg = cfgByLabel.get(bd.label);
-  if (!cfg || !cfg.anchors) return null;
+  if (!cfg || (!cfg.anchors && !cfg.objects)) return null;
   const cx = (box[0] + box[1]) / 2, cz = (box[2] + box[3]) / 2;
-  for (const a of cfg.anchors) {
+  for (const a of cfg.anchors || []) {
     if (cx >= a[0] && cx <= a[1] && cz >= a[2] && cz <= a[3]) return a;
+  }
+  for (const o of cfg.objects || []) {
+    if (inOrientedRect(cx, cz, o[0], o[1], o[2], o[3], o[4])) return o;
   }
   return null;
 }
@@ -454,7 +457,7 @@ for (const bd of buildings) {
     blockId: bl ? bl.id : null, district: cfg ? cfg.district : null, park: cfg ? cfg.park : 0,
     x: q(bd.cx), z: q(bd.cz), inBox: box, presence, reason,
     coverage: pct(st.share), lotShare: pct(st.lotShare), rawShare: pct(st.rawShare), parkShare: pct(st.parkShare),
-    height: st.hmax, landmark: landmark || null, anchorUse: anchor ? anchor[5] : 0,
+    height: st.hmax, landmark: landmark || null, anchorUse: anchor ? (anchor.length >= 8 ? anchor[6] : anchor[5]) : 0,
     reserve: reserveAt(bd.bbox[0], bd.bbox[1], bd.bbox[2], bd.bbox[3])?.name || null,
     satellite: satellite || null, nearest: nearestLandmark(bd.cx, bd.cz)
   };

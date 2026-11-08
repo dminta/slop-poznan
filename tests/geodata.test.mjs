@@ -109,20 +109,23 @@ test('Poznań geodata builds offline with default paths in a checkout containing
     }
     // blockStats: [built share, median levels, buildings, program] per block, from the OSM footprints and the industry
     // snapshot (poz-buildings.mjs); program 0 none, 1 hospital/clinic campus, 2 university campus, 3 retail/mall,
-    // 4 industrial, 5 rail/depot, 6 sport/stadium/arena, 7 utility, 8 leisure/water park. A non-campus programme
-    // needs >= 40 % of the block's footprint area.
+    // 4 industrial, 5 rail/depot, 6 sport/stadium/arena, 7 utility, 8 leisure/water park, 9 education, 10 sacral,
+    // 11 civic/public. A non-campus programme needs >= 40 % of the block's footprint area.
     const stats = GEO.blockStats;
     assert.equal(stats.length, GEO.blocks.length);
     assert.ok(stats.every(([s, lv, n, p = 0]) => s >= 0 && s <= 1 && lv >= 0 && lv < 60 && Number.isInteger(n) && n >= 0 &&
-      Number.isInteger(p) && p >= 0 && p <= 8));
+      Number.isInteger(p) && p >= 0 && p <= 11));
     assert.ok(stats.filter(([, , , p = 0]) => p === 1).length >= 5, 'hospital campuses tagged');
     assert.ok(stats.filter(([, , , p = 0]) => p === 2).length >= 5, 'university campuses tagged');
+    assert.ok(stats.filter(([, , , p = 0]) => p === 9).length >= 1, 'education programme tagged');
+    assert.ok(stats.filter(([, , , p = 0]) => p === 10).length >= 1, 'sacral programme tagged');
+    assert.ok(stats.filter(([, , , p = 0]) => p === 11).length >= 1, 'civic programme tagged');
     const programs = new Map();
     for (const [, , , p] of stats) programs.set(p, (programs.get(p) || 0) + 1);
     for (const p of [3, 4, 5, 6, 7]) assert.ok((programs.get(p) || 0) >= 1, `programme ${p} tagged`);
     // Posnania (955), Castorama (21), ZNTK Robocza (848), Szpital Kliniczny (828) and Szpital Strusia (991); the
     // audit's #953/#847/#827/#989 moved by the 2026-11-08 railway building islands.
-    for (const [id, program] of [[955, 3], [21, 3], [848, 4], [828, 1], [991, 1]]) {
+    for (const [id, program] of [[959, 3], [21, 3], [851, 4], [831, 1], [996, 1]]) {
       assert.equal(stats[id][3], program, `block ${id} programme ${program}`);
     }
     const blockArea = (f) => { let a = 0; for (let i = 0, j = f.length - 2; i < f.length; j = i, i += 2) a += f[j] * f[i + 1] - f[i] * f[j + 1]; return Math.abs(a) / 2; };
@@ -140,14 +143,14 @@ test('Poznań geodata builds offline with default paths in a checkout containing
     assert.ok(footprints && Object.keys(footprints).length >= 20, 'park facility envelopes emitted');
     const holds = (id, area) => (footprints[id] || []).some(([x0, x1, z0, z1, a]) => x1 > x0 && z1 > z0 &&
       a >= area * 0.95 && a <= area * 1.05);
-    assert.ok(holds(927, 7843), 'Hala Arena envelope in block 927');
-    assert.ok(holds(939, 52909), 'Enea Stadion envelope in block 939');
+    assert.ok(holds(929, 7843), 'Hala Arena envelope in block 927');
+    assert.ok(holds(941, 52909), 'Enea Stadion envelope in block 939');
     assert.ok(Object.values(footprints).every((list) => list.every((f) => f.length === 5 && f.every(Number.isFinite))));
     // blockParkBuildings: ordinary mapped buildings in blocks with > 40 % park land, kept as non-facility lots
     const parkBuildings = GEO.blockParkBuildings;
     assert.ok(parkBuildings && Object.keys(parkBuildings).length >= 50, 'ordinary park building envelopes emitted');
     assert.ok(Object.values(parkBuildings).every((list) => list.every((f) => f.length === 5 && f.every(Number.isFinite))));
-    assert.ok((parkBuildings[875] || []).length >= 5, '875 Antoninek keeps its mapped park buildings');
+    assert.ok((parkBuildings[878] || []).length >= 5, '875 Antoninek keeps its mapped park buildings');
     // industry: industrial structures and power/substation sites from poz_industry.json inside the detail box
     const industry = GEO.industry;
     assert.ok(Array.isArray(industry) && industry.length > 100, 'industry snapshot consumed');
@@ -155,7 +158,7 @@ test('Poznań geodata builds offline with default paths in a checkout containing
       Number.isFinite(s.x) && Number.isFinite(s.z) && s.w > 0 && s.d > 0 && s.h > 0));
     assert.ok(industry.some((s) => s.kind === 'chimney'), 'mapped chimney kept');
     assert.ok(industry.some((s) => s.kind === 'tank'), 'storage tanks kept');
-    assert.ok(stats[848][3] === 4, 'ZNTK block classified industrial');
+    assert.ok(stats[851][3] === 4, 'ZNTK block classified industrial');
     assert.ok(stats[266][3] === 7, 'EC Garbary block classified utility');
     // canopies: open building=roof outlines (platforms, tram stops, fuel forecourts) as oriented rectangles with
     // their audited column posts. The clearance is above a train/tram body and a pedestrian, and the columns keep
@@ -191,13 +194,31 @@ test('Poznań geodata builds offline with default paths in a checkout containing
     assert.ok(anchors && Object.keys(anchors).length >= 30, 'block anchors emitted');
     const anchorHolds = (id, minArea, use) => (anchors[id] || []).some((a) => a[1] > a[0] && a[3] > a[2] &&
       a[4] >= minArea && a[5] === use);
-    assert.ok(anchorHolds(955, 70000, 1), 'Posnania mall anchor in block 955');
+    assert.ok(anchorHolds(959, 70000, 1), 'Posnania mall anchor in block 955');
     assert.ok(anchorHolds(21, 7000, 1), 'Castorama retail anchor in block 21');
-    assert.ok(anchorHolds(848, 20000, 2), 'ZNTK industrial anchor in block 848');
-    assert.ok(anchorHolds(927, 7000, 4), 'Hala Arena sports anchor in block 927');
-    assert.ok(anchorHolds(1250, 6000, 3), 'Głogowska depot anchor in block 1250');
+    assert.ok(anchorHolds(851, 20000, 2), 'ZNTK industrial anchor in block 848');
+    assert.ok(anchorHolds(929, 7000, 4), 'Hala Arena sports anchor in block 927');
+    assert.ok(anchorHolds(1259, 6000, 3), 'Głogowska depot anchor in block 1250');
     assert.ok(Object.values(anchors).every((list) => list.every((a) => a.length === 7 && a.every(Number.isFinite) &&
       a[1] > a[0] && a[3] > a[2] && a[4] > 0 && [1, 2, 3, 4, 5].includes(a[5]) && a[6] >= 0 && a[6] < 60)));
+    // blockObjects: every mapped non-residential building the audit found omitted, not just the block's largest.
+    // [cx, cz, w, d, ang, area, use, levels]; use 1 retail/mall, 2 industrial, 3 rail, 4 sport, 5 utility, 6 education,
+    // 7 sacral, 8 health, 9 civic, 10 office.
+    const objects = GEO.blockObjects;
+    assert.ok(objects && Object.keys(objects).length >= 250, 'mapped object anchors emitted');
+    assert.ok(Object.values(objects).every((list) => list.every((a) => a.length === 8 && a.every(Number.isFinite) &&
+      a[2] > 0 && a[3] > 0 && a[2] * a[3] > 0 && a[5] > 0 && [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(a[6]) &&
+      a[7] >= 0 && a[7] < 60)));
+    const objectAt = (id, area, use) => (objects[id] || []).some((a) => a[5] >= area && a[6] === use);
+    assert.ok(objectAt(771, 15000, 1), 'MTP Pawilon 5 is a mapped retail object');
+    assert.ok(Object.values(objects).flat().some((a) => a[6] === 6 && a[5] >= 500), 'school objects emitted');
+    assert.ok(Object.values(objects).flat().some((a) => a[6] === 7 && a[5] >= 300), 'sacral objects emitted');
+    assert.ok(Object.values(objects).flat().some((a) => a[6] === 8 && a[5] >= 1000), 'health objects emitted');
+    // blockFallbackLots: mapped buildings the property-line grid never covered (the audit's structural gap).
+    const fallback = GEO.blockFallbackLots;
+    assert.ok(fallback && Object.keys(fallback).length >= 150, 'fallback lots emitted');
+    assert.ok(Object.values(fallback).every((list) => list.every((a) => a.length === 5 && a.every(Number.isFinite) &&
+      a[1] > a[0] && a[3] > a[2] && a[4] >= 60)));
     // frame.ll puts the Ratusz (the D1 origin) at the world origin
     const ll = GEO.frame.ll;
     const [lon, lat] = [16.93401, 52.40856];

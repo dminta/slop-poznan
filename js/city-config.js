@@ -598,6 +598,12 @@ const BLOCK_PARK_BUILDINGS = GEO.blockParkBuildings || {};
 // Block anchors (GEO.blockAnchors: block id -> [x0, x1, z0, z1, area, use, levels]): the block's largest mapped
 // non-residential footprints. buildings.js builds one dedicated building on each and leaves the rest as yard.
 const BLOCK_ANCHORS = GEO.blockAnchors || {};
+// Mapped non-residential objects (GEO.blockObjects): every school, church, clinic, office or hall, not only the block's
+// largest. buildings.js builds each on its own envelope and keeps the rest of the block generic.
+const BLOCK_OBJECTS = GEO.blockObjects || {};
+// Fallback lots (GEO.blockFallbackLots): mapped buildings the property-line grid never covered. They join blockLots so
+// the generator can build on the real spot instead of losing the object between maskRects/fitRects.
+const BLOCK_FALLBACK_LOTS = GEO.blockFallbackLots || {};
 
 const BLOCKS = GEO.blocks.map(([flat, rects, park, parkName, isRect, frames], id) => {
   const poly = toPts(flat);
@@ -617,6 +623,7 @@ const BLOCKS = GEO.blocks.map(([flat, rects, park, parkName, isRect, frames], id
   return {
     id, poly, rects, frames: frames || null, park, parkName, rect: !!isRect, area, built, levels, buildings, program,
     parkFootprints: parkFootprints.length ? parkFootprints : null, anchors: BLOCK_ANCHORS[id] || null,
+    objects: BLOCK_OBJECTS[id] || null, fallbackLots: BLOCK_FALLBACK_LOTS[id] || null,
     minX, maxX, minZ, maxZ,
     cx: a ? cx / (6 * a) : (minX + maxX) / 2,
     cz: a ? cz / (6 * a) : (minZ + maxZ) / 2,
@@ -778,6 +785,26 @@ function blockLots(b) {
         }
       }
     }
+  }
+  // Mapped objects and fallback envelopes are lots of their own even when the property-line grid missed them. They stay
+  // in the world frame and bypass splitDeep/parkFreeCells: they are the real building, not a piece of the block to cut.
+  for (const f of [...(b.objects || []), ...(b.fallbackLots || [])]) {
+    let x0, x1, z0, z1;
+    if (f.length >= 8) {
+      const [cx, cz, w, d, ang] = f;
+      const cs = Math.cos(ang), sn = Math.sin(ang), hw = w * 0.5, hd = d * 0.5;
+      const xs = [], zs = [];
+      for (const [u, v] of [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]]) {
+        xs.push(cx + u * cs - v * sn);
+        zs.push(cz + u * sn + v * cs);
+      }
+      x0 = Math.min(...xs); x1 = Math.max(...xs); z0 = Math.min(...zs); z1 = Math.max(...zs);
+    } else {
+      [x0, x1, z0, z1] = facilityEnvelope(f);
+    }
+    if (x1 - x0 < 5 || z1 - z0 < 5) continue;
+    lots.push({ xf: null, x0, x1, z0, z1, cx: (x0 + x1) * 0.5, cz: (z0 + z1) * 0.5,
+      hx: (x1 - x0) * 0.5, hz: (z1 - z0) * 0.5, cs: 1, sn: 0 });
   }
   return lots;
 }

@@ -108,7 +108,7 @@ Implementation details and completed measurements live in the [topic docs](../AG
      40 % gate. EC Garbary and the Madalińskiego depot stay `SPECIAL_SITES` fallbacks because OSM tags them too sparsely
      for the 40 % share. [Record](observations/block-programs-2026-11-08.md).
   3. *Building anchors (`GEO.blockAnchors`)* (done 2026-11-08): `tools/poz-buildings.mjs` emits the 1–3 largest
-     mapped non-residential footprints of a block that dominate its built mass (35 blocks, 61 anchors in the current
+     mapped non-residential footprints of a block that dominate its built mass (36 blocks, 64 anchors in the current
      build), and `buildings.js` fills each anchor's OSM envelope clipped to the block's own lot rects. Posnania
      68 → 94 %, Castorama 22 → 84 %, ZNTK 21 → 74 % and Hala Arena 83 → 97 % outline coverage; the rest of an anchored
      block is parking/yard plus low service pavilions instead of kamienice.
@@ -122,7 +122,8 @@ Implementation details and completed measurements live in the [topic docs](../AG
      footprints are given back from `landuse=railway` and track buffers grown by `SIDEWALK` (keeping 1 m outside the track
      corridors and 1 cell short of adjacent blocks). Restores 9 railway islands (19,098 m²): Głogowska tram depot
      block #1254 (1,176 m², 0 lots) becomes #1250 with 8,196 m², 13 lots and 820 m² built (50 % outline coverage);
-     LCS Poznań Główny (#1003) and Dworzec Letni (#804) gain their own blocks.
+     LCS Poznań Główny (#1003) and Dworzec Letni (#804) gain their own blocks. The 2026-11-08 missing-objects pass
+     extends the gate to ordinary warehouses/workshops of at least 60 m², taking the islands from 9 to 50.
      [Record](observations/railway-building-islands-2026-11-08.md).
   6. *Outskirts satellite sites (`SATELLITE_SITES`):* **done 2026-11-08** — `js/satellite-sites.js` places 14 OSM
      big-box and utility sites (Pestka, Makro, Plaza, King Cross, M1, IKEA, Selgros, Franowo, VW Antoninek, Karolin)
@@ -148,6 +149,22 @@ Implementation details and completed measurements live in the [topic docs](../AG
      887/968/1166/1271 much closer; city-wide net overbuild grows from +580,000 to ~+836,000 m², the documented
      trade-off of densifying the underbuilt blocks without a parallel thinning pass.
      [Record](observations/building-density-investigation-2026-11-08.md).
+- **Missing-objects recovery (2026-11-08):** the OSM audit's highest-value gaps are now filled without adding mass:
+  `GEO.blockFallbackLots` (913 lots in 278 blocks) gives the property-line grid the footprints it missed, and
+  `GEO.blockObjects` (793 objects in 305 blocks) builds the mapped schools, churches, clinics, offices, halls and
+  depots on their oriented OSM outlines with new use codes 6 education, 7 sacral, 8 health, 9 civic and 10 office.
+  `buildingUse`/`blockProfile` gain programmes 9 education, 10 sacral and 11 civic/public. On the audit: structural
+  omissions fall **4,023 → 2,971** (76.1 → 48.6 ha), zero-lot footprints **2,159 → 1,609**, and generated coverage
+  on real OSM outlines rises **40.6 → 45.0 %**; omitted objects fall **16,053 → 15,568** (496.9 → 441.2 ha), with
+  education **222 → 122**, sacral **92 → 42**, civic **64 → 39**, office **153 → 84**, retail **478 → 339** and
+  industrial **543 → 450**. Railway land now returns **50** mapped warehouses/workshops (70,859 m², from 9 stations
+  and depots) and ordinary park buildings enter from **40 m²** (1,104 in 64 blocks).
+  Deliberate exceptions: campus hospitals/universities (programme 1/2) keep their campus layout instead of exact
+  object wings, because reserving the wings fragmented their lots and halved block 578's built share; park-heavy
+  blocks keep `blockFootprints`/`blockParkBuildings` and their disjoint mesh holes. Remaining omissions are mostly
+  the 59 landmark-reserve footprints, 217 park-carve footprints, 3,186 objects outside the detail box and the small
+  residential/garage long tail. `node --test tests/*.cjs` passes 456/456 and `tests/geodata.test.mjs` rebuilds the
+  2.71 MB output byte for byte. [Record](observations/missing-objects-recovery-2026-11-08.md).
 - **Merge starvation and short-link left turns:** the 2026-11-07 Centrum seed 99 10-minute hold (`waitMax`/`longestHeld`
   184 s at `(-1117, 132)`) is fixed. A blocked lead no longer reserves the 9.4 m link between signals, and a left turn
   that cannot clear falls back to a straight move from the same lane, so it no longer waits on the link. That run is

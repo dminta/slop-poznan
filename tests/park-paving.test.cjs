@@ -439,10 +439,10 @@ test('critical gap locations covered by exactly one real triangle', () => {
   const mk = (x, y) => ({ x, y, equals(o) { return Math.abs(o.x - x) < 1e-4 && Math.abs(o.y - y) < 1e-4; } });
 
   const ptsToCheck = [
-    { id: 613, k: 'lawn', bottomY: 0.3, x: 1556.8, z: 262.3 },
-    { id: 614, k: 'granite', bottomY: 0.2, x: 4360.8, z: 1691.3 },
-    { id: 614, k: 'lawn', bottomY: 0.3, x: 4192.8, z: 1595.8 },
-    { id: 613, k: 'granite', bottomY: 0.2, x: 1464.8, z: 46.8 }
+    { id: 614, k: 'lawn', bottomY: 0.3, x: 1556.8, z: 262.3 },
+    { id: 615, k: 'granite', bottomY: 0.2, x: 4360.8, z: 1691.3 },
+    { id: 615, k: 'lawn', bottomY: 0.3, x: 4192.8, z: 1595.8 },
+    { id: 614, k: 'granite', bottomY: 0.2, x: 1464.8, z: 46.8 }
   ];
 
   for (const pt of ptsToCheck) {
@@ -466,19 +466,20 @@ test('critical gap locations covered by exactly one real triangle', () => {
   }
 });
 
-test('plaza planters: 138 planters emitted and 0 empty planters across the city', () => {
+test('plaza planters: 136 planters emitted and 0 empty planters across the city', () => {
   const { grid, helpers, emittedPlanterBoxes, emittedPlanterHedges } = getWorld();
 
   const planterColliders = grid.propColliders.filter(
     (c) => !c.obb && Math.abs(c.maxX - c.minX - 2.4) < 1e-4 && Math.abs(c.maxZ - c.minZ - 2.4) < 1e-4
   );
 
-  // Check emitted meshes/instances: exactly 138 granite boxes and 138 hedges (baseline had 141; 3 dropped at source)
-  assert.equal(emittedPlanterBoxes.length, 138, 'exactly 138 granite planter boxes emitted');
-  assert.equal(emittedPlanterHedges.length, 138, 'exactly 138 planter hedges emitted');
+  // Check emitted meshes/instances: exactly 136 granite boxes and 136 hedges (baseline had 141; 3 dropped at source,
+  // and 2 more sit on new mapped object footprints)
+  assert.equal(emittedPlanterBoxes.length, 136, 'exactly 136 granite planter boxes emitted');
+  assert.equal(emittedPlanterHedges.length, 136, 'exactly 136 planter hedges emitted');
 
-  // Check emitted colliders: exactly 138 colliders
-  assert.equal(planterColliders.length, 138, 'exactly 138 plaza planters emitted (3 dropped at source)');
+  // Check emitted colliders: exactly 136 colliders
+  assert.equal(planterColliders.length, 136, 'exactly 136 plaza planters emitted');
 
   // Verify that every remaining planter box has an active tree site inside it (0 empty planters)
   const parkTreeSites = helpers.getParkTreeSites();

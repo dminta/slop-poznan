@@ -13,12 +13,12 @@ node --max-old-space-size=8192 tools/build-poznan.mjs            # writes js/geo
 node --max-old-space-size=8192 tools/build-poznan.mjs /tmp/x.js  # writes elsewhere (diff before replacing)
 GEO_DATA=/some/dir node ... tools/build-poznan.mjs                # read inputs from another directory (default tools/data/)
 ```
-- The run takes about 29 s (24 s of it the block outlines, lots and frames; the building and industry pass, snapshot load included, logs ≈ 0.6 s), with a peak RSS of ≈ 1.27 GB (`/usr/bin/time -l`, 2026-10-28; the 6.1 × 3.7 km box took 14 s and 0.81 GB). Keep the 8 GB heap flag that the header usage line and `tests/geodata.test.mjs` pass, because the 1 m rasters and the EDTs are large.
+- The run takes about 32 s (26 s of it the block outlines, lots and frames; the building and industry pass, snapshot load included, logs ≈ 1 s; the extra raw-lot raster for fallback lots adds ≈ 0.3 s), with a peak RSS of ≈ 1.3 GB (`/usr/bin/time -l`, 2026-11-08; the 6.1 × 3.7 km box took 14 s and 0.81 GB). Keep the 8 GB heap flag that the header usage line and `tests/geodata.test.mjs` pass, because the 1 m rasters and the EDTs are large.
 - The output is deterministic. A rebuild from the committed `tools/data` reproduces the committed `js/geodata.js` byte for byte (verified). After any change to tools/, build to a temporary path and `cmp` it against the committed file: an unexpected diff means a behaviour change.
 - `tests/geodata.test.mjs` compares its fresh offline build byte for byte with the committed file, including the
   deterministic header. It also checks the exact 25 landmark names and validates their placement and footprints,
   so a missing site cannot pass through the map tests unnoticed.
-- `js/geodata.js` is GENERATED: its header says "do not edit by hand", and its single JSON line is about 2.48 MB. To change any geodata value, change the tools or the inputs and rebuild. Commit the regenerated file together with the tool change.
+- `js/geodata.js` is GENERATED: its header says "do not edit by hand", and its single JSON line is about 2.71 MB. To change any geodata value, change the tools or the inputs and rebuild. Commit the regenerated file together with the tool change.
 - Read the build's `[geodata]` log lines (counts, the frame, the per-key KB at the end). They are the quickest sanity check after a change.
 - Inspect the output with `head -c 1500 js/geodata.js`, or `import('./js/geodata.js')` in node. Never read the whole file.
 
@@ -31,8 +31,8 @@ GEO_DATA=/some/dir node ... tools/build-poznan.mjs                # read inputs 
 - Rings and polylines are flat `[x0, z0, x1, z1, ...]` arrays, rounded to 0.1 m. Outer rings have a negative shoelace area in (x, z); hole rings are positive.
 
 ## Output shape and consumers
-- `GEO` has these keys: `version` (2), `frame{bearingDeg, origin, lat0, lon0, units, strip, sidewalk, detailBox, ll}`, `land`, `landHoles`, `water`, `outskirts`, `outskirtsHoles`, `districts`, `labels`, `roads`, `roadGraph`, `rail`, `levelCrossings`, `tramRoutes`, `tramStops`, `plazas`, `blocks`, `blockStats`, `blockFootprints`, `blockParkBuildings`, `blockAnchors`, `industry`, `canopies`, `parks`, `landmarks`. The positional tuple layouts of `roads`, `roadGraph.links`, `blocks`, `blockStats`, `blockFootprints`, `blockParkBuildings` and `blockAnchors` and the `industry` object layout are documented in comments next to the `GEO` literal in `build-poznan.mjs`. Keep those comments in sync when you change a layout. `GEO.canopies` is an array of objects `{ x0, x1, z0, z1, h, clearance, kind, cx, cz, w, d, ang, area, columns }`: the axis-aligned bounds, the oriented rectangle (long side `w`, `ang` in radians from +x towards +z), the roof top `h` and underside `clearance`, the OSM ring `area`, and the flat world `[x, z, ...]` column posts. `kind` is `platform`, `tram`, `fuel`, `market`, `shelter` or `roof`.
-- `js/city-config.js` is the main consumer. It turns `GEO` into `{x, z}` rings and named exports: `LAND_RINGS`/`LAND_HOLES`, `WATER`, `OUTSKIRTS`/`OUTSKIRTS_HOLES`, `RAIL`, `PLAZAS`, `DISTRICTS` (`districtAt`), `BRIDGES` (the bridge-flagged graph links chained per name), `SIGNAL_SITES` (from `roadGraph.signals`, with each junction's arms), `roadClearance` (distance outside the road graph's runs, for street furniture), `ROADS`, `BLOCKS` (each with `built`, `levels`, `buildings` and `program` from `GEO.blockStats`, `parkFootprints` from `GEO.blockFootprints` and `GEO.blockParkBuildings`, and `anchors` from `GEO.blockAnchors`), `LANDMARK_SITES`, and the land raster behind `isLand`/`isWater`/`distToWater`/`clampToLand` (2 m cells; bridge decks count as land). Prefer those exports in runtime code. A few modules read `GEO` directly:
+- `GEO` has these keys: `version` (2), `frame{bearingDeg, origin, lat0, lon0, units, strip, sidewalk, detailBox, ll}`, `land`, `landHoles`, `water`, `outskirts`, `outskirtsHoles`, `districts`, `labels`, `roads`, `roadGraph`, `rail`, `levelCrossings`, `tramRoutes`, `tramStops`, `plazas`, `blocks`, `blockStats`, `blockFootprints`, `blockParkBuildings`, `blockAnchors`, `blockObjects`, `blockFallbackLots`, `industry`, `canopies`, `parks`, `landmarks`. The positional tuple layouts of `roads`, `roadGraph.links`, `blocks`, `blockStats`, `blockFootprints`, `blockParkBuildings`, `blockAnchors`, `blockObjects` and `blockFallbackLots` and the `industry` object layout are documented in comments next to the `GEO` literal in `build-poznan.mjs`. Keep those comments in sync when you change a layout. `GEO.canopies` is an array of objects `{ x0, x1, z0, z1, h, clearance, kind, cx, cz, w, d, ang, area, columns }`: the axis-aligned bounds, the oriented rectangle (long side `w`, `ang` in radians from +x towards +z), the roof top `h` and underside `clearance`, the OSM ring `area`, and the flat world `[x, z, ...]` column posts. `kind` is `platform`, `tram`, `fuel`, `market`, `shelter` or `roof`.
+- `js/city-config.js` is the main consumer. It turns `GEO` into `{x, z}` rings and named exports: `LAND_RINGS`/`LAND_HOLES`, `WATER`, `OUTSKIRTS`/`OUTSKIRTS_HOLES`, `RAIL`, `PLAZAS`, `DISTRICTS` (`districtAt`), `BRIDGES` (the bridge-flagged graph links chained per name), `SIGNAL_SITES` (from `roadGraph.signals`, with each junction's arms), `roadClearance` (distance outside the road graph's runs, for street furniture), `ROADS`, `BLOCKS` (each with `built`, `levels`, `buildings` and `program` from `GEO.blockStats`, `parkFootprints` from `GEO.blockFootprints` and `GEO.blockParkBuildings`, `anchors` from `GEO.blockAnchors`, and `objects`/`fallbackLots` from `GEO.blockObjects`/`GEO.blockFallbackLots`), `LANDMARK_SITES`, and the land raster behind `isLand`/`isWater`/`distToWater`/`clampToLand` (2 m cells; bridge decks count as land). Prefer those exports in runtime code. A few modules read `GEO` directly:
   - `road-network.js`: `roadGraph`
   - `city-grid.js`, `buildings.js`, `city-map.js`: `parks`, `plazas`, `frame`
   - `city-map.js`: `labels` (area names, placed by `kind`)
@@ -179,9 +179,10 @@ The build reads only the committed `poz_*.json` snapshots. The current output co
     `blockStats`: per block the built share of the curb island, the area-weighted median `building:levels` of the
     buildings whose centroid lies in it (else the block holding most of their cells), their count, and `program`
     (0 none, 1 hospital/clinic campus, 2 university campus, 3 retail/mall, 4 industrial, 5 rail/depot, 6 sport/stadium/arena,
-    7 utility, 8 leisure/water park, from `building`, `amenity`, `healthcare`, `office`, `shop`, `power`, `railway`,
-    `leisure`/`sport`, `industrial`, `landuse`, `man_made` and names such as Szpital, Klinika, Collegium, Posnania, Dworzec,
-    ZNTK or Elektrociepłownia). Campus keeps its old two-building / one-solo-hospital rule; a non-campus programme needs
+    7 utility, 8 leisure/water park, 9 education, 10 sacral, 11 civic/public, from `building`, `amenity`, `healthcare`,
+    `office`, `shop`, `power`, `railway`, `leisure`/`sport`, `industrial`, `landuse`, `man_made` and names such as Szpital,
+    Klinika, Collegium, Posnania, Dworzec, ZNTK or Elektrociepłownia). Campus keeps its old two-building /
+    one-solo-hospital rule; a non-campus programme needs
     at least 40 % of the block's mapped footprint area (weighted by raster cells, or the ring area for slivers with no cell centre),
     so one 7.7 ha mall outweighs 30 kamienice. A campus keeps the block when its own footprint is larger; blocks under 0.4 ha
     and uses under 150 m² are left to the district profile.
@@ -199,7 +200,8 @@ The build reads only the committed `poz_*.json` snapshots. The current output co
     `addr:street=Termalna`), with the OSM area so the runtime can shrink the rect to the real outline. The remaining
     footprints are not emitted.
     And `blockParkBuildings`: `{ block id: [[x0, x1, z0, z1, area], ...] }`, the ordinary mapped buildings of at least
-    60 m² in blocks with more than 40 % park land (1,151 buildings in 66 blocks, 30 KB on the 2026-10-28 snapshot).
+    40 m² in blocks with more than 40 % park land (1,104 buildings in 64 blocks on the 2026-11-08 snapshot; the
+    2026-11-08 missing-objects pass lowered the threshold from 60 m² so park pavilions and bunkers are not cleared).
     `js/city-config.js` adds them to `parkFootprints` as non-facility lots, so `parkFreeCells` keeps an estate standing
     in parkland instead of clearing it to lawn; `buildings.js` keeps the district's house/kamienica layout on them.
     And `blockAnchors`: `{ block id: [[x0, x1, z0, z1, area, use, levels], ...] }`, the 1–3 largest mapped
@@ -207,11 +209,24 @@ The build reads only the committed `poz_*.json` snapshots. The current output co
     bbox, so a footprint clipped by the detail-box edge stays clipped), their in-block area, use (1 retail/mall,
     2 industrial/warehouse, 3 rail/depot, 4 sport/leisure, 5 utility) and storeys. A block is anchored only when its
     non-residential footprints dominate its built mass (≥ 30% of its OSM building cells) and cover ≥ 10% of the island,
-    or when one is a mapped park facility; hospital/university campuses stay with their own program. 61 anchors in 35
-    blocks on the 2026-10-28 snapshot (2 KB). Historical measurement on 2026-10-28 over the 8.2 × 5.7 km box: 23,527 footprints (1,038 roof/no skipped),
+    or when one is a mapped park facility; hospital/university campuses stay with their own program. 64 anchors in 36
+    blocks on the 2026-11-08 snapshot.
+    And `blockObjects`: `{ block id: [[cx, cz, w, d, ang, area, use, levels], ...] }`, every mapped non-residential
+    building of at least 100 m² that the district profile cannot represent (793 objects in 305 blocks on 2026-11-08).
+    `cx/cz/w/d/ang` is the oriented minimum-area rectangle of the OSM outline (long side `w`, `ang` east from +x
+    towards +z), `area` the OSM ring area. Use codes are the anchor ones plus 6 education, 7 sacral, 8 health, 9 civic
+    and 10 office. `buildings.js` builds each on its own oriented envelope: a nave with a tower for a church, wings and
+    a gym for a school, light courts for a clinic, hall bays for industry, a podium and shaft for an office. Park-heavy
+    and campus blocks are left to their own layouts (the park mesh and campus density stay calibrated).
+    And `blockFallbackLots`: `{ block id: [[x0, x1, z0, z1, area], ...] }`, mapped buildings of at least 60 m² whose
+    footprint the property-line grid never covered (raw `maskRects`/`fitRects` coverage below 35 %; 913 lots in 278
+    blocks on 2026-11-08). `city-config.js` adds them as extra lots and `buildings.js` builds the district layout on the
+    real spot, after subtracting block anchors, objects and landmark reserves.
+    Historical measurement on 2026-10-28 over the 8.2 × 5.7 km box: 23,527 footprints (1,038 roof/no skipped),
     `building:levels` on 85 %; 20,142 in a block, 800 of 1,422 blocks held one at that measurement; 6.60 km² built of 39.88 km² of block
-    land (17 %). After the 2026-11-08 railway-island and industry passes: 20,194 in a block, 804 of 1,418 blocks, 6.62 km² built
-    of 39.89 km² (17 %), 348 industry structures/sites inside the detail box and 288 blocks with a non-campus programme.
+    land (17 %). After the 2026-11-08 railway-island, industry and missing-object passes: 20,228 in a block, 813 of
+    1,427 blocks, 6.66 km² built of 39.94 km² (17 %), 348 industry structures/sites inside the detail box and 67 blocks
+    with a non-campus programme (3–11).
     (6.1 × 3.7 km box: 14,287 footprints, 10,401 in a block, 480 of 796 blocks; 3.67 of 18.75 km², 20 %.)
   - `poz-canopies.mjs`: the open canopies from the `building=roof` outlines that `poz-buildings.mjs` leaves out of the
     built mass. One canopy per outer ring of at least 60 m² inside the detail box, fitted to an oriented minimum-area
@@ -264,16 +279,10 @@ The build reads only the committed `poz_*.json` snapshots. The current output co
   2026-10-28 snapshot (8.2 × 5.7 km box): 44 links right, 799 left (52.5 km), 200 with the tracks on the carriageway
   (the 6.1 × 3.7 km box: 35, 475 (32 km), 156); the build logs `tram strip right … / left … links`. Blocks went from
   821 to 796 (outer curbs moved in, slivers merged) when it came in.
-<<<<<<< HEAD
-- Current committed output (read directly from `js/geodata.js`, 2026-11-08): 2,647,113 bytes including its header,
-  1,418 blocks and block-stat entries, 6,659 road pieces, 7,121 graph links, 441 parks, 34 osiedla, 1,171 rail
-  chains (645 tram, 526 mainline) and 157 canopies with 1,935 columns (12 platform, 3 tram, 10 fuel, 132 other).
-  There are 225 tram stop nodes and 38 directional route records. Physical tram
-=======
-- Current committed output (read directly from `js/geodata.js`, 2026-11-08): 2,597,820 bytes including its header,
-  1,418 blocks and block-stat entries, 61 anchors in 35 blocks, 6,659 road pieces, 7,121 graph links, 441 parks,
-  34 osiedla and 1,171 rail chains (645 tram, 526 mainline). There are 225 tram stop nodes and 38 directional route records. Physical tram
->>>>>>> block-anchors
+- Current committed output (read directly from `js/geodata.js`, 2026-11-08): 2,774,749 bytes including its header,
+  1,427 blocks and block-stat entries, 64 anchors in 36 blocks, 793 mapped objects in 305 blocks and 913 fallback lots
+  in 278 blocks, 6,659 road pieces, 7,121 graph links, 441 parks, 34 osiedla and 1,171 rail chains (645 tram, 526
+  mainline). There are 225 tram stop nodes and 38 directional route records. Physical tram
   chains total 129.6 km; mainline chains 127.2 km. Directed runtime tram edges have a different denominator
   (two-way chains contribute twice); see [actors.md](actors.md#trams-jstramsjs). The historical smaller-box output was 1.42 MB.
 - Holes are separate keys: `landHoles` and `outskirtsHoles` are `[{ outer, ring }]` with positive winding, where `outer`
@@ -288,13 +297,15 @@ The build reads only the committed `poz_*.json` snapshots. The current output co
     inner rings are planting beds and a fountain, rather than buildings.
   - Pedestrian ways are stamped only outside plazas.
   - `landuse=railway` areas and off-street track corridors are cleared, except the footprint of a mapped railway
-    building (station, depot, signal box), given back grown by `SIDEWALK`. A candidate needs
-    `building=train_station|transportation|station|railway_station|bus_station|engine_shed`, any `railway=*` tag, or a
-    station/depot name; the restored cells must be cells the rail stamp removed, so a building never reopens a road or
-    water cell. The `SIDEWALK` margin stops one metre outside the 5 m mainline / 4 m tram track corridor and one cell
-    short of an existing block, so a station becomes its own island and does not bridge two blocks across a rail
-    strip; the footprint itself comes back whole (a depot hall covers its yard tracks). 9 islands / 19,098 m² on the
-    2026-11-08 snapshot; block #1254 (Głogowska depot) went from 1,176 m² and no lots to #1250 with 8,196 m² and 13
+    building (station, depot, signal box, or an ordinary warehouse/workshop of at least 60 m² whose centre lies on
+    rail-cleared land), given back grown by `SIDEWALK`. A candidate needs
+    `building=train_station|transportation|station|railway_station|bus_station|engine_shed`, any `railway=*` tag, a
+    station/depot name, or that 60 m² rail-land gate; the restored cells must be cells the rail stamp removed, so a
+    building never reopens a road or water cell. The `SIDEWALK` margin stops one metre outside the 5 m mainline / 4 m
+    tram track corridor and one cell short of an existing block, so a station becomes its own island and does not
+    bridge two blocks across a rail strip; the footprint itself comes back whole (a depot hall covers its yard
+    tracks). 50 islands / 70,859 m² on the 2026-11-08 missing-objects snapshot (9 islands / 19,098 m² before the
+    warehouse gate); block #1254 (Głogowska depot) went from 1,176 m² and no lots to #1250 with 8,196 m² and 13
     lots, and LCS Poznań Główny (#1003) and Dworzec Letni (#804) gained their own blocks.
     See [railway building islands](observations/railway-building-islands-2026-11-08.md).
   - Bridges are stamped like any road.
@@ -306,7 +317,7 @@ The build reads only the committed `poz_*.json` snapshots. The current output co
 - The same fresh build must match the committed `js/geodata.js` byte for byte. Landmark coverage requires the exact
   25 site names, finite placement and dimensions, positive sizes and area, positions inside the detail box and
   non-degenerate polygon footprints.
-- `tests/geodata.test.mjs` copies `tools/*.mjs` into a temporary directory whose path contains spaces and non-ASCII characters (`'Poznań Zażółć 東京 '`), symlinks `tools/data` into it, runs the build with GEO_DATA unset, the default output path and `--max-old-space-size=8192`, then imports the output and checks the version, ≥ 3 land rings, the Warta, a bridge link, link flags within bits 0-4 with the tram-strip bits only on tram links (> 300 of them), > 100 signals, plausible link speed limits (values, the 50 and ≤ 30 km/h shares, a 70 km/h artery), the Ratusz, > 500 blocks, `blockStats` (one per block, shares in 0..1, programmes 0-8, the blocks within 150 m of the Ratusz over 40 % built, an area-weighted share of 12-35 %), `blockFootprints` (the Hala Arena, Enea Stadion and Chwiałka envelopes in blocks 927/939), `blockAnchors` (≥ 30 anchored blocks; Posnania 955, Castorama 21, ZNTK 848, Hala Arena 927 and the Głogowska depot 1250; every entry seven finite values with a positive envelope and use 1–5), `industry` (the snapshot's structures in the detail box, with chimney, tank and plant entries), `canopies` (≥ 140 records, finite oriented rectangles, 4.5–6.5 m roofs above their undersides, ≥ 8 platform and ≥ 5 fuel canopies, the long Poznań Główny platform canopy), that `frame.ll` puts the Ratusz at the origin, that the tram track closed for rebuilding is kept (every Most Chrobrego, Most Mieszka I and Most Teatralny link carries the tram bit with a track on the deck; the Katedra, Rondo Śródka, Fredry, Most Teatralny and Małe Garbary stop nodes lie on a track), and the tram routes (≥ 30, valid `routes` indices on every tram chain, over 90% of the tram track length on a route (by length: the Głogowska depot yard is many short chains on no route), lines 7, 8 and 17 over Most Chrobrego). It guards path handling: resolve paths with `fileURLToPath(new URL(..., import.meta.url))`, never `URL.pathname`. New tool modules must be `.mjs` files directly in `tools/`, or the test will not copy them. It takes about 30 s (timeout 180 s).
+- `tests/geodata.test.mjs` copies `tools/*.mjs` into a temporary directory whose path contains spaces and non-ASCII characters (`'Poznań Zażółć 東京 '`), symlinks `tools/data` into it, runs the build with GEO_DATA unset, the default output path and `--max-old-space-size=8192`, then imports the output and checks the version, ≥ 3 land rings, the Warta, a bridge link, link flags within bits 0-4 with the tram-strip bits only on tram links (> 300 of them), > 100 signals, plausible link speed limits (values, the 50 and ≤ 30 km/h shares, a 70 km/h artery), the Ratusz, > 500 blocks, `blockStats` (one per block, shares in 0..1, programmes 0-11, the blocks within 150 m of the Ratusz over 40 % built, an area-weighted share of 12-35 %), `blockFootprints` (the Hala Arena, Enea Stadion and Chwiałka envelopes in blocks 929/941), `blockAnchors` (≥ 30 anchored blocks; Posnania 959, Castorama 21, ZNTK 851, Hala Arena 929 and the Głogowska depot 1259; every entry seven finite values with a positive envelope and use 1–5), `blockObjects` (≥ 250 blocks; MTP Pawilon 5 in 771 and education/sacral/health objects with use 6/7/8), `blockFallbackLots` (≥ 150 blocks, five finite values each), `industry` (the snapshot's structures in the detail box, with chimney, tank and plant entries), `canopies` (≥ 140 records, finite oriented rectangles, 4.5–6.5 m roofs above their undersides, ≥ 8 platform and ≥ 5 fuel canopies, the long Poznań Główny platform canopy), that `frame.ll` puts the Ratusz at the origin, that the tram track closed for rebuilding is kept (every Most Chrobrego, Most Mieszka I and Most Teatralny link carries the tram bit with a track on the deck; the Katedra, Rondo Śródka, Fredry, Most Teatralny and Małe Garbary stop nodes lie on a track), and the tram routes (≥ 30, valid `routes` indices on every tram chain, over 90% of the tram track length on a route (by length: the Głogowska depot yard is many short chains on no route), lines 7, 8 and 17 over Most Chrobrego). It guards path handling: resolve paths with `fileURLToPath(new URL(..., import.meta.url))`, never `URL.pathname`. New tool modules must be `.mjs` files directly in `tools/`, or the test will not copy them. It takes about 30 s (timeout 180 s).
 - `tests/overpass.test.mjs` replaces `curl` and `sleep` with stubs on PATH and checks the keep-old-data-on-failure guarantees above, including that all 3 endpoints are tried and no temp files are left behind. If you change the retry or endpoint logic, update the expected call counts.
 - `tests/canopies.test.cjs` checks `GEO.canopies` against `GEO.rail`: every column lies inside its roof and at least 2.5 m from every track centreline (the closest measured column is printed on failure), and the runtime `buildCanopies` emits one roof instance per record with one thin full-height post collider per column plus a deck collider whose underside is above 4.5 m.
 - Run both with `node --test tests/geodata.test.mjs tests/overpass.test.mjs`. Neither needs network access.
