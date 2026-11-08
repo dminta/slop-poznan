@@ -325,6 +325,47 @@ test('Fara and Novotel: sourced heights retained (40.0 m and 68.0 m)', () => {
   assert.ok(Math.abs(finialBox.max.y - 40.0) < 0.05,
     `Fara cross tip ${finialBox.max.y.toFixed(2)} m should be 40.0 m`);
 
+  // Four lower-tier niche statues, two either side of the portal: the inner pair on the 5.8 m bay centres, the outer
+  // pair on the 10.85 m ones and 2.1 m higher over the tall side windows. Each stands on a 0.77 m pedestal inside a
+  // 3.33 m arched aedicule with a 2.0-2.4 m figure (the parish's four side niches, not the central Ignatius or the
+  // upper-tier Borgia/Xavier, which remain unmodelled at this scale).
+  const statues = [];
+  fara.traverse((node) => {
+    if (node.isGroup && node.userData && node.userData.faraStatue) statues.push(node);
+  });
+  assert.equal(statues.length, 4, 'Fara has four niche statues');
+  assert.deepEqual(statues.map((s) => s.userData.faraStatue).sort(),
+    ['adalbert', 'alojzy', 'kostka', 'stanislaw']);
+  const expected = {
+    kostka: { x: 5.8, base: 9.35 },
+    adalbert: { x: 10.85, base: 11.45 },
+    stanislaw: { x: -5.8, base: 9.35 },
+    alojzy: { x: -10.85, base: 11.45 }
+  };
+  for (const statue of statues) {
+    const key = statue.userData.faraStatue;
+    const want = expected[key];
+    assert.ok(want, `Known Fara statue '${key}'`);
+    assert.ok(Math.abs(statue.position.x - want.x) < 0.01, `${key} stands on the ${want.x} m bay centre`);
+    assert.ok(Math.abs(statue.position.y - (want.base + 0.77)) < 0.01,
+      `${key} stands on its 0.77 m pedestal`);
+    const statueBox = new THREE.Box3().setFromObject(statue);
+    const statueH = statueBox.max.y - statueBox.min.y;
+    assert.ok(statueH >= 2.0 && statueH <= 2.4, `${key} figure ${statueH.toFixed(2)} m is within 2.0-2.4 m`);
+    assert.ok(statueBox.min.y > want.base + 0.7 && statueBox.max.y < want.base + 3.33,
+      `${key} stays inside its 3.33 m niche`);
+    // Forward of the dark back panel (-27.975 m) and behind the aedicule front (-28.6 m): no face is coplanar
+    assert.ok(statue.position.z < -27.975 && statue.position.z > -28.6,
+      `${key} stands inside the niche depth`);
+  }
+  let provisional = 0;
+  fara.traverse((node) => {
+    const p = node.geometry?.parameters;
+    if (node.isMesh && node.geometry?.type === 'BoxGeometry' && node.material === M.sandstone &&
+      p.width === 1 && p.height === 2.6 && p.depth === 1) provisional++;
+  });
+  assert.equal(provisional, 0, 'No provisional 1 x 2.6 x 1 m statue blocks remain');
+
   const towersSource = readFileSync(join(__dirname, '../js/landmarks-towers.js'), 'utf8');
   const towers = loadModule(towersSource, {
     imports: {

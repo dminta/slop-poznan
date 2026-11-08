@@ -146,8 +146,9 @@ function buildKatedra(group, colliders, M) {
 // (NMPT−NMT, ISOK 2011; docs/observations/landmark-heights-2026-11-03.md); the north front gable reads 37.8 m and its
 // thin cross 39.0-39.2 m (a 1 m grid misses the tip), while the 39.9-40.1 m cells are the south gable/second facade.
 // The model therefore keeps a 37 m ridge, rises 4.8 m over the 33 m front cornice and tops the 2.2 m cross at 40 m
-// without scaling. The four niche statues stay visual estimates: the DSM cannot separate them from the facade.
-// No dome is modelled: none shows outside.
+// without scaling. The four lower-tier niche statues follow the parish's identification and photograph proportions
+// (FARA_STATUES below): their 2.0-2.4 m scale is still a visual estimate, as the 1 m DSM returns the facade behind
+// them. No dome is modelled: none shows outside.
 const FARA = {
   naveWall: 29,
   ridge: 37,
@@ -156,6 +157,151 @@ const FARA = {
   frontLower: 17,
   frontUpper: 33
 };
+
+// The four lower-tier side niches of the north front, two either side of the portal. The parish names them (from the
+// viewer's left): St Stanislaus Kostka with the Infant Jesus, St Adalbert with a spear, St Stanislaus bishop with a
+// crozier and St Aloysius Gonzaga with a cross. The six-column front has five bays, so the inner pair stands over the
+// 5.8 m bay centres and the outer pair over the 10.85 m ones; the outer pair sits 2.1 m higher because the tall side
+// windows below reach 11 m. Each aedicule is 3.33 m to the arch head, inside the 3.2-3.5 m baroque niche range, with a
+// 0.77 m pedestal and a 2.0-2.4 m figure.
+const FARA_STATUES = [
+  { key: 'kostka', x: 5.8, bottom: 9.35, infant: true },
+  { key: 'adalbert', x: 10.85, bottom: 11.45, spear: true },
+  { key: 'stanislaw', x: -5.8, bottom: 9.35, crozier: true, mitre: true },
+  { key: 'alojzy', x: -10.85, bottom: 11.45, cross: true }
+];
+
+// The niche, pedestal and figure depths are chosen against the wall plane at z = -28: the dark back sits 5 mm proud of
+// it, the 0.6 m aedicule reaches the lower cornice front at z = -28.61, and the figure stands between the two, so no
+// two faces are coplanar and nothing z-fights.
+const FARA_NICHE = {
+  halfWidth: 0.78,
+  spring: 2.55,
+  pedestal: 0.77,
+  backZ: -27.975,
+  frameZ: -28.31,
+  figureZ: -28.22,
+  pedestalZ: -28.28
+};
+
+// A tapered stone limb between two points: arms, the crozier's staff and hook, and the spear shaft
+function faraLimb(parent, ax, ay, az, bx, by, bz, r, material, segments = 6) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const dz = bz - az;
+  const m = addMesh(parent, new THREE.CylinderGeometry(r * 0.82, r, Math.hypot(dx, dy, dz), segments), material,
+    (ax + bx) / 2, (ay + by) / 2, (az + bz) / 2);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dx, dy, dz).normalize());
+  return m;
+}
+
+// A filled arch outline (straight sides to the springing, then a semicircular head) as a thin slab
+function faraArch(parent, x, bottom, radius, spring, z, depth, material) {
+  const outline = [[-radius, 0], [radius, 0], [radius, spring]];
+  for (let i = 1; i <= 6; i++) {
+    const a = (i * Math.PI) / 6;
+    outline.push([radius * Math.cos(a), spring + radius * Math.sin(a)]);
+  }
+  return profileSlab(parent, outline, depth, material, x, bottom, z);
+}
+
+// A white baroque aedicule around a dark arched recess: sill, jambs, entablature, segmental hood and a small finial.
+// The white arch is one step behind the dark one, so its 0.14 m border reads around the opening without a hole.
+function faraNiche(obj, x, bottom, M) {
+  const N = FARA_NICHE;
+  const hw = N.halfWidth;
+  faraArch(obj, x, bottom, hw + 0.14, N.spring, -27.985, 0.04, M.plasterWhite);
+  faraArch(obj, x, bottom, hw, N.spring, N.backZ, 0.04, M.glass);
+  box(obj, 2 * hw + 0.6, 0.12, 0.6, M.plasterWhite, x, bottom - 0.12, N.frameZ);
+  for (const s of [-1, 1]) {
+    box(obj, 0.16, N.spring + 0.12, 0.6, M.plasterWhite, x + s * (hw + 0.22), bottom, N.frameZ);
+  }
+  // The entablature starts at the arch crown, not at the springing, so the whole 3.33 m opening stays open
+  const crown = bottom + N.spring + hw;
+  box(obj, 2 * hw + 0.66, 0.22, 0.6, M.plasterWhite, x, crown, N.frameZ);
+  const hoodR = hw + 0.24;
+  const hood = [[hoodR, 0]];
+  for (let i = 1; i <= 5; i++) {
+    const a = (i * Math.PI) / 5;
+    hood.push([hoodR * Math.cos(a), 0.42 * Math.sin(a)]);
+  }
+  profileSlab(obj, hood, 0.36, M.plasterWhite, x, crown + 0.22, N.frameZ);
+  box(obj, 0.16, 0.12, 0.16, M.plasterWhite, x, crown + 0.64, N.frameZ);
+}
+
+// A stepped sandstone pedestal inside the niche; its top at bottom + 0.77 m carries the figure
+function faraPedestal(obj, x, bottom, M) {
+  const z = FARA_NICHE.pedestalZ;
+  box(obj, 0.92, 0.12, 0.54, M.sandstone, x, bottom, z);
+  box(obj, 0.64, 0.55, 0.42, M.sandstone, x, bottom + 0.12, z);
+  box(obj, 0.82, 0.1, 0.48, M.sandstone, x, bottom + 0.67, z);
+}
+
+// One figure: a flared robe, a cloak behind it, a slight contrapposto lean and the saint's attribute. The figure is
+// 2.18 m to the head (2.36 m with the mitre or crozier) and faces the street (-z) with a small turn towards the portal.
+function faraFigure(obj, variant, side, M) {
+  const N = FARA_NICHE;
+  const fig = new THREE.Group();
+  fig.position.set(variant.x, variant.bottom + N.pedestal, N.figureZ);
+  fig.rotation.y = side * 0.07;
+  fig.rotation.z = side * 0.025;
+  fig.userData = { faraStatue: variant.key, faraNicheBottom: variant.bottom };
+  lathe(fig, [[0.29, 0], [0.31, 0.1], [0.29, 0.32], [0.25, 0.62], [0.21, 0.98], [0.23, 1.28],
+    [0.26, 1.52], [0.24, 1.72], [0.17, 1.86], [0.1, 1.94], [0.08, 1.98], [0, 2]], 12, M.sandstone);
+  const cloak = addMesh(fig, new THREE.CylinderGeometry(0.17, 0.37, 1.55, 8), M.sandstone, 0, 0.78, 0.16);
+  cloak.scale.z = 0.5;
+  cylinder(fig, 0.07, 0.08, 0.12, 8, M.sandstone, 0, 1.94, 0);
+  addMesh(fig, new THREE.SphereGeometry(0.11, 10, 8), M.sandstone, 0, 2.07, 0);
+  const sash = box(fig, 0.12, 0.52, 0.06, M.sandstone, -0.02, 1.16, -0.2);
+  sash.rotation.z = -0.45;
+  for (const s of [-1, 1]) box(fig, 0.11, 0.08, 0.14, M.sandstone, s * 0.1, 0, -0.28);
+
+  const shoulders = [[-0.19, 1.8, 0], [0.19, 1.8, 0]];
+  const hands = variant.infant
+    ? [[-0.2, 1.25, -0.2], [0.05, 1.32, -0.22]]
+    : variant.spear
+      ? [[-0.27, 1.08, -0.04], [0.33, 1.22, -0.14]]
+      : variant.crozier
+        ? [[-0.25, 1.58, -0.16], [0.32, 1.15, -0.14]]
+        : [[-0.14, 1.44, -0.22], [0.14, 1.44, -0.22]];
+  for (let i = 0; i < 2; i++) {
+    const [sx, sy, sz] = shoulders[i];
+    const [hx, hy, hz] = hands[i];
+    faraLimb(fig, sx, sy, sz, hx, hy, hz, 0.055, M.sandstone);
+    addMesh(fig, new THREE.SphereGeometry(0.055, 8, 6), M.sandstone, hx, hy, hz);
+  }
+
+  if (variant.infant) {
+    lathe(fig, [[0.075, 0], [0.085, 0.06], [0.075, 0.2], [0.055, 0.3], [0, 0.32]], 8, M.sandstone,
+      -0.14, 1.18, -0.22);
+    addMesh(fig, new THREE.SphereGeometry(0.048, 8, 6), M.sandstone, -0.14, 1.55, -0.22);
+  }
+  if (variant.spear) {
+    lathe(fig, [[0.014, 0], [0.014, 2.02], [0.05, 2.04], [0, 2.18]], 6, M.gold, 0.34, 0.12, -0.16);
+  }
+  if (variant.crozier) {
+    faraLimb(fig, 0.34, 0.18, -0.16, 0.34, 2.18, -0.16, 0.018, M.gold);
+    const hook = [[0.34, 2.18, -0.16], [0.4, 2.32, -0.16], [0.49, 2.34, -0.16], [0.53, 2.26, -0.16],
+      [0.5, 2.18, -0.16]];
+    for (let i = 0; i < hook.length - 1; i++) {
+      const [ax, ay, az] = hook[i];
+      const [bx, by, bz] = hook[i + 1];
+      faraLimb(fig, ax, ay, az, bx, by, bz, 0.016, M.gold, 5);
+    }
+  }
+  if (variant.mitre) {
+    const mitre = addMesh(fig, new THREE.ConeGeometry(0.12, 0.22, 4), M.sandstone, 0, 2.25, 0);
+    mitre.rotation.y = Math.PI / 4;
+    mitre.scale.z = 0.62;
+  }
+  if (variant.cross) {
+    const cross = [[-0.022, 0], [0.022, 0], [0.022, 0.188], [0.13, 0.188], [0.13, 0.232],
+      [0.022, 0.232], [0.022, 0.42], [-0.022, 0.42], [-0.022, 0.232], [-0.13, 0.232],
+      [-0.13, 0.188], [-0.022, 0.188]];
+    profileSlab(fig, cross, 0.045, M.gold, 0, 1.24, -0.26);
+  }
+  obj.add(fig);
+}
 
 function buildFara(group, colliders, M) {
   const c0 = colliders.length;
@@ -202,9 +348,14 @@ function buildFara(group, colliders, M) {
       v.push([s * (15.2 - 5.5 * Math.sin(a)), 9 - 9 * Math.cos(a)]);
     }
     profileSlab(obj, v, 1.6, trim, 0, F.frontLower, fz);
-    // Statues on the lower cornice and in the upper niches
-    for (const x of [s * 13.5, s * 8.2]) box(obj, 1, 2.6, 1, M.sandstone, x, F.frontLower, fz - 1.4);
+    // Dark upper-tier niche beside the semicircular window (Borgia and Xavier are not modelled at this scale)
     box(obj, 0.6, 3.4, 0.4, M.glass, s * 5.4, F.frontLower + 4.5, fz - 1.05);
+  }
+  // The four lower-tier side niches, two either side of the portal, with their aediculae, pedestals and figures
+  for (const variant of FARA_STATUES) {
+    faraNiche(obj, variant.x, variant.bottom, M);
+    faraPedestal(obj, variant.x, variant.bottom, M);
+    faraFigure(obj, variant, Math.sign(variant.x), M);
   }
   profileSlab(obj, [[-10.4, 0], [10.4, 0], [0, 4.8]], 2.4, trim, 0, F.frontUpper, fz - 0.2);
   profileSlab(obj, [[-9, 0.5], [9, 0.5], [0, 4]], 1.6, wall, 0, F.frontUpper, fz - 0.6);
@@ -214,6 +365,8 @@ function buildFara(group, colliders, M) {
   box(obj, 6, 1, 0.8, trim, 0, 7.5, fz - 1.1);
   box(obj, 3.2, 6, 0.3, M.glass, 0, F.frontLower + 3, fz - 1.05);
   for (const x of [-11, 11]) box(obj, 2, 5, 0.3, M.glass, x, 6, fz - 1.05);
+  // Windows under the inner niches, repeating the rhythm of the tall outer ones
+  for (const x of [-5.8, 5.8]) box(obj, 1.5, 4.2, 0.3, M.glass, x, 4.8, fz - 1.05);
   group.add(obj);
 
   collider(colliders, -16.2, 16.2, -28.6, 28.5, F.aisleWall);
