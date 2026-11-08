@@ -23,8 +23,9 @@ function inert() {
 }
 
 const {
-  BODY_SPECS, BUS_SPEC, BUS_18_SPEC, carDimensions, PLATE_FONT_FAMILY, polishRegistration,
-  encodeRegistration, drawPoznanCrest
+  BODY_SPECS, BUS_SPEC, BUS_18_SPEC, EMERGENCY_PAINT, LETTERING, LETTERING_ROWS, carDimensions,
+  PLATE_FONT_FAMILY, polishRegistration, encodeRegistration, drawPoznanCrest, drawPoliceStar,
+  drawPrmBadge, drawPspBadge, drawPrmTeamBadge
 } = loadModule(
   readFileSync(join(__dirname, '../js/actor-models.js'), 'utf8'),
   {
@@ -221,4 +222,89 @@ test('BODY_SPECS.fireTruck specifies heavy rescue pumper equipment and truck whe
   assert.equal(spec.fireEquipment, true, 'fireEquipment is configured');
   assert.equal(spec.wheelRadius, 0.50, 'truck size wheels (0.50 m)');
   assert.equal(spec.panelVan, true, 'closed equipment body');
+});
+
+test('emergency base paints are the statutory Policja silver, PRM yellow and PSP red', () => {
+  assert.equal(EMERGENCY_PAINT.length, 4, 'index 0 is the ordinary-car sentinel');
+  const [silver, yellow, red] = [EMERGENCY_PAINT[1], EMERGENCY_PAINT[2], EMERGENCY_PAINT[3]];
+  assert.notEqual(silver, yellow);
+  assert.notEqual(silver, red);
+  assert.notEqual(yellow, red);
+  const parts = (hex) => [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255];
+  const [sr, sg, sb] = parts(silver);
+  assert.ok(Math.abs(sr - sg) < 8 && Math.abs(sg - sb) < 12 && sr > 180, 'silver is near-neutral and light');
+  const [yr, yg, yb] = parts(yellow);
+  assert.ok(yr > 220 && yg > 210 && yb < 80, 'PRM yellow (CMYK 10/0/90/0, RAL 1016 class)');
+  const [rr, rg, rb] = parts(red);
+  assert.ok(rr > 140 && rg < 40 && rb < 40, 'PSP signal red (RAL 3000 class)');
+});
+
+test('emergency lettering atlas carries every statutory word and mark', () => {
+  for (const word of ['POLICJA', 'AMBULANS', 'STRAŻ', '998', 'ZESPÓŁ RATOWNICTWA MEDYCZNEGO']) {
+    assert.ok(LETTERING.includes(word), word);
+  }
+  assert.equal(LETTERING[LETTERING_ROWS.POLICE], 'POLICJA');
+  assert.equal(LETTERING[LETTERING_ROWS.AMBULANS], 'AMBULANS');
+  assert.equal(LETTERING[LETTERING_ROWS.STRAZ], 'STRAŻ');
+  assert.equal(LETTERING[LETTERING_ROWS.PRM_TEAM], 'ZESPÓŁ RATOWNICTWA MEDYCZNEGO');
+  assert.equal(LETTERING[LETTERING_ROWS.EMERGENCY], '998');
+  assert.equal(LETTERING[LETTERING_ROWS.TAXI], 'TAXI');
+});
+
+function recordingContext() {
+  const calls = { fills: [], strokes: [], texts: [] };
+  const ctx = {
+    save() {}, restore() {}, translate() {}, scale() {}, beginPath() {}, closePath() {},
+    moveTo() {}, lineTo() {}, quadraticCurveTo() {}, bezierCurveTo() {}, arc() {}, ellipse() {},
+    fill() { calls.fills.push(this.fillStyle); },
+    stroke() { calls.strokes.push(this.strokeStyle); },
+    fillRect() { calls.fills.push(this.fillStyle); },
+    strokeRect() { calls.strokes.push(this.strokeStyle); },
+    fillText(text) { calls.texts.push({ text, fill: this.fillStyle }); }
+  };
+  return { ctx, calls };
+}
+
+test('emergency badges draw the Policja star, PRM star of life, PSP shield and P roundel', () => {
+  const police = recordingContext();
+  drawPoliceStar(police.ctx, 0, 0, 128, 128);
+  assert.ok(police.calls.fills.includes('#dfe4e8'), 'silver star');
+  assert.ok(police.calls.fills.includes('#1d3f8f'), 'blue star centre');
+  assert.ok(police.calls.texts.some((t) => t.text === 'POLICJA' && t.fill === '#f4f6f8'));
+
+  const prm = recordingContext();
+  drawPrmBadge(prm.ctx, 0, 0, 128, 128);
+  assert.ok(prm.calls.fills.includes('#f4f6f8'), 'white roundel');
+  assert.ok(prm.calls.fills.includes('#1f4fbf'), 'blue six-point star of life');
+  assert.ok(prm.calls.strokes.includes('#f4f6f8'), 'white staff and serpent');
+
+  const psp = recordingContext();
+  drawPspBadge(psp.ctx, 0, 0, 128, 128);
+  assert.ok(psp.calls.fills.includes('#ab1017'), 'red shield');
+  assert.ok(psp.calls.fills.includes('#f2c81a'), 'gold flame');
+  assert.ok(psp.calls.fills.includes('#f4f6f8'), 'white flame core');
+
+  const team = recordingContext();
+  drawPrmTeamBadge(team.ctx, 0, 0, 128, 128);
+  assert.ok(team.calls.strokes.includes('#c8161e'), 'red 4 cm roundel');
+  assert.ok(team.calls.texts.some((t) => t.text === 'P' && t.fill === '#c8161e'));
+});
+
+test('the shared car material paints statutory bands and keeps one instanced draw path', () => {
+  const source = readFileSync(join(__dirname, '../js/actor-models.js'), 'utf8');
+  const shader = source.slice(source.indexOf('// ---- Colour'), source.indexOf('// Panel shading'));
+  for (const token of ['policeBandArea', 'policeRect', 'policeFluoro', 'prmRed', 'prmBlue', 'prmRoof',
+    'pspBandArea', 'pspYellow', 'emergencyBadgeTexture', 'carLetteringTexture']) {
+    assert.ok(shader.includes(token), token);
+  }
+  assert.match(shader, /0x1d3f8f/, 'Policja reflective blue');
+  assert.match(shader, /0xc8f000/, 'fluorescent yellow-green');
+  assert.match(shader, /0xc8161e/, 'PRM red');
+  assert.match(shader, /0x1f4fbf/, 'PRM blue');
+  assert.match(shader, /0xf2c81a/, 'PSP yellow');
+  assert.match(shader, /0xf4f6f8/, 'reflective white');
+  const traffic = readFileSync(join(__dirname, '../js/traffic.js'), 'utf8');
+  assert.match(traffic, /EMERGENCY_PAINT\[1\]/, 'traffic uses the shared Policja paint');
+  assert.match(traffic, /EMERGENCY_PAINT\[2\]/, 'traffic uses the shared PRM paint');
+  assert.match(traffic, /EMERGENCY_PAINT\[3\]/, 'traffic uses the shared PSP paint');
 });

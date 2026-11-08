@@ -105,7 +105,6 @@ Implementation details and completed measurements live in the [topic docs](../AG
 
 ## Optional features and fidelity
 
-- Exact emergency-vehicle livery/marking fidelity (Policja/PRM/PSP) beyond the current colour bands; verify sources before use.
 - Real OSM street-tree positions.
 - Road levels and richer road-priority classification; revisit only with a runtime consumer.
 - Additional height sources (nDSM/LoD1/LoD2) and GEOPOZ machine-readable data: research candidates.
