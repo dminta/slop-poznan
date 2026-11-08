@@ -57,12 +57,15 @@ const parseLevels = (v) => {
 };
 
 // Building use for the block programme: 1 hospital/clinic, 2 university/college, 3 retail/mall, 4 industrial,
-// 5 rail/depot, 6 sport/stadium/arena, 7 utility, 8 leisure/water park. OSM tags the large hospital campuses either
-// as building=hospital or by name (Szpital, Klinika, Collegium); a block with a single hospital building still counts
-// when it is a large, sparsely built campus (see the program threshold below). The non-campus classes follow the tags
+// 5 rail/depot, 6 sport/stadium/arena, 7 utility, 8 leisure/water park, 9 office campus. OSM tags the large hospital
+// campuses either as building=hospital or by name (Szpital, Klinika, Collegium); a block with a single hospital building
+// still counts when it is a large, sparsely built campus (see the program threshold below). The non-campus classes follow the tags
 // first and the name only for objects OSM leaves as building=yes (Posnania, Castorama, Castorama's shopping park,
 // Garbary's generator hall, Termy Maltańskie at addr:street=Termalna). Order matters: a power station is not an
 // industrial hall, and a stadium's grandstand is not a warehouse.
+// Curated storey corrections where OSM under-tags a real height. King Cross Marcelin (way 341510638) carries
+// building:levels=2, but the mall hall is a 13-15 m box; 4 levels keeps fillAnchor above its 3-storey minimum.
+const LEVEL_CORRECTIONS = new Map([[341510638, 4]]);
 const HOSPITAL_NAME = /szpital|klinik|przychodni|centrum medyczne|ambulator|sanatori/i;
 const UNIVERSITY_NAME = /collegium|uniwers|uczel|akadem|politechnik|instytut/i;
 const HOSPITAL_BUILDING = new Set(['hospital']);
@@ -93,6 +96,9 @@ const buildingUse = (t, id) => {
     HOSPITAL_NAME.test(name)) return 1;
   if (UNIVERSITY_BUILDING.has(kind) || t.amenity === 'university' || t.amenity === 'college' ||
     t.office === 'university' || UNIVERSITY_NAME.test(name)) return 2;
+  // Office campuses (Business Garden Marcelin and other building=office blocks): modern 4-6 storey pavilions round
+  // courtyards, not the district's kamienice. Office blocks tagged only office=* keep the district profile.
+  if (kind === 'office') return 9;
   // Termy Maltańskie at addr:street=Termalna carries only building=yes and an address
   if (t['addr:street'] === 'Termalna' || t.leisure === 'water_park' || /termy|aquapark|water ?park/i.test(name)) return 8;
   if (SPORT_BUILDING.has(kind) || SPORT_LEISURE.has(t.leisure) || !!t.sport || SPORT_NAME.test(name)) return 6;
@@ -289,7 +295,7 @@ for (const e of osm.elements) {
   const outer = elemRings(e, toWorld).filter((r) => r.length > 3);
   if (!outer.length) continue;
   const inner = elemRings(e, toWorld, 'inner').filter((r) => r.length > 3);
-  const levels = parseLevels(e.tags['building:levels']);
+  const levels = LEVEL_CORRECTIONS.get(e.id) || parseLevels(e.tags['building:levels']);
   if (levels) tagged++;
   addFootprint(e, outer, inner, e.tags, levels, isFacilityBuilding(e.tags || {}));
   // Cooling towers and chimneys that already carry a building tag live in the building snapshot, not in the industry
@@ -311,7 +317,7 @@ for (const e of industryOsm.elements) {
   // Sites (works, plants, substations) classify their block but are not built mass unless OSM gives them a building.
   if (hasBuiltOutline(t) || kind === 'cooling' || kind === 'chimney' || kind === 'silo' || kind === 'tank') {
     if (!buildingByKey.has(key)) {
-      const levels = parseLevels(t['building:levels']);
+      const levels = LEVEL_CORRECTIONS.get(e.id) || parseLevels(t['building:levels']);
       addFootprint(e, outer, inner, t, levels, isFacilityBuilding(t));
     }
   }

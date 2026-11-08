@@ -254,11 +254,11 @@ test('vehicular traffic flows continuously across all 5 former crossing sites', 
   assert.ok(drivable('Krańcowa', krSouth.node, krNorth.node), 'Krańcowa drivable northbound');
   assert.ok(drivable('Krańcowa', krNorth.node, krSouth.node), 'Krańcowa drivable southbound');
 
-  assert.ok(drivable('Bałtycka', 2140, 2142), 'Bałtycka eastbound carriageway drivable across tracks');
-  assert.ok(drivable('Bałtycka', 2134, 3810), 'Bałtycka westbound carriageway drivable across tracks');
+  assert.ok(drivable('Bałtycka', 2253, 2255), 'Bałtycka eastbound carriageway drivable across tracks');
+  assert.ok(drivable('Bałtycka', 2247, 3956), 'Bałtycka westbound carriageway drivable across tracks');
 
-  assert.ok(drivable('Gdyńska', 2131, 2132), 'Gdyńska northbound carriageway drivable across tracks');
-  assert.ok(drivable('Gdyńska', 4739, 4903), 'Gdyńska southbound carriageway drivable across tracks');
+  assert.ok(drivable('Gdyńska', 2244, 2245), 'Gdyńska northbound carriageway drivable across tracks');
+  assert.ok(drivable('Gdyńska', 4913, 5079), 'Gdyńska southbound carriageway drivable across tracks');
 
   const wrWest = nodeNear(3580, -1125);
   const wrEast = nodeNear(3690, -1090);

@@ -1,12 +1,13 @@
 // js/satellite-sites.js
 // Big-box retail, logistics and utility silhouettes just outside the detailed core. They are not part of GEO.blocks
-// (the 8.2 x 5.7 km detail box stops at 52.383-52.434 N / 16.880-17.000 E), but they dominate the skyline from the
-// drone, the helicopter and the high viewpoints: Galeria Pestka, Makro, Poznań Plaza, King Cross Marcelin, M1, IKEA,
-// Selgros, the Franowo retail parks, Volkswagen Antoninek and Elektrociepłownia Karolin.
+// (the 8 x 5.7 km detail box stops at 52.383-52.434 N / 16.85686-17.000 E), but they dominate the skyline from the
+// drone, the helicopter and the high viewpoints: Galeria Pestka, Makro, Poznań Plaza, M1, IKEA, Selgros, the Franowo
+// retail parks, Volkswagen Antoninek and Elektrociepłownia Karolin. King Cross Marcelin moved into the detail box in
+// the 2026-11-08 west expansion.
 //
-// Source: OSM footprints from tools/data/poz_buildings.json (snapshot 2026-10-28) where present; the three objects
-// outside the padded snapshot (Poznań Plaza, King Cross, Volkswagen) were fetched from the OSM API on 2026-11-08
-// (ways 24440480, 341510638 and the VW works buildings around 17.03 E). `x` / `z` are world metres in the game frame
+// Source: OSM footprints from tools/data/poz_buildings.json (snapshot 2026-10-28) where present; the two objects
+// outside the padded snapshot (Poznań Plaza, Volkswagen) were fetched from the OSM API on 2026-11-08
+// (way 24440480 and the VW works buildings around 17.03 E). `x` / `z` are world metres in the game frame
 // (x east, z south, origin at the Ratusz); `angle` is the footprint's long side in degrees east towards south, the same
 // convention as the zone angles in outskirts.js. `w` / `d` / `h` are metres. Big concave footprints are split into two
 // or three overlapping rectangles; the parts together approximate the OSM outline to within about a fifth of its area,
@@ -41,16 +42,6 @@ const SATELLITE_SITES = [
     kind: 'mall',
     parts: [
       { x: -1019.5, z: -3602.4, w: 309, d: 70, angle: 87.56, h: 18, finish: 'panels', tint: [0.82, 0.81, 0.78] }
-    ]
-  },
-  {
-    id: 'king-cross',
-    name: 'King Cross Marcelin',
-    kind: 'mall',
-    parts: [
-      { x: -4928.5, z: -278, w: 341, d: 92, angle: 0, h: 15, finish: 'panels', tint: [0.78, 0.76, 0.72] },
-      { x: -5003, z: -188, w: 96, d: 88, angle: 0, h: 15, finish: 'panels', tint: [0.74, 0.72, 0.68] },
-      { x: -4859, z: -188, w: 80, d: 88, angle: 0, h: 15, finish: 'panels', tint: [0.80, 0.78, 0.74] }
     ]
   },
   {

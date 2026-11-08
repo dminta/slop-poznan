@@ -6,6 +6,11 @@ follow-up” w [backlogu](../backlog.md) i wcześniejsze zapisy
 [building-density-2026-11-07](building-density-2026-11-07.md) oraz
 [non-residential-audit-2026-11-08](non-residential-audit-2026-11-08.md), które świadomie odłożyły tę zmianę.
 
+> **Wdrożenie 2026-11-08:** Etap 1 (wariant A, `x_min = −5 250`) jest w `main`/`poznan`: dane scalone
+> `tools/merge-extent.mjs`, King Cross jako kwartał 1475, Business Garden jako kwartał 1492 z programem 9, pełny
+> zestaw testów 470/470. Pomiar i zmiany: [wdrożenie Etapu 1](detailbox-west-phase1-2026-11-08.md). Etap 2 (Ławica)
+> pozostaje otwarty.
+
 ## Wniosek
 
 1. **King Cross i Business Garden da się włączyć tanio i bez nowego modułu renderującego**: wystarczy

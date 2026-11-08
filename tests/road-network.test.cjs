@@ -317,13 +317,13 @@ test('most of the Poznań road graph survives the largest strongly connected set
   }
   // Split crossings over a divided road's two roadways where its median or tram strip is no island: the Dworzec complex
   // (Roosevelta / Most Dworcowy, junction nodes around -1567, 560) had no zebra at all. Measured 2026-10-28: 1 there (a
-  // split crossing of Roosevelta), 22 split zebras in all, 3310 zebras over the 8.2 × 5.7 km box (14 and 1602 over the
-  // 6.1 × 3.7 km one; 1385 before the ports, 1375 before split crossings)
+  // split crossing of Roosevelta), 22 split zebras in all, 4115 zebras over the 9.7 × 5.7 km box (3310 over the
+  // pre-expansion 8.2 × 5.7 km one; 1385 before the ports, 1375 before split crossings)
   const split = crosswalks.filter((c) => onStrip(c, 0) || onStrip(c, 1));
   const dworzec = crosswalks.filter((c) => Math.hypot((c.ax + c.bx) / 2 + 1567, (c.az + c.bz) / 2 - 560) < 150);
   assert.ok(dworzec.length > 0, 'zebras in the Dworzec complex');
   assert.ok(split.length >= 15 && split.length < 200, `${split.length} split zebras`);
-  assert.ok(crosswalks.length < 3600, `${crosswalks.length} zebras: no flood of new ones`);
+  assert.ok(crosswalks.length < 4300, `${crosswalks.length} zebras: no flood of new ones`);
 
   // every piece of it is a player collider too, as small as the thing itself; street trees add trunk colliders without
   // a footprint (they are not traffic obstacles), so they are excluded from the footprint equality but keep the size check

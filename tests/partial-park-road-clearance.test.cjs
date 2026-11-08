@@ -44,7 +44,7 @@ test('partial park lawns leave Skromna and Zmartwychwstańców clear', async () 
       'three/addons/utils/BufferGeometryUtils.js': inert(), './tsl-materials.js': inert(),
       './city-config.js': config, './geodata.js': { GEO } },
     globals: { console: { info() {}, warn() {}, log() {} }, recordPieces: (block, lawn, pieces) => {
-      if (block.id === 200 && inside(lawn, 2705.93, -1895.8) || block.id === 1270 && inside(lawn, -856.19, 2443)) {
+      if (block.id === 200 && inside(lawn, 2705.93, -1895.8) || block.id === 1267 && inside(lawn, -856.19, 2443)) {
         clipped.set(block.id, { lawn, pieces });
       }
     }, recordPolygon: (pts, bottom, height) => {

@@ -1,11 +1,11 @@
 [out:json][timeout:120];
 (
-  way["name"~"^(Ratusz|Bazylika Kolegiacka Matki Bożej Nieustającej Pomocy, Świętej Marii Magdaleny i Świętego Stanisława Biskupa|Zamek Królewski|Bazylika Archikatedralna Świętych Apostołów Piotra i Pawła|Brama Poznania ICHOT|Zamek Cesarski|Okrąglak|Collegium Minus|Teatr Wielki|Avenida Poznań|Stary Dworzec Główny|Stary Browar \\(Pasaż\\)|Stary Browar \\(Atrium\\)|Stary Browar-Pasaż|Stary Browar-Atrium|Stary Browar-Dziedziniec sztuki|Pawilon 11|Collegium Altum|Andersia Tower|Poznańskie Centrum Finansowe|Delta|Novotel Poznań Centrum|AND2|Wieża Wójtowska|Biblioteka Raczyńskich|Pałac Działyńskich|Muzeum Narodowe|Teatr Polski|Kościół pw. Świętego Franciszka Serafickiego|Kościół pw. Świętego Antoniego Padewskiego|Kościół pw. Najświętszej Maryi Panny|Kościół pw. Świętego Wojciecha|Kościół pw. Bożego Ciała)$"](52.383,16.880,52.434,17.000);
-  relation["name"~"^(Ratusz|Zamek Królewski|Bazylika Archikatedralna Świętych Apostołów Piotra i Pawła|Zamek Cesarski|Avenida Poznań|Stary Dworzec Główny|Stary Browar-Pasaż|Stary Browar-Atrium|Stary Browar-Dziedziniec sztuki|Nowy Rynek|Collegium Maius)$"](52.383,16.880,52.434,17.000);
+  way["name"~"^(Ratusz|Bazylika Kolegiacka Matki Bożej Nieustającej Pomocy, Świętej Marii Magdaleny i Świętego Stanisława Biskupa|Zamek Królewski|Bazylika Archikatedralna Świętych Apostołów Piotra i Pawła|Brama Poznania ICHOT|Zamek Cesarski|Okrąglak|Collegium Minus|Teatr Wielki|Avenida Poznań|Stary Dworzec Główny|Stary Browar \\(Pasaż\\)|Stary Browar \\(Atrium\\)|Stary Browar-Pasaż|Stary Browar-Atrium|Stary Browar-Dziedziniec sztuki|Pawilon 11|Collegium Altum|Andersia Tower|Poznańskie Centrum Finansowe|Delta|Novotel Poznań Centrum|AND2|Wieża Wójtowska|Biblioteka Raczyńskich|Pałac Działyńskich|Muzeum Narodowe|Teatr Polski|Kościół pw. Świętego Franciszka Serafickiego|Kościół pw. Świętego Antoniego Padewskiego|Kościół pw. Najświętszej Maryi Panny|Kościół pw. Świętego Wojciecha|Kościół pw. Bożego Ciała)$"](52.383,16.857,52.434,17.000);
+  relation["name"~"^(Ratusz|Zamek Królewski|Bazylika Archikatedralna Świętych Apostołów Piotra i Pawła|Zamek Cesarski|Avenida Poznań|Stary Dworzec Główny|Stary Browar-Pasaż|Stary Browar-Atrium|Stary Browar-Dziedziniec sztuki|Nowy Rynek|Collegium Maius)$"](52.383,16.857,52.434,17.000);
   // Platforms and stop areas share the station name, so only the station building is kept.
-  way["building"]["name"="Poznań Główny"](52.383,16.880,52.434,17.000);
+  way["building"]["name"="Poznań Główny"](52.383,16.857,52.434,17.000);
   // Bałtyk carries its name only in addr:housename.
-  way["building"]["addr:housename"="Bałtyk"](52.383,16.880,52.434,17.000);
+  way["building"]["addr:housename"="Bałtyk"](52.383,16.857,52.434,17.000);
   // The Domki budnicze (the arcaded row south of the Ratusz) are one unnamed building way.
   way(343867707);
   // Hotel Bazar (the historic hotel on Marcinkowskiego/Paderewskiego) is an unnamed building way.

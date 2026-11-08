@@ -35,7 +35,7 @@ test('the park bed and lawn beside Nad Wierzbakiem remain simple and clear of th
   const marker = 'const lawnTop = offsetPolygonInward(bed, 0.3);';
   assert.ok(source.includes(marker));
   let shapes;
-  const grid = loadModule(source.replace(marker, marker + '\n    if (b.id === 314) recordPark(b, bed, lawnTop);'), {
+  const grid = loadModule(source.replace(marker, marker + '\n    if (b.id === 312) recordPark(b, bed, lawnTop);'), {
     imports: { 'three/webgpu': inert(), 'three/tsl': inert(),
       'three/addons/utils/BufferGeometryUtils.js': inert(), './tsl-materials.js': inert(),
       './city-config.js': config, './geodata.js': { GEO } },

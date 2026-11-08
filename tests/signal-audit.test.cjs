@@ -14,33 +14,33 @@ function audit(...args) {
 test('the furnished audit classifies historical approaches before and after runtime placement', async () => {
   const config = await import('../js/city-config.js');
   const before = audit('--before'), after = audit();
-  assert.equal(before.rows.length, 167);
-  assert.equal(after.rows.length, 167);
-  assert.deepEqual(before.summary.counts, { A: 17, B: 65, C: 75, D: 10 });
-  assert.deepEqual(after.summary.counts, { A: 157, B: 0, C: 0, D: 10 });
-  assert.equal(before.summary.vehicleHeads, 903);
-  assert.equal(after.summary.vehicleHeads, 1044);
-  assert.equal(after.summary.pedestrianHeads, 1572);
-  assert.equal(after.summary.runtimePoles, 94);
-  assert.equal(after.summary.reusedPoles, 47);
-  assert.equal(after.summary.overheadHeads, 75);
-  assert.equal(after.summary.overheadPoles, 34);
-  assert.equal(after.summary.overheadReused, 41);
-  assert.equal(after.summary.overheadStrict, 66);
-  assert.equal(after.summary.overheadBand, 67);
+  assert.equal(before.rows.length, 190);
+  assert.equal(after.rows.length, 190);
+  assert.deepEqual(before.summary.counts, { A: 21, B: 72, C: 88, D: 9 });
+  assert.deepEqual(after.summary.counts, { A: 181, B: 0, C: 0, D: 9 });
+  assert.equal(before.summary.vehicleHeads, 1055);
+  assert.equal(after.summary.vehicleHeads, 1217);
+  assert.equal(after.summary.pedestrianHeads, 1816);
+  assert.equal(after.summary.runtimePoles, 104);
+  assert.equal(after.summary.reusedPoles, 58);
+  assert.equal(after.summary.overheadHeads, 89);
+  assert.equal(after.summary.overheadPoles, 37);
+  assert.equal(after.summary.overheadReused, 52);
+  assert.equal(after.summary.overheadStrict, 80);
+  assert.equal(after.summary.overheadBand, 81);
   assert.equal(after.summary.overheadException, 7);
   assert.deepEqual(after.summary.overheadFallbackAlong,
     [1.75, 1.75, 1.75, 0.031, 1.75, 1.75, 1.75]);
-  assert.equal(after.summary.spanHeads, 27);
-  assert.equal(after.summary.spanPoles, 25);
+  assert.equal(after.summary.spanHeads, 28);
+  assert.equal(after.summary.spanPoles, 27);
   assert.equal(after.summary.spanReused, 28);
-  assert.equal(after.summary.spanNewHeads, 18);
+  assert.equal(after.summary.spanNewHeads, 19);
   assert.equal(after.summary.spanExistingHeads, 9);
   assert.equal(after.summary.spanTractionHeads, 1);
   assert.equal(after.summary.spanTractionAnchors, 2);
-  assert.equal(after.summary.cantileverPoles, 16);
-  assert.equal(after.summary.spanStrict, 25);
-  assert.equal(after.summary.spanBand, 26);
+  assert.equal(after.summary.cantileverPoles, 18);
+  assert.equal(after.summary.spanStrict, 26);
+  assert.equal(after.summary.spanBand, 27);
   assert.equal(after.summary.spanException, 1);
   assert.deepEqual(after.summary.spanFallbackAlong, [1.75]);
   assert.ok(after.summary.spanLengthMax > 54 && after.summary.spanLengthMax <= 55,
@@ -55,7 +55,7 @@ test('the furnished audit classifies historical approaches before and after runt
   assert.ok(after.summary.pedestrianApproaches.every((row) => row.class === 'A'),
     'every active pedestrian approach has an A head');
   for (const [x, z] of [[-359.7, -887.7], [2848.05, -1512.5], [1169.4, -2431.9],
-    [-3513.4, 2170.5], [2024.63, 1666.8]]) {
+    [-4702.6, -390.8], [2024.63, 1666.8]]) {
     const row = after.summary.pedestrianApproaches.find((r) =>
       Math.hypot(r.node[0] - x, r.node[1] - z) < 0.01);
     assert.ok(row, `active pedestrian approach at ${x}, ${z}`);
@@ -64,7 +64,7 @@ test('the furnished audit classifies historical approaches before and after runt
   const placements = after.summary.placements.map((row) => row.map((v) =>
     typeof v === 'number' ? Number(v.toFixed(3)) : v));
   assert.equal(createHash('sha256').update(JSON.stringify(placements)).digest('hex'),
-    'e0ba3e3fdbfd06091471e5c42515791dd77a0ce4cf7b85b6fa841af569271704');
+    'f5776702d9093836293b93d6ae15162e56e404c652dbf14abc0b84b239b0a543');
   const gorna = after.rows.find((r) => Math.hypot(r.node[0] + 448.825, r.node[1] - 947.425) < 0.01 &&
     r.direction[0] > 0.4 && r.direction[1] < -0.8);
   assert.ok(gorna, 'the Górna Wilda approach is still audited');

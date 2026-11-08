@@ -259,7 +259,27 @@ const comps = [];
     comps.push({ id, n, i0, i1, j0, j1, start: s0 });
   }
 }
-log(`blocks: ${comps.length} curb islands labelled`);
+// Keep the block ids of the west-edge extension additive: a component keeps the id it had in the old box, keyed by its
+// first cell at or east of the old west edge (the old raster's scan order), and components entirely west of it are
+// appended. A block that grew west across the old edge therefore keeps its id; the new west blocks do not shift any
+// existing id (docs/observations/detailbox-west-expansion-2026-11-08.md).
+const OLD_WEST_X = -3675.4;
+{
+  const oldI = Math.max(0, Math.ceil((OLD_WEST_X - R.x0) / RES));
+  const keyOf = (c) => {
+    if (c.start % W >= oldI) return c.start;
+    for (let j = c.j0; j <= c.j1; j++) {
+      for (let i = Math.max(c.i0, oldI); i <= c.i1; i++) if (lab[j * W + i] === c.id) return j * W + i;
+    }
+    return Infinity;
+  };
+  const keyed = comps.map((c) => [keyOf(c), c]);
+  keyed.sort((a, b) => a[0] - b[0] || a[1].start - b[1].start);
+  comps.length = 0;
+  for (const [, c] of keyed) comps.push(c);
+}
+const westOnly = comps.filter((c) => R.x0 + c.i1 * RES < OLD_WEST_X).length;
+log(`blocks: ${comps.length} curb islands labelled (${westOnly} entirely west of the old edge)`);
 
 // --- Contour of one component (corner walk keeping the component on the right) --------------------------------------
 function traceComponent(c) {
