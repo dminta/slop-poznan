@@ -189,6 +189,11 @@ Implementation details and completed measurements live in the [topic docs](../AG
   of rustication, gables, domes, helms, lanterns, the theatre inscription and pelican. Check masonry and lit panes
   beside neighbouring buildings by day and night, plus player collisions around facades and entrances.
   [Landmark measurements](observations/landmarks-2026-11-05.md).
+- Inspect the new open canopies from a train, a tram, a car and on foot on WebGPU and WebGL2: Poznań Główny's long
+  platform roofs, Dworzec Letni and Garbary, the tram-stop canopies, the fuel-station forecourts and a few ordinary
+  pergolas. Check the deck underside and beams from below, column bases and collisions, that no post stands on a
+  track, and that a tram/car/pedestrian passes under without clipping.
+  [Canopy record](observations/platform-canopies-2026-11-08.md).
 - Inspect outward-facing x-ridge kit roofs (Ratusz, Katedra, Zamek Cesarski, Teatr Wielki, Dworzec and others)
   from above and street level, including shading, rotated-block ridges and normals.
 - Continue landmark-placement and scenic-camera checks, panel-material shimmer, balcony LOD transitions and
