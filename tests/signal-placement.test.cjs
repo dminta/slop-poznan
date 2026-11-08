@@ -63,8 +63,8 @@ test.before(async () => {
     '        const attr = new THREE.InstancedBufferAttribute(new Float32Array(data), size);\n        attributeRecords.push({ key, size, data: Array.from(data), attr });\n        g.setAttribute(key, attr);'
   ).replace('    const inst = new THREE.InstancedMesh(g, mat, matrices.length);',
     '    meshRecords.push({ geo, matrices: [...matrices], attrs });\n    const inst = new THREE.InstancedMesh(g, mat, matrices.length);'
-  ).replace('  function addRuntimeSignalHeads(network, pedRoutes = null) {',
-    '  function addRuntimeSignalHeads(network, pedRoutes = null) {\n    testInternals.push(vehicleHeadSites);'
+  ).replace('  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null) {',
+    '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null) {\n    testInternals.push(vehicleHeadSites);'
   ).replace('    addMatrixArrayInstanced(s1HousingGeo, signalHousingMat, matrices);',
     '    meshTypes.push({ s1HousingGeo, s1LensGeo, backplateGeo, backplateBorderGeo });\n    addMatrixArrayInstanced(s1HousingGeo, signalHousingMat, matrices);'
   ).replace('    dummy.rotation.set(0, Math.atan2(fx, fz), 0);',
@@ -264,7 +264,7 @@ test('runtime approaches use existing left poles when no right head or pole serv
 
 
 test('runtime poles preserve the furnished network and nearby pedestrian routes', () => {
-  const { network, street, grid, road, gridModule, config, createPedestrianRoutes, buildingColliders } = world;
+  const { network, street, grid, road, gridModule, config, createPedestrianRoutes, buildingColliders, testInternals } = world;
   // Block the first otherwise clear runtime site with a wall; the search must use a different site.
   const wall = { minX: 1383.25, maxX: 1383.65, minZ: 559.7, maxZ: 560.1, maxY: 4.5 };
   buildingColliders.push(wall);
@@ -304,24 +304,38 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
   const originalLanes = lanes(network), originalCrossings = crossings(routes);
   const audio = Array.from(street.audioSignals, (s) => [s.x, s.y, s.z, s.isAvenue, s.signalTiming]);
   const oldCount = street.vehicleHeads, oldFootprints = street.footprints.length, oldColliders = street.colliders.length;
+  const sitesBefore = testInternals[0].length;
   const footprintSnapshot = JSON.stringify(street.footprints), colliderSnapshot = JSON.stringify(street.colliders);
-  street.addRuntimeSignalHeads(network, routes);
+  const supports = [...world.tramInfra.layoutTramInfrastructure(network).poles,
+    ...world.tramInfra.layoutRailInfrastructure(network).masts];
+  street.addRuntimeSignalHeads(network, routes, supports);
   assert.ok(street.runtimeHeads.some((h) => h.existing && Math.hypot(h.node.x + 2086.95, h.node.z - 2421.3) < 0.1));
   assert.ok(street.runtimeHeads.some((h) => !h.existing && Math.hypot(h.node.x - 1374.2, h.node.z - 566.1) < 0.1));
-  const newPoles = street.runtimeHeads.filter((h) => !h.existing);
-  assert.ok(newPoles.length > 0);
-  assert.ok(newPoles.every((h) => {
-    const p = h.pole || h.p;
-    return p.x < wall.minX - 0.15 || p.x > wall.maxX + 0.15 ||
-      p.z < wall.minZ - 0.15 || p.z > wall.maxZ + 0.15;
-  }), 'new poles avoid building colliders');
-  assert.equal(street.footprints.length, oldFootprints + newPoles.length);
-  assert.equal(street.colliders.length, oldColliders + newPoles.length);
+  const newHeads = street.runtimeHeads.filter((h) => h.span ? h.anchorExisting.some((existing) => !existing) : !h.existing);
+  const newPolePoints = [];
+  const seenPoles = new Set();
+  for (const h of newHeads) {
+    const points = h.span ? h.anchors.filter((p, i) => !h.anchorExisting[i]) : [h.pole || h.p];
+    for (const p of points) {
+      const key = `${p.x.toFixed(3)},${p.z.toFixed(3)}`;
+      if (seenPoles.has(key)) continue;
+      seenPoles.add(key);
+      newPolePoints.push(p);
+    }
+  }
+  assert.ok(newPolePoints.length > 0);
+  for (const p of newPolePoints) {
+    assert.ok(p.x < wall.minX - 0.15 || p.x > wall.maxX + 0.15 ||
+      p.z < wall.minZ - 0.15 || p.z > wall.maxZ + 0.15, 'new poles avoid building colliders');
+  }
+  assert.equal(street.footprints.length, oldFootprints + newPolePoints.length);
+  assert.equal(street.colliders.length, oldColliders + newPolePoints.length);
   assert.equal(JSON.stringify(street.footprints.slice(0, oldFootprints)), footprintSnapshot);
   assert.equal(JSON.stringify(street.colliders.slice(0, oldColliders)), colliderSnapshot);
-  assert.equal(street.vehicleHeads, oldCount + street.runtimeHeads.length);
-  assert.ok(newPoles.some((h) => {
-    const p = h.pole || h.p, edge = h.edge;
+  assert.equal(street.vehicleHeads, oldCount + testInternals[0].length - sitesBefore);
+  assert.ok(newHeads.some((h) => {
+    const p = h.span ? h.anchors[h.anchorExisting.indexOf(false)] : h.pole;
+    const edge = h.edge;
     const x = edge.sx + edge.dx * edge.len, z = edge.sz + edge.dz * edge.len;
     return (p.x - x) * edge.dx + (p.z - z) * edge.dz < -15 ||
       Math.abs((p.x - x) * edge.rx + (p.z - z) * edge.rz) > edge.half + 2.6;
@@ -333,21 +347,39 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
     assert.ok(Math.hypot(h.p.x - x, h.p.z - z) <= 30 && along >= -15 - 1e-6 && along <= road.STOP_SETBACK + 1e-6,
       `setback ${along}`);
     if (h.overhead) {
-      const arm = Math.hypot(h.pole.x - h.p.x, h.pole.z - h.p.z);
-      assert.ok(arm <= 12.01, `overhead arm ${arm}`);
-      assert.ok(e.lanes.some((lane) => Math.abs(lane - ((h.p.x - x) * e.rx + (h.p.z - z) * e.rz)) < 0.01),
-        `overhead head over a lane at ${h.p.x}, ${h.p.z}`);
-      const steps = Math.max(1, Math.ceil(arm / 0.5));
-      for (let i = 0; i <= steps; i++) {
-        const px = h.pole.x + (h.p.x - h.pole.x) * i / steps;
-        const pz = h.pole.z + (h.p.z - h.pole.z) * i / steps;
-        assert.ok(gridModule.railClearance(px, pz, 20) >= 2.22,
-          `overhead arm keeps 2.22 m from rails at ${px}, ${pz}`);
+      if (h.span) {
+        assert.ok(e.lanes.some((lane) => Math.abs(lane - ((h.p.x - x) * e.rx + (h.p.z - z) * e.rz)) <= 1.6),
+          `span head over a lane at ${h.p.x}, ${h.p.z}`);
+        assert.ok(gridModule.railClearance(h.p.x, h.p.z, 20) >= 2.22,
+          `span head keeps 2.22 m from rails at ${h.p.x}, ${h.p.z}`);
+        assert.ok(supports.every((s) => Math.hypot(h.p.x - s.x, h.p.z - s.z) >= 3.1),
+          `span head keeps 3.1 m from a traction pole at ${h.p.x}, ${h.p.z}`);
+        for (const p of h.anchors) {
+          assert.ok(config.roadClearance(p.x, p.z) >= 0.8, `span foot ${p.x}, ${p.z} clear of the roadway`);
+          assert.ok(gridModule.railClearance(p.x, p.z, 20) >= 2.22,
+            `span foot ${p.x}, ${p.z} keeps 2.22 m from rails`);
+          assert.ok(supports.every((s) => Math.hypot(p.x - s.x, p.z - s.z) >= 3.1),
+            `span foot ${p.x}, ${p.z} keeps 3.1 m from a traction pole`);
+        }
+        if (h.band) assert.ok(along <= -8 + 1e-6, `span band head along ${along}`);
+        if (h.strict) assert.ok(along <= -10.5 + 1e-6, `span strict head along ${along}`);
+      } else {
+        const arm = Math.hypot(h.pole.x - h.p.x, h.pole.z - h.p.z);
+        assert.ok(arm <= 12.01, `overhead arm ${arm}`);
+        assert.ok(e.lanes.some((lane) => Math.abs(lane - ((h.p.x - x) * e.rx + (h.p.z - z) * e.rz)) < 0.01),
+          `overhead head over a lane at ${h.p.x}, ${h.p.z}`);
+        const steps = Math.max(1, Math.ceil(arm / 0.5));
+        for (let i = 0; i <= steps; i++) {
+          const px = h.pole.x + (h.p.x - h.pole.x) * i / steps;
+          const pz = h.pole.z + (h.p.z - h.pole.z) * i / steps;
+          assert.ok(gridModule.railClearance(px, pz, 20) >= 2.22,
+            `overhead arm keeps 2.22 m from rails at ${px}, ${pz}`);
+        }
+        if (h.band) assert.ok(along <= -8 + 1e-6, `band head along ${along}`);
+        if (h.strict) assert.ok(along <= -10.5 + 1e-6, `strict head along ${along}`);
+        assert.ok(config.roadClearance(h.pole.x, h.pole.z) >= 0.8);
+        assert.ok(gridModule.railClearance(h.pole.x, h.pole.z, 20) >= 2.22);
       }
-      if (h.band) assert.ok(along <= -8 + 1e-6, `band head along ${along}`);
-      if (h.strict) assert.ok(along <= -10.5 + 1e-6, `strict head along ${along}`);
-      assert.ok(config.roadClearance(h.pole.x, h.pole.z) >= 0.8);
-      assert.ok(gridModule.railClearance(h.pole.x, h.pole.z, 20) >= 2.22);
     } else {
       assert.ok(lateral >= e.half + 0.6 && lateral <= e.half + 6.01, `curb offset ${lateral - e.half}`);
       if (h.existing) assert.ok(lateral <= e.half + 2.6 + 1e-6, `reused pole lateral ${lateral}`);
@@ -362,8 +394,7 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
   assert.deepEqual(lanes(rebuilt), originalLanes, 'all lanes survive the new footprints');
   const rebuiltRoutes = createPedestrianRoutes(rebuilt, config.blockAt, gridModule.railClearance);
   assert.deepEqual(crossings(rebuiltRoutes), originalCrossings, 'all crossings survive the new footprints');
-  for (const h of newPoles) {
-    const p = h.pole || h.p;
+  for (const p of newPolePoints) {
     assert.equal(localRoutes(rebuiltRoutes, p), localRoutes(routes, p),
       `pedestrian tracks and connections near ${p.x}, ${p.z} are unchanged`);
   }
@@ -371,7 +402,7 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
 
 // Read-only after the runtime placements above: the tram and railway layouts are built last in main.js, so this
 // checks the finished arms against the masts that the real build places, not only the 2.6 m track setback.
-test('overhead arms keep 0.5 m from tram poles and railway masts', () => {
+test('overhead and span heads keep 3.1 m from tram poles and railway masts', () => {
   const { network, street, tramInfra } = world;
   const tram = tramInfra.layoutTramInfrastructure(network);
   const rail = tramInfra.layoutRailInfrastructure(network);
@@ -384,6 +415,22 @@ test('overhead arms keep 0.5 m from tram poles and railway masts', () => {
   const overhead = street.runtimeHeads.filter((h) => h.overhead);
   assert.ok(overhead.length > 0, 'runtime placement produced overhead heads');
   for (const h of overhead) {
+    if (h.span) {
+      // The stays run at 10 m, above every tram pole (7.6 m) and railway portal mast (9.6 m); only the anchors and
+      // the 5.3 m head sit at pole height, so they keep the full 3.1 m from every support.
+      for (const p of h.anchors) {
+        for (const s of supports) {
+          assert.ok(Math.hypot(p.x - s.x, p.z - s.z) >= 3.1,
+            `span foot at ${p.x}, ${p.z} is ${Math.hypot(p.x - s.x, p.z - s.z).toFixed(2)} m from a mast`);
+        }
+      }
+      for (const s of supports) {
+        assert.ok(Math.hypot(h.p.x - s.x, h.p.z - s.z) >= 3.1,
+          `span head at ${h.p.x}, ${h.p.z} is ${Math.hypot(h.p.x - s.x, h.p.z - s.z).toFixed(2)} m from a mast`);
+      }
+      assert.ok(supports.every((s) => (s.h ?? 0) < 9.8), 'span stays run above the traction poles');
+      continue;
+    }
     let min = Infinity, where = '';
     for (const p of supports) {
       for (const [part, d] of [['arm', segDist(p.x, p.z, h.pole.x, h.pole.z, h.p.x, h.p.z)],
@@ -392,6 +439,6 @@ test('overhead arms keep 0.5 m from tram poles and railway masts', () => {
         if (d < min) { min = d; where = part; }
       }
     }
-    assert.ok(min >= 0.5, `overhead ${where} at ${h.node.x}, ${h.node.z} is ${min.toFixed(2)} m from a mast`);
+    assert.ok(min >= 3.1, `overhead ${where} at ${h.node.x}, ${h.node.z} is ${min.toFixed(2)} m from a mast`);
   }
 });

@@ -1262,8 +1262,8 @@ function stopFurnitureColliders(stops) {
  * the corridor boundary, for the player only; built after the road network, so nothing here closes a lane;
  * railCorridor(x, z): true inside the railway corridor, which ground players may not enter).
  */
-function buildTramInfrastructure(scene, network) {
-  const layout = layoutTramInfrastructure(network);
+function buildTramInfrastructure(scene, network, layouts = null) {
+  const layout = layouts?.tram || layoutTramInfrastructure(network);
   const { tracks, pieces: tramPieces, stops, poles, spans, arms, rosettes, droppers } = layout;
   const group = new THREE.Group();
   group.name = 'TramInfrastructure';
@@ -1403,7 +1403,7 @@ function buildTramInfrastructure(scene, network) {
   // --- 2b. Mainline railway ----------------------------------------------------------------------------------------
   // Rail heads, wires, masts and arms join the tram meshes above (same geometry and material, no extra draw calls);
   // only the beds and the end walls are meshes of their own
-  const rail = layoutRailInfrastructure(network);
+  const rail = layouts?.rail || layoutRailInfrastructure(network);
   const railBedM = [];
   const railTies = [];
   const endWallM = [];
