@@ -30,6 +30,7 @@ import {
   PLAZAS,
   SPAWN,
   SRODKA_MURAL,
+  ZAMEK_FORECOURT,
   blockAt,
   pointInPark,
   parkFreeCells,
@@ -3603,6 +3604,11 @@ function buildCityBlocks(scene) {
       const p = M.toWorld(x, z);
       return [p.x, p.z];
     })));
+  }
+  // Zamek Cesarski's forecourt (city-config.js ZAMEK_FORECOURT): the strip between the castle's south front and Święty
+  // Marcin stays an open square, so the castle is not walled off from the street by the block's frontage frames.
+  for (const [x0, x1, z0, z1] of ZAMEK_FORECOURT) {
+    LANDMARK_RESERVE.push(outlineBounds([[x0, z0], [x1, z0], [x1, z1], [x0, z1]]));
   }
   function outlineBounds(pts) {
     const m = RESERVE_MARGIN;

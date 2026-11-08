@@ -1302,6 +1302,15 @@ const CITY_LANDMARKS = [
   return { id, name, short, x: s.x, z: s.z, district };
 });
 
+// The Zamek Cesarski forecourt: the open strip between the castle's south front and the north curb of ul. Święty Marcin.
+// Real OSM has only a bus shelter and a kiosk here, but the block's generic frontage frames used to fill it with ten
+// kamienice that walled the castle off from the street. buildings.js reserves it (world x0, x1, z0, z1; north is -z).
+// The two rects follow the street's diagonal curb, so the reserve never reaches the south-side frontages.
+const ZAMEK_FORECOURT = [
+  [-1110, -1048, 92, 122],
+  [-1048, -985, 92, 133]
+];
+
 // Street-level arrivals shared by every travel mode (docs/poznan-plan.md Phase 12.4). Heading 0 faces south (+z),
 // PI north; each faces its landmark. The points sit on a roadway centreline (tests/teleports.test.cjs).
 // `to`: a LANDMARK_SITES name or an { x, z } point to face.
@@ -1770,6 +1779,7 @@ export {
   TELEPORT_LOCATIONS,
   SPAWN,
   SRODKA_MURAL,
+  ZAMEK_FORECOURT,
   RAISED_GROUND,
   getLocationLabel,
   STREET_JOIN,

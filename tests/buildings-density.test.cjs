@@ -546,6 +546,38 @@ test('no generated building stands on Podgórna or Wrocławska', async () => {
   }
 });
 
+test('the Zamek Cesarski forecourt stays open towards Święty Marcin', async () => {
+  const { config, city } = await buildCity();
+  assert.ok(config.LANDMARK_SITES['Zamek Cesarski'], 'Zamek Cesarski is a landmark site');
+  const forecourt = config.ZAMEK_FORECOURT;
+  assert.ok(Array.isArray(forecourt) && forecourt.length >= 1, 'city-config reserves the castle forecourt');
+  // The strip between the castle's south front (ring max z 105.7) and the north curb of ul. Święty Marcin. Block 625's
+  // frontage frames used to fill it with ten 11-27 m kamienice, hiding the castle from the street.
+  const zone = { x0: -1105, x1: -985, z0: 95, z1: 132 };
+  const union = {
+    x0: Math.min(...forecourt.map((r) => r[0])),
+    x1: Math.max(...forecourt.map((r) => r[1])),
+    z0: Math.min(...forecourt.map((r) => r[2])),
+    z1: Math.max(...forecourt.map((r) => r[3]))
+  };
+  assert.ok(union.x0 <= zone.x0 && union.x1 >= zone.x1 && union.z0 <= zone.z0 && union.z1 >= zone.z1,
+    'the reserved forecourt covers the view zone');
+  const hits = [];
+  for (const blk of city.allBlocks) {
+    for (const f of blk.footprints) {
+      const pts = f.pts || [
+        { x: f.x0, z: f.z0 }, { x: f.x1, z: f.z0 }, { x: f.x1, z: f.z1 }, { x: f.x0, z: f.z1 }
+      ];
+      const x0 = Math.min(...pts.map((p) => p.x)), x1 = Math.max(...pts.map((p) => p.x));
+      const z0 = Math.min(...pts.map((p) => p.z)), z1 = Math.max(...pts.map((p) => p.z));
+      if (x1 > zone.x0 && x0 < zone.x1 && z1 > zone.z0 && z0 < zone.z1) {
+        hits.push(`${blk.id} (${f.h.toFixed(1)} m at ${x0.toFixed(1)}, ${z0.toFixed(1)})`);
+      }
+    }
+  }
+  assert.deepEqual(hits, [], `generic buildings block the castle from Święty Marcin: ${hits.join('; ')}`);
+});
+
 test('near balcony landings respect MAX_NEAR_BALCONIES (256) buffer with graceful far LOD fallback', async () => {
   const { config, city } = await buildCity();
   const testPoints = [
