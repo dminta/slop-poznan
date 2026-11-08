@@ -70,16 +70,23 @@ Implementation details and completed measurements live in the [topic docs](../AG
   [Density test harness](tests/buildings-density.test.cjs),
   [Phase 14 archive](archive/poznan-plan.md#phase-14-real-building-density-from-osm).
 - **Central density (2026-11-08):** the 190 central blocks (Stare Miasto, Jeżyce, Łazarz, Wilda) at least 35% built
-  in OSM now generate 43.2% against 45.3% real (was 40.3%), and blocks below 75% of their real share fall 49 → 46.
-  The named blocks moved: 708 35.4 → 39.7%, 688 37.3 → 39.9%, 836 42.1 → 44.8% and 1365 40.0 → 45.5%; 801 stayed
-  35.8% and 868 slipped 34.7 → 33.4%. Deep frontage lots now use up to 48 m, dense cores count from 8 m, rear rows
-  stand on 7–9 m wells and dense courtyards get transverse oficyny. Remaining: Stare Miasto is still at 0.82× its OSM
-  share because blocks 575 (Collegium Maius reserve), 816 (Stary Browar/offices) and 868 (office profile) are mostly
-  landmark or office layouts; `officeBlock` still builds only street slabs and no interior core. Jeżyce and Łazarz
-  now sit above their whole-district OSM share (1.19× / 1.20×), so a later pass should thin already-built blocks
-  before adding more. Browser checks were WebGPU (Apple `metal-3`) and WebGL2 at the drone, a 35–140 m helicopter POV
-  over Ratajczaka and a street-level Św. Marcin/Piekary run; no curb or sidewalk overlap and no z-fighting were seen.
-  [Measurements and code changes](observations/central-density-2026-11-08.md).
+  in OSM now generate 43.7% against 45.3% real (was 43.2% after the first pass and 40.3% before it), and blocks below
+  75% of their real share fall 49 → 44. The named blocks moved: 708 35.4 → 39.7%, 688 37.3 → 39.9%, 836 42.1 → 44.8%
+  and 1365 40.0 → 45.5%; 801 stayed 35.8%. Deep frontage lots now use up to 48 m, dense cores count from 8 m, rear
+  rows stand on 7–9 m wells and dense courtyards get transverse oficyny. The 2026-11-08 office-courtyard follow-up
+  now fills the office interiors too: 868 33.4 → 48.2%, 814 26.4 → 32.0%, 769 40.2 → 47.8%, 752 47.7 → 53.1% and
+  695 35.5 → 41.2%; the 32 office-reach blocks move 26.8 → 30.9% against 37.4% real, Stare Miasto's 84-block subset
+  39.5 → 40.8% against 48.4%, and the whole district 28.6 → 29.2% against 30.0%. `officeBlock` now builds mid-depth
+  slabs down to a rear service yard, atrium lit floorplates and U/ring/H/L/parallel office cores on a
+  `srcBuiltArea` budget, with 12 m+ courts, glazed links and low conference pavilions; blocks already over their OSM
+  share (593, 786, 938/939 and 733) keep their plazas. 816 stays at 14.8% because its post-park buildable area is
+  2.26 ha (20.7% of the island) and the Stary Browar is a landmark model, not generic stock. Remaining: 575
+  (Collegium Maius) and 801 (46.5% lot-rect coverage) are landmark/fragmentation ceilings; Jeżyce and Łazarz still
+  sit above their whole-district OSM share (1.19× / 1.20×), so a later pass should thin already-built blocks rather
+  than add more. Browser checks were WebGPU (Apple `metal-3`) and WebGL2 on the automatic drone and the Bałtyk /
+  Stary Rynek cameras; no curb or sidewalk overlap, missing facade or z-fighting were seen and no console error was
+  logged. [Measurements, code changes and the office geometry audit](observations/office-courtyards-2026-11-08.md),
+  [first central-density pass](observations/central-density-2026-11-08.md).
 - **Merge starvation and short-link left turns:** the 2026-11-07 Centrum seed 99 10-minute hold (`waitMax`/`longestHeld`
   184 s at `(-1117, 132)`) is fixed. A blocked lead no longer reserves the 9.4 m link between signals, and a left turn
   that cannot clear falls back to a straight move from the same lane, so it no longer waits on the link. That run is

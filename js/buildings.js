@@ -278,6 +278,14 @@ function buildCityBlocks(scene) {
   let srcRects = []; // its lot rects { x0, x1, z0, z1 } in their frames { cs, sn, px, pz } (see frontages)
   let srcLotArea = 0; // the area of the lot pieces it builds on (m², see steerProfile)
   let fullLotArea = 0; // lot area before park carve-out (m², see steerProfile)
+  // Offices steer their interior courts against the block's real OSM share: commit() adds every ground footprint to
+  // srcBuiltArea, populateBlock sets a per-piece budget from what the block's built share has left, and officeBlock
+  // spends it on frontage slabs first and then on the courtyard core (see officeCore). Without it the office layout
+  // built 13.6% of block 816 against 37% real and 33.4% of 868 against 57%.
+  let srcBuiltArea = 0; // ground footprint area committed in the current block (m²)
+  let srcLeftArea = 0; // lot area of the pieces still to populate (m²)
+  let srcTarget = 0; // the block's real built area (m², steerProfile's T × BLOCKS[i].area)
+  let srcPieceBudget = 0; // the current piece's share of the unspent target (m²)
   const toWorld = (x, z) => (xf
     ? [xf.px + (x - xf.px) * xf.cs + (z - xf.pz) * xf.sn, xf.pz - (x - xf.px) * xf.sn + (z - xf.pz) * xf.cs]
     : [x, z]);
@@ -753,6 +761,7 @@ function buildCityBlocks(scene) {
       buckets[mat].push(box);
       blk.facadeBoxes.push(box);
       blk.footprints.push({ x0: p.x0, x1: p.x1, z0: p.z0, z1: p.z1, y0: p.y0, h: p.y1, tone });
+      if (p.y0 < EPS) srcBuiltArea += w * d; // ground footprint, see srcBuiltArea
       if (p.y1 > blk.maxH) blk.maxH = p.y1;
       pushCollider(p.x0, p.x1, p.z0, p.z1, p.y0, p.y1);
       if (p.y1 > top.y1 + EPS || (p.y1 > top.y1 - EPS && w * d > rectW(top) * rectD(top))) top = p;
@@ -1287,18 +1296,32 @@ function buildCityBlocks(scene) {
     if (rectW(shaft) < 9 || rectD(shaft) < 9) shaft = podium;
     mass(b, carve(shaft, shapeHoles(shaft, pickW([['notched', 3], ['rect', 2], ['stepped', 1.5], ['plus', 0.8]])), 'x'), pf, f);
     commit(blk, b, { cornice: false, hvac: true, shops: 'all' });
+    return W;
   }
 
-  // Mid-rise office block, glass or sandstone-clad, with a recessed top floor
-  function officeSlab(blk, side, lot, cfg) {
+  // Mid-rise office block, glass or sandstone-clad, with a recessed top floor. A mid-depth lot takes the whole depth
+  // down to a 3-6 m rear service yard (deep = true), since a 16-24 m slab + 12 m court + wing would not fit; a
+  // deep floorplate of 34 m or more gets a central atrium/light well so the plan stays lit.
+  function officeSlab(blk, side, lot, cfg, deep = false) {
     const mat = chance(0.7) ? pickW(GLASS) : pickW([[F.sandstone, 1], [F.cream, 1]]);
     const b = building(blk, mat, lot);
     const L = sideLen(lot, side);
-    const D = Math.min(sideDepth(lot, side), range(16, 24));
+    const cap = Math.min(sideDepth(lot, side), range(16, 24));
+    const D = deep ? Math.max(cap, sideDepth(lot, side) - range(3, 6)) : cap;
     const f = irange(cfg.mid[0], cfg.mid[1]);
-    mass(b, [sideRect(lot, side, 0, L, 0, D)], 0, f);
+    let rects = [sideRect(lot, side, 0, L, 0, D)];
+    if (deep && D >= 34 && L >= 26 && chance(0.65)) {
+      const r = rects[0];
+      const cw = Math.min(L * 0.3, range(6, 10));
+      const cd = Math.min(D * 0.3, range(6, 10));
+      const cx = (r.x0 + r.x1) * 0.5;
+      const cz = (r.z0 + r.z1) * 0.5;
+      rects = carve(r, [rect(cx - cw * 0.5, cx + cw * 0.5, cz - cd * 0.5, cz + cd * 0.5)], 'x');
+    }
+    mass(b, rects, 0, f);
     if (D >= 12 && L >= 6 && chance(0.6)) mass(b, [sideRect(lot, side, 1, L - 1, range(2, 3), D - 1)], f, f + 1);
     commit(blk, b, { cornice: !isGlass(mat), hvac: true, hvacH: range(2.6, 3.6), shops: 'all' });
+    return D;
   }
 
   // ============================================================================
@@ -1388,25 +1411,182 @@ function buildCityBlocks(scene) {
   }
 
   // Offices: glass towers on podiums and mid-rise office blocks in lots of 26-52 m along the main frontage, up to 48 m
-  // deep
+  // deep, with a modern courtyard core behind them (see officeCore)
+  const OFFICE_BAR = [12, 15]; // wing depth/width of a courtyard office (m)
+  const OFFICE_COURT = 12; // minimum light court between two office wings (m)
+  function officeCore(blk, C, main, cfg, budget) {
+    const L = sideLen(C, main);
+    const D = sideDepth(C, main);
+    if (L < 12 || D < 12 || budget < 60) return 0;
+    const at = (a0, a1, b0, b1) => sideRect(C, main, a0, a1, b0, b1);
+    const partArea = (r) => (r.x1 - r.x0 >= 0.5 && r.z1 - r.z0 >= 0.5 ? (r.x1 - r.x0) * (r.z1 - r.z0) : 0);
+    const sumArea = (parts) => parts.reduce((t, r) => t + partArea(r), 0);
+    const bw = range(OFFICE_BAR[0], OFFICE_BAR[1]);
+    // Sizes that leave at least OFFICE_COURT (12 m) between the wings. A rear bar needs D >= 24, an L or U core a
+    // 12 m court too; a low 8-12 m pavilion fits a 20-24 m core.
+    const sw = Math.min(bw, (L - OFFICE_COURT) * 0.5);
+    const swL = Math.min(bw, L - OFFICE_COURT);
+    const rd = Math.min(bw, D - OFFICE_COURT);
+    const nb = Math.min(bw, (D - OFFICE_COURT) * 0.5);
+    const cb = Math.min(bw, D - 2 * OFFICE_COURT);
+    const plans = [];
+    const add = (name, parts, low, weight) => {
+      const p = parts.filter((r) => partArea(r) > 0);
+      if (p.length) plans.push({ name, parts: p, area: sumArea(p), low, weight });
+    };
+    if (sw >= 12 && rd >= 12 && L - 2 * sw >= OFFICE_COURT && D - rd >= OFFICE_COURT) {
+      add('U', [at(0, L, D - rd, D), at(0, sw, 0, D - rd), at(L - sw, L, 0, D - rd)], false, 3.5);
+      if (nb >= 12 && D - nb - rd >= OFFICE_COURT) {
+        add('ring', [at(0, L, D - rd, D), at(0, sw, 0, D - rd), at(L - sw, L, 0, D - rd), at(sw, L - sw, 0, nb)], false, 1.5);
+      }
+      if (cb >= 12 && (D - cb) * 0.5 >= OFFICE_COURT) {
+        add('H', [at(0, sw, 0, D), at(L - sw, L, 0, D), at(sw, L - sw, (D - cb) * 0.5, (D + cb) * 0.5)], false, 1.5);
+      }
+    }
+    if (swL >= 12 && rd >= 12 && L - swL >= OFFICE_COURT && D - rd >= OFFICE_COURT) {
+      const wing = chance(0.5) ? at(0, swL, 0, D - rd) : at(L - swL, L, 0, D - rd);
+      add('L', [at(0, L, D - rd, D), wing], false, 2.5);
+    }
+    if (rd >= 12 && D - 2 * rd >= OFFICE_COURT && L >= 16) {
+      add('parallel', [at(0, L, 0, rd), at(0, L, D - rd, D)], false, 2);
+    }
+    if (rd >= 12 && D - rd >= OFFICE_COURT && L >= 16) add('rear', [at(0, L, D - rd, D)], false, 2);
+    const pd = Math.min(range(10, 14), D - OFFICE_COURT);
+    if (pd >= 8 && L >= 16) add('lowRear', [at(0, L, D - pd, D)], true, 2);
+    if (!plans.length) return 0;
+
+    // Prefer the weighted plan; fall back to the largest one the budget can pay for (blocks 816/868 have a lot of
+    // unspent share, over-built offices like 593/786 have none and never reach here). A small weighted plan on a
+    // budget that could pay for a courtyard bar is replaced by the larger plan, so a 12 m rear bar alone does not
+    // waste the core of a deep lot.
+    const chosen = pickW(plans.map((p) => [p, p.weight]));
+    const fitting = plans.filter((p) => p.area <= budget).sort((a, b) => b.area - a.area);
+    if (!fitting.length) return 0;
+    const pick = chosen.area <= budget && chosen.area >= fitting[0].area * 0.55 ? chosen : fitting[0];
+    const floors = pick.low ? irange(1, 2) : irange(cfg.coreFloors[0], cfg.coreFloors[1]);
+    const mat = pick.low
+      ? pickW([[F.cream, 2], [F.sandstone, 2], [F.glassSilver, 2], [F.glassTeal, 1]])
+      : pickW([[F.glassTeal, 3], [F.glassSilver, 3], [F.glassBronze, 1], [F.cream, 1], [F.sandstone, 1]]);
+    const b = building(blk, mat, C);
+    mass(b, pick.parts, 0, floors);
+    commit(blk, b, {
+      cornice: !pick.low && !isGlass(mat), hvac: pick.low ? 'small' : true,
+      hvacH: pick.low ? range(2.4, 3) : range(2.6, 3.6), skylights: true, shops: 'none', awnings: false, freestanding: true
+    });
+    let built = pick.area;
+
+    // A low glazed link across the court: it closes one end of a U, or crosses the 12-16 m well between two parallel
+    // bars, while keeping the court itself open to the sky.
+    let link = null;
+    if (pick.name === 'U' && D - rd - 4 >= OFFICE_COURT && chance(0.45)) {
+      const ld = range(4, 6);
+      if (D - rd - ld >= OFFICE_COURT) link = { a0: sw, a1: L - sw, b0: 0, b1: ld };
+    } else if (pick.name === 'parallel' && chance(0.45)) {
+      const lw = range(4, 6);
+      link = { a0: (L - lw) * 0.5, a1: (L + lw) * 0.5, b0: rd, b1: D - rd };
+    } else if (pick.name === 'ring' && L - 2 * sw >= OFFICE_COURT + 12 && chance(0.35)) {
+      const lw = range(4, 6);
+      link = { a0: sw, a1: sw + lw, b0: nb, b1: D - rd };
+    }
+    if (link) {
+      const lr = at(link.a0, link.a1, link.b0, link.b1);
+      const la = partArea(lr);
+      if (built + la <= budget) {
+        const lb = building(blk, pickW([[F.glassTeal, 1], [F.glassSilver, 1]]), C);
+        mass(lb, [lr], 0, irange(1, 2));
+        commit(blk, lb, { cornice: false, hvac: false, skylights: true, shops: 'none', awnings: false, freestanding: true });
+        built += la;
+      }
+    }
+    return built;
+  }
+
+  // A frontless office piece (the inside of a superblock or a frame sliver): a single office oficyna with 2-5 m side
+  // yards, or the courtyard plan when the piece is wide enough for wings
+  function officeInnerLot(blk, R, cfg, budget) {
+    if (budget < 60) return 0;
+    const C = insetAll(R, range(2, 4));
+    const W = rectW(C);
+    const D = rectD(C);
+    if (W < 8 || D < 8) return 0;
+    if (Math.min(W, D) >= 22) {
+      const built = officeCore(blk, C, W >= D ? 's' : 'e', cfg, budget);
+      if (built) return built;
+    }
+    const alongX = W >= D;
+    const len = alongX ? W : D;
+    const wid = alongX ? D : W;
+    const bl = len - range(2, 5);
+    const bd = wid - range(2, 4);
+    if (bl < 12 || bd < 8) return 0;
+    const area = Math.min(bl * bd, budget);
+    if (area < 96) return 0;
+    const lenFit = Math.min(bl, area / bd);
+    const u = (len - lenFit) * range(0.2, 0.8);
+    const v = (wid - bd) * range(0.2, 0.8);
+    const r = alongX
+      ? rect(C.x0 + u, C.x0 + u + lenFit, C.z0 + v, C.z0 + v + bd)
+      : rect(C.x0 + v, C.x0 + v + bd, C.z0 + u, C.z0 + u + lenFit);
+    const mat = pickW([[F.glassTeal, 3], [F.glassSilver, 2], [F.cream, 2], [F.sandstone, 1]]);
+    const b = building(blk, mat, C);
+    mass(b, [r], 0, irange(2, 4));
+    commit(blk, b, {
+      cornice: !isGlass(mat), hvac: 'small', hvacH: range(2.4, 3.2), skylights: true, shops: 'none', awnings: false,
+      freestanding: true
+    });
+    return lenFit * bd;
+  }
+
   function officeBlock(blk, cfg) {
     const R = blockRect(blk);
     blk.yards.push(insetAll(R, 1.5));
+    const startBuilt = srcBuiltArea;
     const main = mainFront(blk);
     if (!main) {
-      innerLot(blk, R, cfg);
+      const left = Math.max(0, srcPieceBudget - (srcBuiltArea - startBuilt));
+      if (cfg.core && left > 0) officeInnerLot(blk, R, cfg, left);
+      else innerLot(blk, R, cfg);
       return;
     }
     const L = sideLen(R, main);
-    const D = Math.min(sideDepth(R, main), 48);
+    const Dfull = sideDepth(R, main);
+    const D = Math.min(Dfull, 48);
+    const deep = !!cfg.core && Dfull <= 55;
+    const lots = [];
     let a = 0;
     while (L - a > 0.5) {
       let w = range(26, 52);
       if (L - a - w < 18) w = L - a;
       const lot = sideRect(R, main, a, a + w, 0, D);
-      if (w >= 22 && D >= 22 && chance(cfg.towerP)) officeTower(blk, main, lot, cfg);
-      else officeSlab(blk, main, lot, cfg);
+      const depth = w >= 22 && D >= 22 && chance(cfg.towerP)
+        ? officeTower(blk, main, lot, cfg)
+        : officeSlab(blk, main, lot, cfg, deep);
+      lots.push({ a, w, depth });
       a += w;
+    }
+    // The core behind each frontage lot, 12-14 m off its rear wall and out to the lot's real depth. Per lot, so a
+    // deep tower podium does not kill the courtyard behind its neighbours. Over-built offices (593, 786, 938, 939)
+    // have cfg.core off; mid-depth lots (Dfull <= 55) took the full depth in officeSlab instead of a court.
+    if (!cfg.core || deep) return;
+    let coreLeft = Math.max(0, srcPieceBudget - (srcBuiltArea - startBuilt));
+    if (coreLeft < 60) return;
+    let avail = 0;
+    for (const lot of lots) {
+      lot.start = Math.min(Dfull, lot.depth + range(OFFICE_COURT, 14));
+      avail += lot.w * Math.max(0, Dfull - lot.start);
+    }
+    if (avail < 60) return;
+    let availLeft = avail;
+    for (const lot of lots) {
+      const lotAvail = lot.w * Math.max(0, Dfull - lot.start);
+      if (lotAvail <= 0) continue;
+      const budget = coreLeft * (lotAvail / availLeft);
+      availLeft -= lotAvail;
+      if (budget < 60) continue;
+      const core = sideRect(R, main, lot.a, lot.a + lot.w, lot.start, Dfull);
+      const built = officeCore(blk, core, main, cfg, budget);
+      coreLeft -= built;
+      if (coreLeft < 60) break;
     }
   }
 
@@ -1952,8 +2132,12 @@ function buildCityBlocks(scene) {
   // Sołacz, Winiary and the garden suburbs: detached villas in their gardens (villaBlock), the odd flat-roofed 1930s
   // one. Storeys follow the block's median (steerProfile)
   const RES_VILLAS = { kind: 'villas', mats: ROW_KINDS.villa.mats, kf: { villa: [2, 3] } };
-  // Round Rondo Kaponiera, Plac Andersa and Collegium Altum: offices of 6-20 storeys (podium 2-4 + shaft 4-16)
-  const OFFICES = { kind: 'offices', tower: [4, 16], mid: [6, 9], towerP: 0.45, inner: [['pavilion', 3], ['works', 1], ['yard', 1]] };
+  // Round Rondo Kaponiera, Plac Andersa and Collegium Altum: offices of 6-20 storeys (podium 2-4 + shaft 4-16); the
+  // courtyard core behind the frontage slabs is 3-6 storeys (12-24 m) of glass or stone
+  const OFFICES = {
+    kind: 'offices', tower: [4, 16], mid: [6, 9], towerP: 0.45, coreFloors: [3, 6],
+    inner: [['pavilion', 3], ['works', 1], ['yard', 1]]
+  };
   // Rataje, Chartowo, Winogrady (where they reach the detail box): osiedla of panel slabs, by storeys and weight
   const PROJECTS = { kind: 'projects', types: [[5, 5], [11, 2.5], [16, 1]], setback: [8, 12] };
   // Nowe Winogrady, Żegrze, Piątkowo: whole districts of slabs. `estate` keeps the slabs where steerProfile would turn
@@ -2091,6 +2275,11 @@ function buildCityBlocks(scene) {
       out.skipP = Math.min(0.9, Math.max(0, 1 - q));
       if (base.kind === 'projects' && L) out.types = L >= 9 ? [[11, 2], [16, 1]] : [[5, 3], [11, 1]];
       if (base.kind === 'lowrise' && L) out.floors = [1, Math.max(1, Math.min(4, L))];
+      // Office blocks only deepen their frontage slabs and build courtyard cores where the block's real OSM share is
+      // above the profile's 29% typical output and the island itself is at least 40% built or park-carved (816 is
+      // 37% built but 37% park). 593/786 (1.03/0.97), 938/939 (1.07) and 733 (37%, no park) are already over their
+      // real share and keep their plazas; 816, 814, 769 and 868 have room for the core.
+      if (base.kind === 'offices') out.core = q >= 1.15 && (b.built >= 0.4 || b.park >= 0.3);
     }
     return out;
   }
@@ -2549,9 +2738,22 @@ function buildCityBlocks(scene) {
         }
       }
     }
+    // The block's real building area (steerProfile's T × the curb island): offices spend what is left of it on
+    // their courtyard core (see officeCore). srcLeftArea distributes the unspent budget over the remaining pieces.
+    {
+      const T = (b.park > 0.6 && srcLotArea > 0 && fullLotArea > 0)
+        ? (b.built * fullLotArea) / srcLotArea
+        : b.built;
+      srcTarget = T * b.area;
+      srcBuiltArea = 0;
+      srcLeftArea = srcLotArea;
+    }
     for (const [f, x0, x1, z0, z1] of pieces) {
       xf = f;
+      const pieceArea = (x1 - x0) * (z1 - z0);
+      srcPieceBudget = srcLeftArea > 0 ? Math.max(0, (srcTarget - srcBuiltArea) * (pieceArea / srcLeftArea)) : 0;
       populateBlock(x0, x1, z0, z1, b.district);
+      srcLeftArea = Math.max(0, srcLeftArea - pieceArea);
     }
     xf = null;
   }
@@ -2560,6 +2762,10 @@ function buildCityBlocks(scene) {
   srcRects = [];
   srcLotArea = 0;
   fullLotArea = 0;
+  srcTarget = 0;
+  srcBuiltArea = 0;
+  srcLeftArea = 0;
+  srcPieceBudget = 0;
 
   // B6. Narrow leftover slabs no building fits on (8-26 m wide: wedges between converging streets, slivers by the
   //     bridge approaches) become sitting areas: a row or two of street trees in tree pits (planted by
