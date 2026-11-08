@@ -8,8 +8,8 @@ test('GEO.trees keeps the surveyed natural=tree positions in the detail box', as
   const { GEO } = await import('../js/geodata.js');
   const { OSM_TREES } = await import('../js/city-config.js');
   assert.equal(GEO.trees.length % 4, 0);
-  assert.equal(GEO.trees.length, 38588 * 4);
-  assert.equal(OSM_TREES.length, 38588);
+  assert.equal(GEO.trees.length, 38757 * 4);
+  assert.equal(OSM_TREES.length, 38757);
   const [x0, x1, z0, z1] = GEO.frame.detailBox;
   const species = [0, 0, 0, 0, 0];
   const cells = new Map();
@@ -36,6 +36,6 @@ test('GEO.trees keeps the surveyed natural=tree positions in the detail box', as
     }
   }
   assert.ok(minPair >= 0.5, `duplicate positions removed (${minPair.toFixed(3)} m)`);
-  // Mapped model species only; 24,616 other/untagged trees stay -1 and get a deterministic model at runtime.
-  assert.deepEqual(species, [24616, 3792, 7062, 984, 2134]);
+  // Mapped model species only; 24,756 other/untagged trees stay -1 and get a deterministic model at runtime.
+  assert.deepEqual(species, [24756, 3805, 7078, 984, 2134]);
 });

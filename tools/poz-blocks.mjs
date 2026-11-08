@@ -11,8 +11,9 @@
 // - linear highway=pedestrian ways, outside plazas (inside, the plaza already clears them and they would cut the
 //   buildings given back);
 // - landuse=railway areas and the corridors of off-street tracks;
-// - except the cells under a mapped railway building (station, depot, signal box), given back grown by SIDEWALK like
-//   the buildings on plazas, but only outside the track corridor itself (see "Railway buildings" below).
+// - except the cells under a mapped railway building (station, depot, signal box, or an ordinary warehouse/workshop
+//   of at least 60 m² whose centre lies on rail-cleared land), given back grown by SIDEWALK like the buildings on
+//   plazas, but only outside the track corridor itself (see "Railway buildings" below).
 //
 // Only named service roads (167 pieces: Podwale, Wysoka, Stolarska, Za Cytadelą...) are stamped. The other 2,415 are
 // courtyard and car-park lanes, many through building_passage gates. Stamped at 4 m, they cut 1,154 blocks against 802
@@ -171,6 +172,10 @@ log(`blocks: ${stamped} road pieces stamped (${service} unnamed service pieces n
 const RAIL_BUILDING = new Set(['train_station', 'transportation', 'station', 'railway_station', 'bus_station',
   'engine_shed']);
 const RAIL_BUILDING_NAME = /dworzec|zajezdni|parowozownia|lokomotywownia|pkp|kolejow|zntk|bocznica|nastawni|signal.?box|centrum sterowania/i;
+// Ordinary warehouses and workshops on landuse=railway also count (audit 2026-11-08: only stations/depots were given
+// back, so ZNTK's stores and the yard sheds stayed cut). A footprint is a rail building when it is explicit above, or
+// when it is at least 60 m² and its centre lies on a cell the rail stamp removed.
+const RAIL_BUILDING_MIN = 60;
 {
   const K = new Raster(R.x0, R.z0, R.x0 + (W - 1) * RES, R.z0 + (H - 1) * RES, RES);
   const trackKeep = new Uint8Array(W * H);
@@ -186,10 +191,9 @@ const RAIL_BUILDING_NAME = /dworzec|zajezdni|parowozownia|lokomotywownia|pkp|kol
     const kind = String(t.building || '').toLowerCase().split(';')[0];
     if (!kind || kind === 'roof' || kind === 'no') continue;
     const name = `${t.name || ''} ${t['name:pl'] || ''}`;
-    if (!RAIL_BUILDING.has(kind) && !t.railway && !RAIL_BUILDING_NAME.test(name)) continue;
+    const explicit = RAIL_BUILDING.has(kind) || !!t.railway || RAIL_BUILDING_NAME.test(name);
     const outer = elemRings(e, toWorld).filter((r) => r.length > 3);
-    if (!outer.length) { skipped++; continue; }
-    const inner = elemRings(e, toWorld, 'inner').filter((r) => r.length > 3);
+    if (!outer.length) { if (explicit) skipped++; continue; }
     let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
     for (const r of outer) for (const [x, z] of r) {
       if (x < x0) x0 = x;
@@ -198,7 +202,16 @@ const RAIL_BUILDING_NAME = /dworzec|zajezdni|parowozownia|lokomotywownia|pkp|kol
       if (z > z1) z1 = z;
     }
     if (x1 < R.x0 - SIDEWALK || x0 > R.x0 + W * RES + SIDEWALK ||
-      z1 < R.z0 - SIDEWALK || z0 > R.z0 + H * RES + SIDEWALK) { skipped++; continue; }
+      z1 < R.z0 - SIDEWALK || z0 > R.z0 + H * RES + SIDEWALK) { if (explicit) skipped++; continue; }
+    if (!explicit) {
+      const area = Math.abs(outer.reduce((s, r) => s + ringArea(r), 0));
+      if (area < RAIL_BUILDING_MIN) continue;
+      // The centre must be on rail land the stamp cleared; a shed beside a track but on an ordinary street block is
+      // left to the curb-island pass.
+      const ci = Math.floor(((x0 + x1) * 0.5 - R.x0) / RES), cj = Math.floor(((z0 + z1) * 0.5 - R.z0) / RES);
+      if (ci < 0 || cj < 0 || ci >= W || cj >= H || !railCleared[cj * W + ci]) continue;
+    }
+    const inner = elemRings(e, toWorld, 'inner').filter((r) => r.length > 3);
     const local = new Raster(x0 - SIDEWALK - 2, z0 - SIDEWALK - 2, x1 + SIDEWALK + 2, z1 + SIDEWALK + 2, RES);
     for (const r of outer) local.fillRing(r, 1);
     for (const r of inner) local.fillRing(r, 0);

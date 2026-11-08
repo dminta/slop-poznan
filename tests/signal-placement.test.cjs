@@ -145,7 +145,7 @@ test('exact park polygons restore signal heads and street furniture across the c
   assert.equal(street.vehicleHeads, baseline.vehicleHeads + 170, 'restores 170 vehicle heads across the junctions');
   assert.equal(street.audioSignals.length, baseline.audioSignals.length + 314, 'restores 314 pedestrian heads');
   const nonSignals = (details) => details.footprints.filter((r) => r.kind !== 'signal').length;
-  assert.equal(nonSignals(street), nonSignals(baseline) + 6861, 'restores 6,861 non-signal street furniture footprints');
+  assert.equal(nonSignals(street), nonSignals(baseline) + 6867, 'restores 6,867 non-signal street furniture footprints');
 
   // Verify clearances for all restored signal poles
   const basePoles = new Set(baseline.footprints.filter((r) => r.kind === 'signal')

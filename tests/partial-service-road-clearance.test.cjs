@@ -75,7 +75,7 @@ test('the unpaved Wioślarska service road stays park ground rather than a cut c
     const len = Math.hypot(bx - ax, bz - az);
     for (let t = 0; t <= len; t += 5) {
       const x = ax + (bx - ax) * t / len, z = az + (bz - az) * t / len;
-      assert.equal(config.blockAt(x, z)?.id, 966, `Wioślarska at ${x.toFixed(1)}, ${z.toFixed(1)} is park ground`);
+      assert.equal(config.blockAt(x, z)?.id, 970, `Wioślarska at ${x.toFixed(1)}, ${z.toFixed(1)} is park ground`);
     }
   }
 });
@@ -87,7 +87,7 @@ test('partial park lawns keep the six mapped service-road corridors clear', asyn
   const marker = 'for (const piece of pieces) parkLawnGeos.push(createExtrudedPolygonMesh(piece, SW_TOP - 0.02, 0.06, lawnMat).geometry);';
   assert.ok(source.includes(marker));
   const clipped = new Map();
-  const ids = new Set([149, 209, 266, 326, 606, 885]);
+  const ids = new Set([149, 209, 266, 326, 607, 887]);
   const grid = loadModule(source.replace(marker, 'recordPieces(b, lawn, pieces, segs);\n          ' + marker), {
     imports: { 'three/webgpu': inert(), 'three/tsl': inert(),
       'three/addons/utils/BufferGeometryUtils.js': inert(), './tsl-materials.js': inert(),

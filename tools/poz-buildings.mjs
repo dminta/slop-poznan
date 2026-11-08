@@ -17,15 +17,16 @@
 //   that is also a relation's outer member is counted once, as for buildings.
 //
 // Exports: blockStats [[built share, median levels, buildings, program], ...] aligned with poz-blocks `blocks` (program
-// Exports: blockStats [[built share, median levels, buildings, program], ...] aligned with poz-blocks `blocks` (program
 // 0 none, 1 hospital/clinic campus, 2 university campus, 3 retail/mall, 4 industrial, 5 rail/depot, 6 sport/stadium/arena,
-// 7 utility, 8 leisure/water park; a non-campus programme needs >= 40 % of the block's footprint area, so one 7.7 ha mall
-// outweighs 30 kamienice); blockFootprints ({ block id: [[x0, x1, z0, z1, area], ...] }) for park blocks only, the axis-aligned
-// envelopes of their mapped sport/show/public facilities of at least PARK_BUILDING_MIN area (buildings.js keeps those
-// park cells as lots, so a stadium or arena is not cleared to lawn); blockAnchors ({ block id: [[x0, x1, z0, z1, area, use, levels], ...] }),
-// the 1-3 largest mapped non-residential footprints of each block (use 1 retail, 2 industrial, 3 rail/depot, 4 sport/leisure,
-// 5 utility), with their in-block raster envelope and OSM storeys. buildings.js puts one dedicated building on each
-// anchor and leaves the rest of the block as service yard or low auxiliary pavilions;
+// 7 utility, 8 leisure/water park, 9 office campus, 10 education, 11 sacral, 12 civic/public; a non-campus programme needs >= 40 % of the
+// block's footprint area, so one 7.7 ha mall outweighs 30 kamienice); blockFootprints ({ block id: [[x0, x1, z0, z1, area], ...] })
+// for park blocks only, the axis-aligned envelopes of their mapped sport/show/public facilities of at least PARK_BUILDING_MIN
+// area (buildings.js keeps those park cells as lots, so a stadium or arena is not cleared to lawn); blockAnchors ({ block id:
+// [[x0, x1, z0, z1, area, use, levels], ...] }), the 1-3 largest mapped non-residential footprints of each block (use 1 retail,
+// 2 industrial, 3 rail/depot, 4 sport/leisure, 5 utility), with their in-block raster envelope and OSM storeys;
+// blockObjects ({ block id: [[cx, cz, w, d, ang, area, use, levels], ...] }), every mapped non-residential building >= 100 m²
+// (adds 6 education, 7 sacral, 8 health, 9 civic, 10 office) on its oriented minimum-area OSM rectangle; blockFallbackLots
+// ({ block id: [[x0, x1, z0, z1, area], ...] }), buildings >= 60 m² whose footprint the raw lot grid never covered;
 // industry ([{ kind, x, z, w, d, h, area, block }]) the industrial structures and plant/substation sites inside the
 // detail box, for the runtime's chimney/cooling-tower meshes; buildingMask (Uint8Array over blockRaster, 1 = under a
 // counted footprint); buildings [{ id, levels, use, cells, cx, cz, label, anchorUse }].
@@ -70,6 +71,17 @@ const HOSPITAL_NAME = /szpital|klinik|przychodni|centrum medyczne|ambulator|sana
 const UNIVERSITY_NAME = /collegium|uniwers|uczel|akadem|politechnik|instytut/i;
 const HOSPITAL_BUILDING = new Set(['hospital']);
 const UNIVERSITY_BUILDING = new Set(['university', 'college', 'dormitory']);
+const EDUCATION_BUILDING = new Set(['school', 'kindergarten']);
+const SACRAL_BUILDING = new Set(['church', 'chapel', 'monastery', 'convent', 'presbytery', 'cathedral', 'mosque',
+  'synagogue', 'shrine', 'wayside_shrine', 'religious']);
+const CIVIC_BUILDING = new Set(['public', 'civic', 'government', 'townhall', 'library', 'museum', 'theatre', 'cinema',
+  'exhibition_centre', 'community_centre', 'cultural_centre']);
+const CIVIC_AMENITY = new Set(['theatre', 'cinema', 'museum', 'arts_centre', 'exhibition_centre', 'conference_centre',
+  'community_centre', 'public_building', 'townhall', 'library']);
+const EDUCATION_NAME = /szko[łl]a|szkola|liceum|technikum|przedszkol|gimnazjum|żłobek|zlobek/i;
+const SACRAL_NAME = /kości[oó][łl]|kosciol|katedra|bazylika|kaplica|klasztor|sanktuarium|cerkiew/i;
+const CIVIC_NAME_USE = /urz[ąa]d|s[ąa]d|bibliotek|muzeum|teatr|kino|filharmoni|opera|centrum kultury|dom kultury|ratusz/i;
+const OFFICE_BUILDING = new Set(['office']);
 const RETAIL_BUILDING = new Set(['retail', 'commercial', 'supermarket', 'department_store', 'wholesale', 'kiosk', 'shop',
   'marketplace', 'hall']);
 const INDUSTRIAL_BUILDING = new Set(['industrial', 'warehouse', 'warehouses', 'factory', 'manufacture', 'hangar',
@@ -107,6 +119,13 @@ const buildingUse = (t, id) => {
     t.man_made === 'chimney' || t.industrial === 'cooling' || t.man_made === 'storage_tank' ||
     t.man_made === 'water_tower' || t['addr:street'] === 'Świętego Wincentego' || UTILITY_NAME.test(name)) return 7;
   if (RAIL_BUILDING.has(kind) || !!t.railway || t.public_transport === 'station' || RAIL_NAME.test(name)) return 5;
+  // Civil classes that used to fall through to the district profile (audit 2026-11-08): schools/kindergartens 10,
+  // places of worship 11 and civic/public buildings 12. Universities and hospitals keep their campus programmes 2/1;
+  // the check order matters, as a university church is an education building and a hospital office is health.
+  if (EDUCATION_BUILDING.has(kind) || t.amenity === 'school' || t.amenity === 'kindergarten' ||
+    EDUCATION_NAME.test(name)) return 10;
+  if (SACRAL_BUILDING.has(kind) || t.amenity === 'place_of_worship' || t.religion || SACRAL_NAME.test(name)) return 11;
+  if (CIVIC_BUILDING.has(kind) || CIVIC_AMENITY.has(t.amenity) || CIVIC_NAME_USE.test(name)) return 12;
   if (RETAIL_BUILDING.has(kind) || !!t.shop || t.amenity === 'marketplace' || RETAIL_NAME.test(name)) return 3;
   if (INDUSTRIAL_BUILDING.has(kind) || t.landuse === 'industrial' || t.industrial || t.man_made === 'works' ||
     t.man_made === 'silo' || t.man_made === 'storage_tank' || INDUSTRIAL_NAME.test(name)) return 4;
@@ -149,6 +168,101 @@ const anchorUse = (t) => {
   if (kind === 'ruins' && /zntk|naprawcze|zakłady|zaklady|warsztat/i.test(
     `${t.wikipedia || ''} ${t.wikidata || ''} ${name}`)) return 2;
   return 0;
+};
+
+// Per-object use for GEO.blockObjects: the mapped non-residential buildings the district profile cannot represent.
+// Codes match anchorUse where possible (1 retail/mall, 2 industrial/warehouse, 3 rail/depot, 4 sport/leisure,
+// 5 utility) and add the civil classes the 2026-11-08 audit found omitted: 6 education, 7 sacral, 8 health,
+// 9 civic, 10 office. Unlike anchorUse this does NOT return 0 for civic campuses: each mapped school, clinic, church
+// or office is its own object, so a campus keeps its wings instead of losing them to the generic aggregate.
+const objectUse = (t, id) => {
+  const name = `${t.name || ''} ${t['name:pl'] || ''}`;
+  const kind = String(t.building || '').toLowerCase().split(';')[0];
+  if (!kind || SKIP.has(kind)) return 0;
+  if (GARBARY_WAYS.has(id)) return 5;
+  if (HOSPITAL_BUILDING.has(kind) || t.amenity === 'hospital' || t.amenity === 'clinic' || t.healthcare ||
+    HOSPITAL_NAME.test(name)) return 8;
+  if (EDUCATION_BUILDING.has(kind) || UNIVERSITY_BUILDING.has(kind) || t.amenity === 'school' ||
+    t.amenity === 'kindergarten' || t.amenity === 'university' || t.amenity === 'college' || t.office === 'university' ||
+    EDUCATION_NAME.test(name) || UNIVERSITY_NAME.test(name)) return 6;
+  if (SACRAL_BUILDING.has(kind) || t.amenity === 'place_of_worship' || t.religion || SACRAL_NAME.test(name)) return 7;
+  if (CIVIC_BUILDING.has(kind) || CIVIC_AMENITY.has(t.amenity) || CIVIC_NAME_USE.test(name)) return 9;
+  if (OFFICE_BUILDING.has(kind) || t.office) return 10;
+  if (RAIL_KINDS.has(kind) || t.railway || t.public_transport === 'station' || RAIL_NAME.test(name)) return 3;
+  if (SPORT_KINDS.has(kind) || SPORT_KINDS.has(t.leisure) || t.sport || SPORT_NAME.test(name)) return 4;
+  if (RETAIL_KINDS.has(kind) || t.shop || t.amenity === 'marketplace' || RETAIL_NAME.test(name)) return 1;
+  if (t.power === 'plant' || t.power === 'substation' || t.man_made === 'cooling_tower' || t.man_made === 'chimney' ||
+    t.man_made === 'silo' || t.man_made === 'storage_tank' || t.man_made === 'water_tower' ||
+    UTILITY_NAME.test(name)) return 5;
+  if (INDUSTRIAL_KINDS.has(kind) || t.man_made === 'works' || t.power || t.landuse === 'industrial' ||
+    t.landuse === 'railway' || INDUSTRIAL_NAME.test(name)) return 2;
+  return 0;
+};
+
+// Oriented minimum-area rectangle of a footprint ring (same fit as poz-canopies): the object is built on its own
+// orientation instead of a world AABB, so a diagonal hall does not fill a much larger axis-aligned box. Stored with the
+// OSM ring area; the runtime shrinks the rectangle to that area when the plan is not a full rectangle (an L-shaped
+// school) and keeps the rest of the block generic.
+function convexHull(points) {
+  const p = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (p.length < 3) return p;
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower = [];
+  for (const q of p) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop();
+    lower.push(q);
+  }
+  const upper = [];
+  for (let i = p.length - 1; i >= 0; i--) {
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p[i]) <= 0) upper.pop();
+    upper.push(p[i]);
+  }
+  return lower.slice(0, -1).concat(upper.slice(0, -1));
+}
+const normAngle = (a) => {
+  while (a < -Math.PI / 2) a += Math.PI;
+  while (a >= Math.PI / 2) a -= Math.PI;
+  return a;
+};
+function minRect(ring) {
+  const hull = convexHull(ring);
+  if (hull.length < 3) return null;
+  let best = null;
+  for (let i = 0; i < hull.length; i++) {
+    const a = hull[i], b = hull[(i + 1) % hull.length];
+    const th = Math.atan2(b[1] - a[1], b[0] - a[0]);
+    const cs = Math.cos(th), sn = Math.sin(th);
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+    for (const [x, z] of hull) {
+      const u = x * cs + z * sn, v = -x * sn + z * cs;
+      if (u < u0) u0 = u;
+      if (u > u1) u1 = u;
+      if (v < v0) v0 = v;
+      if (v > v1) v1 = v;
+    }
+    const area = (u1 - u0) * (v1 - v0);
+    if (!best || area < best.area) best = { area, th, cs, sn, u0, u1, v0, v1 };
+  }
+  const midU = (best.u0 + best.u1) * 0.5, midV = (best.v0 + best.v1) * 0.5;
+  const cx = midU * best.cs - midV * best.sn;
+  const cz = midU * best.sn + midV * best.cs;
+  let ang = normAngle(best.th);
+  let w = best.u1 - best.u0, d = best.v1 - best.v0;
+  if (d > w) {
+    [w, d] = [d, w];
+    ang = normAngle(ang + Math.PI / 2);
+  }
+  return { cx, cz, w, d, ang, area: best.area };
+}
+const obbBounds = (o) => {
+  const cs = Math.cos(o.ang), sn = Math.sin(o.ang);
+  const hw = o.w * 0.5, hd = o.d * 0.5;
+  const xs = [], zs = [];
+  for (const [u, v] of [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]]) {
+    xs.push(o.cx + u * cs - v * sn);
+    zs.push(o.cz + u * sn + v * cs);
+  }
+  return [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
 };
 
 // Only real buildings of this size keep a park lot: smaller sheds, kiosks and toilets would turn one 20 m park cell
@@ -199,6 +313,22 @@ const structureHeight = (t, kind) => parseHeight(t.height) || (parseLevels(t['bu
 
 const W = R.w, H = R.h;
 const buildingMask = new Uint8Array(W * H);
+// Raw lot rects (before splitDeep, minLot, park carve and landmark reserves) on the same 1 m raster: the fallback-lot
+// pass needs to know which footprints the property-line grid never covered (the audit's 2,829 + 565 structural gap).
+const rawLotMask = new Uint8Array(W * H);
+for (const b of blocks) {
+  for (const [th, px, pz, rects] of b.frames || [[0, 0, 0, b.rects]]) {
+    const cs = Math.cos(th), sn = Math.sin(th);
+    for (const [x0, x1, z0, z1] of rects) {
+      const ring = th
+        ? [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(([x, z]) => [
+          px + (x - px) * cs + (z - pz) * sn, pz - (x - px) * sn + (z - pz) * cs
+        ])
+        : [[x0, z0], [x1, z0], [x1, z1], [x0, z1]];
+      scanRings([ring], R, (i, j) => { rawLotMask[j * W + i] = 1; });
+    }
+  }
+}
 const buildings = [];
 const industry = [];
 const buildingByKey = new Map();
@@ -222,13 +352,14 @@ function addFootprint(e, outer, inner, tags, levels, facility) {
   }
   if (!a) return null;
   cx /= 3 * a; cz /= 3 * a;
-  let cells = 0;
+  let cells = 0, rawCells = 0;
   const byLabel = new Map();
   const boxByLabel = new Map(); // label -> [i0, i1, j0, j1] of this footprint's cells in that block
   scanRings(inner.length ? outer.concat(inner) : outer, R, (i, j) => {
     const k = j * W + i;
     buildingMask[k] = 1;
     cells++;
+    if (rawLotMask[k]) rawCells++;
     const L = lab[k];
     if (L) {
       byLabel.set(L, (byLabel.get(L) || 0) + 1);
@@ -254,9 +385,11 @@ function addFootprint(e, outer, inner, tags, levels, facility) {
   const inBoxBox = cb ? [R.x0 + cb[0] * R.res, R.x0 + (cb[1] + 1) * R.res,
     R.z0 + cb[2] * R.res, R.z0 + (cb[3] + 1) * R.res] : null;
   const area = Math.abs(outer.reduce((t, r) => t + ringArea(r), 0));
+  const mainRing = outer.reduce((best, r) => (Math.abs(ringArea(r)) > Math.abs(ringArea(best)) ? r : best), outer[0]);
   const b = {
-    id: e.id, levels, use: buildingUse(tags, e.id), anchorUse: anchorUse(tags || {}), cells,
-    facility, civic: isCivicBuilding(tags || {}), area, cx, cz, label,
+    id: e.id, levels, use: buildingUse(tags, e.id), anchorUse: anchorUse(tags || {}),
+    objectUse: objectUse(tags || {}, e.id), facility, civic: isCivicBuilding(tags || {}), area, cells,
+    rawShare: cells ? rawCells / cells : 0, cx, cz, label, obb: minRect(mainRing),
     bbox: [bx0, bx1, bz0, bz1], inBoxBox
   };
   buildings.push(b);
@@ -402,12 +535,12 @@ log(`buildings: ${parkFootprints} footprints in ${Object.keys(blockFootprints).l
 // at least 60 m² keep sheds, kiosks and garages out; they are marked non-facility so buildings.js keeps the district's
 // house or kamienica layout on them instead of one big hall. The runtime includes them only where the park carve
 // leaves too few lots for the block's built share (city-config blockFootprints).
-const PARK_HOUSE_MIN = 60;
+const PARK_HOUSE_MIN = 40;
 const blockParkBuildings = {};
 let parkBuildings = 0;
 for (const b of buildings) {
   const i = blockIndexByLabel.get(b.label);
-  if (i === undefined || b.facility || !(blocks[i].park > 0.4) || b.area < PARK_HOUSE_MIN) continue;
+  if (i === undefined || b.facility || b.objectUse || !(blocks[i].park > 0.4) || b.area < PARK_HOUSE_MIN) continue;
   const id = blocks[i].id;
   (blockParkBuildings[id] || (blockParkBuildings[id] = [])).push([...(b.inBoxBox || b.bbox).map(q1), Math.round(b.area)]);
   parkBuildings++;
@@ -477,6 +610,78 @@ for (const [label, list] of inBlock) {
 }
 log(`buildings: ${anchorCount} anchors in ${anchorBlocks} blocks (>= ${ANCHOR_MIN} m², largest ${ANCHOR_MAX})`);
 
+// Mapped object anchors: every non-residential footprint the district profile cannot represent, independently of the
+// block gate above (audit 2026-11-08: 8,835 footprints have a lot but no profile). Each object is built on its own
+// OSM envelope at its tagged storey count; the rest of the block still gets its normal generic layout. Dedupe nested
+// OSM outlines (a hall and its annex) and anything already covered by a primary anchor or a park facility.
+const OBJECT_MIN = 100;
+const blockObjects = {};
+let objectCount = 0, objectBlocks = 0;
+for (const [label, list] of inBlock) {
+  const i = blockIndexByLabel.get(label);
+  if (i === undefined) continue;
+  const id = blocks[i].id;
+  const anchors = blockAnchors[id] || [];
+  const park = blocks[i].park > 0;
+  // Park-heavy blocks keep their calibrated park/facility layout and their building holes must stay disjoint; their
+  // mapped buildings already enter through blockFootprints/blockParkBuildings.
+  if (blocks[i].park > 0.4) continue;
+  // Campus blocks already have their own hospital/university layout and tested density; an exact object there only
+  // fragments the campus lots after its envelope is reserved, so the wings stay with the campus profile.
+  if (blockStats[i][3] === 1 || blockStats[i][3] === 2) continue;
+  const candidates = list.filter((b) => b.objectUse && b.obb && !(b.facility && park) && b.area >= OBJECT_MIN)
+    .map((b) => ({ b, area: Math.round(b.area), bounds: obbBounds(b.obb),
+      boxArea: b.obb.w * b.obb.d }))
+    .sort((p, q) => q.area - p.area);
+  const chosen = [];
+  for (const c of candidates) {
+    if (Math.min(c.b.obb.w, c.b.obb.d) < 4) continue;
+    if (anchors.some((a) => rectOverlap(a, c.bounds) > 0.5 * Math.min(a[4], c.boxArea))) continue;
+    if (chosen.some((p) => rectOverlap(p.bounds, c.bounds) > 0.5 * Math.min(p.boxArea, c.boxArea))) continue;
+    chosen.push(c);
+  }
+  if (!chosen.length) continue;
+  blockObjects[id] = chosen.map(({ b, area }) => [
+    q1(b.obb.cx), q1(b.obb.cz), q1(b.obb.w), q1(b.obb.d), Math.round(b.obb.ang * 1e4) / 1e4,
+    area, b.objectUse, b.levels
+  ]);
+  objectCount += chosen.length;
+  objectBlocks++;
+}
+log(`buildings: ${objectCount} mapped objects in ${objectBlocks} blocks (>= ${OBJECT_MIN} m², education/sacral/health/civic/office and halls)`);
+
+// Fallback lots: footprints the property-line grid never covered (the audit's property-line gap, block-without-lots and
+// most of the zero-lot set). The runtime turns these envelopes into extra lots, so the generator can build on the real
+// spot instead of losing the object between maskRects/fitRects. They are deliberately conservative (raw coverage below
+// FALLBACK_RAW_MAX) to avoid doubling lots where the normal grid already has one; anchors, objects, park facilities and
+// landmark reserves are subtracted by buildings.js before anything is built.
+const FALLBACK_MIN = 60;
+const FALLBACK_RAW_MAX = 0.35;
+const blockFallbackLots = {};
+let fallbackCount = 0, fallbackBlocks = 0;
+for (const [label, list] of inBlock) {
+  const i = blockIndexByLabel.get(label);
+  if (i === undefined) continue;
+  const id = blocks[i].id;
+  const park = blocks[i].park;
+  const candidates = list.filter((b) => !b.objectUse && b.inBoxBox && b.area >= FALLBACK_MIN &&
+    b.rawShare < FALLBACK_RAW_MAX && !(b.facility && park > 0) && !(park > 0.4 && !b.facility && b.area >= PARK_HOUSE_MIN) &&
+    Math.min(b.inBoxBox[1] - b.inBoxBox[0], b.inBoxBox[3] - b.inBoxBox[2]) >= 5)
+    .map((b) => ({ b, area: Math.round(b.area),
+      boxArea: (b.inBoxBox[1] - b.inBoxBox[0]) * (b.inBoxBox[3] - b.inBoxBox[2]) }))
+    .sort((p, q) => q.area - p.area);
+  const chosen = [];
+  for (const c of candidates) {
+    if (chosen.some((p) => rectOverlap(p.b.inBoxBox, c.b.inBoxBox) > 0.5 * Math.min(p.boxArea, c.boxArea))) continue;
+    chosen.push(c);
+  }
+  if (!chosen.length) continue;
+  blockFallbackLots[id] = chosen.map(({ b, area }) => [...b.inBoxBox.map(q1), area]);
+  fallbackCount += chosen.length;
+  fallbackBlocks++;
+}
+log(`buildings: ${fallbackCount} fallback lots in ${fallbackBlocks} blocks (>= ${FALLBACK_MIN} m², raw lot coverage < ${FALLBACK_RAW_MAX})`);
+
 const emitted = new Set(blocks.map((b) => b.label));
 const inBlocks = buildings.filter((b) => emitted.has(b.label)).length;
 const blockArea = blocks.reduce((t, b) => t + b.area, 0);
@@ -485,4 +690,4 @@ log(`buildings: ${osm.elements.length} elements, ${buildings.length} footprints 
 log(`buildings: ${inBlocks} in a block, ${blocks.filter((b, i) => blockStats[i][2]).length} of ${blocks.length} blocks hold one; built ${(builtArea / 1e6).toFixed(2)} km² of ${(blockArea / 1e6).toFixed(2)} km² block land (${Math.round((builtArea / blockArea) * 100)} %), ${Date.now() - T0} ms`);
 log(`industry: ${industry.length} structures/sites inside the detail box (${industry.filter((s) => s.kind === 'chimney' || s.kind === 'cooling').length} chimneys/cooling towers), ${blockStats.filter((s) => s[3] >= 3).length} blocks with a non-campus programme`);
 
-export { blockStats, blockFootprints, blockParkBuildings, blockAnchors, industry, buildingMask, buildings };
+export { blockStats, blockFootprints, blockParkBuildings, blockAnchors, blockObjects, blockFallbackLots, industry, buildingMask, buildings };

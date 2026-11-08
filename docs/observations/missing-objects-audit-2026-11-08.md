@@ -470,3 +470,16 @@ Wynik 2026-11-08:
 - `docs/observations/missing-objects-audit-2026-11-08.md` — ten raport.
 - Opcjonalny JSON: `node tools/audit-missing-objects.mjs /tmp/missing-objects.json` (≈ 600 KB; zawiera wszystkie
   obrysy, kategorie, przyczyny, współrzędne, `topBlocks`, `missedPrograms` i `curated`).
+
+## Odzyskanie brakujących obiektów (follow-up 2026-11-08)
+
+Rekomendacje 1–3, 5 i 6 z tego audytu są wdrożone: fallback działek z obrysów OSM (`GEO.blockFallbackLots`), kotwice
+obiektowe dla wszystkich budynków niemieszkalnych ≥ 100 m² z nowymi profilami (edukacja, sakralne, zdrowie, civic,
+biura) oraz programy 9–11, a także zwrot magazynów i warsztatów z `landuse=railway` (9 → 50 wysp) i próg budynków
+parkowych 60 → 40 m². Po zmianach audyt pokazuje **15 568 pominiętych obrysów / 441,2 ha** (było 16 053 / 496,9 ha),
+warstwę strukturalną **2 971 / 48,6 ha** (było 4 023 / 76,1 ha), obrysy bez działki **1 609** (było 2 159) i pokrycie
+realnych obrysów **45,0 %** (było 40,6 %). Szkoły spadły z 222 do 122 pominięć, sakralne z 92 do 42, civic z 64 do 39,
+biura z 153 do 84, handel z 478 do 339, przemysł z 543 do 450. Kampusy szpitalne/uczelniane i kwartały parkowe celowo
+zachowują swoje profile zamiast dokładnych skrzydeł (ich rezerwacja fragmentowała działki i obniżała gęstość), a
+pozostałe braki to głównie rezerwy landmarków, park carve i obiekty poza detail boxem. Szczegóły, pomiary i lista
+zmienionych plików: [missing-objects-recovery-2026-11-08](missing-objects-recovery-2026-11-08.md).
