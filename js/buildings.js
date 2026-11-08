@@ -2459,17 +2459,14 @@ function buildCityBlocks(scene) {
     mats: [[F.glassSilver, 2], [F.glassTeal, 1], [F.cream, 2], [F.sandstone, 1]] };
   const UTILITY = { kind: 'utility', floors: [4, 7],
     mats: [[F.brick, 3], [F.greyGreen, 2], [F.cream, 1], [F.yellowBrick, 1]] };
-  // The block stats still carry only the campus programme (hospital/university), so the remaining uses are
-  // anchored on their known sites. A lot whose centre falls in the reach takes the profile exactly (no thinning,
-  // see steerProfile); the footprint itself decides whether the lot is big enough for the hall or stays apron.
+  // GEO.blockStats now names the dominant programme (3-7), so most known sites are covered by it. These anchors are
+  // the exceptions where OSM tags the object too sparsely to reach the 40 % footprint share: EC Garbary's two halls
+  // are untagged building=yes, and Madalińskiego depot is mixed below the threshold. A lot whose centre falls in the
+  // reach takes the profile exactly (no thinning, see steerProfile); the footprint itself decides whether the lot is
+  // big enough for the hall or stays apron.
   const SPECIAL_SITES = [
-    { name: 'Enea Stadion', x: -312, z: 1373, reach: 150, profile: STADIUM },
-    { name: 'Hala Arena', x: -2857, z: 1206, reach: 130, profile: ARENA },
     { name: 'EC Garbary', x: 691, z: -902, reach: 150, profile: UTILITY },
-    { name: 'Zajezdnia Głogowska', x: -2719, z: 2318, reach: 100, profile: DEPOT },
-    { name: 'Zajezdnia Madalińskiego', x: -1356, z: 2478, reach: 120, profile: DEPOT },
-    { name: 'Historyczna hala zajezdni', x: -1864, z: -103, reach: 100, profile: DEPOT },
-    { name: 'Hale Główna', x: 2490, z: -2315, reach: 160, profile: INDUSTRIAL_HALL }
+    { name: 'Zajezdnia Madalińskiego', x: -1356, z: 2478, reach: 120, profile: DEPOT }
   ];
   // EC Garbary has no cooling tower or chimney in the 2026-10-28 OSM snapshot (only the turbine/boiler halls), so the
   // two landmarks of the plant are curated here: a 65 m concrete stack and a 55 m cooling tower in the free yard east
@@ -2520,9 +2517,9 @@ function buildCityBlocks(scene) {
   // Big-box and industrial blocks: a block whose mapped footprints average over BIG_BOX m² and whose buildings
   // average 1-3 storeys is a mall, retail park or hall, not a perimeter block. The threshold is measured on the
   // OSM snapshot: a kamienica or slab block averages 150-600 m² per building, while Posnania's single outline is
-  // 77,000 m², Castorama 2,920 m² and the Główna halls 1,000-7,400 m². A park block with a modest average keeps
-  // its district profile (the stadium and arena come from SPECIAL_SITES); this morphology test is the interim
-  // classifier until GEO.blockStats carries the non-residential programme (backlog item 2).
+  // 77,000 m², Castorama 2,920 m² and the Główna halls 1,000-7,400 m². The blockStats programme (cases 3-7 above)
+  // now classifies tagged objects; this morphology test remains only for unnamed big boxes that OSM leaves as
+  // building=yes. A park block with a modest average keeps its district profile.
   const BIG_BOX = 900;
   const INDUSTRIAL_DISTRICTS = new Set([
     'Główna', 'Wilda', 'Antoninek-Zieliniec-Kobylepole', 'Starołęka-Minikowo-Marlewo'
@@ -2657,21 +2654,50 @@ function buildCityBlocks(scene) {
     const L = srcBlock && srcBlock.levels >= 2 ? srcBlock.levels : 0;
     const lv = srcBlock ? srcBlock.levels : 0;
     if (FAIR_BLOCK && srcBlock === FAIR_BLOCK) return FAIRGROUND;
-    // Large, sparse campuses only: on dense central blocks (827, 769, 814, 192 and the like) the campus grid cannot
-    // spend their steep share on the fragmented lot rects and would build less than the district profile did
-    if (srcBlock && (srcBlock.program === 1 || srcBlock.program === 2) && srcBlock.park <= 0.5 &&
-      srcBlock.area >= 50000 && srcBlock.built <= 0.4) {
-      return srcBlock.program === 2 ? UNIVERSITY : HOSPITAL;
+    // A blockStats programme comes before the district switch. Programmes 3-7 are the dominant OSM footprint use
+    // (>= 40 % of the block's footprint area), so no extra gate: Posnania, Castorama, ZNTK, the depots and the sports
+    // parks build their own morphology instead of the district's kamienice or osiedle.
+    if (srcBlock && srcBlock.program) {
+      // Park-heavy blocks (Termy Maltańskie, the Sołacz speedway ground, Wilda's park frontages) keep their green and
+      // district layout: their mapped halls already have their own lots through GEO.blockFootprints, and a block-level
+      // retail/arena profile over 60 % park would outbuild the park. Programmes 1/2 keep their own park gates below.
+      if (srcBlock.program < 3 || srcBlock.park <= 0.6) switch (srcBlock.program) {
+        case 1:
+          // Hospitals get a wider gate than universities: #828 (Szpital Kliniczny, 4.7 ha, 50 % built) and #991
+          // (Strusia, 1.4 ha, 25 %) are real hospitals that the 5 ha / 40 % campus gate turned into kamienice.
+          // A dense university block still keeps its district profile (192, 769, 814), where the campus grid builds
+          // less than the existing frontage.
+          if (srcBlock.park <= 0.5 && srcBlock.area >= 4000 && srcBlock.built <= 0.55) return HOSPITAL;
+          break;
+        case 2:
+          if (srcBlock.park <= 0.5 && srcBlock.area >= 50000 && srcBlock.built <= 0.4) return UNIVERSITY;
+          break;
+        case 3: {
+          // Posnania is one 77,000 m² box; Castorama and Gigamarket are 1,000-12,000 m² retail-park halls. The average
+          // mapped footprint (built × area / buildings) separates them without another blockStats field. A dense
+          // central block with a 3+ storey median (Stary Browar's Atrium, Galeria MM) is a mixed-use quarter, not a
+          // car-park ring of 7.6 m halls or a single mall box; it keeps OFFICE_SITES and the district profile.
+          const avg = srcBlock.buildings ? (srcBlock.built * srcBlock.area) / srcBlock.buildings : 0;
+          if (srcBlock.built >= 0.3 && srcBlock.levels >= 3 && avg < 9000) break;
+          return avg >= 9000 || (srcBlock.area >= 60000 && srcBlock.built >= 0.6) ? MALL : RETAIL_PARK;
+        }
+        case 4: return INDUSTRIAL_HALL;
+        case 5: return DEPOT;
+        case 6: {
+          // Enea Stadion's block has 71,800 m² of mapped footprint in a low park share; Hala Arena and the Malta
+          // sports grounds are smaller or park-carved, so they take the arena hall rather than a 104 × 68 m pitch.
+          const mapped = srcBlock.built * srcBlock.area;
+          return mapped >= 30000 && srcBlock.park < 0.6 ? STADIUM : ARENA;
+        }
+        case 7: return UTILITY;
+        case 8: return ARENA;
+      }
     }
-    // Non-residential uses without a blockStats programme: the known objects first, then the morphology test
-    // (big mapped footprints on a low-rise block). Both come before OFFICE_SITES and the osiedle switch.
+    // Fallbacks for blocks OSM leaves without a programme: the EC/Madalińskiego anchors, then the morphology test
+    // (big but unnamed footprints on a low-rise block). Both come before OFFICE_SITES and the osiedle switch.
     for (const s of SPECIAL_SITES) {
       if (Math.hypot(s.x - wx, s.z - wz) <= s.reach) return { ...s.profile, exact: true };
     }
-    // Programme 4 (industrial) is classification data for now: the morphology test below already turns ZNTK and the
-    // Główna works into halls, while a blanket programme-4 override also caught mixed office blocks (817 lost its
-    // courtyards and 5k city-wide balconies). Programmes 3/5/6/7/8 likewise stay data-only: a utility or water park
-    // usually occupies a corner of a mixed block, and whole-block profiles would overbuild the rest.
     const big = bigBoxKind(srcBlock);
     if (big === 'mall') return MALL;
     if (big === 'retail') return RETAIL_PARK;

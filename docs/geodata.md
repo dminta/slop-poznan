@@ -178,11 +178,13 @@ The build reads only the committed `poz_*.json` snapshots. The current output co
   - `poz-buildings.mjs`: the building footprints rasterised on the block raster (outer minus inner rings), giving
     `blockStats`: per block the built share of the curb island, the area-weighted median `building:levels` of the
     buildings whose centroid lies in it (else the block holding most of their cells), their count, and `program`
-    (0 none, 1 hospital/clinic campus, 2 university campus, 3 retail, 4 industrial, 5 rail/depot, 6 sport/arena,
-    7 utility, 8 leisure/water park, from `building`, `amenity`, `healthcare`, `office`, `man_made`, `power`,
-    `industrial`, `landuse` and names such as Szpital, Klinika, Collegium, Uniwersytet, ZNTK or Elektrociepłownia).
-    Campus keeps its old two-building / one-solo-hospital rule; the other programmes need a dominant footprint area
-    of at least 40 % of all tagged uses, so a small substation or shop cannot reclassify a housing block.
+    (0 none, 1 hospital/clinic campus, 2 university campus, 3 retail/mall, 4 industrial, 5 rail/depot, 6 sport/stadium/arena,
+    7 utility, 8 leisure/water park, from `building`, `amenity`, `healthcare`, `office`, `shop`, `power`, `railway`,
+    `leisure`/`sport`, `industrial`, `landuse`, `man_made` and names such as Szpital, Klinika, Collegium, Posnania, Dworzec,
+    ZNTK or Elektrociepłownia). Campus keeps its old two-building / one-solo-hospital rule; a non-campus programme needs
+    at least 40 % of the block's mapped footprint area (weighted by raster cells, or the ring area for slivers with no cell centre),
+    so one 7.7 ha mall outweighs 30 kamienice. A campus keeps the block when its own footprint is larger; blocks under 0.4 ha
+    and uses under 150 m² are left to the district profile.
     `building=roof` (1,038 canopies on the 2026-10-28 snapshot) and `building=no` are skipped, and a way that is also a building relation's outer is
     counted once.
     The pass also reads `poz_industry.json`: cooling towers, chimneys, silos and storage tanks with a built outline join

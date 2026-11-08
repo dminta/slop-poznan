@@ -17,9 +17,10 @@
 //   that is also a relation's outer member is counted once, as for buildings.
 //
 // Exports: blockStats [[built share, median levels, buildings, program], ...] aligned with poz-blocks `blocks` (program
-// 0 none, 1 hospital/clinic campus, 2 university campus, 3 retail, 4 industrial, 5 rail/depot, 6 sport/arena, 7 utility,
-// 8 leisure/water park; campus keeps its existing two-building/one-solo-hospital rule, the others need a dominant
-// footprint share); blockFootprints ({ block id: [[x0, x1, z0, z1, area], ...] }) for park blocks only, the axis-aligned
+// Exports: blockStats [[built share, median levels, buildings, program], ...] aligned with poz-blocks `blocks` (program
+// 0 none, 1 hospital/clinic campus, 2 university campus, 3 retail/mall, 4 industrial, 5 rail/depot, 6 sport/stadium/arena,
+// 7 utility, 8 leisure/water park; a non-campus programme needs >= 40 % of the block's footprint area, so one 7.7 ha mall
+// outweighs 30 kamienice); blockFootprints ({ block id: [[x0, x1, z0, z1, area], ...] }) for park blocks only, the axis-aligned
 // envelopes of their mapped sport/show/public facilities of at least PARK_BUILDING_MIN area (buildings.js keeps those
 // park cells as lots, so a stadium or arena is not cleared to lawn); industry ([{ kind, x, z, w, d, h, area, block }])
 // the industrial structures and plant/substation sites inside the detail box, for the runtime's chimney/cooling-tower
@@ -52,42 +53,56 @@ const parseLevels = (v) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-// Building use for the block programme: 1 hospital/clinic, 2 university/college, 3 retail, 4 industrial, 5 rail/depot,
-// 6 sport/arena, 7 utility, 8 leisure/water park. OSM tags the large hospital campuses either as building=hospital or
-// by name (Szpital, Klinika, Collegium); a block with a single hospital building still counts when it is a large,
-// sparsely built campus (see the program threshold below). The non-campus classes come from building tags, industrial
-// and utility tags (including the industry snapshot) and the known unnamed addresses; the block programme still needs
-// a dominant footprint share so one substation cannot reclassify a whole housing block.
+// Building use for the block programme: 1 hospital/clinic, 2 university/college, 3 retail/mall, 4 industrial,
+// 5 rail/depot, 6 sport/stadium/arena, 7 utility, 8 leisure/water park. OSM tags the large hospital campuses either
+// as building=hospital or by name (Szpital, Klinika, Collegium); a block with a single hospital building still counts
+// when it is a large, sparsely built campus (see the program threshold below). The non-campus classes follow the tags
+// first and the name only for objects OSM leaves as building=yes (Posnania, Castorama, Castorama's shopping park,
+// Garbary's generator hall, Termy Maltańskie at addr:street=Termalna). Order matters: a power station is not an
+// industrial hall, and a stadium's grandstand is not a warehouse.
 const HOSPITAL_NAME = /szpital|klinik|przychodni|centrum medyczne|ambulator|sanatori/i;
 const UNIVERSITY_NAME = /collegium|uniwers|uczel|akadem|politechnik|instytut/i;
-const RETAIL_BUILDING = new Set(['retail', 'commercial', 'supermarket', 'department_store', 'wholesale', 'kiosk',
+const HOSPITAL_BUILDING = new Set(['hospital']);
+const UNIVERSITY_BUILDING = new Set(['university', 'college', 'dormitory']);
+const RETAIL_BUILDING = new Set(['retail', 'commercial', 'supermarket', 'department_store', 'wholesale', 'kiosk', 'shop',
   'marketplace', 'hall']);
 const INDUSTRIAL_BUILDING = new Set(['industrial', 'warehouse', 'warehouses', 'factory', 'manufacture', 'hangar',
-  'shed', 'utility', 'water_tower', 'storage_tank', 'silo', 'greenhouse', 'barn', 'stable', 'digester', 'gasometer',
-  'cooling_tower', 'slurry_tank', 'ruins']);
+  'shed', 'service', 'transformer_tower', 'utility', 'water_tower', 'storage_tank', 'silo', 'greenhouse', 'barn', 'stable',
+  'digester', 'gasometer', 'cooling_tower', 'slurry_tank', 'ruins']);
 const RAIL_BUILDING = new Set(['train_station', 'transportation', 'station', 'railway_station', 'bus_station']);
 const SPORT_BUILDING = new Set(['stadium', 'sports_hall', 'arena', 'grandstand', 'sports_centre', 'ice_rink']);
-const LEISURE_NAME = /stadion|\barena\b|hala widowisk|hala sportow|lodowisko|pływalni|plywalni|basen|termy|sportow|olimpij|tor regat|korty|hipodrom|amfiteatr|filharmoni|\bopera\b|muzeum|teatr|centrum wystaw|targi|expo/i;
-const INDUSTRIAL_NAME = /elektrociepłowni|elektrocieplowni|zakład|zaklad|hala (produkcyjna|zajezdni)|warsztat|hcp|cegielski|volkswagen|spalarni|oczyszczalni|magazyn|hurtowni|chłodni|chlodni|fabryk|kopalni|cukrowni|zntk|naprawcze taboru/i;
+const SPORT_LEISURE = new Set(['stadium', 'sports_hall', 'sports_centre', 'arena', 'ice_rink', 'water_park',
+  'swimming_pool', 'track', 'fitness_centre', 'recreation_ground']);
+const RETAIL_NAME = /posnania|avenida|stary browar|kupiec|galeria (panorama|pestka|mm|polskie meble)|king cross|poznań plaza|^m1\b|castorama|makro|obi\b|ikea|selgros|decathlon|homepark|gigamarket|miasto wnętrz|centrum handlowe|park handlowy|market|supermarket|leroy|auchan|carrefour|tesco|kaufland|biedronka|lidl|netto/i;
+const INDUSTRIAL_NAME = /elektrociepłowni|elektrocieplowni|zakład|zaklad|hala (produkcyjna|zajezdni)|warsztat|hcp|cegielski|volkswagen|spalarni|oczyszczalni|magazyn|hurtowni|chłodni|chlodni|fabryk|kopalni|cukrowni|zntk|naprawcze/i;
 const RAIL_NAME = /dworzec|zajezdni|parowozownia|pkp|kolejow|zntk|bocznica|lokomotyw/i;
-const buildingUse = (t) => {
+const SPORT_NAME = /stadion|arena|hala widowisk|hala sportow|lodowisko|pływalni|plywalni|basen|sportow|olimpij|tor regat|korty|hipodrom/i;
+const UTILITY_NAME = /elektrociepłowni|elektrocieplowni|elektrowni|transformator|przepompowni|oczyszczalni|spalarni|kotłowni|kotlowni|ciepłowni/i;
+const ZNTK_RUINS = /zntk|naprawcze|zakład|zaklad|warsztat/i;
+// EC Garbary turbine and boiler halls (unnamed building=yes in OSM)
+const GARBARY_WAYS = new Set([81124883, 81124840, 244931832, 244931833, 244931834, 441915937]);
+
+const buildingUse = (t, id) => {
+  if (id && GARBARY_WAYS.has(id)) return 7;
   const name = `${t.name || ''} ${t['name:pl'] || ''}`;
-  const kind = `${t.building || ''}`;
-  if (t.building === 'hospital' || t.amenity === 'hospital' || t.healthcare === 'hospital' ||
+  const kind = String(t.building || '').toLowerCase();
+  if (HOSPITAL_BUILDING.has(kind) || t.amenity === 'hospital' || t.healthcare === 'hospital' ||
     HOSPITAL_NAME.test(name)) return 1;
-  if (t.building === 'university' || t.building === 'college' || t.building === 'dormitory' ||
-    t.amenity === 'university' || t.amenity === 'college' || t.office === 'university' ||
-    UNIVERSITY_NAME.test(name)) return 2;
-  // The water park at Termalna carries only building=yes and an address; the known address is the only clue OSM keeps
-  if (t['addr:street'] === 'Termalna' || t.leisure === 'water_park' || t.leisure === 'swimming_pool' ||
-    t.leisure === 'sports_centre' || t.leisure === 'ice_rink' || SPORT_BUILDING.has(kind) || LEISURE_NAME.test(name)) return 8;
-  if (t.man_made === 'chimney' || t.man_made === 'cooling_tower' || t.industrial === 'cooling' ||
-    t.power === 'plant' || t.power === 'substation' || t['historic:power'] || t['generator:method'] ||
-    t['plant:method']) return 7;
-  if (t.man_made === 'silo' || t.man_made === 'storage_tank' || t.man_made === 'works' || t.industrial ||
-    INDUSTRIAL_BUILDING.has(kind) || t.landuse === 'industrial' || INDUSTRIAL_NAME.test(name)) return 4;
-  if (kind && RETAIL_BUILDING.has(kind)) return 3;
-  if (RAIL_BUILDING.has(kind) || t.railway || t.public_transport === 'station' || RAIL_NAME.test(name)) return 5;
+  if (UNIVERSITY_BUILDING.has(kind) || t.amenity === 'university' || t.amenity === 'college' ||
+    t.office === 'university' || UNIVERSITY_NAME.test(name)) return 2;
+  // Termy Maltańskie at addr:street=Termalna carries only building=yes and an address
+  if (t['addr:street'] === 'Termalna' || t.leisure === 'water_park' || /termy|aquapark|water ?park/i.test(name)) return 8;
+  if (SPORT_BUILDING.has(kind) || SPORT_LEISURE.has(t.leisure) || !!t.sport || SPORT_NAME.test(name)) return 6;
+  if (kind === 'utility' || t.power === 'plant' || t.power === 'substation' || t['historic:power'] ||
+    t['generator:method'] || t['plant:method'] || t.man_made === 'works' || t.man_made === 'cooling_tower' ||
+    t.man_made === 'chimney' || t.industrial === 'cooling' || t.man_made === 'storage_tank' ||
+    t.man_made === 'water_tower' || t['addr:street'] === 'Świętego Wincentego' || UTILITY_NAME.test(name)) return 7;
+  if (RAIL_BUILDING.has(kind) || !!t.railway || t.public_transport === 'station' || RAIL_NAME.test(name)) return 5;
+  if (RETAIL_BUILDING.has(kind) || !!t.shop || t.amenity === 'marketplace' || RETAIL_NAME.test(name)) return 3;
+  if (INDUSTRIAL_BUILDING.has(kind) || t.landuse === 'industrial' || t.industrial || t.man_made === 'works' ||
+    t.man_made === 'silo' || t.man_made === 'storage_tank' || INDUSTRIAL_NAME.test(name)) return 4;
+  // ZNTK Robocza's halls are building=ruins; a generic ruin (Cytadela's fort) is not an industrial hall.
+  if (kind === 'ruins' && ZNTK_RUINS.test(`${t.wikipedia || ''} ${t.wikidata || ''} ${name}`)) return 4;
   return 0;
 };
 
@@ -179,7 +194,7 @@ function addFootprint(e, outer, inner, tags, levels, facility) {
   }
   const area = Math.abs(outer.reduce((t, r) => t + ringArea(r), 0));
   const b = {
-    id: e.id, levels, use: buildingUse(tags), cells, facility, area, cx, cz, label,
+    id: e.id, levels, use: buildingUse(tags, e.id), cells, facility, area, cx, cz, label,
     bbox: [bx0, bx1, bz0, bz1]
   };
   buildings.push(b);
@@ -266,35 +281,38 @@ const medianLevels = (list) => {
   for (const [lv, w] of t) if ((acc += w) >= total / 2) return Math.round(lv * 10) / 10;
   return 0;
 };
+// A non-campus programme needs at least 40 % of the block's footprint area. Footprints are weighted by raster cells
+// (or the ring area when a sliver covers no cell centre); the share is over every building in the block, so a 7.7 ha
+// mall outvotes 30 kamienice and a hospital wing loses to the halls that fill the rest of an industrial block. Blocks
+// under 0.4 ha or with under 150 m² of the use stay with the district profile: a 200 m² shop does not make a mall.
+const PROGRAM_SHARE = 0.4;
+const PROGRAM_BLOCK_MIN = 4000;
+const PROGRAM_FOOTPRINT_MIN = 150;
 const blockStats = blocks.map((b) => {
   const list = inBlock.get(b.label) || [];
   const built = Math.min(1, Math.round(((builtByLabel.get(b.label) || 0) / b.area) * 100) / 100);
+  const areaByUse = new Map();
+  let footprint = 0;
+  for (const x of list) {
+    const w = x.cells || x.area;
+    footprint += w;
+    if (x.use) areaByUse.set(x.use, (areaByUse.get(x.use) || 0) + w);
+  }
   const hospitals = list.filter((x) => x.use === 1).length;
   const universities = list.filter((x) => x.use === 2).length;
-  const useArea = new Map();
-  let used = 0;
-  for (const x of list) {
-    if (!x.use) continue;
-    const w = x.cells || x.area;
-    useArea.set(x.use, (useArea.get(x.use) || 0) + w);
-    used += w;
-  }
   // A campus needs two tagged public buildings, or one hospital building on a 4-40 ha block that is otherwise
   // sparsely built (some Poznań hospitals tag only one wing). University blocks in the fairground keep FAIRGROUND
   const soloHospital = hospitals === 1 && b.area >= 40000 && b.area <= 400000 && built <= 0.25 && list.length >= 30;
-  // The other programmes need a dominant footprint area (>= 40% of all tagged uses), so a small substation or shop
-  // cannot replace a housing block. Order matters only for ties: campus first, then industry, utility, retail, rail,
-  // sport and leisure.
-  const dominant = (use) => used > 0 && (useArea.get(use) || 0) >= used * 0.4;
-  const program = hospitals >= 2 || soloHospital ? 1
-    : universities >= 2 ? 2
-      : dominant(4) ? 4
-        : dominant(7) ? 7
-          : dominant(3) ? 3
-            : dominant(5) ? 5
-              : dominant(6) ? 6
-                : dominant(8) ? 8
-                  : 0;
+  const campus = hospitals >= 2 || soloHospital ? 1 : universities >= 2 ? 2 : 0;
+  let dominant = 0, dominantArea = 0;
+  for (const [use, area] of areaByUse) {
+    if (use >= 3 && area > dominantArea) { dominant = use; dominantArea = area; }
+  }
+  // The campus keeps a block when it has the larger footprint (a hospital campus with a shop row stays HOSPITAL);
+  // the non-campus use wins when it is the dominant one (Antoninek's halls over its hospital wing).
+  let program = campus;
+  if (dominant && b.area >= PROGRAM_BLOCK_MIN && dominantArea >= PROGRAM_FOOTPRINT_MIN &&
+    dominantArea >= PROGRAM_SHARE * footprint && dominantArea > (areaByUse.get(campus) || 0)) program = dominant;
   return [built, medianLevels(list), list.length, program];
 });
 
