@@ -12,6 +12,7 @@ import { blocks, STRIP, SIDEWALK } from './poz-blocks.mjs';
 import { blockStats, blockFootprints, blockParkBuildings, industry, blockAnchors } from './poz-buildings.mjs';
 import { canopies } from './poz-canopies.mjs';
 import { aeroway } from './poz-aeroway.mjs';
+import { trees } from './poz-trees.mjs';
 import { buildRoadGraph } from './poz-roadgraph.mjs';
 
 const OUT = process.argv[2] || fileURLToPath(new URL('../js/geodata.js', import.meta.url));
@@ -132,6 +133,11 @@ const GEO = {
   // poz_aeroway.json. The aerodrome outline also clears the block raster (poz-blocks.mjs); the runway, taxiways,
   // aprons, terminal footprints and helipads are drawn by js/airport.js. h is the terminal height (8 m minimum).
   aeroway,
+  // Flat [x, z, species, height, ...] for every individually mapped natural=tree node inside the detail box (0.1 m
+  // positions; species -1 untagged/other, 0 lime, 1 Norway maple, 2 horse chestnut, 3 black locust; height m, 0 if
+  // untagged). They take priority over the procedural rows in street-details.js, which keeps trees generated within
+  // OSM_TREE_REPLACE_R of a mapped point from doubling it.
+  trees,
   parks,
   // { name: { x, z, w, d, h, area, ring, ang } }: w and d along the turned axes (ang, radians)
   landmarks

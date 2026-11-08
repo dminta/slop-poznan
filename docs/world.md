@@ -540,35 +540,50 @@ non-park cells clear of park rings (`parkFreeCells`), while purely unmapped park
   - buildings.js `commit()` emits them for half the kamienice, corner houses and 1930s houses (`BALCONY_P`), on street fronts only: 1–3 stacks per front (one per ~7 m), one slab width (1.8–3 m) and railing style per building, from the first floor (the second over shops, clear of the awnings) up to six storeys. Measured over the 8.2 × 5.7 km box (headless, foci on a 100 m grid, 2026-10-28): 17.4k stacks city-wide (10.1k over the 6.1 × 3.7 km box), at most 1243 within `STREAM_RADIUS` (Jeżyce) against the 2400 cap and 245 near balconies within 90 m (Garbary; 228 on the same grid before) against 256. The other streamed pools peak at cornices 1985 / 7000, chimneys 2055 / 3000, skylights 524 / 1000, HVAC 157 / 1600, awnings 942 / 1800 and scaffolds 43 / 120: the densest spots are in the old centre, so the larger box raised only the skylights (Główna, 524 against 372).
   - The record holds `x, y, z, ry, facing, storey, landings, h` (plus optional `w`, `style`): `z` sits 0.55 m off the facade, `facing` turns local +z into the street, `y` is the lowest slab top, and `h = (landings - 1) * storey + 1`.
 - **Trees** (`trees.js`): site indices select 0 lime (most park and wide-street trees), 1 Norway maple (narrow
-  streets, plaza planters and leftover slabs), or 2 horse chestnut (some parks and wide streets). An independent position
-  hash reassigns 4% of all sites, including streets, parks, plaza planters and leftover slabs, to 3 black locust
-  (*Robinia pseudoacacia*, robinia akacjowa), without changing sites or colliders. A search-engine snapshot of the
+  streets, plaza planters and leftover slabs), 2 horse chestnut (some parks and wide streets) or 3 black locust
+  (*Robinia pseudoacacia*, robinia akacjowa). Individually mapped OSM nodes carry their `species`/`genus` (Tilia, Acer,
+  Aesculus, Robinia) into those indices; other taxa and untagged nodes start at -1 and take a deterministic model in
+  `street-details.js`. An independent position hash still reassigns 4% of all sites, including the mapped ones, to
+  black locust without changing sites or colliders. A search-engine snapshot of the
   [municipal green inventory](https://sip.poznan.pl/sip/zielen2/), retrieved 2026-11-03, reported 2,280 black locusts
   among 58,267 identified trees (3.9%). The page now redirects to an ArcGIS app, so these snapshot counts could not be
   independently checked in the live inventory. The simulated distribution is illustrative, not a reconstruction of
   individual trees. The locust has an open crown, pinnate leaf sprays and deeply furrowed grey-brown bark. All species
   share the wind and LOD system; there is no seasonal foliage model. The 2048 × 1024 leaf atlas has 4 × 2 tiles of
   512 px (0–2 and 4 species, 3 far canopy); mipmaps preserve coverage per tile. Each species has its own bark in
-  `createTreeMaterial`. The full headless grid → landmarks → buildings → street-details build has 50,026 trees (was
-  55,381 before clearance filtering): narrow street 15,082, wide street 3,030, park sites 31,775, plaza planters 139,
-  leftover slabs 0. All trees enforce horizontal trunk-to-wall distance >= max(floor, crownR * squeeze) against all
-  building, landmark and bridge colliders within the crown height band [y, y + 13 * scale], where mature crown radii
+  `createTreeMaterial`. The full headless grid → landmarks → buildings → street-details build has 88,479 trees: 28,114
+  street and 60,365 park, plaza and leftover sites. The smaller tree-test fixture (block colliders only) has 88,583
+  sites with species 31,917 lime, 39,089 maple, 15,588 chestnut and 1,989 robinia; the 4% hash moves them to
+  30,583 / 37,466 / 14,946 / 5,588. All trees enforce horizontal trunk-to-wall distance >= max(floor, crownR *
+  squeeze) against all building, landmark and bridge colliders within the crown height band [y, y + 13 * scale], where
+  mature crown radii
   crownR are [4.53, 4.74, 6.07, 4.55] m (lime, maple, chestnut, robinia from SPECIES_CROWN_R) and the hard floor is
   from BS 5837:2012 Table A.1 (1.2 m large species, 0.5 m narrow street trees). Squeeze is applied in every direction
   during clearance checking. Street trees failing the wall check slide along the curb within the ±1.6 m jitter before
   being dropped. As `tests/tree-clearance.test.mjs` checks, 0 trees have trunks inside building
-  footprints and 0 crowns intersect walls. `tests/tree-distribution.test.cjs`, which passes
-  only block colliders (no landmarks or bridges), so its count is not the browser count, has 50,047 sites: lime 18,694
-  → 17,927, maple 22,614 → 21,715, chestnut 8,739 → 8,385, locust 0 → 2,020. It fixes site and collider snapshots,
-  distribution and field transforms; `tests/trees.test.cjs` checks atlas paths and mipmaps. Trees are procedural
-  rows; real OSM `natural=tree` positions are not in the geodata. `LOD_NEAR` is 105 m,
+  footprints and 0 crowns intersect walls. Mapped OSM trees are the exception to the crown rule: their surveyed trunk
+  point is kept exactly and they only need the 1.2 m wall/entrance floor, so a real street crown may overhang a facade.
+  `tests/tree-distribution.test.cjs`, which passes
+  only block colliders (no landmarks or bridges), fixes the site and collider snapshots, the mapped-node count and
+  distribution; `tests/trees.test.cjs` checks atlas paths and mipmaps and `tests/osm-trees.test.cjs` pins the compact
+  OSM input. `LOD_NEAR` is 105 m,
   `LOD_MID` 420 m, then crown cards, with 6 m of hysteresis. Meshes are built per 200 m cell / species / variant /
-  level and regrouped within fixed instance buffers. On these sites the number of allocated meshes rises 14,155 →
-  17,283 (+3,128, 22.1%); only active cells and levels draw, including in shadow passes. Each species has different
-  geometry: sharing a mesh would require a combined geometry and per-instance vertex selection, trading these mesh
-  counts for extra vertex work and shader complexity. Instance buffers use static usage: DynamicDrawUsage re-uploads
-  in every pass of every frame. Street trees (placed by street-details.js) also carry player trunk colliders now:
+  level and regrouped within fixed instance buffers. On these sites the number of allocated meshes is 19,831,
+  23,324 after the locust reassignment; only active cells and levels draw, including in shadow passes. Each species has
+  different geometry: sharing a mesh would require a combined geometry and per-instance vertex selection, trading these
+  mesh counts for extra vertex work and shader complexity. Instance buffers use static usage: DynamicDrawUsage
+  re-uploads in every pass of every frame. Street trees (placed by street-details.js) also carry player trunk colliders:
   `0.28 × scale` m half-width, top at base + 3.0 m; they add no traffic footprints.
+  Individually mapped OSM trees come from `GEO.trees` (38,588 `natural=tree` nodes inside the detail box, after dropping
+  180 nodes mapped twice within 0.5 m; 32,526 pass the placement rules in the block-collider fixture). They keep their
+  exact surveyed position, take a 0.55–1.3 scale from the OSM `height` tag (or a deterministic hash when untagged), and
+  replace procedural street and park sites within 4 m, so an avenue mapped node by node is not planted twice. A mapped
+  trunk within 6 m of its block edge gets the street row's pit, turn and crown squeeze; one deeper inside a block or in
+  a park gets the wide-draw-distance park treatment. The other 6,062 mapped nodes are dropped where a building wall or
+  doorway (1.2 m floor), a car lane, a zebra landing, a track or a water/median cell leaves no room; they are never
+  moved off the surveyed point. Instance capacity is still allocated per cell / species / variant / level: 88,479 sites
+  need about 21 MB of instance buffers for the three LOD copies (64 B matrix + 16 B tree data per instance), and the
+  200 m cells keep the draw-call count bounded by the same 24 meshes per cell as before.
   Street-tree placement now checks that all four trunk corners remain on the same curb island, keeps the trunk box
   outside crosswalk landing and zebra bands, and keeps at least max(1.2 m, 0.9 m car half-width + projected trunk
   half-width) from car-lane centrelines. A build-time furnished-network snapshot supplies actual shifted lanes and
@@ -578,15 +593,17 @@ non-park cells clear of park rings (`parkFreeCells`), while purely unmapped park
   Of 1,099 changed sites in the smaller fixture, 410 had no audit violation; these move/drop under the stricter rule. Invalid trees try stable 0.4 m
   steps along the same curb, nearest first, up to ±6 m, rechecking walls, poles, plazas, rails and island corners.
   Unchanged sites are reserved first; moved sites keep 3.5 m from unchanged and already moved trees, including those
-  on other curb edges. The minimum neighbour distance remains 0.373 m on existing close pairs; moved trees keep at
+  on other curb edges. The minimum neighbour distance is 0.331 m on existing close pairs; moved trees keep at
   least 3.551 m. All four trunk corners are checked with `blockAt` on every candidate, since an overlapping block can
   take priority at a corner inside a block's bounds.
-  On 2026-11-06 the full headless scene keeps 18,056 of 18,109 street trees (1,045 moved, 53 dropped); landing/zebra/
-  lane/island violations fall from **655 / 5 / 25 / 8 to 0 / 0 / 0 / 0**. Park sites, park colliders and furniture
-  traffic footprints are unchanged; no per-frame work is added. The smaller tree-test fixture keeps 18,101 of 18,153
-  (1,047 moved, 52 dropped). Run `node tools/audit-street-tree-clearance.mjs --full` for the full fixture, or omit
-  `--full` for the tree-test fixture. Measurement definitions, historical differences and changed test pins are in
-  [the clearance record](observations/street-tree-clearance-2026-11-06.md).
+  On 2026-11-08 the default tree-test fixture keeps 88,583 trees, 28,168 of them street trees, and the full
+  landmark/building/bridge fixture keeps 88,479 / 28,114; the procedural rows move 1,272 sites and drop 83, while 6,062
+  mapped nodes fail placement. Landing/zebra/lane/island violations remain **0 / 0 / 0 / 0**, the minimum lane distance
+  is 1.201 m, the closest existing tree pair is 0.331 m and moved trees keep at least 3.551 m. Run
+  `node tools/audit-street-tree-clearance.mjs --full` for the full fixture, or omit `--full` for the tree-test fixture.
+  Measurement definitions, historical differences and changed test pins are in
+  [the clearance record](observations/street-tree-clearance-2026-11-06.md) and
+  [the OSM tree record](observations/osm-street-trees-2026-11-08.md).
 - **Scene culling** is automatic for anything under the seven named roots; thresholds and opt-outs are in [`rendering.md`](rendering.md#culling-scene-cullingjs-registering-new-static-geometry).
 
 ## Batching

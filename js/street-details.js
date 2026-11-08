@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { Fn, float, color, uniform, mod, fract, step, smoothstep, mix, uv, texture, attribute, vec2, floor, sin, positionWorld } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { SIGNAL_SITES, SIGNAL_PLANS, updateSignal, JUNCTIONS, blockAt, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES, createTreeWallChecker } from './city-config.js';
+import { SIGNAL_SITES, SIGNAL_PLANS, updateSignal, JUNCTIONS, blockAt, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES, createTreeWallChecker, OSM_TREES, isWater } from './city-config.js';
 import { buildRoadNetwork, CROSSWALK, CROSSWALK_REACH, STOP_SETBACK } from './road-network.js';
 import { cityUniforms, createTreeGrateMaterial } from './tsl-materials.js';
 import { createTreeField, SPECIES_CROWN_R } from './trees.js';
@@ -1383,15 +1383,8 @@ function buildStreetDetails(scene, opts = {}) {
   const treePositions = []; // { x, y, z, scale, species (0 lime, 1 Norway maple, 2 horse chestnut; trees.js can reassign 3 black locust) }
   const mixSpecies = (r, lime, maple) => (r < lime ? 0 : (r < lime + maple ? 1 : 2));
 
-  // A. The parks, squares & plazas (sites laid out by city-grid.js, plus buildings.js's leftover slabs)
-  for (const s of parkTreeSites || []) {
-    if (isClearOfWalls(s.x, s.z, s.scale, s.species, 1.0, s.y || 0.41, s.tier || 1)) {
-      treePositions.push(s);
-    } else if (s.collider && propColliders) {
-      const idx = propColliders.indexOf(s.collider);
-      if (idx !== -1) propColliders.splice(idx, 1);
-    }
-  }
+  // A. The parks, squares & plazas (sites laid out by city-grid.js, plus buildings.js's leftover slabs), and every
+  //    individually mapped OSM tree. Street trees are added in B below.
 
   // B. Street trees on the raised sidewalks of every real block, along each curb edge: small trees close to the curb
   //    on the narrow streets (a block across within ~14 m), limes, maples & chestnuts on the wider ones (trees.js also selects black locust), with random
@@ -1483,6 +1476,127 @@ function buildStreetDetails(scene, opts = {}) {
     }
     return true;
   };
+
+  // Individually mapped OSM trees (OSM_TREES) stand exactly where they were surveyed. They replace the procedural
+  // rows within OSM_TREE_REPLACE_R, so an avenue mapped node by node is not planted twice. A mapped trunk keeps the
+  // same player collider as every other tree, and a 1.2 m wall floor keeps it off building doorways and facades; the
+  // crown may still overhang a wall, as real street crowns do.
+  const OSM_TREE_REPLACE_R = 4.0;
+  const OSM_CELL = 8;
+  const osmCellKey = (x, z) => Math.floor(x / OSM_CELL) * 100000 + Math.floor(z / OSM_CELL);
+  const osmCells = new Map();
+  const placedTreeCells = new Map();
+  const treeCellKey = (x, z) => Math.floor(x / 4) * 100000 + Math.floor(z / 4);
+  const reserveTree = (t) => {
+    const key = treeCellKey(t.x, t.z);
+    if (!placedTreeCells.has(key)) placedTreeCells.set(key, []);
+    placedTreeCells.get(key).push(t);
+  };
+  const clearOfTrees = (x, z) => {
+    const ix = Math.floor(x / 4), iz = Math.floor(z / 4);
+    for (let i = ix - 1; i <= ix + 1; i++) for (let j = iz - 1; j <= iz + 1; j++) {
+      for (const t of placedTreeCells.get(i * 100000 + j) || []) {
+        if ((x - t.x) ** 2 + (z - t.z) ** 2 < 3.5 ** 2) return false;
+      }
+    }
+    return true;
+  };
+  const nearOsmTree = (x, z, r = OSM_TREE_REPLACE_R) => {
+    const r2 = r * r;
+    for (let ix = Math.floor((x - r) / OSM_CELL); ix <= Math.floor((x + r) / OSM_CELL); ix++) {
+      for (let iz = Math.floor((z - r) / OSM_CELL); iz <= Math.floor((z + r) / OSM_CELL); iz++) {
+        for (const t of osmCells.get(ix * 100000 + iz) || []) {
+          if ((x - t.x) ** 2 + (z - t.z) ** 2 < r2) return true;
+        }
+      }
+    }
+    return false;
+  };
+  // Nearest edge of the block under a mapped tree: its orientation turns the pit and squeezes the crown across the
+  // sidewalk, exactly as for the procedural rows.
+  const nearestCurbFrame = (b, x, z) => {
+    let best = Infinity;
+    let frame = { dist: Infinity, acrossX: true, narrow: false, pitRot: 0, squeeze: 0.82, tier: 1, grate: true, pitS: 1 };
+    for (let i = 0; i < b.poly.length; i++) {
+      const p0 = b.poly[i];
+      const p1 = b.poly[(i + 1) % b.poly.length];
+      const dx = p1.x - p0.x, dz = p1.z - p0.z;
+      const len = Math.hypot(dx, dz);
+      if (len < 1e-6) continue;
+      const d = distPointToSeg(x, z, p0.x, p0.z, p1.x, p1.z);
+      if (d >= best) continue;
+      let inx = -dz / len, inz = dx / len;
+      const mx = (p0.x + p1.x) * 0.5, mz = (p0.z + p1.z) * 0.5;
+      if (blockAt(mx + inx * 1.6, mz + inz * 1.6) !== b) { inx = -inx; inz = -inz; }
+      const narrow = !!blockAt(mx - inx * 14, mz - inz * 14);
+      best = d;
+      frame = {
+        dist: d, acrossX: Math.abs(dz) > Math.abs(dx), narrow, pitRot: Math.atan2(dx, dz),
+        squeeze: narrow ? 0.7 : 0.82, tier: narrow ? 2 : 1, grate: !narrow, pitS: narrow ? 0.7 : 1
+      };
+    }
+    return frame;
+  };
+  const parkCollider = (s) => {
+    if (!s.collider || !propColliders) return;
+    const idx = propColliders.indexOf(s.collider);
+    if (idx !== -1) propColliders.splice(idx, 1);
+  };
+  const osmPlacement = { placed: 0, dropped: 0, street: 0 };
+  for (const t of OSM_TREES) {
+    const { x, z } = t;
+    const b = treeBlockAt(x, z);
+    if (!b || b.median || b.underpass || isWater(x, z)) { osmPlacement.dropped++; continue; }
+    const plaza = inPlaza(x, z, 1.0);
+    const street = !(b.park > 0.6) && !plaza;
+    let scale;
+    if (t.height > 0) scale = Math.min(1.25, Math.max(0.55, t.height / 13));
+    else {
+      const r = hashPos(x, 3.7, z);
+      scale = street ? 0.6 + r * 0.25 : 0.9 + r * 0.4;
+    }
+    const species = t.species >= 0 ? t.species : mixSpecies(hashPos(z, 2.9, x), 0.4, 0.35);
+    const y = street ? SIDEWALK_Y : (b.park > 0.6 ? 0.41 : (plaza ? 0.24 : SIDEWALK_Y));
+    if (!clearStreetTree(x, z, scale) || !clearOfRails(x, z, 0.4 * scale) ||
+        !isClearOfWalls(x, z, scale, species, 0.3, y, 1)) { osmPlacement.dropped++; continue; }
+    const site = { x, y, z, scale, species, source: 'osm' };
+    // A mapped courtyard or back-garden tree keeps its exact point but gets park treatment: no street pit and the wide
+    // draw distance. Only trunks within 6 m of the block edge stand in the curb row.
+    const frame = street ? nearestCurbFrame(b, x, z) : null;
+    if (frame && frame.dist <= 6.0) {
+      const q = Math.floor(hashPos(x, 8.8, z) * 3.999);
+      Object.assign(site, {
+        tier: frame.tier, pitRot: frame.pitRot, grate: frame.grate, pitS: frame.pitS, squeeze: frame.squeeze
+      });
+      if (frame.acrossX === (q % 2 === 0)) site.sx = frame.squeeze;
+      else site.sz = frame.squeeze;
+      sidewalkTreePositions.push(site);
+      osmPlacement.street++;
+    } else {
+      site.tier = 0;
+    }
+    treePositions.push(site);
+    reserveTree(site);
+    const key = osmCellKey(x, z);
+    if (!osmCells.has(key)) osmCells.set(key, []);
+    osmCells.get(key).push(site);
+    // Every mapped tree blocks the player like the grid's park trunks and the procedural street rows.
+    const c = addCollider(x, z, 0.28 * scale, 0.28 * scale, y + 3.0);
+    c.isTrunk = true;
+    osmPlacement.placed++;
+  }
+
+  // A. The parks, squares & plazas, minus the rows a mapped tree already covers.
+  for (const s of parkTreeSites || []) {
+    if (nearOsmTree(s.x, s.z)) {
+      parkCollider(s);
+    } else if (isClearOfWalls(s.x, s.z, s.scale, s.species, 1.0, s.y || 0.41, s.tier || 1)) {
+      treePositions.push(s);
+    } else {
+      parkCollider(s);
+    }
+  }
+
   const streetTreeCandidates = [];
   const TREE_SP = 15;
   for (const edge of curbEdges) {
@@ -1509,7 +1623,7 @@ function buildStreetDetails(scene, opts = {}) {
       const squeeze = narrow ? 0.7 : 0.82;
 
       if (!onSidewalk(x, z) || inPlaza(x, z, 1.5) || !isClearOfPoles(x, z, 2.2) ||
-          !clearOfRails(x, z, 0.4 * scale)) continue;
+          nearOsmTree(x, z) || !clearOfRails(x, z, 0.4 * scale)) continue;
 
       if (!isClearOfWalls(x, z, scale, species, squeeze, SIDEWALK_Y, tier)) {
         let placed = false;
@@ -1519,7 +1633,7 @@ function buildStreetDetails(scene, opts = {}) {
           const sx = p0.x + dx * su + inx * inset;
           const sz = p0.z + dz * su + inz * inset;
           if (!onSidewalk(sx, sz) || inPlaza(sx, sz, 1.5) || !isClearOfPoles(sx, sz, 2.2) ||
-              !clearOfRails(sx, sz, 0.4 * scale)) continue;
+              nearOsmTree(sx, sz) || !clearOfRails(sx, sz, 0.4 * scale)) continue;
           if (!isClearOfWalls(sx, sz, scale, species, squeeze, SIDEWALK_Y, tier)) continue;
           x = sx;
           z = sz;
@@ -1533,22 +1647,6 @@ function buildStreetDetails(scene, opts = {}) {
         p0, dx, dz, len, inx, inz, inset, u });
     }
   }
-  const placedTreeCells = new Map();
-  const treeCellKey = (x, z) => Math.floor(x / 4) * 100000 + Math.floor(z / 4);
-  const reserveTree = (t) => {
-    const key = treeCellKey(t.x, t.z);
-    if (!placedTreeCells.has(key)) placedTreeCells.set(key, []);
-    placedTreeCells.get(key).push(t);
-  };
-  const clearOfTrees = (x, z) => {
-    const ix = Math.floor(x / 4), iz = Math.floor(z / 4);
-    for (let i = ix - 1; i <= ix + 1; i++) for (let j = iz - 1; j <= iz + 1; j++) {
-      for (const t of placedTreeCells.get(i * 100000 + j) || []) {
-        if ((x - t.x) ** 2 + (z - t.z) ** 2 < 3.5 ** 2) return false;
-      }
-    }
-    return true;
-  };
   // Reserve unchanged trees first, including those later in the curb iteration. Existing close pairs stay intact;
   // a replacement must keep 3.5 m from every unchanged or already moved tree, even on a different curb edge.
   for (const t of streetTreeCandidates) {
@@ -1567,7 +1665,7 @@ function buildStreetDetails(scene, opts = {}) {
         const sx = p0.x + dx * su + inx * inset;
         const sz = p0.z + dz * su + inz * inset;
         if (!clearOfTrees(sx, sz) || !clearStreetTree(sx, sz, scale) || !onSidewalk(sx, sz) || inPlaza(sx, sz, 1.5) ||
-            !isClearOfPoles(sx, sz, 2.2) || !clearOfRails(sx, sz, 0.4 * scale) ||
+            nearOsmTree(sx, sz) || !isClearOfPoles(sx, sz, 2.2) || !clearOfRails(sx, sz, 0.4 * scale) ||
             !isClearOfWalls(sx, sz, scale, species, squeeze, SIDEWALK_Y, tier)) continue;
         x = sx;
         z = sz;
@@ -1582,7 +1680,8 @@ function buildStreetDetails(scene, opts = {}) {
       tier, pitRot, grate: !narrow, pitS: narrow ? 0.7 : 1, squeeze
     });
   }
-  console.info(`[streetDetails] ${treePositions.length} trees (${sidewalkTreePositions.length} street trees)`);
+  console.info(`[streetDetails] ${treePositions.length} trees (${sidewalkTreePositions.length} street trees, ` +
+    `${osmPlacement.placed} OSM mapped, ${osmPlacement.street} OSM street, ${osmPlacement.dropped} mapped dropped)`);
 
   const grateMat = createTreeGrateMaterial();
   const pitCurbMat = new THREE.MeshStandardNodeMaterial({ color: 0x484642, roughness: 0.88 });

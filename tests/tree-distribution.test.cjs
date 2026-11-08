@@ -82,16 +82,24 @@ test('seeded species assignment preserves the full built city tree sites and col
   // Chartowo corridor moved three block 1304 lamps off the new cut curb. The 2026-11-08 railway-island and park
   // facility carve-outs restored blocks and kept mapped sports centres on their OSM lots, and the block anchors
   // (2026-11-08) replaced 30 generic street-tree sites around the newly occupied mall/hall envelopes. The park-building
-  // and estate density passes (2026-11-08) changed the building colliders and street-tree sites again.
+  // and estate density passes (2026-11-08) changed the building colliders and street-tree sites again. The same day's
+  // real OSM positions add 38,588 surveyed trees and remove the procedural rows within 4 m of them; the mapped
+  // species tags put 1,989 robinia sites into `before`, so the fourth model is no longer only the position hash's 4%.
   // See docs/observations/railway-building-islands-2026-11-08.md, park-sports-facilities-2026-11-08.md,
-  // block-anchors-2026-11-08.md and building-density-investigation-2026-11-08.md.
-  assert.deepEqual(before, [35608, 37673, 16568, 0]);
-  assert.deepEqual(after, [34157, 36130, 15884, 3678]);
-  assert.equal(siteHash, '4f5708f02ad26a8678fc70e5327adc1c42ba3136a071f7b26e4acd1e4bb4b688');
-  assert.equal(digest(grid.propColliders), 'fa30ef518da1e5dfcfd8dd13dbd7181987c71632d2988b5f5bc75f860df50b61');
-  assert.equal(digest(details.colliders), '2c3bb3ce335a2119620f11cb868bec15bea06b2e70248122a24cecad15340499');
-  assert.equal(meshCount((t) => t.species || 0), 21871);
-  assert.equal(meshCount(treeSpecies), 26815);
+  // block-anchors-2026-11-08.md, building-density-investigation-2026-11-08.md and osm-street-trees-2026-11-08.md.
+  assert.deepEqual(before, [31917, 39089, 15588, 1989]);
+  assert.deepEqual(after, [30583, 37466, 14946, 5588]);
+  assert.equal(siteHash, '9a400c32a062b47adec0e61adb21c3630ba42eacf1e29997f310c236b899c7ad');
+  assert.equal(digest(grid.propColliders), '624a74851adc220c421801671e34235668b0979f8403dbab63e715bc118fe50f');
+  assert.equal(digest(details.colliders), '4cc228a3fbda64a3c33ca89aabf8c1f88ebb525c03d2a5663e9d958918047e53');
+  assert.equal(meshCount((t) => t.species || 0), 19831);
+  assert.equal(meshCount(treeSpecies), 23324);
+  // Every surveyed node the clearance rules accept reaches the field exactly at its OSM position. The rest are dropped
+  // where a wall, lane, track, water or building doorway leaves no room, rather than moved off the surveyed point.
+  const osm = sites.filter((t) => t.source === 'osm');
+  assert.equal(osm.length, 32526);
+  assert.ok(osm.every((t) => t.tier === 0 || (t.pitRot !== undefined && Number.isFinite(t.pitRot))));
+  assert.ok(osm.every((t) => Number.isFinite(t.x) && Number.isFinite(t.z) && t.scale >= 0.55 && t.scale <= 1.3));
 });
 
 // Exercise the real field's transform, allocation and regrouping with cheap stand-ins for the generated geometries.

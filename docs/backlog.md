@@ -211,7 +211,6 @@ Implementation details and completed measurements live in the [topic docs](../AG
 
 ## Optional features and fidelity
 
-- Real OSM street-tree positions.
 - Road levels and richer road-priority classification; revisit only with a runtime consumer.
 - Additional height sources (nDSM/LoD1/LoD2) and GEOPOZ machine-readable data: research candidates.
 
@@ -258,8 +257,11 @@ Implementation details and completed measurements live in the [topic docs](../AG
   platform/slab flicker where surfaces are only 1 cm apart.
 - Inspect Most Chrobrego from the bank and a tram; check the narrowed Most Świętego Rocha, Most Królowej Jadwigi
   and Most Mieszka I decks, and the 13 m Most Dworcowy approach.
-- Walk and drive into a street tree on Rybaki; check relocated street trees near landings, zebras, lanes and
-  island edges. [Tree-placement audit and pins](observations/street-tree-clearance-2026-11-06.md).
+- Walk and drive into a street tree on Rybaki; check relocated street trees near landings, zebras, lanes and island
+  edges. Walk the surveyed OSM rows in Stare Miasto and around Park Cytadela, compare a few pits with the OSM points,
+  and measure frame rate and draw calls at street level and from the drone; the 88,479-site scene allocates about
+  21 MB of tree instance buffers. [Tree-placement audit and pins](observations/street-tree-clearance-2026-11-06.md),
+  [OSM tree record](observations/osm-street-trees-2026-11-08.md).
 - Walk and drive around a diagonal tram shelter (Dworzec Zachodni or Żniwna), checking collision against its back
   glass and ends. [Furniture geometry](world.md#tram-infrastructure).
 - Inspect park lamps on Za Cytadelą and lamps moved onto lawns in narrow-walk parks (e.g. block 212 near
