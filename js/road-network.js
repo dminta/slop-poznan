@@ -58,6 +58,24 @@ const SHIFT_BACK = 7;
 // Two one-way roadways of a divided road drawn closer than this (centreline to centreline) share one centreline (3.)
 const PAIR_SEP = 4;
 
+// OSM bus:lanes vectors list every lane in the direction of travel, left to right. The runtime lane count can differ: a
+// narrow carriageway is clamped to fewer lanes (Bukowska's 3 OSM lanes become one each way), a roundabout loses an inner
+// lane, or an obstacle removes one. Keep the vector's own index where the lengths agree, otherwise map the designation by
+// its fractional place across the lanes. The offset then finds the surviving runtime lane (a removed designated lane
+// paints nothing). `cand` are the link's lanes before obstacles, `lanes` the ones that stayed open.
+function busLaneIndexes(busVector, cand, lanes) {
+  if (!busVector || !cand.length) return [];
+  const marked = [];
+  for (let i = 0; i < busVector.length; i++) {
+    if (!busVector[i]) continue;
+    const j = busVector.length === cand.length ? i
+      : Math.round(((2 * i + 1) * cand.length) / (2 * busVector.length) - 0.5);
+    const k = lanes.indexOf(cand[Math.max(0, Math.min(cand.length - 1, j))]);
+    if (k >= 0 && !marked.includes(k)) marked.push(k);
+  }
+  return marked.sort((p, q) => p - q);
+}
+
 function buildRoadNetwork(sidewalks, obstacles) {
   // 1. Spatial hash of ground footprints: curbs bound the roads, everything else also blocks pedestrians
   const hash = new Map();
@@ -907,8 +925,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
   const paintEdges = edges.map(({ from, to, axis, x0, z0, sx, sz, dx, dz, rx, rz, span, len, setbackFrom, setbackTo, half, lanes,
     limit, cand, busVector, busWay }) => ({
     from: paintNodes.get(from), to: paintNodes.get(to), axis, x0, z0, sx, sz, dx, dz, rx, rz, span, len, setbackFrom,
-    setbackTo, half, lanes, limit, busWay, busLanes: busVector && busVector.length === cand.length && lanes.length === cand.length
-      ? busVector.flatMap((v, i) => v ? [i] : []) : []
+    setbackTo, half, lanes, limit, busWay, busLanes: busLaneIndexes(busVector, cand, lanes)
   }));
   const paintOf = new Map(edges.map((e, i) => [e, paintEdges[i]]));
 
@@ -1470,4 +1487,4 @@ function curvePoint(c, s, out) {
   return out;
 }
 
-export { buildRoadNetwork, configureCompoundCrossings, CROSSWALK, CROSSWALK_REACH, STOP_SETBACK };
+export { buildRoadNetwork, busLaneIndexes, configureCompoundCrossings, CROSSWALK, CROSSWALK_REACH, STOP_SETBACK };

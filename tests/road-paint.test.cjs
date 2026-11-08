@@ -144,6 +144,44 @@ test('P-22 marks only the explicitly designated lane and keeps clear of tracks',
   assert.equal(layoutBusMarkings(edges, [], (x, z) => Math.abs(z - 5.4)).length, 0);
 });
 
+test('P-22 maps a longer OSM lane vector onto the runtime lanes it keeps', () => {
+  const { busLaneIndexes } = loadModule(readFileSync(join(__dirname, '../js/road-network.js'), 'utf8'), {
+    imports: { './city-config.js': {}, './geodata.js': {} }
+  });
+  const indexes = (...args) => Array.from(busLaneIndexes(...args));
+  // equal counts keep the OSM index exactly
+  assert.deepEqual(indexes([0, 1], [1.8, 5.4], [1.8, 5.4]), [1]);
+  // Bukowska's two-lane direction is modelled as one lane: either position lands on it
+  assert.deepEqual(indexes([0, 1], [1.8], [1.8]), [0]);
+  assert.deepEqual(indexes([1, 0], [1.8], [1.8]), [0]);
+  // Rondo Rataje: four OSM lanes, three runtime lanes; each designation keeps its side
+  assert.deepEqual(indexes([1, 0, 0, 0], [-3.6, 0, 3.6], [-3.6, 0, 3.6]), [0]);
+  assert.deepEqual(indexes([0, 0, 0, 1], [-3.6, 0, 3.6], [-3.6, 0, 3.6]), [2]);
+  assert.deepEqual(indexes([1, 0, 0, 0, 1], [-5.4, -1.8, 1.8, 5.4], [-5.4, -1.8, 1.8, 5.4]), [0, 3]);
+  // a designated lane removed by an obstacle paints nothing; another removed lane leaves it alone
+  assert.deepEqual(indexes([0, 1], [1.8, 5.4], [1.8]), []);
+  assert.deepEqual(indexes([1, 0], [1.8, 5.4], [1.8]), [0]);
+});
+
+test('P-22 keeps out of lanes narrower than 2.8 m', () => {
+  const { layoutBusMarkings } = loadModule(readFileSync(join(__dirname, '../js/road-paint.js'), 'utf8'), {
+    imports: { 'three/webgpu': { Color: class {} }, './road-network.js': {}, './tsl-materials.js': {} }
+  });
+  const narrow = road({ half: 2, lanes: [1.4], back: null });
+  narrow[0].busLanes = [0];
+  assert.equal(layoutBusMarkings(narrow, [], () => 100).length, 0);
+  const wide = road({ half: 3.5, lanes: [1.4], back: null });
+  wide[0].busLanes = [0];
+  assert.ok(layoutBusMarkings(wide, [], () => 100).length > 0);
+  // a one-way carriageway's single centred lane spans both kerbs
+  const centred = road({ half: 2, lanes: [0], back: null });
+  centred[0].busLanes = [0];
+  assert.ok(layoutBusMarkings(centred, [], () => 100).length > 0);
+  const cramped = road({ half: 1.2, lanes: [0], back: null });
+  cramped[0].busLanes = [0];
+  assert.equal(layoutBusMarkings(cramped, [], () => 100).length, 0);
+});
+
 test('P-22 glyphs read left to right across the lane in the direction of travel', () => {
   class Attribute { constructor(array) { this.array = Array.from(array); } }
   class Geometry { constructor() { this.attributes = {}; } setAttribute(k, v) { this.attributes[k] = v; } }

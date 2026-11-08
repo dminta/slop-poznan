@@ -46,12 +46,24 @@ const STOP_DUTY = 0.75;
 // https://www.krbrd.gov.pl/wp-content/uploads/2025/02/Rozporzadzenie-Ministra-Infrstruktury-z-dnia-3-lipca-2003-r.-w-sprawie-szczegolowych-warunkow-technicznych-dla-znakow-i-sygnalow-drogowych.pdf
 const BUS_W = 1.62;
 const BUS_L = 4;
+const BUS_LANE_MIN = 2.8; // narrower lanes cannot take the 1.62 m letters with a safe margin on both sides
+
+// The lane's width between its neighbours (or the kerb / centreline at the outer edges). A two-way edge keeps its lanes
+// right of the centreline, a one-way one is centred on its carriageway; both are sorted left to right.
+function laneWidth(e, i) {
+  const o = e.lanes[i];
+  // A lane at offset 0 is a one-way carriageway's single centred lane; a two-way edge's lanes start right of 0.
+  const left = i > 0 ? (e.lanes[i - 1] + o) / 2 : e.lanes[0] <= 1e-6 ? -e.half : 0;
+  const right = i + 1 < e.lanes.length ? (o + e.lanes[i + 1]) / 2 : e.half;
+  return right - left;
+}
 
 function layoutBusMarkings(edges, crosswalks, railClearance) {
   const marks = [];
   for (const e of edges) for (const i of e.busLanes || []) {
+    if (!(i >= 0 && i < e.lanes.length) || laneWidth(e, i) < BUS_LANE_MIN - 1e-6) continue;
     const o = e.lanes[i];
-    // Keep 5 m beyond each stop line / junction, including room for the full inscription.
+    // Keep 7 m beyond each stop line / junction, including room for the full inscription (P-14 sits at the edge end).
     for (let s = 7; s <= e.len - 7; s += 30) {
       const x = e.sx + e.dx * s + e.rx * o, z = e.sz + e.dz * s + e.rz * o;
       let clear = true;
