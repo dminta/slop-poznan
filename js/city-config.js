@@ -44,6 +44,8 @@ const OUTSKIRTS_HOLES = GEO.outskirtsHoles.map((h) => ({ outer: h.outer, ring: t
 const RAIL = GEO.rail.map((r) => ({ kind: r.kind, street: r.street, tracks: r.tracks, pts: toPts(r.pts) }));
 /** Pedestrian areas & squares: [{ name, ring, holes }] (holes are the buildings standing on them) */
 const PLAZAS = GEO.plazas.map((p) => ({ name: p.name, ring: toPts(p.ring), holes: (p.holes || []).map(toPts) }));
+/** Linear pedestrian streets (Wrocławska, Półwiejska, the Stary Rynek lanes): [{ name, w, pts }], corridor ± w/2 */
+const PEDESTRIAN_WAYS = (GEO.pedestrianWays || []).map((p) => ({ name: p.name, w: p.w, pts: toPts(p.pts) }));
 /** Individually mapped OSM trees inside the detail box: [{ x, z, species, height }] (species -1 unknown/other) */
 const OSM_TREES = [];
 for (let i = 0; i + 3 < GEO.trees.length; i += 4) {
@@ -521,6 +523,36 @@ for (const s of LANE_GUIDE) {
 function roadClearance(x, z) {
   let best = Infinity;
   for (const [ax, az, bx, bz, half] of GUIDE_GRID.get(Math.floor(x / GUIDE_CELL) * 100000 + Math.floor(z / GUIDE_CELL)) || []) {
+    const dx = bx - ax, dz = bz - az;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1e-9)));
+    best = Math.min(best, Math.hypot(ax + t * dx - x, az + t * dz - z) - half);
+  }
+  return best;
+}
+
+// Linear pedestrian streets are not drivable and so are absent from the road graph. Their corridors (± w/2 around the
+// centreline) still may not carry buildings: a fallback lot laid on Wrocławska would put a whole kamienica mid-street.
+// Indexed like LANE_GUIDE; the contract matches roadClearance (negative inside the corridor).
+const PEDESTRIAN_CELL = 32;
+const PEDESTRIAN_GRID = new Map();
+for (const way of PEDESTRIAN_WAYS) {
+  const half = way.w * 0.5;
+  for (let i = 0; i + 1 < way.pts.length; i++) {
+    const a = way.pts[i], b = way.pts[i + 1];
+    const seg = [a.x, a.z, b.x, b.z, half];
+    const r = half + 4;
+    for (let ix = Math.floor((Math.min(a.x, b.x) - r) / PEDESTRIAN_CELL); ix <= Math.floor((Math.max(a.x, b.x) + r) / PEDESTRIAN_CELL); ix++) {
+      for (let iz = Math.floor((Math.min(a.z, b.z) - r) / PEDESTRIAN_CELL); iz <= Math.floor((Math.max(a.z, b.z) + r) / PEDESTRIAN_CELL); iz++) {
+        const k = ix * 100000 + iz;
+        if (!PEDESTRIAN_GRID.has(k)) PEDESTRIAN_GRID.set(k, []);
+        PEDESTRIAN_GRID.get(k).push(seg);
+      }
+    }
+  }
+}
+function pedestrianClearance(x, z) {
+  let best = Infinity;
+  for (const [ax, az, bx, bz, half] of PEDESTRIAN_GRID.get(Math.floor(x / PEDESTRIAN_CELL) * 100000 + Math.floor(z / PEDESTRIAN_CELL)) || []) {
     const dx = bx - ax, dz = bz - az;
     const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1e-9)));
     best = Math.min(best, Math.hypot(ax + t * dx - x, az + t * dz - z) - half);
@@ -1723,6 +1755,8 @@ export {
   SIGNAL_SITES,
   JUNCTIONS,
   roadClearance,
+  PEDESTRIAN_WAYS,
+  pedestrianClearance,
   ROADS,
   LABEL_ALIAS,
   nearestRoads,

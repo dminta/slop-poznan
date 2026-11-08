@@ -87,18 +87,19 @@ test('seeded species assignment preserves the full built city tree sites and col
   // species tags put 1,989 robinia sites into `before`, so the fourth model is no longer only the position hash's 4%.
   // See docs/observations/railway-building-islands-2026-11-08.md, park-sports-facilities-2026-11-08.md,
   // block-anchors-2026-11-08.md, building-density-investigation-2026-11-08.md, osm-street-trees-2026-11-08.md
-  // and missing-objects-recovery-2026-11-08.md.
-  assert.deepEqual(before, [45714, 49469, 21938, 1990]);
-  assert.deepEqual(after, [43847, 47410, 21036, 6818]);
-  assert.equal(siteHash, '4407cd731f0509eb9b6b6a4b8b699899b9ff73ee10b56d933e7f20504b29519e');
-  assert.equal(digest(grid.propColliders), '10538d5c5a4960b35a9bfddbf4a9bbca245ba7f2a34ea8413be79099ea131a19');
-  assert.equal(digest(details.colliders), 'dddd6111e84c6534e8162257be3abd00ab7d79e9a6d8ad759df7b3a109b53ba6');
-  assert.equal(meshCount((t) => t.species || 0), 25463);
-  assert.equal(meshCount(treeSpecies), 30338);
+  // and missing-objects-recovery-2026-11-08.md. The 2026-11-08 street-buildings fix (fallback lots kept in the world
+  // frame and clear of roads and pedestrian streets) moved a few building colliders and planter/tree sites again.
+  assert.deepEqual(before, [45760, 49580, 21969, 1990]);
+  assert.deepEqual(after, [43890, 47519, 21065, 6825]);
+  assert.equal(siteHash, 'cf4a3ba04f0b76f2fbd49455bcf29bc68c8bf202372c81dbc458631f80b63603');
+  assert.equal(digest(grid.propColliders), 'f00a6740d1c0faa3533279e67a62cb0008afcf1c2cde24c1907acafc946f6f61');
+  assert.equal(digest(details.colliders), 'c03aacaeeaf64e71b4f1973175653349f567c842affa75b8c15aa5db502bbe38');
+  assert.equal(meshCount((t) => t.species || 0), 25479);
+  assert.equal(meshCount(treeSpecies), 30361);
   // Every surveyed node the clearance rules accept reaches the field exactly at its OSM position. The rest are dropped
   // where a wall, lane, track, water or building doorway leaves no room, rather than moved off the surveyed point.
   const osm = sites.filter((t) => t.source === 'osm');
-  assert.equal(osm.length, 32803);
+  assert.equal(osm.length, 32848);
   assert.ok(osm.every((t) => t.tier === 0 || (t.pitRot !== undefined && Number.isFinite(t.pitRot))));
   assert.ok(osm.every((t) => Number.isFinite(t.x) && Number.isFinite(t.z) && t.scale >= 0.55 && t.scale <= 1.3));
 });

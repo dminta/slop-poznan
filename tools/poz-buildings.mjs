@@ -26,15 +26,95 @@
 // 2 industrial, 3 rail/depot, 4 sport/leisure, 5 utility), with their in-block raster envelope and OSM storeys;
 // blockObjects ({ block id: [[cx, cz, w, d, ang, area, use, levels], ...] }), every mapped non-residential building >= 100 m²
 // (adds 6 education, 7 sacral, 8 health, 9 civic, 10 office) on its oriented minimum-area OSM rectangle; blockFallbackLots
-// ({ block id: [[x0, x1, z0, z1, area], ...] }), buildings >= 60 m² whose footprint the raw lot grid never covered;
+// ({ block id: [[x0, x1, z0, z1, area], ...] }), buildings >= 60 m² whose footprint the raw lot grid never covered and whose
+// envelope stays clear of every carriageway and linear pedestrian street;
 // industry ([{ kind, x, z, w, d, h, area, block }]) the industrial structures and plant/substation sites inside the
 // detail box, for the runtime's chimney/cooling-tower meshes; buildingMask (Uint8Array over blockRaster, 1 = under a
 // counted footprint); buildings [{ id, levels, use, cells, cx, cz, label, anchorUse }].
 import { load, log, toWorld, inDetailBox } from './poz-base.mjs';
 import { elemRings, ringArea, scanRings } from './geo-util.mjs';
 import { blocks, blockRaster as R, blockLabels as lab } from './poz-blocks.mjs';
+import { pieces, pedestrianWays } from './poz-roads.mjs';
 
 const T0 = Date.now();
+
+// Fallback lots are whole building envelopes: the runtime lays a perimeter block (rows, corner houses, oficyny) on
+// each. One that reaches the roadway or a pedestrian street therefore puts houses in the street and closes traffic
+// lanes. Check the candidate against the real road pieces (edge to roadway edge, 1 m of sidewalk) and the linear
+// pedestrian corridors that the drivable graph does not carry (Wrocławska, Półwiejska, the Stary Rynek lanes).
+const FALLBACK_ROAD_KEEP = 1.0;
+const CLEARANCE_CELL = 32;
+const clearanceGrid = (ways, defaultWidth, keep) => {
+  const grid = new Map();
+  for (const way of ways) {
+    const half = (way.w >= 2 ? way.w : defaultWidth) / 2;
+    for (let i = 0; i + 1 < way.pts.length; i++) {
+      const [ax, az] = way.pts[i], [bx, bz] = way.pts[i + 1];
+      const seg = [ax, az, bx, bz, half];
+      const r = half + keep;
+      for (let ix = Math.floor((Math.min(ax, bx) - r) / CLEARANCE_CELL); ix <= Math.floor((Math.max(ax, bx) + r) / CLEARANCE_CELL); ix++) {
+        for (let iz = Math.floor((Math.min(az, bz) - r) / CLEARANCE_CELL); iz <= Math.floor((Math.max(az, bz) + r) / CLEARANCE_CELL); iz++) {
+          const k = ix * 100000 + iz;
+          if (!grid.has(k)) grid.set(k, []);
+          grid.get(k).push(seg);
+        }
+      }
+    }
+  }
+  return grid;
+};
+const roadGrid = clearanceGrid(pieces, 9.1, FALLBACK_ROAD_KEEP);
+const pedestrianGrid = clearanceGrid(pedestrianWays, 8, 0);
+// Distance from an axis-aligned rect to a segment (0 when they cross), then minus the way's half width.
+const pointRectDist = (x, z, x0, x1, z0, z1) =>
+  Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(z0 - z, 0, z - z1));
+function segRectDist(ax, az, bx, bz, x0, x1, z0, z1) {
+  let d = Math.min(pointRectDist(ax, az, x0, x1, z0, z1), pointRectDist(bx, bz, x0, x1, z0, z1));
+  const dx = bx - ax, dz = bz - az;
+  const len2 = dx * dx + dz * dz || 1e-9;
+  for (const [x, z] of [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]) {
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / len2));
+    d = Math.min(d, Math.hypot(ax + t * dx - x, az + t * dz - z));
+  }
+  if (d === 0) return 0;
+  // Liang-Barsky: a segment that crosses the rect is at distance 0.
+  let t0 = 0, t1 = 1;
+  const p = [-dx, dx, -dz, dz], q = [ax - x0, x1 - ax, az - z0, z1 - az];
+  for (let k = 0; k < 4; k++) {
+    if (p[k] === 0) {
+      if (q[k] < 0) return d;
+      continue;
+    }
+    const r = q[k] / p[k];
+    if (p[k] < 0) {
+      if (r > t1) return d;
+      if (r > t0) t0 = r;
+    } else {
+      if (r < t0) return d;
+      if (r < t1) t1 = r;
+    }
+  }
+  return t0 <= t1 ? 0 : d;
+}
+// How far a rect stands outside the nearest corridor in the grid (negative inside it; Infinity when none is near).
+function rectClearance(grid, x0, x1, z0, z1) {
+  let best = Infinity;
+  const seen = new Set();
+  for (let ix = Math.floor(x0 / CLEARANCE_CELL); ix <= Math.floor(x1 / CLEARANCE_CELL); ix++) {
+    for (let iz = Math.floor(z0 / CLEARANCE_CELL); iz <= Math.floor(z1 / CLEARANCE_CELL); iz++) {
+      for (const seg of grid.get(ix * 100000 + iz) || []) {
+        if (seen.has(seg)) continue;
+        seen.add(seg);
+        const d = segRectDist(seg[0], seg[1], seg[2], seg[3], x0, x1, z0, z1) - seg[4];
+        if (d < best) best = d;
+      }
+    }
+  }
+  return best;
+}
+const fallbackOffStreets = (box) =>
+  rectClearance(roadGrid, box[0], box[1], box[2], box[3]) >= FALLBACK_ROAD_KEEP &&
+  rectClearance(pedestrianGrid, box[0], box[1], box[2], box[3]) >= 0;
 const osm = load('poz_buildings.json');
 const industryOsm = load('poz_industry.json');
 const SKIP = new Set(['roof', 'no']);
@@ -658,15 +738,18 @@ log(`buildings: ${objectCount} mapped objects in ${objectBlocks} blocks (>= ${OB
 const FALLBACK_MIN = 60;
 const FALLBACK_RAW_MAX = 0.35;
 const blockFallbackLots = {};
-let fallbackCount = 0, fallbackBlocks = 0;
+let fallbackCount = 0, fallbackBlocks = 0, fallbackRejected = 0;
 for (const [label, list] of inBlock) {
   const i = blockIndexByLabel.get(label);
   if (i === undefined) continue;
   const id = blocks[i].id;
   const park = blocks[i].park;
-  const candidates = list.filter((b) => !b.objectUse && b.inBoxBox && b.area >= FALLBACK_MIN &&
+  const eligible = list.filter((b) => !b.objectUse && b.inBoxBox && b.area >= FALLBACK_MIN &&
     b.rawShare < FALLBACK_RAW_MAX && !(b.facility && park > 0) && !(park > 0.4 && !b.facility && b.area >= PARK_HOUSE_MIN) &&
-    Math.min(b.inBoxBox[1] - b.inBoxBox[0], b.inBoxBox[3] - b.inBoxBox[2]) >= 5)
+    Math.min(b.inBoxBox[1] - b.inBoxBox[0], b.inBoxBox[3] - b.inBoxBox[2]) >= 5);
+  const offStreet = eligible.filter((b) => fallbackOffStreets(b.inBoxBox));
+  fallbackRejected += eligible.length - offStreet.length;
+  const candidates = offStreet
     .map((b) => ({ b, area: Math.round(b.area),
       boxArea: (b.inBoxBox[1] - b.inBoxBox[0]) * (b.inBoxBox[3] - b.inBoxBox[2]) }))
     .sort((p, q) => q.area - p.area);
@@ -680,7 +763,7 @@ for (const [label, list] of inBlock) {
   fallbackCount += chosen.length;
   fallbackBlocks++;
 }
-log(`buildings: ${fallbackCount} fallback lots in ${fallbackBlocks} blocks (>= ${FALLBACK_MIN} m², raw lot coverage < ${FALLBACK_RAW_MAX})`);
+log(`buildings: ${fallbackCount} fallback lots in ${fallbackBlocks} blocks (>= ${FALLBACK_MIN} m², raw lot coverage < ${FALLBACK_RAW_MAX}; ${fallbackRejected} candidates rejected on a roadway or pedestrian street)`);
 
 const emitted = new Set(blocks.map((b) => b.label));
 const inBlocks = buildings.filter((b) => emitted.has(b.label)).length;

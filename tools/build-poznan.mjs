@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { log, llAffine, LAT0, LON0, BEARING_DEG, DETAIL_BOX, inDetailBox } from './poz-base.mjs';
 import { r1, Raster } from './geo-util.mjs';
-import { levelCrossings, pieces, plazas, rail, roads, signalNodes, tramRoutes, tramStops } from './poz-roads.mjs';
+import { levelCrossings, pedestrianWays, pieces, plazas, rail, roads, signalNodes, tramRoutes, tramStops } from './poz-roads.mjs';
 import { water, land, landHoles, outskirts, outskirtsHoles } from './poz-water.mjs';
 import { parks, landmarks, districts, labels } from './poz-extra.mjs';
 import { blocks, STRIP, SIDEWALK } from './poz-blocks.mjs';
@@ -94,6 +94,10 @@ const GEO = {
   // [{ name, ring, holes? }] pedestrian areas and squares; holes are the buildings standing on them (Stary Rynek's
   // central block), which the block raster gives back as blocks
   plazas: plazas.map((p) => (p.holes ? { name: p.name, ring: flat(p.ring), holes: p.holes.map(flat) } : { name: p.name, ring: flat(p.ring) })),
+  // [{ name, w, pts }] linear highway=pedestrian streets (Wrocławska, Półwiejska, the Stary Rynek lanes): w is the
+  // corridor width, the centreline ± w/2. They are not part of the drivable road graph, so buildings keep their own
+  // clearance; city-config exposes them as PEDESTRIAN_WAYS and pedestrianClearance.
+  pedestrianWays: pedestrianWays.map((p) => ({ name: p.name, w: p.w, pts: flat(p.pts) })),
   // [outline, lot rects, park share, park name, rectangular, frontage frames [[θ, px, pz, lot rects in the frame], ...] | 0]
   blocks: blocks.map((b) => [flat(b.poly), b.rects.map((r) => r.map(q)), b.park || 0, b.parkName || '', b.rect ? 1 : 0,
     b.frames ? b.frames.map(([th, px, pz, rs]) => [Math.round(th * 1e4) / 1e4, q(px), q(pz), rs.map((r) => r.map(q))]) : 0]),

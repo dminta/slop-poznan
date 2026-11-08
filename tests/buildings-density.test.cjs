@@ -48,7 +48,7 @@ async function buildCity() {
     },
     filename: 'buildings.js'
   });
-  built = { config, city: buildCityBlocks(stub) };
+  built = { config, city: buildCityBlocks(stub), GEO };
   return built;
 }
 
@@ -472,6 +472,78 @@ test('streamed balcony stacks never exceed MAX_STACKS (2400) and keep comfortabl
   // Peak stacks is ~1300, guaranteeing at least a 1000-stack (~40%) margin below 2400
   assert.ok(maxStacks <= 1400, `Peak stacks ${maxStacks} higher than expected`);
   assert.ok(MAX_STACKS - maxStacks >= 1000, `Safety margin under 1000 stacks: ${MAX_STACKS - maxStacks}`);
+});
+
+// Distance from a convex quad of {x, z} corners to a line segment: 0 when they touch, otherwise the nearest corner to
+// the segment (the closest points of two disjoint convex shapes are a vertex and an edge).
+function quadSegmentDistance(pts, a, b) {
+  const cross = (p, q, r) => (q.x - p.x) * (r.z - p.z) - (q.z - p.z) * (r.x - p.x);
+  const inside = (p) => {
+    let s = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const c = cross(pts[i], pts[(i + 1) % pts.length], p);
+      if (c > 1e-9) s |= 1;
+      else if (c < -1e-9) s |= 2;
+    }
+    return s !== 3;
+  };
+  const crossing = (p, q, r, s) => {
+    const d1 = cross(p, q, r), d2 = cross(p, q, s), d3 = cross(r, s, p), d4 = cross(r, s, q);
+    return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
+  };
+  if (inside(a) || inside(b)) return 0;
+  for (let i = 0; i < pts.length; i++) {
+    if (crossing(pts[i], pts[(i + 1) % pts.length], a, b)) return 0;
+  }
+  const dx = b.x - a.x, dz = b.z - a.z;
+  const len2 = dx * dx + dz * dz || 1e-9;
+  let best = Infinity;
+  for (const p of pts) {
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / len2));
+    best = Math.min(best, Math.hypot(a.x + t * dx - p.x, a.z + t * dz - p.z));
+  }
+  return best;
+}
+
+test('no generated building stands on Podgórna or Wrocławska', async () => {
+  const { config, city, GEO } = await buildCity();
+  // Linear pedestrian streets are not in the drivable graph (roadClearance cannot see them), so they are their own
+  // corridors. Both streets carry the 2026-11-08 regression: fallback lots with a stale frontage frame landed on them.
+  const targets = [
+    ['Podgórna', config.ROADS.filter((r) => r.name === 'Podgórna')],
+    ['Wrocławska', config.PEDESTRIAN_WAYS.filter((w) => w.name === 'Wrocławska')]
+  ];
+  const quad = (f) => f.pts || [{ x: f.x0, z: f.z0 }, { x: f.x1, z: f.z0 }, { x: f.x1, z: f.z1 }, { x: f.x0, z: f.z1 }];
+  for (const [name, ways] of targets) {
+    assert.ok(ways.length > 0, `${name} corridor geometry exists`);
+    for (const blk of city.allBlocks) {
+      for (const f of blk.footprints) {
+        const pts = quad(f);
+        for (const way of ways) {
+          for (let i = 0; i + 1 < way.pts.length; i++) {
+            const d = quadSegmentDistance(pts, way.pts[i], way.pts[i + 1]) - way.w / 2;
+            assert.ok(d > -1e-3,
+              `${blk.id} footprint (${f.x0.toFixed(1)}, ${f.z0.toFixed(1)}) reaches the ${name} corridor (clearance ${d.toFixed(2)} m)`);
+          }
+        }
+      }
+    }
+  }
+  // The fallback envelopes are whole building blocks (rows, corner houses, oficyny), so they are checked as well.
+  for (const [id, lots] of Object.entries(GEO.blockFallbackLots)) {
+    for (const [x0, x1, z0, z1] of lots) {
+      const pts = [{ x: x0, z: z0 }, { x: x1, z: z0 }, { x: x1, z: z1 }, { x: x0, z: z1 }];
+      for (const [name, ways] of targets) {
+        for (const way of ways) {
+          for (let i = 0; i + 1 < way.pts.length; i++) {
+            const d = quadSegmentDistance(pts, way.pts[i], way.pts[i + 1]) - way.w / 2;
+            assert.ok(d >= -1e-3,
+              `fallback lot ${id} (${x0.toFixed(1)}, ${z0.toFixed(1)}) reaches the ${name} corridor (clearance ${d.toFixed(2)} m)`);
+          }
+        }
+      }
+    }
+  }
 });
 
 test('near balcony landings respect MAX_NEAR_BALCONIES (256) buffer with graceful far LOD fallback', async () => {
