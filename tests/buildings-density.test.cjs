@@ -30,7 +30,7 @@ async function buildCity() {
   const config = await import('../js/city-config.js');
   const { GEO } = await import('../js/geodata.js');
   const stub = anything();
-  const { buildCityBlocks } = loadModule(source, {
+  const { buildCityBlocks, shopFrontBoxes, shopFrontsOverlap } = loadModule(source, {
     imports: {
       'three/webgpu': stub,
       'three/addons/utils/BufferGeometryUtils.js': stub,
@@ -48,7 +48,7 @@ async function buildCity() {
     },
     filename: 'buildings.js'
   });
-  built = { config, city: buildCityBlocks(stub), GEO };
+  built = { config, city: buildCityBlocks(stub), GEO, shopFrontBoxes, shopFrontsOverlap };
   return built;
 }
 
@@ -568,3 +568,67 @@ test('near balcony landings respect MAX_NEAR_BALCONIES (256) buffer with gracefu
     }
   }
 });
+
+// Distance from (x, z) to the centreline of the named streets
+function roadDistance(ways, x, z) {
+  let best = Infinity;
+  for (const way of ways) {
+    for (let i = 0; i + 1 < way.pts.length; i++) {
+      const p = way.pts[i];
+      const q = way.pts[i + 1];
+      const vx = q.x - p.x;
+      const vz = q.z - p.z;
+      const t = Math.max(0, Math.min(1, ((x - p.x) * vx + (z - p.z) * vz) / (vx * vx + vz * vz)));
+      best = Math.min(best, Math.hypot(x - (p.x + vx * t), z - (p.z + vz * t)));
+    }
+  }
+  return best;
+}
+
+test('no shop awning or fascia sign overlaps another storefront, especially on Podgórna', async () => {
+  const { config, city, shopFrontBoxes, shopFrontsOverlap } = await buildCity();
+  const CELL = 12;
+  const entries = [];
+  for (const blk of city.allBlocks) {
+    const ry = blk.ry || 0;
+    for (const a of blk.awnings) entries.push({ blk, ry, a, ...shopFrontBoxes(a, ry) });
+  }
+  const extents = (b) => {
+    const ex = b.hx * Math.abs(b.ax) + b.hz * Math.abs(b.bx);
+    const ez = b.hx * Math.abs(b.az) + b.hz * Math.abs(b.bz);
+    return [b.cx - ex, b.cx + ex, b.cz - ez, b.cz + ez];
+  };
+  const grid = new Map();
+  const hits = [];
+  for (const e of entries) {
+    const [ax0, ax1, az0, az1] = extents(e.awning);
+    const [sx0, sx1, sz0, sz1] = extents(e.sign);
+    const x0 = Math.min(ax0, sx0), x1 = Math.max(ax1, sx1);
+    const z0 = Math.min(az0, sz0), z1 = Math.max(az1, sz1);
+    const cells = new Set();
+    for (let i = Math.floor(x0 / CELL); i <= Math.floor(x1 / CELL); i++) {
+      for (let j = Math.floor(z0 / CELL); j <= Math.floor(z1 / CELL); j++) cells.add(`${i}|${j}`);
+    }
+    for (const key of cells) {
+      for (const other of grid.get(key) || []) {
+        if (shopFrontsOverlap(e.a, e.ry, other.a, other.ry)) hits.push([e, other]);
+      }
+    }
+    for (const key of cells) {
+      if (!grid.has(key)) grid.set(key, []);
+      grid.get(key).push(e);
+    }
+  }
+  const where = ([p, q]) => `${p.blk.id} (${p.a.x.toFixed(1)}, ${p.a.z.toFixed(1)}) / ` +
+    `${q.blk.id} (${q.a.x.toFixed(1)}, ${q.a.z.toFixed(1)})`;
+  assert.deepEqual(hits.map(where), [], 'shop fronts must not intersect each other');
+
+  // Podgórna's narrow, diagonal frontages are where the corner case showed up: two storefronts turned into the same
+  // street corner crossed each other. Pin that the street still has fronts and that none of them collide.
+  const podgorna = config.ROADS.filter((r) => r.name === 'Podgórna');
+  const onStreet = new Set(entries.filter((e) => roadDistance(podgorna, e.a.x, e.a.z) < 30));
+  assert.ok(onStreet.size >= 20, `expected the Podgórna frontage, got ${onStreet.size} shop fronts`);
+  const local = hits.filter(([p, q]) => onStreet.has(p) && onStreet.has(q));
+  assert.deepEqual(local.map(where), [], 'Podgórna shop fronts must not intersect');
+});
+

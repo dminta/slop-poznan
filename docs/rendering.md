@@ -115,7 +115,9 @@
   of 512 × 96 px tiles with a 2 px background gutter. The per-instance `signCell` attribute is copied by the streamed
   refill (`buildings.js` `update`), and the TSL `colorNode` maps `uv()` into the chosen tile, sampling 2 px inside the
   tile so the gutter absorbs mip bleed. The former 26 per-design meshes and textures cost 26 draw calls and 26 texture
-  bindings. The pool is `frustumCulled = false` like the other streamed detail meshes, so it stays out of chunking.
+  bindings. Each sign steps 0.75 m back from its awning centre along the block's turned wall normal, so it stays 0.15 m
+  proud of the facade on angled frontage frames. The pool is `frustumCulled = false` like the other streamed detail
+  meshes, so it stays out of chunking.
   [Measurement record](observations/shop-signs-atlas-2026-11-08.md).
 
 ## Start-up compile and warm-up
