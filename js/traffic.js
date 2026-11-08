@@ -270,7 +270,7 @@ function createTrafficSystem(
     return {
       bus, half, halfWidth, axle, driver, pace, vmax, v0: Math.min(vmax, pace * URBAN_LIMIT),
       edge: null, lane: 0, s: 0, speed: 0, acc: 0, gap: Infinity, leaderSpeed: 0,
-      move: null, out: 0, conn: null, cs: 0, trail: null, commit: null, claimed: false, yielding: false, yieldAt: 0,
+      move: null, out: 0, outEdge: null, conn: null, cs: 0, trail: null, commit: null, claimed: false, yielding: false, yieldAt: 0,
       wait: 0, pedWait: 0, mergeArrival: Infinity, waitReason: '', held: '', leader: null, laneTimer: Math.random() * 0.5,
       dl: 0, dlv: 0, blink: 0, blinkPhase: Math.random() * 0.8,
       x: 0, z: 0, prevX: 0, prevZ: 0, tx: 0, tz: 1, nose: 0, yaw: 0, yawRate: 0, steer: 0,
@@ -1110,25 +1110,33 @@ function createTrafficSystem(
     let free = f.len - 1;
     // A car that cannot stop may not enter a long feeder of a short signalised link when the space behind the
     // rearmost car is too small: the total-gap sum would let it stop in the upstream box behind the approach queue
-    // at (-1074, 129) for 53 s (seed 5). Stoppable cars keep the old estimate. Buses are left to the existing
-    // short-link bus guard: their length does not fit the rear-gap estimate. A feeder under 20 m stores too few cars
-    // for this queue to reach the box.
-    let shortAhead = tight && !v.bus && f.len >= 20 && f.to && f.to.out;
-    if (shortAhead) {
-      shortAhead = false;
-      for (const g of f.to.out) if (g.len < 12 && g.from.signal && g.to.signal) { shortAhead = true; break; }
+    // at (-1074, 129) for 53 s (seed 5). Stoppable cars keep the old estimate except at a give-way feeder into a
+    // short signal link: Kaponiera's 20.7 m approach (-1490, 170) to the 10 m exit at (-1497, 198) filled to the
+    // junction behind it and stood in its box for 51 s, because the exit's 10 s green releases one car at a time.
+    // Buses are left to the existing short-link bus guard: their length does not fit the rear-gap estimate.
+    let shortAhead = false, shortStopped = false;
+    if (!v.bus && f.len >= 20 && f.to && f.to.out) {
+      for (const g of f.to.out) {
+        if (g.len < 12 && g.to.signal && (tight || !g.from.signal)) {
+          shortAhead = true;
+          shortStopped = !tight && !g.from.signal; // the give-way extension only holds for a stationary rear car
+          break;
+        }
+      }
     }
     for (const o of f.occ[j]) {
       if (o.v === v || o.s - o.v.half >= f.len) continue;
       const rear = o.s - o.v.half;
-      if (shortAhead && rear < 2 * v.half + 0.5) free = Math.min(free, rear);
+      if (shortAhead && rear < 2 * v.half + 0.5 && (!shortStopped || o.v.speed < 1)) free = Math.min(free, rear);
       else free -= 2 * o.v.half + o.v.driver.s0;
     }
     let priority = null, waited = 0, arrival = Infinity;
     for (const a of f.from.in) {
       for (const list of a.occ) {
         const o = leadOf(list);
-        if (!o || o.v.claimed || !o.v.move || o.v.move.to !== f || o.v.move.out[o.v.lane] !== j) continue;
+        if (!o || o.v.claimed || !o.v.move || o.v.move.to !== f) continue;
+        const oj = o.v.outEdge === f && o.v.out >= 0 ? o.v.out : o.v.move.out[o.v.lane];
+        if (oj !== j) continue;
         // A lead that something physical holds must not reserve the one usable lane of a short link out of a
         // signal. A police car behind a tram at the 9.4 m Św. Marcin link kept it for the whole cross green and
         // starved the (-1074, 129) approach for 184 s (seed 99, 10 min). Unsignalised give-way exits keep the old rule.
@@ -1150,7 +1158,9 @@ function createTrafficSystem(
     for (const a of f.from.in) {
       for (const list of a.occ) {
         const o = leadOf(list);
-        if (!o || o.v.claimed || !o.v.move || o.v.move.to !== f || o.v.move.out[o.v.lane] !== j) continue;
+        if (!o || o.v.claimed || !o.v.move || o.v.move.to !== f) continue;
+        const oj = o.v.outEdge === f && o.v.out >= 0 ? o.v.out : o.v.move.out[o.v.lane];
+        if (oj !== j) continue;
         // A lead that something physical holds must not reserve the one usable lane of a short link out of a
         // signal. A police car behind a tram at the 9.4 m Św. Marcin link kept it for the whole cross green and
         // starved the (-1074, 129) approach for 184 s (seed 99, 10 min). Unsignalised give-way exits keep the old rule.
@@ -1220,7 +1230,7 @@ function createTrafficSystem(
       const o = i === v.lane ? null : leadOf(e.occ[i]);
       if (!o || o.v === v || o.v.claimed || o.v.move.to !== f || !mergeFirst(o.v, o.s, v, v.s)) continue;
       if (o.v.bus && besideTail(o.v)) continue; // it waits for the bus beside its tail
-      const oj = o.v.move.out[o.v.lane];
+      const oj = o.v.outEdge === f && o.v.out >= 0 ? o.v.out : o.v.move.out[o.v.lane];
       if (oj < 0 || (oj !== j && !(Math.abs(oj - j) === 1 && v.move.turn !== 'S' && (v.bus || o.v.bus)))) continue;
       const s = o.s - e.len - connector(e, o.v.lane, f, oj).len;
       if (!merger.v || s < merger.s) {
@@ -1268,7 +1278,7 @@ function createTrafficSystem(
     }
     const m = v.move;
     const f = m.to;
-    const j = m.out[v.lane];
+    let j = m.out[v.lane];
     if (!(j >= 0 && j < f.lanes.length)) {
       if (!mayEnter.warned) {
         mayEnter.warned = true;
@@ -1276,6 +1286,14 @@ function createTrafficSystem(
       }
       return refuse(v, 'lane');
     }
+    // A short link's lanes can carry very different queues: at Kaponiera's 10 m exit from (-1490, 170) the road graph
+    // feeds two approach lanes into the lane that also serves the right turn, while the straight lane beside it stays
+    // empty, so the link stores one car per green instead of two. When the planned lane is full, take a sibling lane
+    // of the same short exit that can make the same turn. Only at a link whose far end is a signal (the storage case)
+    // and only for an uncommitted car; room/alongside still check it.
+    if (f.len < 12 && f.to && f.to.signal && !v.commit) j = shortLinkLane(v, e, f, m, j, stoppable);
+    v.out = j;
+    v.outEdge = f;
     const c = connector(e, v.lane, f, j);
     if (!v.isPolice && (phase === 'red' || phase === 'redAmber' || (phase === 'amber' && stoppable))) return refuse(v, 'signal');
     if (boxBusy(n, e.axisIndex, v)) return refuse(v, 'box'); // crossing traffic inside
@@ -1400,6 +1418,37 @@ function createTrafficSystem(
     return Math.sqrt(Math.min(speeds[i], speeds[Math.min(i + 1, speeds.length - 1)]));
   }
 
+  // The lane of a short exit to take when the planned one is physically full. A sibling lane that can make the same
+  // turn is free storage the road graph's lane mapping did not use (Kaponiera -1490, 170: two approach lanes feed the
+  // right-turn lane while the straight lane stays empty). Only an uncommitted car may switch; room/alongside still
+  // check the chosen lane, and the car's next move is chosen from it when it leaves.
+  function shortLinkLane(v, e, f, m, j, stoppable) {
+    if (j < 0 || room(f, j, v, !stoppable)) return j;
+    // Only the storage case: a car already stopped on the link for its downstream signal. A lane full behind a tram
+    // or a turning car keeps its planned lane, so the switch does not add lateral surprises at tram curves.
+    const list = f.occ && f.occ[j];
+    const front = list && list.length ? list[list.length - 1].v : null;
+    if (!front || front.speed >= 0.5 || front.held !== 'signal') return j;
+    for (let k = 0; k < f.lanes.length; k++) {
+      if (k === j) continue;
+      let same = false;
+      for (const q of f.moves) if (q.turn === m.turn && q.out[k] >= 0) { same = true; break; }
+      if (!same) continue;
+      // Do not send the car into a lane with movements the planned lane cannot make (a left-turn-only lane that
+      // crosses the tram tracks at Kaponiera 230): the car would then choose one of them at the next junction.
+      let subset = true;
+      for (const q of f.moves) {
+        if (q.out[k] < 0) continue;
+        if (!f.moves.some((p) => p.turn === q.turn && p.out[j] >= 0)) { subset = false; break; }
+      }
+      if (!subset || !room(f, k, v, !stoppable)) continue;
+      const c = connector(e, v.lane, f, k);
+      if (alongside(f, k, v, v.s - e.len - c.len, m.turn !== 'S')) continue;
+      return k;
+    }
+    return j;
+  }
+
   // A left turn held on a short link between signals blocks the only usable lane: take a straight move from the same
   // lane instead (when the link has one) rather than wait there. Used only after mayEnter refused the left turn.
   function straightFallback(v) {
@@ -1441,7 +1490,7 @@ function createTrafficSystem(
           if (alt) { v.move = alt; go = mayEnter(v, d); }
         }
         const f = v.move.to;
-        const j = v.move.out[v.lane];
+        const j = v.out >= 0 && v.out < f.lanes.length ? v.out : v.move.out[v.lane];
         const c = j < 0 ? null : connector(e, v.lane, f, j);
         const vs = c ? v.s - e.len - c.len : 0; // position on f, measured from its start
         if (!go) {
@@ -1503,7 +1552,7 @@ function createTrafficSystem(
   function enter(v) {
     const e = v.edge;
     if (!mayEnter(v, 0)) {
-      const j = v.move.out[v.lane];
+      const j = v.out >= 0 && v.out < v.move.to.lanes.length ? v.out : v.move.out[v.lane];
       const f = v.move.to;
       // The old fallback drove Kaponiera bus 200 into tram 1 at 8.4 m/s. A tram still approaching is refused earlier,
       // while the bus can brake off the line; only a body already over the curve reaches this hard stop.
@@ -1527,6 +1576,7 @@ function createTrafficSystem(
     v.edge = v.move.to;
     v.v0 = desiredOn(v, v.edge);
     v.lane = v.out;
+    v.outEdge = null;
     v.trail = v.conn; // the rear axle is still on it
     v.conn = null;
     v.commit = null;
@@ -2124,6 +2174,7 @@ function createTrafficSystem(
     v.conn = null;
     v.trail = null;
     v.commit = null;
+    v.outEdge = null;
     v.yielding = false;
     v.wait = v.pedWait = 0;
     v.v0 = desiredOn(v, e);

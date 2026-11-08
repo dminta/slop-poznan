@@ -274,6 +274,18 @@ still in the connector unless its s is negative, so a queue head whose lead had 
 having no lead and kept yielding to the merging lane. Counting that lead as present only bypasses merge priority;
 `mayEnter` still checks room, alongside, oncoming, cross traffic, pedestrians and trams. See
 [observations/long-holds-2026-11-05.md](observations/long-holds-2026-11-05.md) for the decomposition.
+On a short link the graph's lane mapping can leave free storage unused: at Kaponiera's 10 m give-way exit
+`(-1497, 198)` two approach lanes feed the lane that also serves the right turn, while the straight lane beside it
+stays empty. `shortLinkLane` (2026-11-08) lets an uncommitted car take a sibling lane of the same edge when the planned
+lane is full, but only at a link whose far end is a signal, only when the planned lane's front car is already stopped
+for that signal, and only if the sibling lane can make the current turn and offers no movement the planned lane lacks
+(a left-turn-only sibling crosses the tram tracks at `(-1438, 115)` and produced 89 s switch waits without that test).
+The chosen lane is kept in `v.outEdge`, which `room` and `mergingAhead` use so the reservation follows the real slot.
+A 20 m or longer feeder into such a short signal link now also counts only the space behind the rearmost car when that
+car is stopped, not the sum of all gaps, so a stoppable car does not take the feeder and then stand in the upstream
+junction box; a moving queue can still be followed in. Measured over the 8 Kaponiera seeds: mean 11.9 → 12.3 km/h,
+stopped 53.5% → 52.0%, worst wait 195 → 139 s, held > 120 s 25 → 7, deadlocks 2 → 0 and no `(-1490, 170)` box stop.
+[Measurements and rejected variants](observations/kaponiera-traffic-2026-11-08.md).
 
 Trams reserve space for their full length plus 2 m beyond switches, track crossings, mapped road/mainline crossings
 and occupied platforms. A tram already inside continues through. A tram held before entry records `waitReason: 'room'`

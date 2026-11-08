@@ -121,10 +121,18 @@ Implementation details and completed measurements live in the [topic docs](../AG
   now 52/51 s with no box-stuck car or deadlock at the target and no car over 60 s; over the 8 seeds × 7 districts
   (5 min) held > 60 s moves 164 → 117 and > 120 s 12 → 3, deadlocks 1 → 0 and box-stuck seed-districts 13 → 11 (the
   older 213/10 figure came from a different tree; this baseline re-measured at `6a1a234`). Centrum has no box-stuck
-  seed, including seeds 1 and 5 and the target `(-1117, 132)`. Kaponiera still dominates what remains
-  (`(-1490, 170)` boxes, 3 cars over 120 s) but improves from 12. Avoid reviving the rejected early-arrival and
+  seed, including seeds 1 and 5 and the target `(-1117, 132)`. Kaponiera's remaining `(-1490, 170)` box and 10 m
+  give-way exit at `(-1497, 198)` were fixed on 2026-11-08: over 8 seeds held > 120 s falls 25 → 7, deadlocks 2 → 0,
+  the worst wait 195 → 139 s and no car stops in the `(-1490, 170)` box; seed 1 keeps the only hold regression
+  (1 → 5 cars). A short link now uses a free sibling lane when its planned lane is queued for a signal (only when the
+  sibling offers no extra movement), and a give-way feeder behind a short signal link leaves the upstream box clear
+  when its rear car is stopped. Do not revive the rejected unrestricted sibling lane (cars entered a left-turn lane
+  over the tram tracks and two trams waited 89 s at switches), the version applied to links that do not store for a
+  signal (Jeżyce's `(-2023, -448)` car–tram cycle returned and the audit rose to 13 pairs), or the rear-gap rule for
+  every moving queue (it cut the merge's throughput and added a deadlock). Do not revive the rejected early-arrival and
   lane-lead braking relaxations without their regressions.
-  [Trace, measurements and rejected variants](observations/merge-starvation-2026-11-07.md),
+  [Trace, measurements and rejected variants](observations/kaponiera-traffic-2026-11-08.md),
+  [Centrum trace](observations/merge-starvation-2026-11-07.md),
   [per-second left-turn/tram trace](observations/left-turn-tram-2026-11-04.md).
 - **Car–tram body overlaps:** the short-link car forecast blind spot remains at Kaponiera and Centrum, and cars can
   still stop inside the tram envelope, but the 2026-11-07 proxy pass removes the largest Jeżyce rear-end cluster. A tram
@@ -133,7 +141,11 @@ Implementation details and completed measurements live in the [topic docs](../AG
   27 stopped first contacts are mostly shared-lane touches and close opposing lanes; the moving Kaponiera/Stare Miasto
   pairs are the commitment race where a car enters a 10 m link before the tram's curve is held. `enter` hard-stops for
   cars on short links and longer forecasts were measured again and rejected (they replaced one pair with another and
-  raised turns). `tools/audit-tram-opposing-lanes.mjs` drops the `< 12 m` exception (edge 305 clears) and reports only
+  raised turns). The 2026-11-08 sibling-lane change moves the one-seed 5-minute audit 6 → 9 pairs (Kaponiera 0 → 4,
+  Centrum 1 → 0, Jeżyce/Stare Miasto/Rataje unchanged); two of the Kaponiera pairs are moving cars against a tram
+  curve reached more often by the higher short-link throughput, and no stopped car is left inside a tram body or
+  creates a car–tram cycle. `tools/audit-tram-opposing-lanes.mjs` drops the `< 12 m` exception (edge 305 clears) and
+  reports only
   used street-running tracks: **47 runs / 45 lanes / 417 m** remain, with 14 runs / 12 lanes / 200 m off-street or unused
   tracks listed under `--all`. Moving the Rynek Jeżycki stubs still increases overlaps and adds a deadlock.
   [Eight-seed results and rejected variants](observations/tram-overlaps-2026-11-04.md).
