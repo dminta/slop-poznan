@@ -7,6 +7,8 @@ import {
   vec2,
   color,
   uv,
+  texture,
+  attribute,
   positionWorld,
   normalWorldGeometry,
   abs,
@@ -3664,33 +3666,60 @@ function buildCityBlocks(scene) {
     { bg: '#101c2b', border: '#4a90e2', text: 'POCZTA', color: '#f0f6fc', light: new THREE.Color(0xe8f0ff) },
     { bg: '#2a140d', border: '#e58e26', text: 'PIEROGARNIA', color: '#fff5eb', light: new THREE.Color(0xffe2b8) },
     { bg: '#1d1128', border: '#9b59b6', text: 'PASMANTERIA', color: '#f5ebff', light: new THREE.Color(0xf2e8ff) },
-    { bg: '#101622', border: '#95a5a6', text: 'KRAWIEC', color: '#ecf0f1', light: new THREE.Color(0xf0f4f8) }
+    { bg: '#101622', border: '#95a5a6', text: 'KRAWIEC', color: '#ecf0f1', light: new THREE.Color(0xf0f4f8) },
+    // Two chain storefronts Poznań shoppers recognise, text-only (no logos): the atlas has exactly 7 x 4 cells.
+    { bg: '#0b6e3f', border: '#7bd389', text: 'ŻABKA', color: '#ffffff', light: new THREE.Color(0xd8ffe8) },
+    { bg: '#a3121b', border: '#f4b400', text: 'BIEDRONKA', color: '#ffffff', light: new THREE.Color(0xffe8d8) }
   ];
-  const MAX_SIGNS_PER_THEME = Math.max(128, Math.ceil(MAX_AWNINGS / signThemes.length) + 64);
-  const signInsts = signThemes.map((st) => {
-    const c = document.createElement('canvas');
-    c.width = 512;
-    c.height = 96;
-    const ctx = c.getContext('2d');
-    ctx.fillStyle = st.bg;
-    ctx.fillRect(0, 0, 512, 96);
-    ctx.strokeStyle = st.border;
-    ctx.lineWidth = 6;
-    ctx.strokeRect(6, 6, 500, 84);
-    ctx.fillStyle = st.color;
-    ctx.font = '800 28px Inter, Arial, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(st.text, 256, 50, 470);
-
-    const tex = new THREE.CanvasTexture(c);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    const sMat = new THREE.MeshBasicNodeMaterial({ map: tex });
-    const sInst = new THREE.InstancedMesh(unitBox, sMat, MAX_SIGNS_PER_THEME);
-    sInst.frustumCulled = false;
-    group.add(sInst);
-    return sInst;
+  // Storefront fascia signs: one texture atlas and one InstancedMesh for all 28 Polish shop/brand designs (PIEKARNIA,
+  // APTEKA, ŻABKA, …). The former code created one canvas texture and one instanced mesh per design, so the whole city
+  // paid 26 draw calls and 26 texture bindings for the same ~1,800 signs. A per-instance `signCell` attribute picks
+  // the tile inside the sign shader; 7 x 4 cells of 512 x 96 px with a 2 px gutter keep the street-level text crisp.
+  const SIGN_ATLAS_COLS = 7;
+  const SIGN_ATLAS_ROWS = Math.ceil(signThemes.length / SIGN_ATLAS_COLS);
+  const SIGN_TILE_W = 512;
+  const SIGN_TILE_H = 96;
+  const SIGN_GUTTER = 2;
+  const SIGN_CELL_W = SIGN_TILE_W + SIGN_GUTTER * 2;
+  const SIGN_CELL_H = SIGN_TILE_H + SIGN_GUTTER * 2;
+  const signCanvas = document.createElement('canvas');
+  signCanvas.width = SIGN_ATLAS_COLS * SIGN_CELL_W;
+  signCanvas.height = SIGN_ATLAS_ROWS * SIGN_CELL_H;
+  const signCtx = signCanvas.getContext('2d');
+  signThemes.forEach((st, i) => {
+    const x0 = (i % SIGN_ATLAS_COLS) * SIGN_CELL_W + SIGN_GUTTER;
+    const y0 = Math.floor(i / SIGN_ATLAS_COLS) * SIGN_CELL_H + SIGN_GUTTER;
+    // The gutter repeats the tile's background so mip levels fade into the same colour instead of a neighbour.
+    signCtx.fillStyle = st.bg;
+    signCtx.fillRect(x0 - SIGN_GUTTER, y0 - SIGN_GUTTER, SIGN_CELL_W, SIGN_CELL_H);
+    signCtx.strokeStyle = st.border;
+    signCtx.lineWidth = 6;
+    signCtx.strokeRect(x0 + 6, y0 + 6, SIGN_TILE_W - 12, SIGN_TILE_H - 12);
+    signCtx.fillStyle = st.color;
+    signCtx.font = '800 28px Inter, Arial, sans-serif';
+    signCtx.textAlign = 'center';
+    signCtx.textBaseline = 'middle';
+    signCtx.fillText(st.text, x0 + SIGN_TILE_W / 2, y0 + SIGN_TILE_H / 2 + 2, SIGN_TILE_W - 42);
   });
+  const signAtlas = new THREE.CanvasTexture(signCanvas);
+  signAtlas.colorSpace = THREE.SRGBColorSpace;
+  signAtlas.anisotropy = 4;
+  const signMat = new THREE.MeshBasicNodeMaterial();
+  const signCell = attribute('signCell', 'vec2');
+  // Canvas row 0 is the texture's top (flipY), so a cell row counts up from the bottom of the atlas.
+  const signUv = uv()
+    .mul(vec2(SIGN_TILE_W / signCanvas.width, SIGN_TILE_H / signCanvas.height))
+    .add(vec2(signCell.x, float(SIGN_ATLAS_ROWS - 1).sub(signCell.y))
+      .mul(vec2(SIGN_CELL_W / signCanvas.width, SIGN_CELL_H / signCanvas.height)))
+    .add(vec2(SIGN_GUTTER / signCanvas.width, SIGN_GUTTER / signCanvas.height));
+  signMat.colorNode = texture(signAtlas, signUv);
+  const signGeo = new THREE.BoxGeometry(1, 1, 1);
+  const signCellAttr = new THREE.InstancedBufferAttribute(new Float32Array(MAX_AWNINGS * 2), 2);
+  signGeo.setAttribute('signCell', signCellAttr);
+  const signInst = new THREE.InstancedMesh(signGeo, signMat, MAX_AWNINGS);
+  signInst.name = 'ShopSigns';
+  signInst.frustumCulled = false;
+  group.add(signInst);
 
   // 7. Renovation scaffolding: a box 1.4 m deep standing off the facade, its netting drawn in world space (2 m lifts
   //    and 2.5 m bays of steel tube behind a woven green net, the weave averaged out under a pixel); building-wrap
@@ -3804,7 +3833,7 @@ function buildCityBlocks(scene) {
     balconySystem.begin();
     let awningCount = 0;
     let netCount = 0;
-    const signCounts = signInsts.map(() => 0);
+    let signCount = 0;
     const wrapCounts = wrapInsts.map(() => 0);
 
     for (let bIdx = 0; bIdx < nearbyBlocks.length; bIdx++) {
@@ -3865,13 +3894,15 @@ function buildCityBlocks(scene) {
 
         // Theme hashed from the shop's position, not its slot in the pool: the slot shifts on every re-query, so the
         // signs used to change as the player moved
-        const themeIdx = ((Math.imul(Math.round(a.x * 4), 73856093) ^ Math.imul(Math.round(a.z * 4), 19349663)) >>> 0) % signInsts.length;
-        if (signCounts[themeIdx] < MAX_SIGNS_PER_THEME) {
+        const themeIdx = ((Math.imul(Math.round(a.x * 4), 73856093) ^ Math.imul(Math.round(a.z * 4), 19349663)) >>> 0) % signThemes.length;
+        if (signCount < MAX_AWNINGS) {
           dummy.position.set(a.x - a.nx * 0.75, 4.68, a.z - a.nz * 0.75);
           if (a.nx !== 0) dummy.scale.set(0.28, 0.86, a.d * 0.92);
           else dummy.scale.set(a.w * 0.92, 0.86, 0.28);
           dummy.updateMatrix();
-          signInsts[themeIdx].setMatrixAt(signCounts[themeIdx]++, dummy.matrix);
+          signInst.setMatrixAt(signCount, dummy.matrix);
+          signCellAttr.setXY(signCount, themeIdx % SIGN_ATLAS_COLS, Math.floor(themeIdx / SIGN_ATLAS_COLS));
+          signCount++;
         }
         if (collectNearLights) {
           activeAwnings.push({ a, themeIdx, ry: blk.ry || 0 });
@@ -3913,10 +3944,9 @@ function buildCityBlocks(scene) {
     flagRange(awningInst.instanceMatrix, awningCount);
     if (awningInst.instanceColor) flagRange(awningInst.instanceColor, awningCount);
 
-    signInsts.forEach((sInst, idx) => {
-      sInst.count = signCounts[idx];
-      flagRange(sInst.instanceMatrix, signCounts[idx]);
-    });
+    signInst.count = signCount;
+    flagRange(signInst.instanceMatrix, signCount);
+    flagRange(signCellAttr, signCount);
 
     netInst.count = netCount;
     flagRange(netInst.instanceMatrix, netCount);

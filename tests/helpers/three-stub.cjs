@@ -451,6 +451,14 @@ class BufferAttribute {
   addUpdateRange(start, count) { this.updateRanges.push({ start, count }); }
 }
 class Float32BufferAttribute extends BufferAttribute {}
+class InstancedBufferAttribute extends BufferAttribute {
+  constructor(array, itemSize, normalized = false, meshPerAttribute = 1) {
+    super(array, itemSize);
+    this.isInstancedBufferAttribute = true;
+    this.normalized = normalized;
+    this.meshPerAttribute = meshPerAttribute;
+  }
+}
 
 class BufferGeometry {
   constructor() {
@@ -776,6 +784,7 @@ const THREE = {
   BufferGeometry,
   BufferAttribute,
   Float32BufferAttribute,
+  InstancedBufferAttribute,
   Box3,
   MeshStandardNodeMaterial,
   MeshBasicNodeMaterial,

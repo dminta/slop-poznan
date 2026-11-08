@@ -111,6 +111,12 @@
   geometry. `street-details.update` refreshes changed state from `updateSignal` even in daylight or without a camera.
   This keeps dynamic pedestrian requests and disabled signals in sync after chunking, with one extra vertex buffer
   and `4 × SIGNAL_PLANS.length` bytes per changed upload. The shader only decodes the phase and flashes green at 1 Hz.
+- Storefront signs are one `InstancedMesh` (`ShopSigns`) with one 3612 × 400 canvas atlas: 28 designs in a 7 × 4 grid
+  of 512 × 96 px tiles with a 2 px background gutter. The per-instance `signCell` attribute is copied by the streamed
+  refill (`buildings.js` `update`), and the TSL `colorNode` maps `uv()` into the chosen tile, sampling 2 px inside the
+  tile so the gutter absorbs mip bleed. The former 26 per-design meshes and textures cost 26 draw calls and 26 texture
+  bindings. The pool is `frustumCulled = false` like the other streamed detail meshes, so it stays out of chunking.
+  [Measurement record](observations/shop-signs-atlas-2026-11-08.md).
 
 ## Start-up compile and warm-up
 - The order matters. First an empty `renderPipeline.render()` with `scene.visible = false`, which configures the MSAA and depth formats of the scene target. Then `compileAsync` over 16 parallel workers, with the scene pass's render target and MRT bound. Then the first loop frame runs with frustum culling off and `updateSceneCulling` skipped, so the shadow-pass pipelines compile behind the loading screen.

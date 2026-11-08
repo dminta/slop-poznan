@@ -216,8 +216,9 @@ Implementation details and completed measurements live in the [topic docs](../AG
   and phone.
 - Check Polish labels in the HUD, toolbar and touch layout, metric readings, map labels and pin clustering on
   WebGPU and WebGL2.
-- Check new shop signs and their frame-rate/draw-call cost (26 instanced meshes, +21 calls versus the former five).
-  Consider an atlas with per-instance UVs if measurements justify it.
+- Verify the merged shop-sign atlas at street level on WebGPU and WebGL2: per-instance cell selection, mip bleed at
+  grazing angles, the two text-only chain signs and the dusk spot colours. The atlas replaced 26 sign meshes and
+  textures with one mesh and one texture (25 fewer draw calls); [measurements](observations/shop-signs-atlas-2026-11-08.md).
 - Measure load time and frame rate across the enlarged detail box, roof/dormer coverage and pool limits, estate
   slabs and transitions to the outskirts; check detailed WebGL2 appearance and performance.
 
