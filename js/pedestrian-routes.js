@@ -29,7 +29,8 @@ function physicalLine(track) {
 // `railClearance(x, z, r)` (city-grid.js: the distance to the nearest track centreline, capped at r) keeps the places
 // people wait on a split crossing's strip clear of the trams; without it every strip has room.
 function createPedestrianRoutes(
-  { nodes = [], edges = [], walkable, configureCrosswalks }, blockAt, railClearance = null, buildingColliders = null
+  { nodes = [], edges = [], walkable, configureCrosswalks }, blockAt, railClearance = null, buildingColliders = null,
+  pedestrianWays = []
 ) {
   const sidewalks = new Map(), crossings = new Map(), junctions = new Map(), connections = new WeakMap();
   const islandPorts = new Map(), curbPorts = new Map();
@@ -42,6 +43,147 @@ function createPedestrianRoutes(
     return { ax: a.x, az: a.z, ux: (b.x - a.x) / len, uz: (b.z - a.z) / len,
       len, node: null, side: 0, sides: null, group: 0, line: 0, insetLane: 0, ...extra };
   };
+
+  // Linear highway=pedestrian streets (Półwiejska, Wrocławska, the Stary Rynek lanes) are not in the road graph, so
+  // along() never sees them, and blockAt() returns null on them: they are not curb islands. Lay their own walking
+  // lines out from way.pts, like a sidewalk's two two-way lines, and join them to each other and to the ordinary
+  // sidewalk/crosswalk ends at their ends. They stay out of `edges`, so vehicles can never be routed onto them.
+  const WAY_PORT_CELL = 32, WAY_LINK_MAX = 32, WAY_NETWORK_LINK_MAX = 12, STREET_CELL = 64;
+  const walkPorts = new Map();
+  const wayTracks = [];
+  let waysLaid = false;
+  function filePort(track) {
+    for (const end of [0, 1]) {
+      const p = point(track, end);
+      const key = Math.floor(p.x / WAY_PORT_CELL) * 100000 + Math.floor(p.z / WAY_PORT_CELL);
+      let list = walkPorts.get(key);
+      if (!list) walkPorts.set(key, list = []);
+      list.push({ track, end });
+    }
+  }
+  function portsInCells(x, z, radius, cells) {
+    const result = [];
+    const ix0 = Math.floor((x - radius) / WAY_PORT_CELL), ix1 = Math.floor((x + radius) / WAY_PORT_CELL);
+    const iz0 = Math.floor((z - radius) / WAY_PORT_CELL), iz1 = Math.floor((z + radius) / WAY_PORT_CELL);
+    for (let ix = ix0; ix <= ix1; ix++) for (let iz = iz0; iz <= iz1; iz++) {
+      for (const port of cells.get(ix * 100000 + iz) || []) {
+        const p = point(port.track, port.end);
+        const distance = Math.hypot(p.x - x, p.z - z);
+        if (distance <= radius) result.push({ track: port.track, end: port.end, distance });
+      }
+    }
+    result.sort((a, b) => a.distance - b.distance);
+    return result;
+  }
+  // The mitered offset polyline (road-network.js keeps its own copy for lanes); the miter is capped at 2o so a sharp
+  // bend does not shoot the line far past the street.
+  function offsetPolyline(pts, o) {
+    const seg = [];
+    for (let k = 0; k + 1 < pts.length; k++) {
+      const L = Math.hypot(pts[k + 1].x - pts[k].x, pts[k + 1].z - pts[k].z) || 1;
+      seg.push({ rx: -(pts[k + 1].z - pts[k].z) / L, rz: (pts[k + 1].x - pts[k].x) / L });
+    }
+    return pts.map((p, k) => {
+      const a = seg[Math.max(0, k - 1)], b = seg[Math.min(seg.length - 1, k)];
+      let nx = a.rx + b.rx, nz = a.rz + b.rz;
+      const n = Math.hypot(nx, nz) || 1;
+      nx /= n;
+      nz /= n;
+      const m = o / Math.max(0.5, nx * b.rx + nz * b.rz);
+      return { x: p.x + nx * m, z: p.z + nz * m };
+    });
+  }
+  // The pedestrian street is its own walking surface, not a block: keep the body box on walkable ground, clear of
+  // rails and real building walls, but do not demand blockAt (which is null along these ways).
+  function wayClear(a, b) {
+    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z)));
+    for (let i = 0; i <= steps; i++) {
+      const x = a.x + (b.x - a.x) * i / steps, z = a.z + (b.z - a.z) * i / steps;
+      if (!walkable(x - 0.4, x + 0.4, z - 0.4, z + 0.4)) return false;
+      if (railClearance && railClearance(x, z, RAIL_KEEP) < RAIL_KEEP) return false;
+      if (hitsBuilding(x, z)) return false;
+    }
+    return true;
+  }
+  function layOutWays() {
+    if (waysLaid || !pedestrianWays || !pedestrianWays.length) return;
+    waysLaid = true;
+    for (let wi = 0; wi < pedestrianWays.length; wi++) {
+      const way = pedestrianWays[wi], pts = way.pts;
+      if (!pts || pts.length < 2) continue;
+      const half = (Number.isFinite(way.w) ? way.w : 8) * 0.5;
+      // Mirrors the two sidewalk lines each side of a road, kept 0.6 m inside the mapped corridor so a two-way line's
+      // 0.34 m lane and the walker's 0.25 m body still fit on the paving.
+      const offsets = [1.7, 2.8].filter((o) => o <= half - 0.6);
+      for (const sign of [-1, 1]) {
+        for (const offset of offsets) {
+          const line = offsetPolyline(pts, sign * offset);
+          let prev = null;
+          for (let i = 0; i + 1 < line.length; i++) {
+            const a = line[i], b = line[i + 1];
+            if (Math.hypot(b.x - a.x, b.z - a.z) < 0.5) continue;
+            if (!wayClear(a, b)) { prev = null; continue; }
+            const track = segment(a, b, {
+              edge: way, way: true, wayName: way.name || '', walkKey: `way:${wi}:${sign}:${offset}`,
+              block: null, from: null, to: null, insetLane: 3
+            });
+            wayTracks.push(track);
+            filePort(track);
+            if (prev) {
+              prev.chain = prev.chain || [null, null];
+              track.chain = track.chain || [null, null];
+              prev.chain[1] = track;
+              track.chain[0] = prev;
+            }
+            prev = track;
+          }
+        }
+      }
+    }
+  }
+  // The ordinary sidewalk ends near a way end: along(e) is lazy, so materialise just the edges of its street cells.
+  function networkPortsNear(x, z, radius) {
+    const cells = indexStreets(), result = [], seen = new Set();
+    const ix0 = Math.floor((x - radius) / STREET_CELL), ix1 = Math.floor((x + radius) / STREET_CELL);
+    const iz0 = Math.floor((z - radius) / STREET_CELL), iz1 = Math.floor((z + radius) / STREET_CELL);
+    for (let ix = ix0; ix <= ix1; ix++) for (let iz = iz0; iz <= iz1; iz++) {
+      for (const e of cells.get(ix * 100000 + iz) || []) {
+        if (seen.has(e)) continue;
+        seen.add(e);
+        for (const track of along(e)) {
+          for (const end of [0, 1]) {
+            const p = point(track, end), distance = Math.hypot(p.x - x, p.z - z);
+            if (distance <= radius) result.push({ track, end, distance });
+          }
+        }
+      }
+    }
+    result.sort((a, b) => a.distance - b.distance);
+    return result;
+  }
+  function wayLinks(track, dir) {
+    const end = dir > 0 ? 1 : 0, a = point(track, end), result = [], lines = new Set();
+    const candidates = portsInCells(a.x, a.z, WAY_LINK_MAX, walkPorts);
+    for (const port of networkPortsNear(a.x, a.z, WAY_NETWORK_LINK_MAX)) candidates.push(port);
+    candidates.sort((p, q) => p.distance - q.distance);
+    for (const port of candidates) {
+      const next = port.track;
+      if (next === track) continue;
+      const limit = next.way ? WAY_LINK_MAX : WAY_NETWORK_LINK_MAX;
+      if (port.distance > limit || port.distance <= 0.01) continue;
+      const line = physicalLine(next);
+      if (lines.has(line)) continue;
+      const b = point(next, port.end);
+      if (!clearGap(a, b)) continue;
+      lines.add(line);
+      result.push([
+        { track: segment(a, b, { walkKey: `corner:${line}` }), dir: 1 },
+        { track: next, dir: port.end ? -1 : 1 }
+      ]);
+      if (result.length >= 8) break;
+    }
+    return result;
+  }
 
   function clear(a, b, block = null, anyBlock = false) {
     const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z)));
@@ -628,6 +770,7 @@ function createPedestrianRoutes(
         file(kept, c);
         crosswalks.push(c);
         crossings.get(c.node).push(...c.tracks);
+        for (const track of c.tracks) filePort(track);
         for (const end of c.ends) {
           if (!end.mate) continue;
           for (const { a, b } of strand(end)) {
@@ -1126,6 +1269,8 @@ function createPedestrianRoutes(
     // A tram-cut island curb can legitimately end at the landing: the zebra reaches a legal sidewalk, but the island
     // has no through route. Mark that dead-end split run a terminus so `next` may still choose it; ordinary blocks keep
     // the dead-end guard (a court or park edge is no destination). The generated spur is already a landing terminus.
+    // A pedestrian street's outer end: baseLinks has no block ports there, so use the way/kerb/crosswalk ends near it.
+    if (!result.length && track.way) result.push(...wayLinks(track, dir));
     if (track.node) {
       for (const path of result) {
         const last = path[path.length - 1], target = last.track;
@@ -1165,9 +1310,11 @@ function createPedestrianRoutes(
   // Materialise the lazy sidewalk, crossing and corner-link tracks before post-network furniture is placed.
   // Calling links in both directions also covers the intermediate legs across split-crossing refuges.
   function segments() {
+    layOutWays();
     const tracks = new Set();
     for (const edge of edges) for (const track of along(edge)) tracks.add(track);
     for (const node of nodes) for (const track of across(node)) tracks.add(track);
+    for (const track of wayTracks) tracks.add(track);
     const result = new Set(tracks);
     for (const track of tracks) for (const dir of [-1, 1]) {
       for (const path of links(track, dir)) for (const leg of path) result.add(leg.track);
@@ -1209,12 +1356,26 @@ function createPedestrianRoutes(
     return nearby;
   }
 
+  // Way tracks whose walking line comes within `radius` of (x, z): traffic.js keeps this focus area populated.
+  function waysNear(x, z, radius) {
+    layOutWays();
+    const result = [], r2 = radius * radius;
+    for (const track of wayTracks) {
+      const dx = track.ux * track.len, dz = track.uz * track.len;
+      const t = Math.max(0, Math.min(1, ((x - track.ax) * dx + (z - track.az) * dz) / (dx * dx + dz * dz || 1)));
+      const px = track.ax + dx * t - x, pz = track.az + dz * t - z;
+      if (px * px + pz * pz <= r2) result.push(track);
+    }
+    return result;
+  }
+
   // every crosswalk kept, for road-paint.js: { node, side, group, ax, az, bx, bz (the zebra's ends, at the curbs),
   // ux, uz (out of the junction), span, tracks }
   layOut();
   indexStreets();
+  layOutWays();
   if (configureCrosswalks) configureCrosswalks(crosswalks);
-  return { along, across, next, crosswalks, segments, segmentsNear };
+  return { along, across, next, crosswalks, segments, segmentsNear, ways: wayTracks, waysNear };
 }
 
 export { createPedestrianRoutes, LANE_INSET, physicalLine };

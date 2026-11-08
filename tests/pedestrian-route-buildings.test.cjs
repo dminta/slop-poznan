@@ -8,8 +8,8 @@ const CROSSWALK = 4.3;
 const CROSSWALK_REACH = 4;
 const { createPedestrianRoutes } = loadModule(
   readFileSync(join(__dirname, '../js/pedestrian-routes.js'), 'utf8').replace(
-    'return { along, across, next, crosswalks, segments, segmentsNear };',
-    'return { along, across, next, crosswalks, segments, segmentsNear, links, fallbackPaths, ' +
+    'return { along, across, next, crosswalks, segments, segmentsNear, ways: wayTracks, waysNear };',
+    'return { along, across, next, crosswalks, segments, segmentsNear, ways: wayTracks, waysNear, links, fallbackPaths, ' +
     'withinBlockEdge, crossings, curbStepPaths };'
   ),
   { imports: { './road-network.js': { CROSSWALK, CROSSWALK_REACH } } }

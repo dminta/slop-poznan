@@ -1,7 +1,9 @@
 import * as THREE from 'three/webgpu';
 import { buildRoadNetwork, CROSSWALK } from './road-network.js';
 import { createPedestrianRoutes, LANE_INSET } from './pedestrian-routes.js';
-import { updateSignal, requestWalkSignal, configurePedestrianSignal, configureSignalClearance, blockAt } from './city-config.js';
+import {
+  updateSignal, requestWalkSignal, configurePedestrianSignal, configureSignalClearance, blockAt, PEDESTRIAN_WAYS
+} from './city-config.js';
 import { cityUniforms, createContactShadowMaterial } from './tsl-materials.js';
 import { HEADLIGHTS, createVehicleHeadlight, placeVehicleHeadlight } from './vehicle-lights.js';
 import {
@@ -815,6 +817,7 @@ function createTrafficSystem(
   // pedestrians on
   const nearEdges = [];
   const nearCrossings = [];
+  const nearWalks = []; // pedestrian-only tracks: no road edge carries Półwiejska, Wrocławska or the Stary Rynek lanes
   let nearLanes = 0; // metres of lane within NEAR_RADIUS of the focus
   let nearTarget = 0; // how many vehicles drive there (VEHICLE_DENSITY)
   let nearBusTarget = 0; // reserve the pool's bus share so cars cannot consume every local slot
@@ -826,6 +829,7 @@ function createTrafficSystem(
     nearZ = focusZ;
     nearEdges.length = 0;
     nearCrossings.length = 0;
+    nearWalks.length = 0;
     nearLanes = 0;
     for (const e of edges) {
       const along = (focusX - e.sx) * e.dx + (focusZ - e.sz) * e.dz;
@@ -845,6 +849,7 @@ function createTrafficSystem(
       const dx = n.x - focusX, dz = n.z - focusZ;
       if (dx * dx + dz * dz < NEAR_RADIUS * NEAR_RADIUS) nearCrossings.push(n);
     }
+    for (const track of pedRoutes.waysNear(focusX, focusZ, NEAR_RADIUS)) nearWalks.push(track);
   }
 
   // Where the player is relative to v: metres ahead, metres to the right, and how fast it moves v's way
@@ -2294,7 +2299,7 @@ function createTrafficSystem(
   // 7. PEDESTRIANS
   // =========================================================================
   const KERB = 1.6; // how far along a crosswalk track pedestrians wait to cross (the curb is 2 m along)
-  const pedRoutes = createPedestrianRoutes(network, blockAt, railClearance, buildingColliders);
+  const pedRoutes = createPedestrianRoutes(network, blockAt, railClearance, buildingColliders, PEDESTRIAN_WAYS);
   // Decide demand-only crossings after the real walking routes are known: a dropped OSM arm can leave a road
   // stopping for nobody. Use the curb-to-curb walk, not crosswalk.span (the approach road's length), for clearance.
   function configureSignals() {
@@ -2341,6 +2346,14 @@ function createTrafficSystem(
     return true;
   }
 
+  // A walking line on a pedestrian-only street, already materialised by refreshNear.
+  function pedestrianStreetTrack() {
+    if (!nearWalks.length) return false;
+    const route = nearWalks[Math.floor(Math.random() * nearWalks.length)];
+    Object.assign(track, route, { route });
+    return true;
+  }
+
   // Who is at (or just past) the curbs of each intersection's crosswalks, for whoever comes up behind to queue
   const QUEUE_GAP = 0.62; // m from one person standing in a queue to the next
   const curbNodes = [];
@@ -2362,9 +2375,13 @@ function createTrafficSystem(
   function spawnPed(p, rMin, rMax, protectView) {
     for (let attempt = 0; attempt < 10; attempt++) {
       const crosswalk = p.crossesStreets && nearCrossings.length > 0 && attempt < 5;
+      // Pedestrian streets carry no road edge, so they need their own spawn pool. Prefer them when the focus has no
+      // ordinary sidewalk nearby, otherwise share the flow so both stay populated.
+      const way = !crosswalk && nearWalks.length > 0 && (nearEdges.length === 0 || Math.random() < 0.5);
       const ok = crosswalk
         ? crosswalkTrack(nearCrossings[Math.floor(Math.random() * nearCrossings.length)])
-        : nearEdges.length > 0 && sidewalkTrack(nearEdges[Math.floor(Math.random() * nearEdges.length)]);
+        : way ? pedestrianStreetTrack()
+          : nearEdges.length > 0 && sidewalkTrack(nearEdges[Math.floor(Math.random() * nearEdges.length)]);
       if (!ok) continue;
       const along = (focusX - track.ax) * track.ux + (focusZ - track.az) * track.uz;
       const minT = Math.max(0, along - rMax), maxT = Math.min(track.len, along + rMax);
@@ -2662,9 +2679,17 @@ function createTrafficSystem(
     if (p.pause > 0) p.pause = Math.max(0, p.pause - dt);
     const ahead = p.dir > 0 ? p.len - p.t : p.t;
     if (clock >= p.goalTime || Math.hypot(p.x - p.goalX, p.z - p.goalZ) < 25) {
-      const destination = nearEdges[Math.floor(Math.random() * nearEdges.length)];
-      p.goalX = destination ? destination.sx + destination.dx * destination.len * 0.5 : p.x;
-      p.goalZ = destination ? destination.sz + destination.dz * destination.len * 0.5 : p.z;
+      // Pedestrian streets are destinations too: otherwise everyone spawned on one chooses a road goal and leaves.
+      const useWays = nearWalks.length > 0 && (nearEdges.length === 0 || Math.random() < 0.5);
+      const pool = useWays ? nearWalks : nearEdges;
+      const destination = pool[Math.floor(Math.random() * pool.length)];
+      if (destination?.ax !== undefined) {
+        p.goalX = destination.ax + destination.ux * destination.len * 0.5;
+        p.goalZ = destination.az + destination.uz * destination.len * 0.5;
+      } else {
+        p.goalX = destination ? destination.sx + destination.dx * destination.len * 0.5 : p.x;
+        p.goalZ = destination ? destination.sz + destination.dz * destination.len * 0.5 : p.z;
+      }
       p.goalTime = clock + 120 + Math.random() * 180;
     }
     if (!p.nextRoute && p.route && ahead < 4) {

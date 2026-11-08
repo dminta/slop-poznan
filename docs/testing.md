@@ -34,7 +34,7 @@ Know which one covers the code you are editing. Two of them are coupled to the e
    - `signal-display.test.cjs` captures the head group before `      const half = a.w / 2;` in street-details.js, then
      compares the rendered groups with real incoming road lanes. It also checks the shared texture and crossing audio.
    - `dworzec-crossings.test.cjs` exposes the internal `links` function by replacing the literal
-     `return { along, across, next, crosswalks, segments, segmentsNear };` in pedestrian-routes.js to check real bidirectional connectivity.
+     `return { along, across, next, crosswalks, segments, segmentsNear, ways: wayTracks, waysNear };` in pedestrian-routes.js to check real bidirectional connectivity.
      It also records `setFacing` at `dummy.rotation.set(0, Math.atan2(fx, fz), 0);` in street-details.js to check
      that the refuge head faces walkers at the actual southern landing.
    - `signal-placement.test.cjs` records actual vehicle-head placement at `          s1Matrices.push(m);` and the

@@ -31,13 +31,14 @@ function populationHarness(major = true) {
   };
   const emptyInst = () => ({ count: 0 });
   const context = {
-    cars, buses, edges, crossingNodes: [], nearEdges: [], nearCrossings: [],
+    cars, buses, edges, crossingNodes: [], nearEdges: [], nearCrossings: [], nearWalks: [],
     nearX: Infinity, nearZ: Infinity, nearLanes: 0, nearTarget: 0, nearBusTarget: 0,
     focusX: 0, focusZ: 0, player: {}, clock: 0,
     Math: Object.assign(Object.create(Math), { random }),
     clamp: (x, min, max) => Math.max(min, Math.min(max, x)),
     NEAR_RADIUS: 350, VEHICLE_RADIUS: 380, VEHICLE_DENSITY: 12, MIN_VEHICLES: 30,
     VEHICLE_SPAWN_DISTANCE: 250, NUM_PEDS: 0,
+    pedRoutes: { waysNear: () => [] },
     updateSignals() {}, updateView() {}, nearView: () => false,
     nearTram: (_x, _z, radius) => state.blockBuses && radius === 9,
     laneAt: (e, i) => e.lanes[i],

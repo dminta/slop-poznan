@@ -182,9 +182,9 @@ function loadPedestrianRoutes(rn) {
   }
   `;
   pedestrianRoutesModule = loadModule(js('pedestrian-routes.js')
-    .replace('return { along, across, next, crosswalks, segments, segmentsNear };',
-      `${diagnose}\n  return { along, across, next, crosswalks, segments, segmentsNear, baseLinks, links, ` +
-      'fallbackPaths, curbStepPaths, ports, diagnoseFallback };')
+    .replace('return { along, across, next, crosswalks, segments, segmentsNear, ways: wayTracks, waysNear };',
+      `${diagnose}\n  return { along, across, next, crosswalks, segments, segmentsNear, ways: wayTracks, waysNear, ` +
+      'baseLinks, links, fallbackPaths, curbStepPaths, ports, diagnoseFallback };')
   , { imports: { './road-network.js': rn }, globals: G, filename: 'pedestrian-routes.js' });
   return pedestrianRoutesModule;
 }

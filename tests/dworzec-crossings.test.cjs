@@ -33,7 +33,7 @@ test('the Dworzec refuges connect the western sidewalk to the southern sidewalk 
     '    dummy.rotation.set(0, Math.atan2(fx, fz), 0);',
     '    headFacings.push({ x, z, fx, fz });\n    dummy.rotation.set(0, Math.atan2(fx, fz), 0);'
   ).replace(
-    'return { along, across, next, crosswalks, segments, segmentsNear };', 'return { along, across, next, crosswalks, segments, segmentsNear, links };'
+    'return { along, across, next, crosswalks, segments, segmentsNear, ways: wayTracks, waysNear };', 'return { along, across, next, crosswalks, segments, segmentsNear, ways: wayTracks, waysNear, links };'
   ) + extra, {
     imports,
     globals: { console: quiet, document: inert(), headFacings },
