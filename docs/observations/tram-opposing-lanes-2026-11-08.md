@@ -2,7 +2,8 @@
 
 > A later crossing-track pass on the same day took the default report to **42 runs / 40 lanes / 385 m**
 > (`--all` 56 / 52 / 585), and the station-profile pass at the end brings it to **42 / 40 / 377 m**
-> (`--all` 56 / 52 / 577). The short-stub measurements below are the state before those passes.
+> (`--all` 56 / 52 / 577). The final same-direction strip pass clears the two constant-shift cases, so the report is
+> **40 / 38 / 293 m** (`--all` 55 / 51 / 498). The short-stub measurements below are the state before those passes.
 
 `tools/audit-tram-opposing-lanes.mjs` at the parent commit listed **47 runs / 45 lanes / 417 m** of used
 street-running track with an opposing car lane closer than 2.3 m (14 runs / 12 lanes / 200 m went to `skipped`, and
@@ -183,3 +184,53 @@ is a different change, not a lane profile.
   the Jeżyce shared-lane rear-end bound).
 - Full `node --test tests/*.cjs` is run with the change. No browser check was made of the moved 4257 lane and its
   paint.
+
+## Same-direction strip pass (third pass, same day)
+
+The two constant-shift cases were the 3.3 m Strzelecka carriageway (audit lane on 4677, 13 m) and the skewed 78.5 m
+Wierzbięcice edge (7930, 71 m). Both run the lane between the two tracks, which no constant offset can clear: the
+carriageways are narrower than the 4.6 m a car and an oncoming tram body need, and the road side-of-centreline rule
+blocks the only other band. The previous passes required every used track, same-direction included, to keep 2.3 m.
+
+That is stricter than the collision: a strip road (a separate 6.5 m formation beside the carriageway) lets a car lane
+share with the **same-direction** track, while the opposing track is the one it must stay off. The constant pass now
+skips the all-track test for a strip edge (`e.strip`); the opposing test, the curb bound, the side-of-centreline rule
+and `laneOpen` still apply. Two lanes move:
+
+| Edge | Place | Before → after | Cleared run |
+|---:|---|---:|---:|
+| 5035 | Strzelecka, `−35.3, 519.9` | 3.25 → 3.69 m | 13 m, track 4677 |
+| 8549 | Wierzbięcice, `−865.0, 977.5` | 1.80 → 5.92 m | 71 m, track 7930 |
+
+5035 moves 0.44 m and 8549 4.12 m; both stay on the car part of the carriageway and pass `laneOpen`. The default
+report is now:
+
+```
+{"segments":40,"lanes":38,"length":293,"skipped":{"segments":15,"lanes":13,"length":205},"clearance":2.3,"minimum":5,"all":false}
+```
+
+`--all` is **55 runs / 51 lanes / 498 m**; 84 m (both constant-shift cases) is gone. Edge and lane counts stay at
+8,707 / 11,568 (442.1 lane-km): no lane is dropped. The remaining 40 runs are the 37 short stubs (35 lanes, 252 m) and
+the three curved runs (41 m).
+
+### Rejected in this pass
+
+- **Lane diet** (drop the close inner lane on a multi-lane stub): it cleared 16 more rows (26 / 24 / 205 m), but it
+  drops lanes, so `footbridges.test.cjs` fails its 16,979-lane baseline and `shared-tram-lanes.test.cjs` fails its
+  "no traffic lanes dropped" and no-steep-connector checks (a 1-lane edge connects to lane 0 of a 3-lane neighbour
+  3.6 m away). Keeping the lane but moving it left or right instead has no 4.6 m band on these stubs. Not applied.
+- **A shared-lane profile that follows the right-hand track**: Fredry's pair is only 1.85 m apart (below the 2.3 m
+  car/tram clearance), Dąbrowskiego carries both directions on one OSM chain, and Winogrady's partner track sweeps
+  7 m over 27 m (0.26 m/m, above the 8.5° limit). No shared row qualifies, so the shared lanes stay as they are.
+- **Removing the lanes from the audit** (shared lanes or junction crossings): it would hide real layout proxies. The
+  remaining 37 stubs and 3 curves stay listed.
+
+### Verification
+
+- `node --test tests/opposing-tram-audit.test.mjs`: 2 pass, including the new 40 / 38 / 293 totals, the absent 5035
+  and 8549 rows and the 55 / 51 / 498 `--all` count.
+- `node --test tests/shared-tram-lanes.test.cjs tests/footbridges.test.cjs tests/tram-clearance.test.cjs`: 16 pass,
+  including the unchanged lane count and no-new-steep-connector checks.
+- `node --test tests/traffic-flow.test.mjs`: 3 pass.
+- Full `node --test tests/*.cjs` is run with the change. No browser check was made of the two moved lanes and their
+  paint; both are short street stubs with no lane count change.

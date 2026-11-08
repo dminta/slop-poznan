@@ -28,10 +28,14 @@ test('opposing-lane audit lists used street runs and counts off-street and unuse
   const total = JSON.parse(result.stderr.trim());
   assert.equal(total.segments, rows.length);
   assert.equal(total.lanes, new Set(rows.map((row) => `${row.road}:${row.lane}`)).size);
-  assert.ok(total.segments <= 42 && total.lanes <= 40 && total.length <= 377,
+  assert.ok(total.segments <= 40 && total.lanes <= 38 && total.length <= 293,
     `${total.segments} runs / ${total.lanes} lanes / ${total.length} m remain: only used street tracks`);
   assert.ok(!rows.some((row) => row.road === 4581),
     'the station profile moves the Głogowska 4257 shared lane clear across the bend');
+  for (const road of [5035, 8549]) {
+    assert.ok(!rows.some((row) => row.road === road),
+      `the strip pass moves edge ${road} onto its same-direction track, clear of the oncoming one`);
+  }
   assert.deepEqual([total.skipped.segments, total.skipped.lanes, total.skipped.length], [15, 13, 205],
     'unused and off-street tracks are counted separately, not hidden');
 
@@ -41,7 +45,7 @@ test('opposing-lane audit lists used street runs and counts off-street and unuse
   const allTotal = JSON.parse(all.stderr.trim());
   assert.equal(allRows.length, total.segments + total.skipped.segments);
   assert.ok(allRows.some((row) => [3389, 3390, 3391, 6770, 8798].includes(row.road)), '--all restores off-street rows');
-  assert.deepEqual([allTotal.segments, allTotal.lanes, allTotal.length], [57, 53, 582]);
+  assert.deepEqual([allTotal.segments, allTotal.lanes, allTotal.length], [55, 51, 498]);
 });
 
 test('a station profile shifts the Głogowska 4257 lane smoothly across the bend', () => {
@@ -59,5 +63,19 @@ test('a station profile shifts the Głogowska 4257 lane smoothly across the bend
     for (const point of e.laneShift) {
       assert.ok(Math.abs(point.d) <= 3, `${e.id} stays within the carriageway`);
     }
+  }
+});
+
+test('the strip pass clears the two constant-shift lanes without losing a lane', () => {
+  const { network } = buildWorld({ noPeds: true });
+  const strzelecka = network.edges.find((e) => Math.hypot(e.sx + 35.3, e.sz - 519.9) < 1);
+  const wierzbiecice = network.edges.find((e) => Math.hypot(e.sx + 865, e.sz - 977.5) < 1);
+  assert.ok(strzelecka, 'the Strzelecka stub stays in the graph');
+  assert.ok(wierzbiecice, 'the Wierzbięcice stub stays in the graph');
+  assert.ok(strzelecka.lanes[0] > 3.25 + 0.3, `${strzelecka.lanes[0].toFixed(2)} m clears track 4677`);
+  assert.ok(wierzbiecice.lanes[0] > 5.5, `${wierzbiecice.lanes[0].toFixed(2)} m clears track 7930`);
+  for (const e of [strzelecka, wierzbiecice]) {
+    assert.equal(e.lanes.length, 1, `edge ${e.id} keeps its only lane`);
+    assert.ok(Math.abs(e.lanes[0]) <= e.half - 0.6 + 1e-6, `edge ${e.id} stays inside the curb`);
   }
 });
