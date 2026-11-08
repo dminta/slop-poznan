@@ -428,7 +428,9 @@ and Małopolska 3201, outside the sampled districts, so those pairs are unchange
 lower holds but raise the pairs and add a deadlock, so it is not in the code. At the 2026-11-07 tree (`10b4594`) the same
 audit measures **138 → 71 pairs** (110 → 41 with the car moving over 1 m/s): Jeżyce 83 → 31, Centrum 24 → 8, Kaponiera
 16 → 17, Stare Miasto 12 → 12, Rataje 3 → 3. The remaining stopped pairs are mostly cars touching a stopped tram in a
-shared lane or parked in a close opposing lane; the moving Kaponiera pair is the short-link commitment race.
+shared lane or parked in a close opposing lane; the moving Kaponiera pair is the short-link commitment race. The
+2026-11-08 short-link pass (below) takes the default seed-4242 audit **9 → 5 pairs** (Kaponiera 4 → 1, Stare Miasto
+2 → 0, Centrum 0 → 1 stopped) with no additional deadlock or car held over 120 s.
 
 **Rear-end proxy for a tram waiting ahead.** `occupyTrams` dropped a lane's whole proxy when the tram was braking for
 `t.obstacle`, wherever that vehicle was. A tram waiting behind a queue therefore had no proxy under its own body, and
@@ -470,11 +472,26 @@ curves, blocked junction boxes and raised Kaponiera holds. The >4 m/s `enter` fa
 cases, but a bus on a short link stops at the line rather than entering a tram body already over the curve
 (`TRAM_HARD_REACH` 0). This removes Kaponiera bus 200 / tram 1 (seed 4242) and the seed 99 bus pairs. The remaining
 overlaps are mostly cars: 10 at Kaponiera are mostly the same short-link blind spot, 27 are cars already stopped in or
-near the tram envelope (15 before the line, 12 on a connector), and 18 are in Jeżyce, mostly buses. A forecast guard for
-cars on short links and a tram-body hard stop for every vehicle were both measured and rejected: they took the three hot
-districts from 46 to 18–20 pairs but raised Kaponiera's mean longest hold to 134–153 s and cars held over 120 s to 15–32,
-with up to 4 deadlocks. **Browser check:** the hard stop in `enter` snaps speed to 0 from above 4 m/s, a visible jolt
-chosen over driving into a tram; watch it at Kaponiera.
+near the tram envelope (15 before the line, 12 on a connector), and 18 are in Jeżyce, mostly buses. A blanket forecast
+guard for cars on short links and a tram-body hard stop for every vehicle were both measured and rejected: they took
+the three hot districts from 46 to 18–20 pairs but raised Kaponiera's mean longest hold to 134–153 s and cars held over
+120 s to 15–32, with up to 4 deadlocks. **Browser check:** the hard stop in `enter` snaps speed to 0 from above 4 m/s,
+a visible jolt chosen over driving into a tram; watch it at Kaponiera.
+
+**Short-link car guard and restart gate (2026-11-08).** The moving Kaponiera/Centrum pairs are cars, not buses: a car
+enters a 10 m link at 10–14 m/s, the exit curve is claimed by a tram, and the car cannot stop on the link. `mayEnter`
+now calls `shortLinkTramBlocked` for every car entering a link under 12 m: when the comfortable stopping distance
+`v² / 2b` no longer fits the link's room (`len − half − 0.5 m`) and the link's exit curve is held by a tram within
+`TRAM_SHORT_REACH` 20 m, the car waits at the upstream line with `held: 'tram'`. A tram standing just before the curve
+counts too (`tramStandsAt`), because a stopped tram reserves only its body but can pull away; the test skips a tram
+dwelling at a stop, held by a red or at a route end, and the tram that is already waiting for this car. A car that can
+stand on the link keeps the ordinary storage behaviour, and buses keep the longer-body guard above. On the tram side,
+`ROAD_GATE_REACH` in `drive()` is 8 m instead of 5 m, and the restart gate also counts a car still on a short link that
+cannot stop before the curve (`speed² > 2b(len − s − half)`) before `v.commit` is set. The default seed-4242 audit moves
+9 → 5 pairs and the benchmark moves Kaponiera's worst wait 120 → 112 s, held over 60 s 13 → 11 and kept deadlocks and
+cars held over 120 s at zero. Rejected while measuring: the same stand test in every short-link `tramBlocks` call or a
+long-connector stop (Kaponiera worst wait 191 s, 12 cars over 120 s, five new Centrum pairs), the feeder two-step, and
+the old `enter` hard stop for cars. [Measurements and mechanisms](observations/car-tram-overlaps-2026-11-08.md).
 
 **Public contract for interactions** (car yielding, pedestrians, player collisions, audio):
 - `tramSystem.trams`: the active trams, refreshed every update (the same objects as `tramSystem.pool`, filtered).

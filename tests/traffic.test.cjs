@@ -23,7 +23,7 @@ function intersectionHarness() {
   const car = { edge, move: { to: exit, out: [0], turn: 'S' }, lane: 0, s: 80, speed: 4,
     driver: { b: 3 }, half: 2.25, wait: 0, commit: null, isPolice: false };
   const state = { phase: 'red', occupied: false, pedestrians: false, space: true, conflict: false, tram: false,
-    nextTram: false, stoppable: true };
+    nextTram: false, shortLink: false, stoppable: true };
   const context = {
     clock: 0,
     LOOKAHEAD: 70,
@@ -44,6 +44,7 @@ function intersectionHarness() {
     alongside: () => false,
     mergingAhead: () => null,
     tramBlocks: () => state.tram,
+    shortLinkTramBlocked: () => state.shortLink,
     tramRefusedClose: () => state.nextTram,
     refuse: (v, why) => { v.held = why; return false; },
     PED_COURTESY: 5
@@ -879,7 +880,8 @@ test('cars leave a junction curve held by a tram alone, unless they are ahead of
   const f = {};
   const conflict = { e, i: 0, f, j: 0, held: 3, by: t };
   const n = { tramConflicts: [conflict] };
-  const context = { tramFrame: 3, TRAM_REACH: 70, TRAM_ONCOMING_REACH: 8, Math, tramClose: () => true };
+  const context = { tramFrame: 3, TRAM_REACH: 70, TRAM_ONCOMING_REACH: 8, Math, tramClose: () => true,
+    tramStandsAt: () => false };
   context.inTramLane = trafficFunction('inTramLane', context);
   context.heldByTram = trafficFunction('heldByTram', context);
   const tramBlocks = trafficFunction('tramBlocks', context);
@@ -943,6 +945,47 @@ test('the short-link guard counts only a tram on or near the next curve', () => 
   path.u = 26;
   assert.equal(tramHoldsClose(v, n, conflict.f, conflict.j, source[0], source[1], 0), true,
     'the body is over the conflict');
+});
+
+test('a stopped tram at a curve nose holds a car that cannot stand on a short link', () => {
+  const conflict = { s0: 5, s1: 8 };
+  const te = { junctions: [conflict] };
+  const path = { n: 1, edges: [te], start: [0], u: 0, indexAt: () => 0 };
+  const tram = { active: true, length: 30, speed: 0, atStop: false, obstacle: null, waitReason: 'room', path };
+  const context = { trams: [tram], TRAM_STAND_REACH: 8, Math };
+  context.tramConflictGap = trafficFunction('tramConflictGap', context);
+  const stands = trafficFunction('tramStandsAt', context);
+  const v = {};
+  assert.equal(stands(conflict, v), true, 'a tram stopped 5 m before the nose can pull away');
+  tram.waitReason = 'signal';
+  assert.equal(stands(conflict, v), false, 'a tram held by a red certainly cannot');
+  tram.waitReason = 'stop';
+  assert.equal(stands(conflict, v), false, 'a tram dwelling at a stop cannot');
+  tram.waitReason = 'room';
+  tram.atStop = true;
+  assert.equal(stands(conflict, v), false, 'boarding dwell');
+  tram.atStop = false;
+  tram.obstacle = v;
+  assert.equal(stands(conflict, v), false, 'the tram waits for this car, so the car goes');
+  tram.obstacle = null;
+  tram.speed = 1.5;
+  assert.equal(stands(conflict, v), false, 'a moving tram is the held-curve forecast\'s job');
+  tram.speed = 0;
+  conflict.s0 = 9;
+  assert.equal(stands(conflict, v), false, '9 m before the nose is outside the stand reach');
+  conflict.s0 = -5;
+  assert.equal(stands(conflict, v), true, 'its body over the curve still counts');
+  conflict.s0 = -40;
+  assert.equal(stands(conflict, v), false, 'a tram that has cleared it does not');
+});
+
+test('a car that cannot stand on a short link waits for a tram at its exit curve', () => {
+  const h = intersectionHarness();
+  h.state.phase = 'green';
+  h.state.stoppable = true;
+  h.state.shortLink = true;
+  assert.equal(h.mayEnter(h.car, 5), false, 'the link offers no place to wait short of the curve');
+  assert.equal(h.car.held, 'tram');
 });
 
 test('a committed bus on a link shorter than its body yields to a tram at the next curve', () => {
@@ -1127,7 +1170,8 @@ test('a driver kept waiting at an unsignalised zebra gets its turn: people still
     LOOKAHEAD: 70, CROSSWALK: 4.3, PED_COURTESY: 5, shortOfZebra: () => 6.55, phaseOf: () => 'green', canStopBefore: () => true,
     stopAt: () => -3, boxBusy: () => false, ahead: () => null, connector: () => ({ len: 20 }), yieldToCrossTraffic: () => false,
     pedestrianOn: (n, side, coord, t0, t1, onIt) => (calls.push(onIt), !onIt), laneCoord: () => 0, timeTo: () => 1, room: () => true,
-    alongside: () => false, mergingAhead: () => null, tramBlocks: () => false, refuse: (v, why) => ((v.held = why), false)
+    alongside: () => false, mergingAhead: () => null, tramBlocks: () => false, shortLinkTramBlocked: () => false,
+    refuse: (v, why) => ((v.held = why), false)
   });
   car.speed = 0;
   car.pedWait = 3;

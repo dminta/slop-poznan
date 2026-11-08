@@ -63,6 +63,7 @@ const CONFLICT_REACH = 60; // switches & crossings closer than this are checked 
 const FOUL = 9;
 const FOUL_MIN = 4;
 const FOUL_GAP = 2.9;
+const ROAD_GATE_REACH = 8; // m of tram path ahead of its front a restarting tram checks for committed road vehicles
 const DWELL_MIN = 20;
 const DWELL_SPREAD = 10;
 const TRAM_RADIUS = 900; // trams further than this from the camera are respawned near it
@@ -1565,17 +1566,18 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     }
     // A stopped tram may have released a road curve while a car committed to it. Before restarting, let that
     // vehicle clear: the ordinary sweep only detects its current position and can see a fast crossing car too late.
-    // Keep the gate once selected until the car clears, and do not hold for a car itself waiting for a tram. Only
-    // conflicts within 5 m count: a 10 m window held trams for cars further off and, over 8 seeds × 7 districts,
-    // raised cars held over 120 s 16 → 21 and added a Jeżyce car–tram wait cycle (5 m: 16 → 11, no new cycle).
+    // Keep the gate once selected until the car clears, and do not hold for a car itself waiting for a tram. Conflicts
+    // within 8 m count: a 10 m window held trams for cars further off and, over 8 seeds × 7 districts, raised cars
+    // held over 120 s 16 → 21 and added a Jeżyce car–tram wait cycle. Eight metres cover a tram stopped just before
+    // the curve (Kaponiera 3116 at 5.9 m) while staying short of that rejected window.
     let roadCarGate = false;
     if (traffic && (t.speed < 1 || t._roadCarGate)) {
       for (let j = ic; j < path.n; j++) {
         const base = path.start[j];
-        if (base - u > 5) break;
+        if (base - u > ROAD_GATE_REACH) break;
         for (const c of path.edges[j].junctions) {
           const entry = base + c.s0 - u;
-          if (entry <= 0.2 || entry > 5) continue;
+          if (entry <= 0.2 || entry > ROAD_GATE_REACH) continue;
           for (let pass = 0; pass < 2; pass++) {
             const list = pass ? traffic.buses : traffic.cars;
             if (!list) continue;
@@ -1586,7 +1588,12 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
               const tail = v.edge === c.f && v.lane === c.j && v.trail && network && network.connector &&
                 v.trail === network.connector(c.e, c.i, c.f, c.j) &&
                 (v.conn ? v.edge.len + v.cs : v.s) < v.half;
-              if (!entering && !tail) continue;
+              // A car already on a short link may be unable to stop before this curve even before it is committed:
+              // at 10.2 m/s on Kaponiera's 9.4 m link 6034 the line 5 tram started while the car needed the crossing.
+              const unable = v.edge === c.e && v.lane === c.i && c.e.len < 12 && !v.conn && v.speed > 1 &&
+                v.move && v.move.to === c.f && v.move.out[v.lane] === c.j &&
+                v.speed * v.speed > 2 * v.driver.b * (c.e.len - v.s - v.half);
+              if (!entering && !tail && !unable) continue;
               roadCarGate = true;
               t.clearance = Math.min(t.clearance, entry);
               const before = _acc;
