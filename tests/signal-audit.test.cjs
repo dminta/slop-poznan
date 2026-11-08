@@ -17,28 +17,30 @@ test('the furnished audit classifies historical approaches before and after runt
   assert.equal(before.rows.length, 167);
   assert.equal(after.rows.length, 167);
   assert.deepEqual(before.summary.counts, { A: 17, B: 65, C: 75, D: 10 });
-  assert.deepEqual(after.summary.counts, { A: 156, B: 0, C: 1, D: 10 });
+  assert.deepEqual(after.summary.counts, { A: 157, B: 0, C: 0, D: 10 });
   assert.equal(before.summary.vehicleHeads, 903);
-  assert.equal(after.summary.vehicleHeads, 1043);
+  assert.equal(after.summary.vehicleHeads, 1044);
   assert.equal(after.summary.pedestrianHeads, 1572);
   assert.equal(after.summary.runtimePoles, 94);
-  assert.equal(after.summary.reusedPoles, 46);
-  assert.equal(after.summary.overheadHeads, 74);
+  assert.equal(after.summary.reusedPoles, 47);
+  assert.equal(after.summary.overheadHeads, 75);
   assert.equal(after.summary.overheadPoles, 34);
-  assert.equal(after.summary.overheadReused, 40);
-  assert.equal(after.summary.overheadStrict, 65);
-  assert.equal(after.summary.overheadBand, 66);
+  assert.equal(after.summary.overheadReused, 41);
+  assert.equal(after.summary.overheadStrict, 66);
+  assert.equal(after.summary.overheadBand, 67);
   assert.equal(after.summary.overheadException, 7);
   assert.deepEqual(after.summary.overheadFallbackAlong,
     [1.75, 1.75, 1.75, 0.031, 1.75, 1.75, 1.75]);
-  assert.equal(after.summary.spanHeads, 26);
+  assert.equal(after.summary.spanHeads, 27);
   assert.equal(after.summary.spanPoles, 25);
-  assert.equal(after.summary.spanReused, 26);
+  assert.equal(after.summary.spanReused, 28);
   assert.equal(after.summary.spanNewHeads, 18);
-  assert.equal(after.summary.spanExistingHeads, 8);
+  assert.equal(after.summary.spanExistingHeads, 9);
+  assert.equal(after.summary.spanTractionHeads, 1);
+  assert.equal(after.summary.spanTractionAnchors, 2);
   assert.equal(after.summary.cantileverPoles, 16);
-  assert.equal(after.summary.spanStrict, 24);
-  assert.equal(after.summary.spanBand, 25);
+  assert.equal(after.summary.spanStrict, 25);
+  assert.equal(after.summary.spanBand, 26);
   assert.equal(after.summary.spanException, 1);
   assert.deepEqual(after.summary.spanFallbackAlong, [1.75]);
   assert.ok(after.summary.spanLengthMax > 54 && after.summary.spanLengthMax <= 55,
@@ -62,7 +64,13 @@ test('the furnished audit classifies historical approaches before and after runt
   const placements = after.summary.placements.map((row) => row.map((v) =>
     typeof v === 'number' ? Number(v.toFixed(3)) : v));
   assert.equal(createHash('sha256').update(JSON.stringify(placements)).digest('hex'),
-    'b1f3594bbd31be7918c58dd07a859fd06fd1fdcece98a960f25e8b88d86a4c2b');
+    'e0ba3e3fdbfd06091471e5c42515791dd77a0ce4cf7b85b6fa841af569271704');
+  const gorna = after.rows.find((r) => Math.hypot(r.node[0] + 448.825, r.node[1] - 947.425) < 0.01 &&
+    r.direction[0] > 0.4 && r.direction[1] < -0.8);
+  assert.ok(gorna, 'the Górna Wilda approach is still audited');
+  assert.equal(gorna.class, 'A', 'the traction-anchored span serves the last C approach');
+  assert.ok(Math.abs(gorna.along + 10.5) < 1e-6 && gorna.lateral > 3,
+    `the Górna Wilda head sits on the clear side of the shared lane (${gorna.along}, ${gorna.lateral})`);
   for (const [x, z] of [[1374.2, 566.1], [1060.7, 1452.8]]) {
     assert.ok(before.rows.some((r) => Math.hypot(r.node[0] - x, r.node[1] - z) < 0.01 && r.class === 'B'));
     assert.ok(after.rows.some((r) => Math.hypot(r.node[0] - x, r.node[1] - z) < 0.01 && r.class === 'A'));

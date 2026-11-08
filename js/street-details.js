@@ -544,6 +544,10 @@ function buildStreetDetails(scene, opts = {}) {
   const SPAN_MAST_H = 10;
   const SPAN_REACH = 55;
   const SPAN_WIRE_R = 0.018;
+  // A span may also bolt to two tram traction poles (7.6 m) when the ground search finds no feet. The stays then meet
+  // at 7.2 m: above the 6.6 m tram span wires and below the pole tops, so they cross the track well above the 5.8 m
+  // contact wire. Only the head and its vertical drop still need the 2.22 m horizontal track clearance.
+  const SPAN_TRAM_TOP = 7.2;
   const armDir = new THREE.Vector3();
   const armUp = new THREE.Vector3(0, 1, 0);
   const armQuat = new THREE.Quaternion();
@@ -587,10 +591,10 @@ function buildStreetDetails(scene, opts = {}) {
   }
   // Two stays from the anchor tops to a point above the head, plus the vertical drop to the S-1 centre. The stays
   // stay above the tram contact wire; the drop is over a real lane and keeps 2.22 m from every track axis.
-  function addSpanWires(a, b, head) {
-    const top = { x: head.x, y: SPAN_Y, z: head.z };
-    addRod({ x: a.x, y: SPAN_MAST_H, z: a.z }, top, SPAN_WIRE_R);
-    addRod({ x: b.x, y: SPAN_MAST_H, z: b.z }, top, SPAN_WIRE_R);
+  function addSpanWires(a, b, head, topY = SPAN_Y) {
+    const top = { x: head.x, y: topY, z: head.z };
+    addRod({ x: a.x, y: topY, z: a.z }, top, SPAN_WIRE_R);
+    addRod({ x: b.x, y: topY, z: b.z }, top, SPAN_WIRE_R);
     addRod(top, { x: head.x, y: OVERHEAD_Y + 0.05, z: head.z }, SPAN_WIRE_R);
   }
   // A reused 4.2 m signal pole needs a sleeve up to the 5.55 m arm; the existing footing and collider stay as they are.
@@ -1851,6 +1855,12 @@ function buildStreetDetails(scene, opts = {}) {
       if ((c.minY ?? 0) > SPAN_MAST_H + 0.3 || (c.maxY ?? Infinity) < SPAN_Y - 0.6) continue;
       file(highOverhead, c, c.minX - 0.15, c.maxX + 0.15, c.minZ - 0.15, c.maxZ + 0.15);
     }
+    // Stays from reused traction poles run lower, at 7.2 m, where a tram pole still stands above the wire.
+    const lowOverhead = index();
+    for (const c of buildingColliders) {
+      if ((c.minY ?? 0) > SPAN_TRAM_TOP + 0.6 || (c.maxY ?? Infinity) < SPAN_TRAM_TOP - 0.6) continue;
+      file(lowOverhead, c, c.minX - 0.15, c.maxX + 0.15, c.minZ - 0.15, c.maxZ + 0.15);
+    }
     // Segment intersects a square around the candidate (the rectangle query used by walkable/pathClear).
     const intersects = (s, x, z) => {
       let lo = 0, hi = 1;
@@ -2100,7 +2110,72 @@ function buildStreetDetails(scene, opts = {}) {
             }
             if (best) return best;
           }
-          return null;
+          // Górna Wilda: one lane shares the curved track, so no ±1.5 m slide reaches the 2.22 m buffer. Two existing
+          // 7.6 m traction poles 5-13 m from the head already carry the tram's own span; hang the signal span on them
+          // and use their 7.2 m top. The narrow corridor leaves the head only on the far side of the carriageway,
+          // which the 3.5 m shift below allows; its ground search for new feet has no clear site within 35 m.
+          const findTractionSpan = () => {
+            if (!supports) return null;
+            const anchors = [];
+            for (const s of supports) {
+              if (!(s.h >= 7.4 && s.h <= 7.8)) continue;
+              anchors.push({ p: { x: s.x, z: s.z }, lat: (s.x - x) * edge.rx + (s.z - z) * edge.rz,
+                existing: true, traction: true, y: s.h - 0.4 });
+            }
+            if (anchors.length < 2) return null;
+            // A stay at 7.2 m passes under the 7.6 m traction poles' tops, so it must not cross another pole.
+            const wireSupportClear = (from, to, skipA, skipB) => {
+              const dx = to.x - from.x, dz = to.z - from.z, len2 = dx * dx + dz * dz;
+              for (const s of supports) {
+                if ((s.h ?? 0) <= SPAN_TRAM_TOP + 0.3) continue;
+                if (Math.hypot(s.x - skipA.x, s.z - skipA.z) < 1e-6 ||
+                  Math.hypot(s.x - skipB.x, s.z - skipB.z) < 1e-6) continue;
+                const t = len2 ? Math.max(0, Math.min(1, ((s.x - from.x) * dx + (s.z - from.z) * dz) / len2)) : 0;
+                if (Math.hypot(from.x + dx * t - s.x, from.z + dz * t - s.z) < 0.3) return false;
+              }
+              return true;
+            };
+            const pickTraction = (target, lane) => {
+              const near = anchors.filter((a) => Math.hypot(a.p.x - target.x, a.p.z - target.z) <= SPAN_REACH);
+              let best = null;
+              for (let i = 0; i < near.length; i++) for (let j = i + 1; j < near.length; j++) {
+                const a = near[i], b = near[j];
+                if (Math.hypot(a.p.x - b.p.x, a.p.z - b.p.z) <= 2) continue;
+                const straddles = (a.lat < lane - 0.5 && b.lat > lane + 0.5) ||
+                  (b.lat < lane - 0.5 && a.lat > lane + 0.5);
+                if (!straddles) continue;
+                const topY = Math.min(a.y, b.y);
+                const top = { x: target.x, y: topY, z: target.z };
+                if (!wireClear(a.p, top, lowOverhead) || !wireClear(b.p, top, lowOverhead) ||
+                  !wireClear(top, target, overhead) || !wireSupportClear(a.p, top, a.p, b.p) ||
+                  !wireSupportClear(b.p, top, a.p, b.p)) continue;
+                const score = Math.hypot(a.p.x - target.x, a.p.z - target.z) +
+                  Math.hypot(b.p.x - target.x, b.p.z - target.z);
+                if (!best || score < best.score) best = { target, anchors: [a, b], topY, score };
+              }
+              return best;
+            };
+            for (const [along, band, strict] of [[-10.5, true, true], [-8, true, false], [1.75, false, false]]) {
+              let best = null;
+              for (const lane of edge.lanes) {
+                for (const shift of [0, -0.5, 0.5, -1, 1, -1.5, 1.5, -2, 2, -2.5, 2.5, -3, 3, -3.5, 3.5]) {
+                  const lat = lane + shift;
+                  if (Math.abs(lat) > edge.half - 0.5) continue;
+                  const target = { x: x + edge.dx * along + edge.rx * lat,
+                    z: z + edge.dz * along + edge.rz * lat, along };
+                  if (!headClear(target.x, target.z) || roadClearance(target.x, target.z) > -1) continue;
+                  const site = pickTraction(target, lane);
+                  if (!site) continue;
+                  site.band = band;
+                  site.strict = strict;
+                  if (!best || site.score < best.score) best = site;
+                }
+              }
+              if (best) return best;
+            }
+            return null;
+          };
+          return findTractionSpan();
         };
         // The first clear sample is placed, so the order is the preference: near, narrow sites first, then wider offsets,
         // then further back, where the head is harder to see from the stop line. Placing stops at the first failed
@@ -2160,11 +2235,13 @@ function buildStreetDetails(scene, opts = {}) {
           }
           const spanSite = findSpan();
           if (!spanSite) continue;
+          const topY = spanSite.topY ?? SPAN_Y;
           for (const anchor of spanSite.anchors) {
+            if (anchor.traction) continue;
             if (anchor.existing) addMastExtension(anchor.p, SPAN_MAST_H);
             else addOverheadPole(anchor.p, SPAN_MAST_H);
           }
-          addSpanWires(spanSite.anchors[0].p, spanSite.anchors[1].p, spanSite.target);
+          addSpanWires(spanSite.anchors[0].p, spanSite.anchors[1].p, spanSite.target, topY);
           const site = { timing: node.signalTiming }, group0 = edge.axisIndex === 0;
           const a = { ux: -edge.dx, uz: -edge.dz, w: edge.half * 2, lanes: edge.lanes.length };
           const target = spanSite.target;
@@ -2172,7 +2249,9 @@ function buildStreetDetails(scene, opts = {}) {
           const head = { site, a, p: target, group0, existing: spanSite.anchors.every((anchor) => anchor.existing),
             node, edge, overhead: true, span: true, pole: spanSite.anchors[0].p,
             anchors: spanSite.anchors.map((anchor) => anchor.p),
-            anchorExisting: spanSite.anchors.map((anchor) => anchor.existing), m, band: spanSite.band, strict: spanSite.strict };
+            anchorExisting: spanSite.anchors.map((anchor) => anchor.existing),
+            anchorTraction: spanSite.anchors.map((anchor) => !!anchor.traction), topY,
+            m, band: spanSite.band, strict: spanSite.strict };
           heads.push(head);
           vehicleHeadSites.push(head);
           entry.class = 'B';

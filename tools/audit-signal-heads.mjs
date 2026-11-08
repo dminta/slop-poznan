@@ -117,6 +117,7 @@ const alongOf = (h) => {
 };
 const overhead = street.runtimeHeads.filter((h) => h.overhead);
 const span = overhead.filter((h) => h.span);
+const spanTraction = span.filter((h) => h.anchorTraction && h.anchorTraction.some(Boolean));
 const cantilever = overhead.filter((h) => !h.span);
 const fallback = cantilever.filter((h) => !h.band);
 const spanFallback = span.filter((h) => !h.band);
@@ -184,6 +185,8 @@ console.log(JSON.stringify({ counts, total: initial.length, vehicleHeads: street
   cantileverPoles,
   spanStrict: span.filter((h) => h.strict).length,
   spanBand: span.filter((h) => h.band).length,
+  spanTractionHeads: spanTraction.length,
+  spanTractionAnchors: spanTraction.reduce((sum, h) => sum + h.anchorTraction.filter(Boolean).length, 0),
   spanException: spanFallback.length,
   spanFallbackAlong: spanFallbackAlong.map((v) => Number(v.toFixed(3))),
   spanLengthMax: spanLengths.length ? Number(Math.max(...spanLengths).toFixed(4)) : null,

@@ -348,13 +348,28 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
       `setback ${along}`);
     if (h.overhead) {
       if (h.span) {
-        assert.ok(e.lanes.some((lane) => Math.abs(lane - ((h.p.x - x) * e.rx + (h.p.z - z) * e.rz)) <= 1.6),
-          `span head over a lane at ${h.p.x}, ${h.p.z}`);
+        const traction = h.anchorTraction && h.anchorTraction.some(Boolean);
+        if (traction) {
+          // A traction-anchored span shares a lane with the tram: its head sits on the far side of the carriageway.
+          assert.ok(config.roadClearance(h.p.x, h.p.z) < -1,
+            `traction span head over the carriageway at ${h.p.x}, ${h.p.z}`);
+        } else {
+          assert.ok(e.lanes.some((lane) => Math.abs(lane - ((h.p.x - x) * e.rx + (h.p.z - z) * e.rz)) <= 1.6),
+            `span head over a lane at ${h.p.x}, ${h.p.z}`);
+        }
         assert.ok(gridModule.railClearance(h.p.x, h.p.z, 20) >= 2.22,
           `span head keeps 2.22 m from rails at ${h.p.x}, ${h.p.z}`);
         assert.ok(supports.every((s) => Math.hypot(h.p.x - s.x, h.p.z - s.z) >= 3.1),
           `span head keeps 3.1 m from a traction pole at ${h.p.x}, ${h.p.z}`);
-        for (const p of h.anchors) {
+        for (const [i, p] of h.anchors.entries()) {
+          if (h.anchorTraction && h.anchorTraction[i]) {
+            assert.ok(supports.some((s) => Math.hypot(s.x - p.x, s.z - p.z) < 1e-6),
+              `traction anchor ${p.x}, ${p.z} is a real support`);
+            assert.ok(supports.every((s) => Math.hypot(s.x - p.x, s.z - p.z) < 1e-6 ||
+              Math.hypot(p.x - s.x, p.z - s.z) >= 3.1),
+              `traction anchor ${p.x}, ${p.z} keeps 3.1 m from other supports`);
+            continue;
+          }
           assert.ok(config.roadClearance(p.x, p.z) >= 0.8, `span foot ${p.x}, ${p.z} clear of the roadway`);
           assert.ok(gridModule.railClearance(p.x, p.z, 20) >= 2.22,
             `span foot ${p.x}, ${p.z} keeps 2.22 m from rails`);
@@ -416,9 +431,21 @@ test('overhead and span heads keep 3.1 m from tram poles and railway masts', () 
   assert.ok(overhead.length > 0, 'runtime placement produced overhead heads');
   for (const h of overhead) {
     if (h.span) {
-      // The stays run at 10 m, above every tram pole (7.6 m) and railway portal mast (9.6 m); only the anchors and
-      // the 5.3 m head sit at pole height, so they keep the full 3.1 m from every support.
-      for (const p of h.anchors) {
+      // The ordinary stays run at 10 m, above every tram pole (7.6 m) and railway portal mast (9.6 m); only the
+      // anchors and the 5.3 m head sit at pole height, so they keep the full 3.1 m from every support. A traction
+      // span bolts to its own two poles, so only their other neighbours need the 3.1 m.
+      const traction = h.anchorTraction || [];
+      for (const [i, p] of h.anchors.entries()) {
+        if (traction[i]) {
+          assert.ok(supports.some((s) => Math.hypot(s.x - p.x, s.z - p.z) < 1e-6),
+            `traction anchor at ${p.x}, ${p.z} is a real support`);
+          for (const s of supports) {
+            if (Math.hypot(s.x - p.x, s.z - p.z) < 1e-6) continue;
+            assert.ok(Math.hypot(p.x - s.x, p.z - s.z) >= 3.1,
+              `traction anchor at ${p.x}, ${p.z} is ${Math.hypot(p.x - s.x, p.z - s.z).toFixed(2)} m from another mast`);
+          }
+          continue;
+        }
         for (const s of supports) {
           assert.ok(Math.hypot(p.x - s.x, p.z - s.z) >= 3.1,
             `span foot at ${p.x}, ${p.z} is ${Math.hypot(p.x - s.x, p.z - s.z).toFixed(2)} m from a mast`);
@@ -428,7 +455,11 @@ test('overhead and span heads keep 3.1 m from tram poles and railway masts', () 
         assert.ok(Math.hypot(h.p.x - s.x, h.p.z - s.z) >= 3.1,
           `span head at ${h.p.x}, ${h.p.z} is ${Math.hypot(h.p.x - s.x, h.p.z - s.z).toFixed(2)} m from a mast`);
       }
-      assert.ok(supports.every((s) => (s.h ?? 0) < 9.8), 'span stays run above the traction poles');
+      if (traction.some(Boolean)) {
+        assert.ok(h.topY > 6.6 && h.topY < 7.6, 'traction stays run above the 6.6 m tram span wires');
+      } else {
+        assert.ok(supports.every((s) => (s.h ?? 0) < 9.8), 'span stays run above the traction poles');
+      }
       continue;
     }
     let min = Infinity, where = '';

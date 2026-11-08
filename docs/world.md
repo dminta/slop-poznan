@@ -277,7 +277,7 @@ Built before the road network, so everything that stands near a lane is checked 
   dot > 0.98 head within 45 m. Eight existing-pole heads raised vehicle heads 895 → 903; two of the other eleven
   already had heads and one was disabled. On the remaining 167 edges, the original 60-site sampling classified
   A/B/C/D **17/27/113/10 → 47/0/110/10** before and after the previous placement. The expanded sampling classifies
-  the same fixture **17/74/66/10** before and **117/0/40/10** after the current placement. A requires a same-phase
+  the same fixture **17/65/75/10** before and **157/0/0/10** after the current placement. A requires a same-phase
   head on the same plan facing the approach: either the strict test (direction dot > 0.9, within 30 m of the stop
   line and along ≤ 2 m) or the approach test (direction dot > 0.98, within 45 m of the junction). Both compare the
   head's group with the edge's arm group after swapping the plan's main axis when the two plans' main axes are
@@ -285,27 +285,29 @@ Built before the road network, so everything that stands near a lane is checked 
   both groups (edge.axisIndex 0), so either group's head counts there. B has a sampled clear site or an overhead
   fallback; C has no such site; D is inactive. The audit reports each failed constraint's count over up to 300 samples, the
   fewest failures at any one sample, and each A head's raw `group0`/`axis0`/`swap` inputs.
-  The current placement closes 42 of the 43 C edges with an expanded overhead search and a new span-wire
-  fallback. The overhead search now samples the approach −30…+20 m and up to ±(half + 24) m laterally, still with a
-  12 m cantilever. When no cantilever reaches a visibility band, two stays from existing signal poles or new 10 m
-  masts up to 55 m away meet 10 m above the head and drop vertically to the 5.3 m S-1 centre. The stays run above
-  the 7.6 m tram poles, 9.6 m railway portal masts and 8.9 m portal beams, so they may cross a track; only the head
-  and the vertical drop need the 2.22 m horizontal track clearance. The head stays over a real lane, sliding up to
-  1.5 m across the lane envelope when a tram occupies the lane axis, and every foot, head and cantilever arm keeps
-  **3.1 m** from every real tram pole, railway mast and portal mast. New span masts also keep 3.1 m from every
+  The current placement closes all 43 C edges with an expanded overhead search and two span-wire fallbacks. The
+  overhead search samples the approach −30…+20 m and up to ±(half + 24) m laterally, still with a 12 m cantilever.
+  When no cantilever reaches a visibility band, two stays from existing signal poles or new 10 m masts up to 55 m
+  away meet 10 m above the head and drop vertically to the 5.3 m S-1 centre. The stays run above the 7.6 m tram
+  poles, 9.6 m railway portal masts and 8.9 m portal beams, so they may cross a track; only the head and the
+  vertical drop need the 2.22 m horizontal track clearance. The head stays over a real lane, sliding up to 1.5 m
+  across the lane envelope when a tram occupies the lane axis. Where the lane itself shares the curved track, a
+  second fallback bolts the span to two existing 7.6 m traction poles: the stays meet at 7.2 m (above the 6.6 m
+  tram span wires), the head may slide up to 3.5 m across the carriageway, and it must stay at least 1 m inside the
+  roadway. Every foot, head and cantilever arm keeps **3.1 m** from every real tram pole, railway mast and portal
+  mast; a traction anchor is exempt only from the distance to itself. New span masts also keep 3.1 m from every
   track; reused signal poles keep their existing 2.22 m track clearance. `main.js` computes the tram and railway
   layouts once after the network, hands their supports to `addRuntimeSignalHeads`, and reuses the same layouts in
   `buildTramInfrastructure`. An 8 m bucket grid makes the support checks cheap.
-  The furnished-grid audit is **156/0/1/10** after placement (from **114/0/43/10**): 48 cantilever heads (16 new
-  6.2 m masts, 32 reused poles) and 26 span heads (25 new 10 m masts, 26 reused anchors; 18 span heads use at least
-  one new mast and 8 sit entirely on existing poles). Vehicle heads increase **1,001 → 1,043**; pedestrian heads
+  The furnished-grid audit is **157/0/0/10** after placement (from **114/0/43/10**): 48 cantilever heads (16 new
+  6.2 m masts, 32 reused poles) and 27 span heads (25 new 10 m masts, 28 reused anchors; 18 span heads use at least
+  one new mast and 9 sit entirely on existing supports). Vehicle heads increase **1,001 → 1,044**; pedestrian heads
   and audio entries remain **1,572**. The cantilever arms run at most 11.759 m (mean 8.281 m); the span stays at
-  most 54.604 m (mean 27.824 m). The closest new foot is 3.141 m from a track, the closest span head 2.298 m and
+  most 54.604 m (mean 27.270 m). The closest new foot is 3.141 m from a track, the closest span head 2.298 m and
   the closest cantilever arm 2.604 m; the signal-placement test checks every foot, head and arm against the real
-  tram poles and railway masts (3.1 m) and confirms the stays run above the 9.6 m portal masts. One C remains at
-  **Górna Wilda** (`-448.8, 947.4`, approach `0.480, -0.877`): its only nearby signal pole is 14.5 m away and the
-  first clear ground lies 46–52 m past the stop line, with no second anchor that keeps the 3.1 m support clearance;
-  it needs a site-specific span from the tram traction poles or a gantry on the far side.
+  tram poles and railway masts (3.1 m) and confirms the ordinary stays run above the 9.6 m portal masts. The last C,
+  **Górna Wilda** (`-448.8, 947.4`, approach `0.480, -0.877`), now hangs from two traction poles 5.0 / 12.9 m from
+  the head; its head sits at `(-460.083, 982.522)`, 2.69 m from the curved track and 3.0 m across the shared lane.
   C does not exclude other, unsampled sites. This is geometric visibility, without occlusion checks.
 
   `addRuntimeSignalHeads` uses the configured runtime edges, phase and facing. It prefers an unused existing pole on
