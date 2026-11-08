@@ -24,7 +24,7 @@ function paintOf(edges, crosswalks = crosswalksOf(edges), railClearance = null) 
   class Attribute { constructor(array) { this.array = array; } }
   const THREE = { Color, BufferGeometry, Float32BufferAttribute: Attribute, BufferAttribute: Attribute, Mesh: class {} };
   const { buildRoadPaint } = loadModule(readFileSync(join(__dirname, '../js/road-paint.js'), 'utf8'), {
-    imports: { 'three/webgpu': THREE, './road-network.js': { CROSSWALK: 4.3, STOP_SETBACK: 1.75 }, './tsl-materials.js': { createRoadPaintMaterial: () => ({}) } },
+    imports: { 'three/webgpu': THREE, './road-network.js': { CROSSWALK: 4.3, STOP_SETBACK: 1.75, laneShiftAt: () => 0 }, './tsl-materials.js': { createRoadPaintMaterial: () => ({}) } },
     filename: 'road-paint.js'
   });
   buildRoadPaint({ add() {} }, { edges, paintEdges: edges }, crosswalks, railClearance);
@@ -131,7 +131,7 @@ test('P-14 stop lines of 0.75 m rectangles 0.25 m apart at signals and on major 
 test('P-22 marks only the explicitly designated lane and keeps clear of tracks', () => {
   const source = readFileSync(join(__dirname, '../js/road-paint.js'), 'utf8');
   const { layoutBusMarkings } = loadModule(source, {
-    imports: { 'three/webgpu': { Color: class {} }, './road-network.js': {}, './tsl-materials.js': {} }
+    imports: { 'three/webgpu': { Color: class {} }, './road-network.js': { laneShiftAt: () => 0 }, './tsl-materials.js': {} }
   });
   const edges = road({ half: 7, lanes: [1.8, 5.4], back: null });
   edges[0].busLanes = [1];
@@ -165,7 +165,7 @@ test('P-22 maps a longer OSM lane vector onto the runtime lanes it keeps', () =>
 
 test('P-22 keeps out of lanes narrower than 2.8 m', () => {
   const { layoutBusMarkings } = loadModule(readFileSync(join(__dirname, '../js/road-paint.js'), 'utf8'), {
-    imports: { 'three/webgpu': { Color: class {} }, './road-network.js': {}, './tsl-materials.js': {} }
+    imports: { 'three/webgpu': { Color: class {} }, './road-network.js': { laneShiftAt: () => 0 }, './tsl-materials.js': {} }
   });
   const narrow = road({ half: 2, lanes: [1.4], back: null });
   narrow[0].busLanes = [0];
@@ -197,7 +197,7 @@ test('P-22 glyphs read left to right across the lane in the direction of travel'
   const { buildBusMarkings } = loadModule(readFileSync(join(__dirname, '../js/road-paint.js'), 'utf8') +
     '\nexport { buildBusMarkings };', {
     imports: { 'three/webgpu': { Color: class {}, BufferGeometry: Geometry, Float32BufferAttribute: Attribute,
-      BufferAttribute: Attribute, Object3D: Transform, InstancedMesh }, './road-network.js': {},
+      BufferAttribute: Attribute, Object3D: Transform, InstancedMesh }, './road-network.js': { laneShiftAt: () => 0 },
     './tsl-materials.js': { createBusPaintMaterial: () => material } }
   });
   let mesh;

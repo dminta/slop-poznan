@@ -639,6 +639,7 @@ function populationContext() {
     nearLanes: 0, nearTarget: 0, nearBusTarget: 0,
     nearEdges: [], nearCrossings: [], track: {}, KERB: 1.6, QUEUE_GAP: 0.62,
     atCurb: () => {}, laneClear: () => true, nearTram: () => false,
+    laneAt: (e, i) => e.lanes[i],
     place: (v, e, lane, s) => Object.assign(v, { edge: e, lane, s })
   };
   context.nearView = trafficFunction('nearView', context);

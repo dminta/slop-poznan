@@ -1436,11 +1436,22 @@ function buildStreetDetails(scene, opts = {}) {
       }
     }
   };
+  const treeLaneShift = treeNetwork.laneShiftAt || (() => 0);
   for (const e of treeNetwork.edges) {
-    for (const lane of e.lanes) fileTreeKeepout({
-      ax: e.x0 + e.rx * lane, az: e.z0 + e.rz * lane,
-      bx: e.x0 + e.dx * e.span + e.rx * lane, bz: e.z0 + e.dz * e.span + e.rz * lane
-    }, 1.5);
+    for (const lane of e.lanes) {
+      // A station profile moves the lane inside the edge; keep every sampled stretch of it clear, not just the chord.
+      const steps = e.laneShift ? Math.max(1, Math.ceil(e.span / 8)) : 1;
+      let ax = e.x0 + e.rx * (lane + treeLaneShift(e, 0));
+      let az = e.z0 + e.rz * (lane + treeLaneShift(e, 0));
+      for (let k = 1; k <= steps; k++) {
+        const s = (e.span * k) / steps;
+        const o = lane + treeLaneShift(e, s);
+        const bx = e.x0 + e.dx * s + e.rx * o, bz = e.z0 + e.dz * s + e.rz * o;
+        fileTreeKeepout({ ax, az, bx, bz }, 1.5);
+        ax = bx;
+        az = bz;
+      }
+    }
     // Enclose every possible zebra and landing before route pruning, including squeezed crossing setbacks.
     for (const [node, along] of [[e.from, -e.setbackFrom - CROSSWALK / 2],
       [e.to, e.len + e.setbackTo + CROSSWALK / 2]]) {

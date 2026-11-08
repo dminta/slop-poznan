@@ -186,12 +186,21 @@ function segmentGrid(cell = 24) {
 // turns along through the junctions (8 chords each): poles kept 2 m off the straight lanes alone stood on 15 turns
 function laneDistance(network) {
   const laneGrid = segmentGrid(32);
+  const shiftAt = network && network.laneShiftAt;
   for (const e of (network && (network.paintEdges || network.edges)) || []) {
     const span = e.span ?? e.len;
     for (const o of e.lanes) {
-      const ax = e.x0 + e.rx * o;
-      const az = e.z0 + e.rz * o;
-      laneGrid.add(ax, az, ax + e.dx * span, az + e.dz * span, null);
+      const steps = shiftAt && e.laneShift ? Math.max(1, Math.ceil(span / 8)) : 1;
+      let ax = e.x0 + e.rx * (o + (shiftAt ? shiftAt(e, 0) : 0));
+      let az = e.z0 + e.rz * (o + (shiftAt ? shiftAt(e, 0) : 0));
+      for (let k = 1; k <= steps; k++) {
+        const s = (span * k) / steps;
+        const off = o + (shiftAt ? shiftAt(e, s) : 0);
+        const bx = e.x0 + e.dx * s + e.rx * off, bz = e.z0 + e.dz * s + e.rz * off;
+        laneGrid.add(ax, az, bx, bz, null);
+        ax = bx;
+        az = bz;
+      }
     }
   }
   if (network && network.connector && network.curvePoint) {

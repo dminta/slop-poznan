@@ -577,6 +577,7 @@ function findTrackSignals(graph, roadNodes, reach = SIGNAL_REACH) {
 const ROAD_OVERLAP = 2.3;
 function mapTramsToRoads(graph, network, gap = ROAD_OVERLAP) {
   const roads = (network && network.edges) || [];
+  const laneAt = (r, i, s) => (network && network.laneOffset ? network.laneOffset(r, i, s) : r.lanes[i]);
   const CELL = 40;
   const cellKey = (i, j) => (i + 32768) * 65536 + (j + 32768);
   const cellOf = (x, z) => cellKey(Math.floor(x / CELL), Math.floor(z / CELL));
@@ -595,6 +596,7 @@ function mapTramsToRoads(graph, network, gap = ROAD_OVERLAP) {
     if (!r.lanes || !r.lanes.length) continue;
     let reach = gap;
     for (const l of r.lanes) reach = Math.max(reach, Math.abs(l) + gap);
+    for (const p of r.laneShift || []) reach = Math.max(reach, Math.abs(p.d) + gap);
     const ex = r.sx + r.dx * r.len;
     const ez = r.sz + r.dz * r.len;
     addToGrid(roadGrid, r, Math.min(r.sx, ex) - reach, Math.max(r.sx, ex) + reach, Math.min(r.sz, ez) - reach, Math.max(r.sz, ez) + reach);
@@ -617,7 +619,7 @@ function mapTramsToRoads(graph, network, gap = ROAD_OVERLAP) {
         const lat = px * r.rx + pz * r.rz;
         const cos = at.tx * r.dx + at.tz * r.dz;
         for (let i = 0; i < r.lanes.length; i++) {
-          if (Math.abs(lat - r.lanes[i]) >= gap) continue;
+          if (Math.abs(lat - laneAt(r, i, along)) >= gap) continue;
           const key = r.id * 16 + i;
           let run = open.get(key);
           if (!run || ss - run.s1 > 1.5) {

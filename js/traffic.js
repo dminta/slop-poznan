@@ -155,6 +155,7 @@ function createTrafficSystem(
   // 0. ROAD NETWORK
   // =========================================================================
   const { nodes, edges, connector, curvePoint } = network;
+  const laneAt = network.laneOffset || ((e, i) => e.lanes[i]);
 
   // Sides of an intersection (road-network.js step 7) are its arms, numbered from 0. Where lane i of edge e meets the
   // crosswalk of `arm` (e.inArm at e.to or e.outArm at e.from), measured along the crosswalk: along the lateral axis
@@ -163,7 +164,7 @@ function createTrafficSystem(
   // degrees apart, on the walkers' scale.
   const laneCoord = (e, i, arm) => {
     const c = arm.in || arm.out, s = arm === e.inArm ? e.len : 0;
-    return (e.sx + e.dx * s + e.rx * e.lanes[i]) * c.clx + (e.sz + e.dz * s + e.rz * e.lanes[i]) * c.clz;
+    return (e.sx + e.dx * s + e.rx * laneAt(e, i, s)) * c.clx + (e.sz + e.dz * s + e.rz * laneAt(e, i, s)) * c.clz;
   };
 
   for (const n of nodes) {
@@ -1639,8 +1640,9 @@ function createTrafficSystem(
   // Point and direction at distance c along v's path: its lane, the curve through the intersection, and the
   // lane after it (or, just out of an intersection, the curve it came along)
   function lanePoint(e, i, s, out) {
-    out.x = e.sx + e.dx * s + e.rx * e.lanes[i];
-    out.z = e.sz + e.dz * s + e.rz * e.lanes[i];
+    const o = laneAt(e, i, s);
+    out.x = e.sx + e.dx * s + e.rx * o;
+    out.z = e.sz + e.dz * s + e.rz * o;
     out.dx = e.dx;
     out.dz = e.dz;
     return out;
@@ -2275,8 +2277,9 @@ function createTrafficSystem(
       const maxS = Math.min(e.len - v.half - 5, along + rMax);
       if (minS > maxS) continue;
       const s = minS + Math.random() * (maxS - minS);
-      const x = e.sx + e.dx * s + e.rx * e.lanes[lane];
-      const z = e.sz + e.dz * s + e.rz * e.lanes[lane];
+      const o = laneAt(e, lane, s);
+      const x = e.sx + e.dx * s + e.rx * o;
+      const z = e.sz + e.dz * s + e.rz * o;
       const d = Math.hypot(x - focusX, z - focusZ);
       if (d < rMin || d > rMax || (protectView && nearView(x, z, v.half + 4, VEHICLE_SPAWN_DISTANCE))) continue;
       if (player.active && Math.hypot(x - player.x, z - player.z) < 25) continue;

@@ -40,6 +40,7 @@ function populationHarness(major = true) {
     VEHICLE_SPAWN_DISTANCE: 250, NUM_PEDS: 0,
     updateSignals() {}, updateView() {}, nearView: () => false,
     nearTram: (_x, _z, radius) => state.blockBuses && radius === 9,
+    laneAt: (e, i) => e.lanes[i],
     place(v, edge, lane, s) {
       Object.assign(v, { edge, lane, s, x: edge.sx, z: edge.sz + s });
       edge.occ[lane].push({ v, s });
