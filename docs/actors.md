@@ -523,6 +523,19 @@ cars held over 120 s at zero. Rejected while measuring: the same stand test in e
 long-connector stop (Kaponiera worst wait 191 s, 12 cars over 120 s, five new Centrum pairs), the feeder two-step, and
 the old `enter` hard stop for cars. [Measurements and mechanisms](observations/car-tram-overlaps-2026-11-08.md).
 
+**Moving-tram road gate (2026-11-09).** The gate above ran only while the tram was stopped or already gated; a moving
+tram swept only for bodies already in its path. It now runs every frame and also counts a car committed to the
+conflict: `entering`, a `tail` still on the connector, `unable` on a short link, or `arriving` on a connector into a
+short link whose remaining braking distance no longer fits. A car that can still stop before the link does not hold the
+tram, and the stopped gate keeps its exemptions. On the current tree the default seed-4242 audit moves **16 → 6 pairs**
+(Jeżyce 10 → 5, Kaponiera 5 → 1, Stare Miasto 1 → 0) and eight seeds **77 → 54** (moving 55 → 37, stopped 22 → 17;
+Kaponiera 11 → 8, Centrum 10 → 7, Stare Miasto 17 → 4, Jeżyce 39 → 35). The benchmark mean rises 14.8 → 15.4 km/h,
+stopped falls 35.1 → 33.5 %, the worst wait is 112 s (was 88, still under 120) and the single deadlock is gone. Rejected:
+an unheld-curve arrival forecast (same 54, pairs moved), a 1.5 m gate standoff (60 pairs, Centrum 4 → 10), a projected
+entry speed (Kaponiera 3, Centrum 1, mean 11.3 km/h, switch waits 40.9 s) and the old `enter` hard stop. The remaining
+default Kaponiera 22:1 is a 15-pair-frame side graze after the car was already on its connector.
+[Measurements](observations/car-tram-overlaps-2026-11-09.md).
+
 **Public contract for interactions** (car yielding, pedestrians, player collisions, audio):
 - `tramSystem.trams`: the active trams, refreshed every update (the same objects as `tramSystem.pool`, filtered).
   Each has `id`, `model` (`'gamma'|'tramino'|'combino'`), `spec` (its `TRAM_MODELS` entry), `length`, `x, z, heading` (the
