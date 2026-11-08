@@ -50,9 +50,12 @@ Implementation details and completed measurements live in the [topic docs](../AG
   collider). Run `node tools/audit-signal-heads.mjs`; the fixture omits building, landmark and bridge colliders.
   [Measurements](observations/missing-signal-heads-2026-11-08.md),
   [placement](world.md#street-furniture-street-detailsjs).
-- **Building accuracy (4.4, 7):** the Fara front gable/cross and the Teatr Wielki portico/Pegasus now use GUGiK
-  NMPT − NMT sub-heights; only the four Fara niche statues (below the 1 m DSM resolution) remain visual estimates.
-  [Height audit](observations/landmark-heights-2026-11-03.md#2026-11-07--refined-fara-and-teatr-sub-heights).
+- **Building accuracy (4.4, 7):** resolved 2026-11-08. The Fara front gable/cross and the Teatr Wielki
+  portico/Pegasus use GUGiK NMPT − NMT sub-heights; the four lower-tier Fara niche statues now carry their parish
+  identities, 2.18–2.36 m figures on 0.77 m pedestals in 3.33 m niche openings (4.09 m aediculae) at the 5.8 m and
+  10.85 m bay centres, with the outer pair 2.1 m higher over the tall side windows. The central St Ignatius and the
+  upper-tier Borgia/Xavier stay outside the four-statue set.
+  [Height audit](observations/landmark-heights-2026-11-03.md#2026-11-08--fara-niche-statues).
 - **Building density follow-up (Bukowska, hospital/academic grounds):** the campus profile and graduated core are in
   (2026-11-07) and the 2026-11-08 WebGPU/WebGL2 review is complete: blocks 666, 577, 427 and 476 sit within ±20 % of
   their OSM built share (666 20.6/21 %, 577 36.4/37 %, 427 22.5/22 %, 476 14.5/15 %), and 807/1121 land at 19.7/21 and
@@ -246,6 +249,10 @@ Implementation details and completed measurements live in the [topic docs](../AG
   [Tree/building clearance](observations/tree-building-clearance-2026-11-03.md).
 - Check the corrected heights of Iglica, Delta, Brama Poznania and Zamek Królewski, and the refined Fara front
   gable/cross and Teatr Wielki portico/Pegasus from street level and above.
+- Inspect the four Fara lower-tier niche statues from Świętosławska on WebGPU and WebGL2: aedicule depth and hood,
+  no z-fighting against the plaster, the figure silhouettes and gilded attributes, and the outer pair standing 2.1 m
+  higher over the tall side windows.
+  [Niche record](observations/landmark-heights-2026-11-03.md#2026-11-08--fara-niche-statues).
 - Check tram rails without a track bed for appearance and shader errors (flush heads on road, grass and curb islands);
   mainline railway sleepers should remain visible.
 - Inspect P-22 BUS markings on WebGPU and WebGL2. [Placement scope](world.md).

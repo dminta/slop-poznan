@@ -165,8 +165,9 @@ symbols under it. The DSM puts the stone gable apex at 37.8 m and the thin cross
 39.9–40.1 m cells are a broad strip on the south gable, the "second facade" built on the old city wall. The model now
 rises 4.8 m over the 33 m cornice (37.8 m), stands a 2.2 m cross on the apex (40.0 m) and keeps 40.0 m as `FARA.top`.
 The authored top therefore equals the fitted top: `fitToSite` runs at 1.000 instead of 0.980 and the 37 m ridge renders
-at 37.0 m. The four niche statues (St Stanislaus Kostka, St Adalbert, St Stanislaus bishop, St Aloysius Gonzaga) stay
-2.6 m visual estimates: at 1 m the DSM returns the facade behind them, not their tops.
+at 37.0 m. The four niche statues (St Stanislaus Kostka, St Adalbert, St Stanislaus bishop, St Aloysius Gonzaga) were
+2.6 m visual estimates in this pass: at 1 m the DSM returns the facade behind them, not their tops. Their identities,
+proportions and positions are refined below (2026-11-08).
 
 ### Teatr Wielki
 
@@ -183,3 +184,32 @@ bounded, not measured to the centimetre. The south gable screen itself is not mo
 the overall height cap (`FARA.top`), realized by the front cross, so the 40 m strip is a height reference rather than a
 new silhouette. The glass-roof under-read noted for the PFC does not apply: the Fara (tile), portico (stone) and
 Pegasus (bronze) returns are solid.
+
+## 2026-11-08 — Fara niche statues
+
+The four lower-tier side niches were the last visual estimates on the Fara front. Their identities come from the
+parish's own architectural description ([fara.archpoznan.pl/pl/architektura](https://fara.archpoznan.pl/pl/architektura)):
+from the viewer's left, St Stanislaus Kostka with the Infant Jesus and St Adalbert with a spear; on the right,
+St Stanislaus bishop with a crozier and St Aloysius Gonzaga with a cross. St Ignatius Loyola is the larger central
+figure above the portal (torch, eagle, snake), not one of these four; Francis Borgia and Francis Xavier stand in the
+upper tier beside the semicircular window. The model therefore keeps four side figures and does not promote the
+central or upper-tier statues into the counted set.
+
+The six-column lower storey has five bays: the central portal bay, two inner bays centred at 5.8 m and two outer bays
+centred at 10.85 m from the axis. The niches sit on those bay centres, two either side of the portal. Because the tall
+outer windows reach 11 m, the outer pair starts at 11.45 m and the inner pair at 9.35 m; the 2.1 m step matches the
+window heights and keeps every aedicule below the 15.6 m lower cornice.
+
+Each modelled niche follows the measured baroque proportions: a 1.56 m opening, a 3.33 m arch head inside the
+3.2–3.5 m range, a 0.77 m sandstone pedestal and a 2.18–2.36 m figure (the taller values are the mitre and crozier,
+not the body). The aedicule adds a sill, jambs, entablature above the arch crown and a segmental hood, for 4.09 m to
+the finial. The facade wall plane is
+`z = −28`; the dark recess front sits at `z = −27.995`, the figure centre at `z = −28.22`, and the aedicule front at
+`z = −28.61`, so the 0.6 m-deep frame encloses the figure with no coplanar faces and no z-fighting. The statues are
+static, share `M.sandstone`, `M.plasterWhite`, `M.glass` and `M.gold`, and batch with the other landmark stonework;
+no collider changes were needed (the existing Fara collider already covers `z = −28.6`).
+
+Figure sizes remain visual estimates, bounded by the 1 m DSM and the photograph perspective; the facade heights
+themselves are the measured values above. [Reference photograph](https://commons.wikimedia.org/wiki/File:Fara_pozna%C5%84ska,_elewacja.jpg)
+shows the central Ignatius niche and the inner right (St Stanislaus bishop) niche; the four side aediculae repeat the
+same order along the lower storey.
