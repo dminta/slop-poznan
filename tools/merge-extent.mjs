@@ -22,9 +22,10 @@ if (!NEW) {
   process.exit(1);
 }
 
-// The new padded detail box reaches 16.852 E; 16.883 E is the old query edge plus the sliver needed to join the core.
-// Only elements that reach the new padded box are added, so a wide fetch of the airport does not bloat the data.
-const WEST_PAD_LON = 16.852;
+// The new padded detail box reaches 16.795 E (Ławica, Etap 2); 16.883 E is the old query edge plus the sliver needed
+// to join the core. Only elements that reach the new padded box are added, so a wide fetch of the airport does not
+// bloat the data.
+const WEST_PAD_LON = 16.795;
 const JOIN_LON = 16.883;
 const FILES = ['poz_roads', 'poz_signals', 'poz_rail', 'poz_tram_routes', 'poz_parks', 'poz_buildings', 'poz_industry'];
 

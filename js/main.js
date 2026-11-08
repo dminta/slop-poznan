@@ -5,6 +5,7 @@ import { createPostProcessing } from './post-processing.js';
 import { ClusteredLighting } from 'three/addons/lighting/ClusteredLighting.js';
 import { getLocationLabel, STREET_JOIN, districtAt, isTypingInField, formatCount, ROADS, CITY_LANDMARKS, TELEPORT_LOCATIONS } from './city-config.js';
 import { buildCityGrid, railClearance } from './city-grid.js';
+import { buildAirport } from './airport.js';
 import { buildCanopies } from './canopies.js';
 import { buildOutskirts } from './outskirts.js';
 import { buildBridges } from './bridges.js';
@@ -92,6 +93,9 @@ async function initApp() {
     buildingColliders
   });
   markInit('cityGrid');
+  // Ławica is cut out of the block raster, so its runway, taxiways, aprons and terminals are their own layer.
+  const airport = buildAirport(scene);
+  markInit('airport');
   // Open platform, tram-stop and forecourt canopies stand above the ground actors; only their columns collide
   const canopies = buildCanopies(scene);
   markInit('canopies');
@@ -101,7 +105,8 @@ async function initApp() {
   const bridges = buildBridges(scene, { sidewalks: cityGrid.sidewalks });
   markInit('bridges');
   const allColliders = [
-    ...landmarkColliders, ...cityBlocks.colliders, ...canopies.colliders, ...outskirts.colliders, ...bridges.colliders, ...(cityGrid.colliders || [])
+    ...landmarkColliders, ...cityBlocks.colliders, ...airport.colliders, ...canopies.colliders, ...outskirts.colliders,
+    ...bridges.colliders, ...(cityGrid.colliders || [])
   ];
 
   // the building walls carry the street name plates at the signalised corners
@@ -196,7 +201,7 @@ async function initApp() {
 
   // City-wide static geometry: chunk & distance-cull the small props, shadow stand-ins for the big casters
   // (scene-culling.js)
-  const cullingRoots = ['CityGrid', 'CityBlocks', 'Canopies', 'StreetDetails', 'Landmarks', 'Outskirts', 'Bridges', 'TramInfrastructure']
+  const cullingRoots = ['CityGrid', 'Airport', 'CityBlocks', 'Canopies', 'StreetDetails', 'Landmarks', 'Outskirts', 'Bridges', 'TramInfrastructure']
     .map((name) => scene.getObjectByName(name))
     .filter(Boolean);
   setupSceneCulling(scene, cullingRoots, lightingSystem.sunLight.shadow);

@@ -80,7 +80,8 @@ ZNTK 848 → 846, Hala Arena 927 → 925, Termy 613 → 611, Kaponiera 693 → 6
 
 ## Co zostaje na Etap 2
 
-- Lotnisko Ławica: `x_min = −9 120`, nowy snapshot `aeroway`, wyczyszczenie aerodromu z rastra bloków i `js/airport.js`.
-  Bez tego wariant B zamienia płytę lotniska w jeden 7,95 km² kwartał.
-- Ewentualne etykiety `King Cross` i `Business Garden` w `city-map.js` / `LANDMARK_SITES`.
+- **Zrobione 2026-11-08:** Lotnisko Ławica: `x_min = −9 120`, snapshot `aeroway`, wyczyszczenie aerodromu z rastra
+  bloków i `js/airport.js`. Szczegóły i pomiary: [wdrożenie Etapu 2](detailbox-west-phase2-2026-11-08.md).
+- Ewentualne etykiety `King Cross`, `Business Garden` i `Port Lotniczy Poznań-Ławica` w `city-map.js` /
+  `LANDMARK_SITES`.
 - Świadomy re-baseline całego miasta (pełny refresh OSM) dopiero, gdy będzie akceptacja migracji setek id kwartałów.

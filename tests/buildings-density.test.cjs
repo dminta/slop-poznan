@@ -429,10 +429,10 @@ test('balcony stacks city-wide count and distribution', async () => {
     for (const bal of b.balconies) landings += bal.landings;
   }
   // Campus blocks replace kamienice with clinics and halls (balconies only on some university buildings), and the
-  // non-residential profiles (mall, retail park, industrial hall, depot, arena) replace whole blocks of housing, so
-  // the city-wide total sits below the pre-campus ~16.5k / 48k and the pre-non-res ~16.5k.
-  assert.ok(stacks > 14000 && stacks < 18000, `Expected ~14-18k stacks, got ${stacks}`);
-  assert.ok(landings > 40000 && landings < 52000, `Expected ~40-52k landings, got ${landings}`);
+  // non-residential profiles (mall, retail park, industrial hall, depot, arena) replace whole blocks of housing. The
+  // west expansion adds the Marcelin/Ławica housing stock: 19,355 stacks after Etap 2 (16.5k before the non-res pass).
+  assert.ok(stacks > 14000 && stacks < 21000, `Expected ~14-21k stacks, got ${stacks}`);
+  assert.ok(landings > 40000 && landings < 62000, `Expected ~40-62k landings, got ${landings}`);
 });
 
 test('streamed balcony stacks never exceed MAX_STACKS (2400) and keep comfortable margin', async () => {

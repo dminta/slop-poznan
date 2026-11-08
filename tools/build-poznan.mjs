@@ -11,6 +11,7 @@ import { parks, landmarks, districts, labels } from './poz-extra.mjs';
 import { blocks, STRIP, SIDEWALK } from './poz-blocks.mjs';
 import { blockStats, blockFootprints, blockParkBuildings, industry, blockAnchors } from './poz-buildings.mjs';
 import { canopies } from './poz-canopies.mjs';
+import { aeroway } from './poz-aeroway.mjs';
 import { buildRoadGraph } from './poz-roadgraph.mjs';
 
 const OUT = process.argv[2] || fileURLToPath(new URL('../js/geodata.js', import.meta.url));
@@ -127,6 +128,10 @@ const GEO = {
   // (4.5-5.6 m, above a train/tram body and a pedestrian); columns the 0.4 m posts, kept 2.6 m clear of every rail
   // centreline (poz-canopies.mjs). No canopy has walls, so vehicles and pedestrians pass underneath.
   canopies,
+  // [{ kind: 'runway'|'taxiway'|'apron'|'terminal'|'helipad', ring, h? }]: Ławica aerodrome surfaces from
+  // poz_aeroway.json. The aerodrome outline also clears the block raster (poz-blocks.mjs); the runway, taxiways,
+  // aprons, terminal footprints and helipads are drawn by js/airport.js. h is the terminal height (8 m minimum).
+  aeroway,
   parks,
   // { name: { x, z, w, d, h, area, ring, ang } }: w and d along the turned axes (ang, radians)
   landmarks

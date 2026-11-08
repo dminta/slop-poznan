@@ -62,13 +62,15 @@ Implementation details and completed measurements live in the [topic docs](../AG
   structure, so unnamed `highway=service` cuts stay dropped; the 8-lot `maskRects` cap is not on the path of the
   27 `program > 0` blocks of at least 5 ha, which all use frontage frames (raising the frame caps 12/10 to 18/16 changes
   8 of 27 sets and the coverage by -0.65 to +1.14 pp; above 18/16 there is no change), and OSM vs BDOT10k is closed for
-  this snapshot. **Western edge, Etap 1: resolved 2026-11-08.** The box now reaches x = −5,250 (16.85686 E), so King
+  this snapshot. **Western edge, Etap 1: resolved 2026-11-08.** Etap 1 reached x = −5,250 (16.85686 E), so King
   Cross Marcelin (block 1475, mall anchor, 4 storeys) and Business Garden (block 1492, programme 9 office campus) are
-  generated in detail; the merge kept the core frozen and the full suite passes 470/470. **Remaining, Etap 2:** Ławica
-  (x = −9,120) still needs a new `aeroway` snapshot, an aerodrome cut in `poz-blocks.mjs` and `js/airport.js` — never
-  the bare box extension without that layer. Feasibility and the staged plan are in
-  [the west-expansion study](observations/detailbox-west-expansion-2026-11-08.md); what shipped is in
-  [the Etap 1 record](observations/detailbox-west-phase1-2026-11-08.md).
+  generated in detail; the merge kept the core frozen and the full suite passes 470/470. **Etap 2 (Ławica) resolved
+  2026-11-08:** the box now reaches x = −9,120 (16.800 E); `poz_aeroway.json` feeds `GEO.aeroway`, `poz-blocks.mjs`
+  clears the 2.81 km² aerodrome from the block raster, and `js/airport.js` draws the 10/28 runway, 83 taxiways,
+  22 aprons, 7 terminals and 3 helipads with markings and lights. The full suite passes 471/471. Feasibility and the
+  staged plan are in [the west-expansion study](observations/detailbox-west-expansion-2026-11-08.md); what shipped is
+  in [the Etap 1 record](observations/detailbox-west-phase1-2026-11-08.md) and
+  [the Etap 2 record](observations/detailbox-west-phase2-2026-11-08.md).
   [Density record and measurements](observations/building-density-2026-11-07.md#follow-up-2026-11-08-visual-review-lot-cap-and-service-alleys),
   [sparse-block BDOT audit](observations/sparse-blocks-2026-11-04.md),
   [Density test harness](tests/buildings-density.test.cjs),
@@ -220,6 +222,10 @@ Implementation details and completed measurements live in the [topic docs](../AG
   Consider an atlas with per-instance UVs if measurements justify it.
 - Measure load time and frame rate across the enlarged detail box, roof/dormer coverage and pool limits, estate
   slabs and transitions to the outskirts; check detailed WebGL2 appearance and performance.
+- Inspect Ławica on WebGPU and WebGL2: the 10/28 runway from the air and from Bukowska, the terminal T1–T3 facades and
+  jet bridges from street level, the runway/taxiway/apron markings and lights at night, z-fighting between the 3.5 cm
+  tarmac layer and the land deck, and the airport's draw-call/shadow cost.
+  [Etap 2 record](observations/detailbox-west-phase2-2026-11-08.md).
 
 ### Geometry, materials and collisions
 

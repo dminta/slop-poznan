@@ -240,9 +240,11 @@ test('Footbridge midpoints are walkable land (isLand === true) and not open wate
 
 test('Footbridges do not affect the vehicular road network edge count or lane count', () => {
   const net = buildRoadNetwork([], []);
-  assert.equal(net.edges.length, 10569, 'road network edge count matches baseline');
+  // Etap 2 (Ławica, x = −9,120) adds the western road graph: 13,256 edges and 16,979 lanes (10,569 / 13,976 after
+  // Etap 1). Footbridges still contribute neither an edge nor a lane.
+  assert.equal(net.edges.length, 13256, 'road network edge count matches baseline');
   const totalLanes = net.edges.reduce((sum, e) => sum + e.lanes.length, 0);
-  assert.equal(totalLanes, 13976, 'total vehicular lanes count matches baseline');
+  assert.equal(totalLanes, 16979, 'total vehicular lanes count matches baseline');
 
   const fbNames = new Set(['Most Biskupa Jordana', 'Kładka Bramy Poznania', 'Mosty Berdychowskie']);
   for (const e of net.edges) {

@@ -29,7 +29,7 @@ test('opposing-lane audit lists used street runs and counts off-street and unuse
   assert.equal(total.lanes, new Set(rows.map((row) => `${row.road}:${row.lane}`)).size);
   assert.ok(total.segments <= 43 && total.lanes <= 41 && total.length <= 397,
     `${total.segments} runs / ${total.lanes} lanes / ${total.length} m remain: only used street tracks`);
-  assert.deepEqual([total.skipped.segments, total.skipped.lanes, total.skipped.length], [14, 12, 200],
+  assert.deepEqual([total.skipped.segments, total.skipped.lanes, total.skipped.length], [15, 13, 205],
     'unused and off-street tracks are counted separately, not hidden');
 
   const all = spawnSync(process.execPath, [audit, '--all'], { encoding: 'utf8' });
@@ -38,5 +38,5 @@ test('opposing-lane audit lists used street runs and counts off-street and unuse
   const allTotal = JSON.parse(all.stderr.trim());
   assert.equal(allRows.length, total.segments + total.skipped.segments);
   assert.ok(allRows.some((row) => [3389, 3390, 3391, 6770, 8798].includes(row.road)), '--all restores off-street rows');
-  assert.deepEqual([allTotal.segments, allTotal.lanes, allTotal.length], [57, 53, 597]);
+  assert.deepEqual([allTotal.segments, allTotal.lanes, allTotal.length], [58, 54, 602]);
 });

@@ -477,7 +477,8 @@ function paintLandUse() {
   }
 
   // --- The suburban belt around the 1970s estates: single-family houses ---
-  luRect(-30000, -30000, -5250, 30000, SUBURB, 150);           // Junikowo, Ławica, Krzyżowniki, Kiekrz (west)
+  // West of the detail box (the box itself, Ławica included, is drawn in detail; -5250 keeps the old band filled)
+  luRect(-30000, -30000, -5250, 30000, SUBURB, 150);           // Junikowo, Krzyżowniki, Kiekrz (west)
   luRect(-30000, -30000, 30000, -6200, SUBURB, 140);           // Strzeszyn, Morasko, Umultowo (north)
   luRect(-30000, 5200, 30000, 30000, SUBURB, 150);             // Dębiec, Starołęka, Minikowo (south)
   luRect(5600, -30000, 30000, 30000, SUBURB, 160);             // Antoninek, Kobylepole, Szczepankowo (east)
@@ -506,9 +507,7 @@ function paintLandUse() {
   luEllipseLL(17.030, 52.360, 1500, 1200, OPEN, 220);          // Szczepankowo & Spławie (south-east)
 
   // --- Airfields: grass with a paved runway & apron ---
-  luEllipseLL(16.826, 52.421, 1700, 650, OPEN, 255, 0.17);     // Ławica airport (runway 10/28)
-  luStripLL(16.826, 52.421, 2500, 25, 0.17, INDUSTRY, 255);
-  luEllipseLL(16.832, 52.426, 450, 160, INDUSTRY, 255, 0.17);  // terminal & apron
+  // Ławica is inside the detail box now and drawn by js/airport.js, so only the Krzesiny air base stays painted here.
   luEllipseLL(16.970, 52.332, 2000, 800, OPEN, 255, 0.44);     // Krzesiny air base
   luStripLL(16.970, 52.332, 2500, 30, 0.44, INDUSTRY, 255);
 
