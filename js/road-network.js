@@ -76,6 +76,24 @@ function busLaneIndexes(busVector, cand, lanes) {
   return marked.sort((p, q) => p - q);
 }
 
+// A station profile shifts every lane of an edge sideways by d(s), a piecewise linear function of s measured from the
+// edge's first stop line (e.sx). It is zero at the edge's real junction ends, so stop lines, lane-to-lane curves and
+// crosswalk landings keep their base offsets; only the stretch between bends moves. e.laneShift is [{ s, d }] sorted by
+// s. Bend stations hand the shift to the next edge of the street, so the lane drifts across the bend without a step.
+function laneShiftAt(e, s) {
+  const p = e.laneShift;
+  if (!p) return 0;
+  if (s <= p[0].s) return p[0].d;
+  for (let k = 1; k < p.length; k++) {
+    if (s > p[k].s) continue;
+    const run = p[k].s - p[k - 1].s;
+    const u = run > 1e-9 ? (s - p[k - 1].s) / run : 1;
+    return p[k - 1].d + (p[k].d - p[k - 1].d) * u;
+  }
+  return p[p.length - 1].d;
+}
+const laneOffset = (e, i, s = 0) => e.lanes[i] + laneShiftAt(e, s);
+
 function buildRoadNetwork(sidewalks, obstacles) {
   // 1. Spatial hash of ground footprints: curbs bound the roads, everything else also blocks pedestrians
   const hash = new Map();
@@ -795,6 +813,22 @@ function buildRoadNetwork(sidewalks, obstacles) {
       }
       return [...ids];
     }
+    // The used street-track pieces within reach of one station of an edge, one per chain (the nearest parallel piece)
+    function stationTracks(e, x, z, ids) {
+      const nearby = new Map();
+      for (const i of ids) {
+        const t = streetTracks[i];
+        if (!t.used) continue;
+        const along = (x - t.ax) * t.ux + (z - t.az) * t.uz;
+        if (along < 0 || along > t.len) continue;
+        const lat = (t.ax + t.ux * along - x) * e.rx + (t.az + t.uz * along - z) * e.rz;
+        const dot = t.ux * e.dx + t.uz * e.dz;
+        if (Math.abs(dot) < 0.95 || Math.abs(lat) > e.half + OPPOSING_CLEAR) continue;
+        const q = nearby.get(t.chain);
+        if (!q || Math.abs(lat) < Math.abs(q.lat)) nearby.set(t.chain, { chain: t.chain, lat, dot, oneway: t.oneway });
+      }
+      return [...nearby.values()];
+    }
     // Contiguous runs (sampled at 1 m) where a lane is under OPPOSING_CLEAR from an oncoming track
     function opposingRuns(e, lanes, ids, all = false, minimum = OPPOSING_RUN) {
       const runs = [];
@@ -802,19 +836,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
       for (let s = 0; s <= e.len; s += 1) {
         const x = e.sx + e.dx * s;
         const z = e.sz + e.dz * s;
-        const nearby = new Map(); // chain -> its nearest parallel piece at this station
-        for (const i of ids) {
-          const t = streetTracks[i];
-          const along = (x - t.ax) * t.ux + (z - t.az) * t.uz;
-          if (along < 0 || along > t.len) continue;
-          const lat = (t.ax + t.ux * along - x) * e.rx + (t.az + t.uz * along - z) * e.rz;
-          const dot = t.ux * e.dx + t.uz * e.dz;
-          if (Math.abs(dot) < 0.95 || Math.abs(lat) > e.half + OPPOSING_CLEAR) continue;
-          if (!t.used) continue;
-          const q = nearby.get(t.chain);
-          if (!q || Math.abs(lat) < Math.abs(q.lat)) nearby.set(t.chain, { chain: t.chain, lat, dot, oneway: t.oneway });
-        }
-        const tracks = [...nearby.values()];
+        const tracks = stationTracks(e, x, z, ids);
         for (const t of tracks) {
           const partners = tracks.filter((q) => q !== t && Math.abs(q.lat - t.lat) >= 1.8 && Math.abs(q.lat - t.lat) <= 6.5);
           t.opposing = all || (partners.length === 1 ? partners[0].lat > t.lat
@@ -927,9 +949,11 @@ function buildRoadNetwork(sidewalks, obstacles) {
       }
       return runs;
     }
+    const trackIds = new Map();
     for (const e of edges) {
       if (!e.lanes.length || e.len < OPPOSING_STUB) continue;
       const ids = tracksNear(e);
+      trackIds.set(e, ids);
       if (!ids.length) continue;
       let close = opposingRuns(e, e.lanes, ids);
       let minimum = OPPOSING_RUN;
@@ -972,7 +996,8 @@ function buildRoadNetwork(sidewalks, obstacles) {
     // Shared tram carriageways are left alone: their lane is the trams' own formation (Rynek Jeżycki).
     for (const e of edges) {
       if (e.sharedTram || !e.lanes.length || e.len < OPPOSING_STUB) continue;
-      const ids = tracksNear(e);
+      const ids = trackIds.get(e) || tracksNear(e);
+      trackIds.set(e, ids);
       if (!ids.length) continue;
       const close = crossingRuns(e, e.lanes, ids);
       if (!close.some((r) => r.s1 - r.s0 >= OPPOSING_STUB)) continue;
@@ -989,6 +1014,264 @@ function buildRoadNetwork(sidewalks, obstacles) {
         e.lanes = lanes;
         break;
       }
+    }
+
+    // A constant lane offset is the wrong shape for a track that drifts across the lane or for a close run whose edge
+    // starts at a bend: the lane has to move for part of the corridor and come back, and it must join the next edge
+    // across the bend station without a step. The station profile is that curve: d(s) piecewise linear, zero at real
+    // junctions (so connectors and stop lines keep their offsets), shared at bend stations with the neighbouring edge
+    // of the same street. Solve it only where a 5 m close run exists, and only where every moving lane stays on the car
+    // carriageway and does not come closer to a same-direction track than it already is. A shared tram carriageway may
+    // move too, except around Rynek Jeżycki, where every move traded clearance for a deadlock.
+    const PROFILE_SLOPE = 0.15; // metres sideways per metre along, 8.5°; a lane change a driver can hold
+    const PROFILE_CLEAR = OPPOSING_CLEAR;
+    const PROFILE_CURB = 0.95; // a profile may use the last 0.25 m up to the curb: the car body is 0.92 m half wide
+    const PROFILE_END = 0; // real junction ends keep their base offsets, so stop lines and connectors do not move
+    const profileMove = (parts, a, b) => {
+      const out = [];
+      for (const [p, q] of parts) {
+        if (q <= a || p >= b) out.push([p, q]);
+        else {
+          if (p < a) out.push([p, a]);
+          if (q > b) out.push([b, q]);
+        }
+      }
+      return out;
+    };
+    const profileMerge = (list) => {
+      list.sort((a, b) => a[0] - b[0]);
+      const out = [];
+      for (const [p, q] of list) {
+        const last = out[out.length - 1];
+        if (last && p <= last[1] + 0.02) last[1] = Math.max(last[1], q);
+        else out.push([p, q]);
+      }
+      return out;
+    };
+    // The bend-station chain through the edge: forward direction across shape nodes. Real junctions end it. Lane arrays
+    // may differ from one edge to the next (a shared lane widening at a stop); the shift is relative to each edge's own
+    // offsets, and the lane-to-lane connector at the bend joins the two shifted lanes.
+    const nearJezyce = (e) => Math.hypot(e.sx + 2050, e.sz + 450) < 150;
+    function bendChain(edge) {
+      const list = [edge];
+      let e = edge;
+      while (e.to.shape) {
+        const next = edges.find((q) => q !== e && q.from === e.to && q.dx * e.dx + q.dz * e.dz > 0.94);
+        if (!next || list.includes(next) || nearJezyce(next)) break;
+        list.push(next);
+        e = next;
+      }
+      e = edge;
+      while (e.from.shape) {
+        const prev = edges.find((q) => q !== e && q.to === e.from && q.dx * e.dx + q.dz * e.dz > 0.94);
+        if (!prev || list.includes(prev) || nearJezyce(prev)) break;
+        list.unshift(prev);
+        e = prev;
+      }
+      return list;
+    }
+    // The nearest piece of one chain at a road station, whether it runs along the edge or across it
+    function chainLat(e, x, z, chain) {
+      let best = null;
+      for (const t of chainTracks.get(chain) || []) {
+        const along = (x - t.ax) * t.ux + (z - t.az) * t.uz;
+        if (along < 0 || along > t.len) continue;
+        const lat = (t.ax + t.ux * along - x) * e.rx + (t.az + t.uz * along - z) * e.rz;
+        if (Math.abs(lat) > e.half + OPPOSING_CLEAR) continue;
+        if (best === null || Math.abs(lat) < Math.abs(best)) best = lat;
+      }
+      return best;
+    }
+    function profileParts(e, s, targets, ids) {
+      const carHalf = e.half - (e.strip ? TRAM_W / 2 : 0);
+      const center = e.lanes.reduce((a, b) => a + b, 0) / e.lanes.length;
+      const low = center - carHalf + PROFILE_CURB;
+      const high = center + carHalf - PROFILE_CURB;
+      let parts = [[low - Math.min(...e.lanes), high - Math.max(...e.lanes)]];
+      const targetChains = new Set();
+      for (const chains of targets.values()) for (const chain of chains) targetChains.add(chain);
+      const x = e.sx + e.dx * s;
+      const z = e.sz + e.dz * s;
+      const tracks = stationTracks(e, x, z, ids);
+      for (const t of tracks) {
+        const partners = tracks.filter((q) => q !== t && Math.abs(q.lat - t.lat) >= 1.8 && Math.abs(q.lat - t.lat) <= 6.5);
+        t.opposing = partners.length === 1 ? partners[0].lat > t.lat
+          : partners.length === 0 && (!t.oneway || t.dot < -0.95);
+      }
+      // The audit's own tracks (the run chains) must clear where they were close, including a piece crossing the edge.
+      for (const [lane, chains] of targets) {
+        for (const chain of chains) {
+          const lat = chainLat(e, x, z, chain);
+          if (lat === null) continue;
+          parts = profileMove(parts, lat - e.lanes[lane] - PROFILE_CLEAR, lat - e.lanes[lane] + PROFILE_CLEAR);
+        }
+      }
+      // Move no lane towards a track running with it. A lane already inside the 2.3 m band may stay at its present
+      // distance (many narrow strip roads have no other place for it), but it may not get closer. A shared tram lane is
+      // the trams' own formation: there is no separate same-direction track to keep off.
+      if (!e.sharedTram) {
+        for (const t of tracks) {
+          if (t.opposing || targetChains.has(t.chain)) continue;
+          for (const lane of e.lanes) {
+            const gap = Math.abs(t.lat - lane);
+            if (gap >= OPPOSING_CLEAR) continue;
+            const keep = Math.min(OPPOSING_CLEAR, gap);
+            parts = profileMove(parts, t.lat - lane - keep, t.lat - lane + keep);
+          }
+        }
+      }
+      // A two-way link's directed edge keeps its lanes on its own side of the centreline; a one-way edge may use both.
+      if (e.lanes.every((o) => o >= -1e-6)) parts = parts.filter(([p, q]) => q >= -1e-6);
+      if (e.lanes.every((o) => o <= 1e-6)) parts = parts.filter(([p, q]) => p <= 1e-6);
+      return profileMerge(parts.filter(([p, q]) => p <= q + 1e-6));
+    }
+    function laneOpenShift(e, o, shift) {
+      const clear = Math.min(CHORD_END, e.span / 2);
+      const start = (e.sx - e.x0) * e.dx + (e.sz - e.z0) * e.dz;
+      for (let t = clear; t <= e.span - clear + 1e-6; t += 2.5) {
+        const off = o + shift(t - start);
+        if (blockedOnStreet(e.x0 + e.dx * t - e.dz * off, e.z0 + e.dz * t + e.dx * off, PROFILE_CURB)) return false;
+      }
+      return true;
+    }
+    function tryProfile(edge, targets, idsByEdge) {
+      const chain = bendChain(edge);
+      const samples = []; // { e, s, parts }
+      for (const e of chain) {
+        const ids = idsByEdge.get(e) || tracksNear(e);
+        idsByEdge.set(e, ids);
+        const n = Math.max(1, Math.ceil(e.len));
+        for (let k = 0; k <= n; k++) {
+          const s = Math.min(e.len, (e.len * k) / n);
+          samples.push({ e, s, parts: profileParts(e, s, targets.get(e) || new Map(), ids) });
+        }
+      }
+      // The corridor ends at real junctions with δ = 0, so the connectors and stop lines there keep their offsets.
+      const clampEnd = (q) => q.map(([p, r]) => [Math.max(p, -PROFILE_END), Math.min(r, PROFILE_END)])
+        .filter(([p, r]) => p <= r + 1e-6);
+      samples[0].parts = clampEnd(samples[0].parts);
+      samples[samples.length - 1].parts = clampEnd(samples[samples.length - 1].parts);
+      if (!samples[0].parts.length || !samples[samples.length - 1].parts.length) return null;
+      // Forward reachable shifts, then backward ones that can still reach the far end of the corridor.
+      const forward = new Array(samples.length);
+      forward[0] = samples[0].parts;
+      for (let k = 1; k < samples.length; k++) {
+        const dt = samples[k].s === 0 ? samples[k - 1].e.len - samples[k - 1].s : samples[k].s - samples[k - 1].s;
+        const room = PROFILE_SLOPE * Math.max(0.05, dt);
+        const grown = forward[k - 1].map(([p, q]) => [p - room, q + room]);
+        const next = [];
+        for (const [p, q] of grown) for (const [a, b] of samples[k].parts) {
+          const lo = Math.max(p, a);
+          const hi = Math.min(q, b);
+          if (lo <= hi + 1e-6) next.push([lo, hi]);
+        }
+        forward[k] = profileMerge(next);
+        if (!forward[k].length) return null;
+      }
+      const back = new Array(samples.length);
+      back[back.length - 1] = samples[samples.length - 1].parts;
+      for (let k = samples.length - 2; k >= 0; k--) {
+        const dt = samples[k + 1].s === 0 ? samples[k].e.len - samples[k].s : samples[k + 1].s - samples[k].s;
+        const room = PROFILE_SLOPE * Math.max(0.05, dt);
+        const grown = back[k + 1].map(([p, q]) => [p - room, q + room]);
+        const next = [];
+        for (const [p, q] of grown) for (const [a, b] of samples[k].parts) {
+          const lo = Math.max(p, a);
+          const hi = Math.min(q, b);
+          if (lo <= hi + 1e-6) next.push([lo, hi]);
+        }
+        back[k] = profileMerge(next);
+        if (!back[k].length) return null;
+      }
+      // Walk the corridor choosing the smallest shift that still leaves a way back to the far end.
+      const shifts = new Array(samples.length);
+      let first = null, firstAbs = Infinity;
+      for (const [p, q] of back[0]) {
+        const near = Math.min(q, Math.max(p, 0));
+        if (Math.abs(near) < firstAbs) {
+          firstAbs = Math.abs(near);
+          first = near;
+        }
+      }
+      if (first === null) return null;
+      shifts[0] = first;
+      for (let k = 1; k < samples.length; k++) {
+        const dt = samples[k].s === 0 ? samples[k - 1].e.len - samples[k - 1].s : samples[k].s - samples[k - 1].s;
+        const room = PROFILE_SLOPE * Math.max(0.05, dt);
+        const lo = shifts[k - 1] - room, hi = shifts[k - 1] + room;
+        let best = null, bestAbs = Infinity;
+        for (const [p, q] of back[k]) {
+          const a = Math.max(p, lo), b = Math.min(q, hi);
+          if (a > b) continue;
+          const near = Math.min(b, Math.max(a, 0));
+          if (Math.abs(near) < bestAbs) {
+            bestAbs = Math.abs(near);
+            best = near;
+          }
+        }
+        if (best === null) return null;
+        shifts[k] = best;
+      }
+      // Feed the shift back through the sample chain: reject a move that runs into furniture or a curb.
+      const byEdge = new Map();
+      for (let k = 0; k < samples.length; k++) {
+        const { e, s } = samples[k];
+        if (!byEdge.has(e)) byEdge.set(e, []);
+        byEdge.get(e).push({ s, d: shifts[k] });
+      }
+      for (const [e, list] of byEdge) {
+        const shift = (s) => {
+          if (s <= list[0].s) return list[0].d;
+          for (let k = 1; k < list.length; k++) {
+            if (s > list[k].s) continue;
+            const run = list[k].s - list[k - 1].s;
+            return run > 1e-9 ? list[k - 1].d + (list[k].d - list[k - 1].d) * (s - list[k - 1].s) / run : list[k].d;
+          }
+          return list[list.length - 1].d;
+        };
+        if (list.every((q) => Math.abs(q.d) < 0.3)) continue;
+        for (let i = 0; i < e.lanes.length; i++) {
+          if (!laneOpenShift(e, e.lanes[i], shift)) return null;
+        }
+      }
+      // A shift under 0.3 m changes the paint and traffic without buying clearance; leave the whole attempt out.
+      let moved = false;
+      for (const [, list] of byEdge) if (list.some((q) => Math.abs(q.d) >= 0.3)) moved = true;
+      if (!moved) return null;
+      for (const [e, list] of byEdge) {
+        if (list.every((q) => Math.abs(q.d) < 1e-4)) continue;
+        e.laneShift = list.map(({ s, d }) => ({ s, d: Math.abs(d) < 1e-4 ? 0 : d }));
+      }
+      return byEdge;
+    }
+    // Which lanes and track chains the audit would still report on each edge
+    const targetsByEdge = new Map();
+    for (const e of edges) {
+      // The Rynek Jeżycki stubs stay alone: every move there traded clearance for a deadlock (2026-11-05).
+      if (!e.lanes.length || e.len < OPPOSING_STUB || nearJezyce(e)) continue;
+      const ids = trackIds.get(e);
+      if (!ids || !ids.length) continue;
+      const runs = opposingRuns(e, e.lanes, ids, false, OPPOSING_STUB);
+      for (const r of runs) {
+        if (!targetsByEdge.has(e)) targetsByEdge.set(e, new Map());
+        const t = targetsByEdge.get(e);
+        if (!t.has(r.lane)) t.set(r.lane, new Set());
+        t.get(r.lane).add(r.chain);
+      }
+      for (const r of crossingRuns(e, e.lanes, ids)) {
+        if (r.s1 - r.s0 < OPPOSING_STUB) continue;
+        if (!targetsByEdge.has(e)) targetsByEdge.set(e, new Map());
+        const t = targetsByEdge.get(e);
+        if (!t.has(r.lane)) t.set(r.lane, new Set());
+        t.get(r.lane).add(r.chain);
+      }
+    }
+    const idsByEdge = new Map(trackIds);
+    const profiled = new Set();
+    for (const [e, targets] of targetsByEdge) {
+      if (profiled.has(e)) continue;
+      for (const q of bendChain(e)) profiled.add(q);
+      tryProfile(e, targetsByEdge, idsByEdge);
     }
   }
   clearOpposingTracks();
@@ -1018,9 +1301,9 @@ function buildRoadNetwork(sidewalks, obstacles) {
   // (`signal` is filled in at 6.)
   const paintNodes = new Map(nodes.map((n, id) => [n, { id, x: n.x, z: n.z, shape: n.shape, signal: false }]));
   const paintEdges = edges.map(({ from, to, axis, x0, z0, sx, sz, dx, dz, rx, rz, span, len, setbackFrom, setbackTo, half, lanes,
-    limit, cand, busVector, busWay }) => ({
+    limit, cand, busVector, busWay, laneShift }) => ({
     from: paintNodes.get(from), to: paintNodes.get(to), axis, x0, z0, sx, sz, dx, dz, rx, rz, span, len, setbackFrom,
-    setbackTo, half, lanes, limit, busWay, busLanes: busLaneIndexes(busVector, cand, lanes)
+    setbackTo, half, lanes, limit, busWay, laneShift, busLanes: busLaneIndexes(busVector, cand, lanes)
   }));
   const paintOf = new Map(edges.map((e, i) => [e, paintEdges[i]]));
 
@@ -1395,7 +1678,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
   }
 
   const isRoadClear = (x, z, clear = 0.15) => !blockedOnStreet(x, z, clear);
-  const network = { nodes, edges, paintEdges, connector, curvePoint, walkable, isRoadClear };
+  const network = { nodes, edges, paintEdges, connector, curvePoint, laneOffset, laneShiftAt, walkable, isRoadClear };
   network.configureCrosswalks = (crosswalks) => configureCompoundCrossings(network, crosswalks);
   return network;
 }
@@ -1522,10 +1805,10 @@ function largestComponent(list, next) {
 // arc around the corner for turns, an S-bend for straight lane shifts. Includes an arc-length table and
 // the sharpest curvature along it (1 / tightest radius).
 function makeCurve(e, i, f, j) {
-  const x0 = e.sx + e.dx * e.len + e.rx * e.lanes[i];
-  const z0 = e.sz + e.dz * e.len + e.rz * e.lanes[i];
-  const x3 = f.sx + f.rx * f.lanes[j];
-  const z3 = f.sz + f.rz * f.lanes[j];
+  const x0 = e.sx + e.dx * e.len + e.rx * laneOffset(e, i, e.len);
+  const z0 = e.sz + e.dz * e.len + e.rz * laneOffset(e, i, e.len);
+  const x3 = f.sx + f.rx * laneOffset(f, j, 0);
+  const z3 = f.sz + f.rz * laneOffset(f, j, 0);
   const cross = e.dx * f.dz - e.dz * f.dx;
   let k0;
   let k3;
@@ -1582,4 +1865,7 @@ function curvePoint(c, s, out) {
   return out;
 }
 
-export { buildRoadNetwork, busLaneIndexes, configureCompoundCrossings, CROSSWALK, CROSSWALK_REACH, STOP_SETBACK };
+export {
+  buildRoadNetwork, busLaneIndexes, configureCompoundCrossings, laneShiftAt,
+  CROSSWALK, CROSSWALK_REACH, STOP_SETBACK
+};

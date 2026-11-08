@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { CROSSWALK, STOP_SETBACK } from './road-network.js';
+import { CROSSWALK, STOP_SETBACK, laneShiftAt } from './road-network.js';
 import { createRoadPaintMaterial, createBusPaintMaterial } from './tsl-materials.js';
 
 // js/road-paint.js
@@ -65,7 +65,8 @@ function layoutBusMarkings(edges, crosswalks, railClearance) {
     const o = e.lanes[i];
     // Keep 7 m beyond each stop line / junction, including room for the full inscription (P-14 sits at the edge end).
     for (let s = 7; s <= e.len - 7; s += 30) {
-      const x = e.sx + e.dx * s + e.rx * o, z = e.sz + e.dz * s + e.rz * o;
+      const shifted = o + laneShiftAt(e, s);
+      const x = e.sx + e.dx * s + e.rx * shifted, z = e.sz + e.dz * s + e.rz * shifted;
       let clear = true;
       // Sample the entire rectangle conservatively, with a margin for gaps between samples.
       for (let a = -2; a <= 2 && clear; a += 0.5) for (let b = -0.81; b <= 0.81 && clear; b += 0.27) {
@@ -154,12 +155,25 @@ function buildRoadPaint(scene, network, crosswalks = [], railClearance = null) {
     index.push(i, i + 1, i + 2, i, i + 2, i + 3);
   }
 
-  // Edges run between stop lines; s is measured from the start one and o to the right of the centre line
-  const at = (e, s, o) => [e.sx + e.dx * s + e.rx * o, e.sz + e.dz * s + e.rz * o];
+  // Edges run between stop lines; s is measured from the start one and o to the right of the centre line. A station
+  // profile moves the lane sideways inside the edge, so the line follows it instead of a single straight strip.
+  const at = (e, s, o) => {
+    const shift = o + laneShiftAt(e, s);
+    return [e.sx + e.dx * s + e.rx * shift, e.sz + e.dz * s + e.rz * shift];
+  };
+  const profile = (e, s0, s1, o) => {
+    if (!e.laneShift) return null;
+    const points = [];
+    const steps = Math.max(1, Math.ceil((s1 - s0) / 2));
+    for (let k = 0; k <= steps; k++) points.push(at(e, s0 + (s1 - s0) * k / steps, o));
+    return points;
+  };
   const along = (e, o, w, col, period = 1, duty = 1) => {
     const start = (e.sx - e.x0) * e.dx + (e.sz - e.z0) * e.dz;
-    const ends = [at(e, e.from.shape ? -start : 0.9, o), at(e, e.to.shape ? e.span - start : e.len - 0.9, o)];
-    lines.push({ e, o, w, col, period, duty, ends, joins: [] });
+    const s0 = e.from.shape ? -start : 0.9;
+    const s1 = e.to.shape ? e.span - start : e.len - 0.9;
+    const ends = [at(e, s0, o), at(e, s1, o)];
+    lines.push({ e, o, w, col, period, duty, ends, joins: [], points: profile(e, s0, s1, o) });
   };
   const across = (e, s, o0, o1, w, col, period, duty) => strip(...at(e, s, o0), ...at(e, s, o1), w, col, period, duty);
   const clearCentre = (e, o) => {
@@ -325,7 +339,16 @@ function buildRoadPaint(scene, network, crosswalks = [], railClearance = null) {
     for (const end of [0, 1]) {
       if (!line.joins[end]) line.ends[end] = at(line.e, end ? line.e.len - 0.9 : 0.9, line.o);
     }
-    line.len = Math.hypot(line.ends[1][0] - line.ends[0][0], line.ends[1][1] - line.ends[0][1]);
+    if (line.points) {
+      line.points[0] = line.ends[0];
+      line.points[line.points.length - 1] = line.ends[1];
+      line.len = 0;
+      for (let k = 1; k < line.points.length; k++) {
+        line.len += Math.hypot(line.points[k][0] - line.points[k - 1][0], line.points[k][1] - line.points[k - 1][1]);
+      }
+    } else {
+      line.len = Math.hypot(line.ends[1][0] - line.ends[0][0], line.ends[1][1] - line.ends[0][1]);
+    }
   }
   for (const root of lines) {
     if (root.phase !== undefined) continue;
@@ -343,7 +366,16 @@ function buildRoadPaint(scene, network, crosswalks = [], railClearance = null) {
         next.phase = ((next.phase % next.period) + next.period) % next.period;
         stack.push(next);
       }
-      strip(...line.ends[0], ...line.ends[1], line.w, line.col, line.period, line.duty, line.phase, line.flow);
+      if (line.points) {
+        let phase = line.phase;
+        for (let k = 1; k < line.points.length; k++) {
+          const a = line.points[k - 1], b = line.points[k];
+          strip(a[0], a[1], b[0], b[1], line.w, line.col, line.period, line.duty, phase, line.flow);
+          phase += Math.hypot(b[0] - a[0], b[1] - a[1]) * line.flow;
+        }
+      } else {
+        strip(...line.ends[0], ...line.ends[1], line.w, line.col, line.period, line.duty, line.phase, line.flow);
+      }
     }
   }
 

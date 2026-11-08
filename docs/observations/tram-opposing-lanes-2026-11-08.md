@@ -1,8 +1,8 @@
 # Tram opposing lanes: short-stub pass (2026-11-08)
 
 > A later crossing-track pass on the same day took the default report to **42 runs / 40 lanes / 385 m**
-> (`--all` 56 / 52 / 585). The short-stub measurements below are the state before that pass; the new pass and its
-> rejected variants are at the end.
+> (`--all` 56 / 52 / 585), and the station-profile pass at the end brings it to **42 / 40 / 377 m**
+> (`--all` 56 / 52 / 577). The short-stub measurements below are the state before those passes.
 
 `tools/audit-tram-opposing-lanes.mjs` at the parent commit listed **47 runs / 45 lanes / 417 m** of used
 street-running track with an opposing car lane closer than 2.3 m (14 runs / 12 lanes / 200 m went to `skipped`, and
@@ -120,8 +120,8 @@ curved runs on Roosevelta/Winogrady (41 m) and the three constant-shift cases (1
   cars still cross the rails, so the move is not applied.
 - **Wierzbięcice 7930, Głogowska 4257, 4677 and the curved runs**: still no constant offset clears the track pair
   inside the curbs. 7930's same-direction track sits where the +4.12 m move would land; 4257's +2.34 m makes a 22.4°
-  connector (base limit 19.3°); 4677 would need 3.71 m against a 3.70 m curb allowance. These keep their listed runs
-  and need per-station lane geometry.
+  connector (base limit 19.3°); 4677 would need 3.71 m against a 3.70 m curb allowance. These keep their listed runs;
+  4257 is fixed by the station-profile pass below, the others still need geometry the curbs do not offer.
 - **Moving the Rynek Jeżycki stubs** (4336/4337/5758): unchanged from the short-stub pass; the earlier eight-seed
   audit raised Jeżyce's overlap pairs and added a deadlock.
 
@@ -132,3 +132,54 @@ curved runs on Roosevelta/Winogrady (41 m) and the three constant-shift cases (1
 - `node --test tests/traffic-flow.test.mjs`: 3 pass (seed 1 no Jeżyce/Centrum deadlock, seed 4242's bounded
   pedestrian-box cycle, Jeżyce's shared-lane rear-end bound).
 - Full `node --test tests/*.cjs` is run with the change; no browser check was made of the moved Pułaskiego lane.
+
+## Station-profile pass (second pass, same day)
+
+A constant offset cannot clear Głogowska 4257: the 20 m close run starts almost at the bend, needs +2.34 m, and a
+constant move makes a 22.4° straight connector against the base's 19.3° limit. The lane instead needs to arrive at
+the bend already shifted and come back on the next edge. `js/road-network.js` now carries `laneShiftAt(e, s)`, a
+piecewise linear lateral shift of all lanes with `s` measured from the first stop line. It is zero at real junctions
+and shared across bend stations (`bendChain`), so the stop lines, crosswalk landings and lane-to-lane curves at real
+junctions keep their offsets while the lane drifts across the bend. Traffic (`lanePoint`, spawn), tram-to-road
+mapping, road paint and the audit read the same profile through `laneOffset`.
+
+The build-time solver samples a bend chain every metre, intersects the feasible shift ranges (the audit's 2.3 m from
+the target track chains, the car body at least 0.95 m from the curb, and no lane closer to a same-direction track
+than before) and runs forward/backward interval passes with a 0.15 m/m (8.5°) slope limit. Shared tram lanes may move
+too, except within 150 m of Rynek Jeżycki. Only Głogowska 4257 qualifies:
+
+| Edge | Place | Length | Profile | Max shift |
+|---:|---|---:|---|---:|
+| 6353 | Głogowska, `−3022.1, 2519.3` | 42.7 m | 0 → 2.33 m at the bend | 2.33 m |
+| 4581 | Głogowska, `−2987, 2474.8` | 53.4 m | 2.34 m at the bend → 0 | 2.34 m |
+
+The two profiles join at the bend station within 0.01 m, so the lane keeps drifting instead of stepping. The audit
+row (20 m, track 84, chain 611) disappears; the default report is now:
+
+```
+{"segments":42,"lanes":40,"length":377,"skipped":{"segments":14,"lanes":12,"length":200},"clearance":2.3,"minimum":5,"all":false}
+```
+
+`--all` is **56 runs / 52 lanes / 577 m**. The remaining 42 runs are 37 short stubs (35 lanes, 252 m), the three
+curved runs (41 m) and two constant-shift cases (84 m: 4677 and 7930).
+
+### Why the other 42 stay
+
+Every other target edge failed: either a chain end or a station had no shift that kept 2.3 m inside the curbs, or the
+only valid path moved a lane closer to a same-direction track (4677). The measured cases agree with the earlier
+diagnosis: on the 6.5-10 m stubs the two tracks and the curb leave no 0.5 m band for the lane (e.g. 5035: opposing
+track at 0.96-1.39 m, same-direction track at 2.88 m, lane at 3.25 m, curb room to 3.70 m); on 7930 the same-direction
+track is on the right and the side-of-centreline rule is on the left; and the curved runs sweep a track across every
+lane, so a 2.3 m clearance would need the lane to jump sides mid-run. Moving the track itself or taking a lane away
+is a different change, not a lane profile.
+
+### Verification
+
+- `node --test tests/opposing-tram-audit.test.mjs`: 2 pass, including the 42 / 40 / 377 totals, the absent 4257 row,
+  the 6353 → 4581 continuity and the 3 m profile bound.
+- `node --test tests/tram-clearance.test.cjs tests/shared-tram-lanes.test.cjs`: 12 pass, including the no-new-steep-
+  connector check.
+- `node --test tests/traffic-flow.test.mjs`: 3 pass (no Jeżyce/Centrum deadlock; seed 4242's bounded pedestrian box;
+  the Jeżyce shared-lane rear-end bound).
+- Full `node --test tests/*.cjs` is run with the change. No browser check was made of the moved 4257 lane and its
+  paint.

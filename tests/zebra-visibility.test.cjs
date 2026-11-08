@@ -59,9 +59,10 @@ test('rendered zebra quads stay clear of the tram trackways on the furnished Poz
   };
   // Expose the reason on the paint snapshot solely for this measurement; the production network stays unchanged.
   const instrument = (name) => name === 'road-network' ? source(name).replace(
-    'setbackTo, half, lanes, limit, busWay, busLanes:',
+    'setbackTo, half, lanes, limit, busWay, laneShift, busLanes:',
     "setbackTo, half, lanes, limit, busWay, busStatus: !busVector || !busVector.includes(1) ? 'direction' : " +
-    "!busLaneIndexes(busVector, cand, lanes).length ? 'blocked' : busVector.length === cand.length ? 'eligible' : 'mapped', busLanes:"
+    "!busLaneIndexes(busVector, cand, lanes).length ? 'blocked' : busVector.length === cand.length ? 'eligible' : 'mapped', " +
+    'laneShift, busLanes:'
   ) : source(name);
   const load = (name, imports, extra = '') => loadModule(instrument(name) + extra, {
     imports, globals: { document: inert() }, filename: name + '.js'

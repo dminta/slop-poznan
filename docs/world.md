@@ -205,19 +205,28 @@ Per frame: `cityBlocks.update(camX, camZ)` (detail streaming), `cityBlocks.updat
     that `opposingRuns` cannot see (`|dot| < 0.95`). It moves all lanes of a non-shared edge only when a 5 m-or-more
     crossing/oncoming run disappears and every used track, same-direction included, then clears 2.3 m; the moved stub
     keeps its placed stop lines. Only the 10.3 m Pułaskiego edge at `−1216.6, −591.4` qualifies (lane −1.94 → −4.51 m,
-    clearing its 5 m run). On the default report the used street-running remainder is now
-    **42 runs / 40 lanes / 385 m**; off-street/grade-separated pieces (8 runs / 8 lanes / 161 m, mostly Most
+    clearing its 5 m run). The later station-profile pass moves all lanes by a piecewise linear `laneShiftAt(e, s)`
+    between stop lines, zero at real junctions and continuous across bend stations, so a lane can arrive at a bend
+    already shifted and come back on the next edge without a step. The build-time solver samples a bend chain every
+    metre, keeps 2.3 m from the target track chains, the car body 0.95 m inside the curb and every lane no closer to a
+    same-direction track than before, with a 0.15 m/m (8.5°) slope limit; shared tram lanes may move too except near
+    Rynek Jeżycki. Only Głogowska 4257 qualifies: its 42.7 m neighbour `6353` drifts 0 → 2.33 m and the 53.4 m edge
+    `4581` drifts 2.34 m → 0, clearing the 20 m run that a constant +2.34 m turned into a 22.4° connector.
+    On the default report the used street-running remainder is now
+    **42 runs / 40 lanes / 377 m**; off-street/grade-separated pieces (8 runs / 8 lanes / 161 m, mostly Most
     Chrobrego) and tracks no route uses (6 runs / 4 lanes / 39 m) stay in the summary's `skipped` block and appear again
-    with `--all`, which totals **56 runs / 52 lanes / 585 m**. Edge 305's lane and paint moves still need a browser check.
-    No edge or lane is lost (8,707 edges, 11,568 lanes, 442.1 lane-km; paint keeps the new offsets). A connector check
-    keeps 165 steep (>15°) straight moves in the curbs/medians network before and after. The remaining 42 runs are 36
-    short junction/shared-tram stubs (34 lanes, 240 m; including 4336/4337, 5758 and the Fredry and Centrum stubs),
-    three tracks curving across a straight run at junctions (Roosevelta 1840 and Winogrady 4100) and three
-    constant-shift cases (4257, 4677 and the skewed Wierzbięcice 7930). 4257 needs a +2.34 m shift
-    that makes a 22.4° bend connector (base 19.3°); 4677 and 7930 would land on or beside the same-direction track on a
-    strip road. Wierzbięcice 7930 is a skewed merged one-way pair: its opposing track runs from −0.8 to +3.6 m across
+    with `--all`, which totals **56 runs / 52 lanes / 577 m**. Edge 305's lane and paint moves still need a browser check.
+    No edge or lane is lost (8,707 edges, 11,568 lanes, 442.1 lane-km; paint keeps the new offsets and draws the
+    profile). A connector check keeps 165 steep (>15°) straight moves in the curbs/medians network before and after.
+    The remaining 42 runs are 37 short junction/shared-tram stubs (35 lanes, 252 m; including 4336/4337, 5758 and the
+    Fredry and Centrum stubs), three tracks curving across a straight run at junctions (Roosevelta 1840 and Winogrady
+    4100) and two constant-shift cases (4677 and the skewed Wierzbięcice 7930). The solver finds no safe profile for
+    them: 4677's lane sits between the two tracks (opposing at 0.96-1.39 m, same-direction at 2.88 m, lane at 3.25 m,
+    curb room only to 3.70 m), and 7930 has the same-direction track to its right and the side-of-centreline rule to
+    its left. Wierzbięcice 7930 is a skewed merged one-way pair: its opposing track runs from −0.8 to +3.6 m across
     the 78 m edge while the same-direction track runs +1.9 to +7.0 m, so a constant +4.12 m shift sits on that track
-    from s ≈ 55 m and only ~1.6 m from the right curb at s = 0; it stays listed. The crossing-track pass was also tried
+    from s ≈ 55 m and only ~1.6 m from the right curb at s = 0; it stays listed. The curved runs sweep a track across
+    every lane, which needs the lane to jump sides mid-run. The crossing-track pass was also tried
     without the oncoming filter: it moved about 90 edges and added dozens of steep straight connectors, so it is not in
     the code. The Rynek Jeżycki stubs 4336/5758 were measured too: moving them cuts Jeżyce's mean hold but raised its
     overlap pairs 20 → 21, its moving pairs 7 → 13 and added a deadlock, so those moves are not in the code, and the
