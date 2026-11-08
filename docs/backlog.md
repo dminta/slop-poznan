@@ -204,10 +204,10 @@ Implementation details and completed measurements live in the [topic docs](../AG
   Centrum 24 → 8, Kaponiera 16 → 17). `enter` hard stops for cars on short links and longer forecasts were measured
   again and rejected (they replaced one pair with another and raised turns); do not revive the rejected early-arrival
   and lane-lead braking relaxations without their regressions.
-  `tools/audit-tram-opposing-lanes.mjs` now reports **42 runs / 40 lanes / 377 m** of used street-running tracks with
-  close opposing traffic, with 14 runs / 12 lanes / 200 m off-street or unused under `--all` (56 / 52 / 577); the 37
-  short stubs (35 lanes, 252 m), three curved runs (41 m) and two constant-shift cases (84 m: 4677 and 7930) still
-  need per-station lane geometry. The 2026-11-08 station-profile pass adds a piecewise linear lane shift that is zero
+  `tools/audit-tram-opposing-lanes.mjs` now reports **40 runs / 38 lanes / 293 m** of used street-running tracks with
+  close opposing traffic, with 15 runs / 13 lanes / 205 m off-street or unused under `--all` (55 / 51 / 498); the 37
+  short stubs (35 lanes, 252 m) and three curved runs (41 m) still need per-station lane geometry. The 2026-11-08
+  station-profile pass adds a piecewise linear lane shift that is zero
   at real junctions and continuous across bend stations; it moves the Głogowska 4257 shared lane across its 42.7 m
   neighbour (`6353`, 0 → 2.33 m) and the 53.4 m edge (`4581`, 2.34 → 0), clearing the 20 m run without the 22.4°
   connector a constant +2.34 m made. The 2026-11-08 short-stub pass moves the 5 m edge at `−838, 1662`, the 6 m one
@@ -216,11 +216,14 @@ Implementation details and completed measurements live in the [topic docs](../AG
   chains themselves (the audit samples the centreline, not the lane) and moves all lanes of a non-shared edge only
   when a 5 m-or-more
   crossing/oncoming run disappears and every used track then clears 2.3 m; it moves only the Pułaskiego stub at
-  `−1216.6, −591.4` (−1.94 → −4.51 m), clearing its 5 m run. The station-profile solver clears Głogowska 4257 but
-  finds no safe profile for the other 42 runs: the 4677 lane sits between the two tracks, Wierzbięcice 7930 has the
-  same-direction track to its right and the road side-of-centreline rule to its left, and the curved runs sweep a
-  track across the whole carriageway. Accepting a residual below the audit's 5 m floor was rejected (it hides the
-  1.5 m overlap left at 5523).
+  `−1216.6, −591.4` (−1.94 → −4.51 m), clearing its 5 m run. The latest strip pass lets a moved lane stay on the
+  same-direction track of a strip road: a lane there is shared with trams running its way, while the opposing track
+  still clears 2.3 m and `laneOpen` keeps the body inside the curb. It moves Strzelecka 5035 (3.25 → 3.69 m, clearing
+  track 4677's 13 m run) and Wierzbięcice 7930 (1.80 → 5.92 m, clearing its 71 m run), the two constant-shift cases
+  whose 3.3-9.8 m carriageways leave no 4.6 m band for a car and an oncoming tram. The 40 remaining rows are the 37
+  short stubs and three curved runs: the profile solver finds no safe profile there, because the stubs have no 4.6 m
+  band between the tracks and the curb and the curved runs sweep a track across the whole carriageway. Accepting a
+  residual below the audit's 5 m floor was rejected (it hides the 1.5 m overlap left at 5523).
   [Short-stub and crossing-track measurements](observations/tram-opposing-lanes-2026-11-08.md). Moving the Rynek
   Jeżycki stubs still increases overlaps and adds a deadlock, so the pass leaves that cluster alone.
   [Short-link pass and rejected variants](observations/car-tram-overlaps-2026-11-08.md),

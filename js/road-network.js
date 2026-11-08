@@ -980,8 +980,12 @@ function buildRoadNetwork(sidewalks, obstacles) {
         if (lanes.some((o) => o < low - 1e-6 || o > high + 1e-6)) continue;
         if (!lanes.every((o) => laneOpen(e.x0, e.z0, e.dx, e.dz, e.span, o))) continue;
         if (opposingRuns(e, lanes, ids, false, minimum).length) continue;
-        // A strip road has its track on its own formation; do not leave a lane on or beside any track there.
-        if (!e.sharedTram && opposingRuns(e, lanes, ids, true, minimum).length) continue;
+        // A strip road has its track on its own formation; do not leave a lane on or beside another track there. The
+        // same-direction track of a two-way pair is the exception: a lane moved over it is a shared lane with trams
+        // running its way, not an oncoming body. That clears Strzelecka 5035 (13 m) and Wierzbięcice 8549 (71 m),
+        // whose 3.3-9.8 m carriageways leave no 4.6 m car + oncoming tram band between the pair. A centre-running pair
+        // keeps both tracks off the lane as before.
+        if (!e.sharedTram && !e.strip && opposingRuns(e, lanes, ids, true, minimum).length) continue;
         e.lanes = lanes;
         // A stub keeps its placed stop lines: re-placing its bend neighbours turned a 9 m move into new steep
         // straight connectors without changing the cleared run.

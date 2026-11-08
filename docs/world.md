@@ -215,24 +215,23 @@ Per frame: `cityBlocks.update(camX, camZ)` (detail streaming), `cityBlocks.updat
     Rynek Jeżycki. Only Głogowska 4257 qualifies: its 42.7 m neighbour `6353` drifts 0 → 2.33 m and the 53.4 m edge
     `4581` drifts 2.34 m → 0, clearing the 20 m run that a constant +2.34 m turned into a 22.4° connector.
     On the default report the used street-running remainder is now
-    **42 runs / 40 lanes / 377 m**; off-street/grade-separated pieces (8 runs / 8 lanes / 161 m, mostly Most
+    **40 runs / 38 lanes / 293 m**; off-street/grade-separated pieces (8 runs / 8 lanes / 161 m, mostly Most
     Chrobrego) and tracks no route uses (6 runs / 4 lanes / 39 m) stay in the summary's `skipped` block and appear again
-    with `--all`, which totals **56 runs / 52 lanes / 577 m**. Edge 305's lane and paint moves still need a browser check.
+    with `--all`, which totals **55 runs / 51 lanes / 498 m**. A later strip pass allows a lane moved away from an
+    opposing track to stay on the strip's same-direction track, a shared lane with trams running its way, provided the
+    car body still passes `laneOpen` inside the curb. It clears Strzelecka 5035 (3.25 → 3.69 m) and Wierzbięcice 7930
+    (1.80 → 5.92 m), the two constant-shift cases with 3.3-9.8 m carriageways and no 4.6 m band for a car and an
+    oncoming tram; 84 m disappears from the audit. Edge 305's lane and paint moves still need a browser check.
     No edge or lane is lost (8,707 edges, 11,568 lanes, 442.1 lane-km; paint keeps the new offsets and draws the
     profile). A connector check keeps 165 steep (>15°) straight moves in the curbs/medians network before and after.
-    The remaining 42 runs are 37 short junction/shared-tram stubs (35 lanes, 252 m; including 4336/4337, 5758 and the
-    Fredry and Centrum stubs), three tracks curving across a straight run at junctions (Roosevelta 1840 and Winogrady
-    4100) and two constant-shift cases (4677 and the skewed Wierzbięcice 7930). The solver finds no safe profile for
-    them: 4677's lane sits between the two tracks (opposing at 0.96-1.39 m, same-direction at 2.88 m, lane at 3.25 m,
-    curb room only to 3.70 m), and 7930 has the same-direction track to its right and the side-of-centreline rule to
-    its left. Wierzbięcice 7930 is a skewed merged one-way pair: its opposing track runs from −0.8 to +3.6 m across
-    the 78 m edge while the same-direction track runs +1.9 to +7.0 m, so a constant +4.12 m shift sits on that track
-    from s ≈ 55 m and only ~1.6 m from the right curb at s = 0; it stays listed. The curved runs sweep a track across
-    every lane, which needs the lane to jump sides mid-run. The crossing-track pass was also tried
-    without the oncoming filter: it moved about 90 edges and added dozens of steep straight connectors, so it is not in
-    the code. The Rynek Jeżycki stubs 4336/5758 were measured too: moving them cuts Jeżyce's mean hold but raised its
-    overlap pairs 20 → 21, its moving pairs 7 → 13 and added a deadlock, so those moves are not in the code, and the
-    short-stub and crossing-track passes leave that cluster alone.
+    The remaining 40 runs are 37 short junction/shared-tram stubs (35 lanes, 252 m; including 4336/4337, 5758 and the
+    Fredry and Centrum stubs) and three tracks curving across a straight run at junctions (Roosevelta 1840 and Winogrady
+    4100). The solver finds no safe profile for them: the stubs have no 4.6 m band between the track pair and the curb,
+    and the curved runs sweep a track across every lane, which needs the lane to jump sides mid-run. The crossing-track
+    pass was also tried without the oncoming filter: it moved about 90 edges and added dozens of steep straight
+    connectors, so it is not in the code. The Rynek Jeżycki stubs 4336/5758 were measured too: moving them cuts
+    Jeżyce's mean hold but raised its overlap pairs 20 → 21, its moving pairs 7 → 13 and added a deadlock, so those
+    moves are not in the code, and the short-stub and crossing-track passes leave that cluster alone.
     `tests/opposing-tram-audit.test.mjs` pins the corrected
     edges, the filtered totals and the skipped counts; `tests/shared-tram-lanes.test.cjs` checks that the correction
     adds no steep straight connector. On the repaired base (`a302005`) the 7 × 8 benchmark is
