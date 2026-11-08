@@ -1292,6 +1292,9 @@ function createTrafficSystem(
     // of the same short exit that can make the same turn. Only at a link whose far end is a signal (the storage case)
     // and only for an uncommitted car; room/alongside still check it.
     if (f.len < 12 && f.to && f.to.signal && !v.commit) j = shortLinkLane(v, e, f, m, j, stoppable);
+    // A car that would have to stand on a short link must not enter it while a tram owns the link's exit curve.
+    // Its stopping distance no longer fits on the link, so it would wait across the curve (Kaponiera 7343/6034).
+    if (!v.bus && shortLinkTramBlocked(v, f, j)) return refuse(v, 'tram');
     v.out = j;
     v.outEdge = f;
     const c = connector(e, v.lane, f, j);
@@ -2059,6 +2062,35 @@ function createTrafficSystem(
     return false;
   }
 
+  // Distance from a tram's front to the near end of a conflict on its own path (negative: the front is past it), or
+  // Infinity when this tram does not run over it. `tramClose` only answers the reach test; the stand gate needs the
+  // sign to leave a tram that already cleared the curve alone.
+  function tramConflictGap(t, c) {
+    const path = t.path;
+    for (let i = path.indexAt(Math.max(0, path.u - t.length)); i < path.n; i++) {
+      const te = path.edges[i];
+      const base = path.start[i];
+      if (base - path.u > 80) break;
+      for (const jc of te.junctions) if (jc === c) return base + c.s0 - path.u;
+    }
+    return Infinity;
+  }
+
+  // A tram standing right at a conflict can start into it at any moment. Trams dwelling at a stop, held by a signal
+  // or at a route end are certainly not moving, so they keep the old behaviour. A tram stopped for room, a car, a
+  // switch or a block (Kaponiera's line 13 at 3116) is not reserved ahead of its body but can pull away while a car
+  // that cannot stop on a short link is crossing. Only the few metres before the nose count: this is not a forecast.
+  const TRAM_STAND_REACH = 8;
+  function tramStandsAt(c, v, reach = TRAM_STAND_REACH) {
+    for (const t of trams) {
+      if (!t.active || t.speed >= 1 || t.atStop || t.obstacle === v) continue;
+      if (t.waitReason === 'stop' || t.waitReason === 'signal' || t.waitReason === 'end') continue;
+      const gap = tramConflictGap(t, c);
+      if (gap < reach && gap > -t.length) return true;
+    }
+    return false;
+  }
+
   // Is a tram that holds the curve v would take (from `se`/`si` into lane j of f) actually close to it?
   function tramHoldsClose(v, n, f, j, se, si, reach) {
     const list = n.tramConflicts;
@@ -2078,6 +2110,35 @@ function createTrafficSystem(
       if (k >= 0 && tramHoldsClose(v, f.to, m.to, k, f, j, reach)) return true;
     }
     return false;
+  }
+
+  // The same for a tram standing at the curve's nose: its reservation has not reached it yet, but it can start.
+  // The tram that is waiting for this very vehicle keeps its exemption, so the car goes instead of both waiting.
+  const TRAM_SHORT_REACH = 20; // m of tram approach for a short link a car cannot stand on
+  function nextTramBlocked(v, f, j, reach = TRAM_SHORT_REACH) {
+    if (!f.moves) return false;
+    const list = f.to && f.to.tramConflicts;
+    if (!list) return false;
+    for (const m of f.moves) {
+      const k = m.out[j];
+      if (k < 0) continue;
+      for (const c of list) {
+        if (c.e !== f || c.i !== j || c.f !== m.to || c.j !== k) continue;
+        if (c.held === tramFrame) {
+          if (heldByTram(v, c, f, j, m.to, k, true) && tramClose(c.by, c, reach)) return true;
+        } else if (tramStandsAt(c, v, reach)) return true;
+      }
+    }
+    return false;
+  }
+
+  // Would entering lane j of f leave v standing on a short link whose exit curve a tram owns? At Kaponiera the 10 m
+  // links 7343/6034 were entered at 10-14 m/s; the car then could not stop on the link, the tram claimed the exit
+  // curve first, and the >4 m/s `enter` fallback drove the car into its body. A car that can stop on the link changes
+  // nothing (it is ordinary short-link storage); buses keep their own longer-body guard.
+  const canStandOn = (v, f) => v.speed * v.speed <= 2 * v.driver.b * Math.max(0, f.len - v.half - 0.5);
+  function shortLinkTramBlocked(v, f, j) {
+    return f.len < 12 && !canStandOn(v, f) && nextTramBlocked(v, f, j);
   }
 
   // Either the curve v is taking or the one after it: the last check before the too-fast-to-stop fallback.
