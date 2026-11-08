@@ -291,13 +291,13 @@ function surfaceCoverage() {
 
 test('park blocks with buildings: no curb or paving under footprints, granite and lawn match the intended region', () => {
   const { tot, perBlock, footprint, blocks } = surfaceCoverage();
-  assert.equal(blocks, 42, 'all 42 park blocks with buildings checked');
-  // ground footprint union across the 42 blocks, 0.5 m raster (239,736 m² after the central density pass on
+  assert.equal(blocks, 44, 'all 44 park blocks with buildings checked');
+  // ground footprint union across the 44 blocks, 0.5 m raster (239,736 m² after the central density pass on
   // 2026-11-08; 243,502 m² after the park facility carve-out put Hala Arena, Enea Stadion and the other mapped
   // sports centres back on their OSM lots; 305,226 m² after the park-building pass restored the ordinary mapped
-  // buildings of 873, 966, 1164, 1268, 884 and 403 as lots; 337,613 m² with the west-expansion park block at
-  // Marcelin, whose mapped buildings are now in the detail box)
-  assert.ok(footprint > 335000 && footprint < 340000, `footprint union ~337.6k m² (got ${footprint})`);
+  // buildings of 873, 966, 1164, 1268, 884 and 403 as lots; 337,613 m² with the Etap 1 park block at Marcelin;
+  // 366,371 m² with the two Etap 2 park blocks west of Ławica)
+  assert.ok(footprint > 365000 && footprint < 368000, `footprint union ~366.4k m² (got ${footprint})`);
   const fmt = (k) => JSON.stringify(tot[k]);
   for (const row of perBlock) {
     assert.equal(row.curb.underFp, 0, `block ${row.id} curb under footprints`);
@@ -320,7 +320,7 @@ test('park blocks with buildings: no curb or paving under footprints, granite an
 test('real triangulation: every park surface mesh of the 42 blocks triangulates to its area with no fill in holes', () => {
   const { config, recordedMeshes, helpers } = getWorld();
   const parkBlocks = new Set(config.BLOCKS.filter((b) => isParkBlock(b) && b.buildings > 0).map((b) => b.id));
-  assert.equal(parkBlocks.size, 42, 'all 42 park blocks with buildings checked');
+  assert.equal(parkBlocks.size, 44, 'all 44 park blocks with buildings checked');
 
   const triArea = (a, b, c) => 0.5 * Math.abs((b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x));
   const polyArea = (pts) => {
@@ -467,19 +467,19 @@ test('critical gap locations covered by exactly one real triangle', () => {
   }
 });
 
-test('plaza planters: 138 planters emitted and 0 empty planters across the city', () => {
+test('plaza planters: 140 planters emitted and 0 empty planters across the city', () => {
   const { grid, helpers, emittedPlanterBoxes, emittedPlanterHedges } = getWorld();
 
   const planterColliders = grid.propColliders.filter(
     (c) => !c.obb && Math.abs(c.maxX - c.minX - 2.4) < 1e-4 && Math.abs(c.maxZ - c.minZ - 2.4) < 1e-4
   );
 
-  // Check emitted meshes/instances: exactly 138 granite boxes and 138 hedges (baseline had 141; 3 dropped at source)
-  assert.equal(emittedPlanterBoxes.length, 138, 'exactly 138 granite planter boxes emitted');
-  assert.equal(emittedPlanterHedges.length, 138, 'exactly 138 planter hedges emitted');
+  // Check emitted meshes/instances: exactly 140 granite boxes and 140 hedges (baseline had 141; 1 dropped at source)
+  assert.equal(emittedPlanterBoxes.length, 140, 'exactly 140 granite planter boxes emitted');
+  assert.equal(emittedPlanterHedges.length, 140, 'exactly 140 planter hedges emitted');
 
-  // Check emitted colliders: exactly 138 colliders
-  assert.equal(planterColliders.length, 138, 'exactly 138 plaza planters emitted (3 dropped at source)');
+  // Check emitted colliders: exactly 140 colliders
+  assert.equal(planterColliders.length, 140, 'exactly 140 plaza planters emitted (1 dropped at source)');
 
   // Verify that every remaining planter box has an active tree site inside it (0 empty planters)
   const parkTreeSites = helpers.getParkTreeSites();

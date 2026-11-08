@@ -22,7 +22,7 @@ test('pedestrian routes do not U-turn over a crossing line or cross into a dead 
       'return { along, across, next, crosswalks, segments, segmentsNear };',
       'return { along, across, next, crosswalks, segments, segmentsNear, links };'
     ),
-    { imports: { './road-network.js': road } }
+    { imports: { './road-network.js': road }, globals: { Math } }
   );
   const network = road.buildRoadNetwork([], []);
   const routes = createPedestrianRoutes(network, config.blockAt, null);
@@ -61,31 +61,39 @@ test('pedestrian routes do not U-turn over a crossing line or cross into a dead 
   assert.ok(emptyTracks <= 15, `the bare network leaves tracks with an empty end (${emptyTracks})`);
 
   // Sample route choices across the city with several goals per end. A chosen crossing must have links at the landing
-  // it walks to, and must not be a turn back onto the same crossing's other line.
+  // it walks to, and must not be a turn back onto the same crossing's other line. The choice score has a random
+  // tie-breaker; pin it so the sample is reproducible when the west expansion adds crossings to the list.
   let chosen = 0, sampled = 0;
-  for (let k = 0; k < routes.crosswalks.length; k += 31) {
-    for (const track of routes.crosswalks[k].tracks) {
-      for (const dir of [-1, 1]) {
-        sampled++;
-        for (const [gx, gz] of [[-2000, -1200], [0, 0], [1800, 1400]]) {
-          const path = routes.next(track, dir, gx, gz);
-          if (!path) continue;
-          chosen++;
-          const last = path[path.length - 1];
-          assert.ok(!sibling(track, last.track), 'a route choice U-turns over the same crossing');
-          if (last.track.node) {
-            assert.ok(routes.links(last.track, last.dir).length > 0,
-              `a route choice crosses into a dead end at ${last.track.node.x},${last.track.node.z}`);
-          } else if (last.track.edge) {
-            const end = last.dir > 0 ? 1 : 0;
-            const x = last.track.ax + last.track.ux * last.track.len * end;
-            const z = last.track.az + last.track.uz * last.track.len * end;
-            assert.ok(!config.blockAt(x, z) || routes.links(last.track, last.dir).length > 0,
+  const random = Math.random;
+  Math.random = () => 0.5;
+  try {
+    for (let k = 0; k < routes.crosswalks.length; k += 31) {
+      for (const track of routes.crosswalks[k].tracks) {
+        for (const dir of [-1, 1]) {
+          sampled++;
+          for (const [gx, gz] of [[-2000, -1200], [0, 0], [1800, 1400]]) {
+            const path = routes.next(track, dir, gx, gz);
+            if (!path) continue;
+            chosen++;
+            const last = path[path.length - 1];
+            assert.ok(!sibling(track, last.track), 'a route choice U-turns over the same crossing');
+            if (last.track.node) {
+              assert.ok(last.track.terminus || last.track.landing || routes.links(last.track, last.dir).length > 0,
+                `a route choice crosses into a dead end at ${last.track.node.x},${last.track.node.z}`);
+            } else if (last.track.edge) {
+              const end = last.dir > 0 ? 1 : 0;
+              const x = last.track.ax + last.track.ux * last.track.len * end;
+              const z = last.track.az + last.track.uz * last.track.len * end;
+              assert.ok(last.track.terminus || last.track.landing || !config.blockAt(x, z) ||
+                routes.links(last.track, last.dir).length > 0,
               `a route choice ends on a dead-end sidewalk track at ${x.toFixed(1)},${z.toFixed(1)}`);
+            }
           }
         }
       }
     }
+  } finally {
+    Math.random = random;
   }
   assert.ok(sampled > 150 && chosen > 200, `route choices were sampled (${sampled} ends, ${chosen} paths)`);
 

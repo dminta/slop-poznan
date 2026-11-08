@@ -33,9 +33,10 @@ const toWorld = (lon, lat) => [(lon - LON0) * KX, -(lat - LAT0) * KY];
 // toWorld as GEO.frame.ll affine coefficients: x = a*lon + b*lat + c, z = d*lon + e*lat + f
 const llAffine = () => [KX, 0, -KX * LON0, 0, -KY, KY * LAT0];
 
-// The detailed core (D3): 52.383–52.434 N, 16.85686–17.000 E, ≈ 9.7 km east-west × 5.7 km north-south. The west edge
-// grew from 16.880 E (x −3,675.4) to include King Cross Marcelin and Business Garden (Etap 1 of the west expansion).
-const DETAIL_LL = { s: 52.383, n: 52.434, w: 16.85686, e: 17.000 };
+// The detailed core (D3): 52.383–52.434 N, 16.800–17.000 E, ≈ 13.6 km east-west × 5.7 km north-south. The west edge
+// grew from 16.880 E (x −3,675.4) to 16.85686 E for King Cross Marcelin and Business Garden (Etap 1) and to 16.800 E
+// for the Ławica aerodrome (Etap 2 of the west expansion).
+const DETAIL_LL = { s: 52.383, n: 52.434, w: 16.800, e: 17.000 };
 const [DX0, DZ1] = toWorld(DETAIL_LL.w, DETAIL_LL.s);
 const [DX1, DZ0] = toWorld(DETAIL_LL.e, DETAIL_LL.n);
 const DETAIL_BOX = [DX0, DX1, DZ0, DZ1];

@@ -323,7 +323,7 @@ test('most of the Poznań road graph survives the largest strongly connected set
   const dworzec = crosswalks.filter((c) => Math.hypot((c.ax + c.bx) / 2 + 1567, (c.az + c.bz) / 2 - 560) < 150);
   assert.ok(dworzec.length > 0, 'zebras in the Dworzec complex');
   assert.ok(split.length >= 15 && split.length < 200, `${split.length} split zebras`);
-  assert.ok(crosswalks.length < 4300, `${crosswalks.length} zebras: no flood of new ones`);
+  assert.ok(crosswalks.length < 5600, `${crosswalks.length} zebras: no flood of new ones`);
 
   // every piece of it is a player collider too, as small as the thing itself; street trees add trunk colliders without
   // a footprint (they are not traffic obstacles), so they are excluded from the footprint equality but keep the size check

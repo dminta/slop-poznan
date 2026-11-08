@@ -60,8 +60,8 @@ test('seeded species assignment preserves the full built city tree sites and col
     clearOfCrosswalks: crosswalkClearance, grid, details, movedSites });
   assert.deepEqual(clearance.counts, { landing: 0, zebra: 0, lane: 0, island: 0 });
   assert.ok(clearance.minMovedTreeDistance >= 3.5, 'moved trees keep clear of every other street tree');
-  // The west expansion adds a 0.331 m pair at a tight new-street corner; the old core minimum was 0.37 m.
-  assert.ok(clearance.minTreeDistance >= 0.33, 'no new pair closer than the west-extension minimum');
+  // The west expansion adds a 0.331 m pair at a tight new-street corner; Etap 2 adds another at 0.325 m.
+  assert.ok(clearance.minTreeDistance >= 0.325, 'no new pair closer than the west-extension minimum');
   const { treeSpecies } = loadModule(source('trees'), { imports: { 'three/webgpu': stub, './tsl-materials.js': stub, './city-config.js': config }, globals });
   const before = [0, 0, 0, 0], after = [0, 0, 0, 0];
   const siteHash = digest(sites);
@@ -85,13 +85,13 @@ test('seeded species assignment preserves the full built city tree sites and col
   // and estate density passes (2026-11-08) changed the building colliders and street-tree sites again.
   // See docs/observations/railway-building-islands-2026-11-08.md, park-sports-facilities-2026-11-08.md,
   // block-anchors-2026-11-08.md and building-density-investigation-2026-11-08.md.
-  assert.deepEqual(before, [21861, 27280, 10212, 0]);
-  assert.deepEqual(after, [20948, 26169, 9791, 2445]);
-  assert.equal(siteHash, 'f04fc34ba1d077a60c4d61e960d1a64ec2cb82921ab15f0c2fc246e60f4f7e4f');
-  assert.equal(digest(grid.propColliders), 'f7cd532f0b8a966dd889072b9fb70801d66ff09f50f8cb08a26b8e3fbfe381c3');
-  assert.equal(digest(details.colliders), '0ef4f8504d968f3e06c7e731b1ed8941d4d69c782609a3e632f9750784b001b5');
-  assert.equal(meshCount((t) => t.species || 0), 16243);
-  assert.equal(meshCount(treeSpecies), 19793);
+  assert.deepEqual(before, [35608, 37673, 16568, 0]);
+  assert.deepEqual(after, [34157, 36130, 15884, 3678]);
+  assert.equal(siteHash, '4f5708f02ad26a8678fc70e5327adc1c42ba3136a071f7b26e4acd1e4bb4b688');
+  assert.equal(digest(grid.propColliders), 'fa30ef518da1e5dfcfd8dd13dbd7181987c71632d2988b5f5bc75f860df50b61');
+  assert.equal(digest(details.colliders), '2c3bb3ce335a2119620f11cb868bec15bea06b2e70248122a24cecad15340499');
+  assert.equal(meshCount((t) => t.species || 0), 21871);
+  assert.equal(meshCount(treeSpecies), 26815);
 });
 
 // Exercise the real field's transform, allocation and regrouping with cheap stand-ins for the generated geometries.

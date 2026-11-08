@@ -142,17 +142,17 @@ test('the live Krucza approaches have correctly facing heads without changing th
 
 test('exact park polygons restore signal heads and street furniture across the city', () => {
   const { street, baseline, config, gridModule } = world;
-  assert.equal(street.vehicleHeads, baseline.vehicleHeads + 167, 'restores 167 vehicle heads across the junctions');
-  assert.equal(street.audioSignals.length, baseline.audioSignals.length + 306, 'restores 306 pedestrian heads');
+  assert.equal(street.vehicleHeads, baseline.vehicleHeads + 170, 'restores 170 vehicle heads across the junctions');
+  assert.equal(street.audioSignals.length, baseline.audioSignals.length + 314, 'restores 314 pedestrian heads');
   const nonSignals = (details) => details.footprints.filter((r) => r.kind !== 'signal').length;
-  assert.equal(nonSignals(street), nonSignals(baseline) + 5415, 'restores 5,415 non-signal street furniture footprints');
+  assert.equal(nonSignals(street), nonSignals(baseline) + 6861, 'restores 6,861 non-signal street furniture footprints');
 
   // Verify clearances for all restored signal poles
   const basePoles = new Set(baseline.footprints.filter((r) => r.kind === 'signal')
     .map((r) => `${((r.minX + r.maxX) / 2).toFixed(2)},${((r.minZ + r.maxZ) / 2).toFixed(2)}`));
   const newPoles = street.footprints.filter((r) => r.kind === 'signal' &&
     !basePoles.has(`${((r.minX + r.maxX) / 2).toFixed(2)},${((r.minZ + r.maxZ) / 2).toFixed(2)}`));
-  assert.equal(newPoles.length, 306, 'adds exactly 306 restored signal poles');
+  assert.equal(newPoles.length, 314, 'adds exactly 314 restored signal poles');
   for (const p of newPoles) {
     const cx = (p.minX + p.maxX) / 2, cz = (p.minZ + p.maxZ) / 2;
     assert.ok(config.roadClearance(cx, cz) >= 0.8, `pole at ${cx}, ${cz} keeps >= 0.8 m road clearance`);

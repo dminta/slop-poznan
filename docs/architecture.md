@@ -22,7 +22,8 @@
 ## Boot order (inside `initApp`)
 1. `renderer.init()`, then `LightingSystem`.
 2. City builders, in this order: `buildLandmarks`, `buildCityBlocks`, `buildCityGrid` (with injected building footprints
-   and colliders), `buildCanopies`, `populateLeftoverSlabs`, `buildOutskirts`, `buildBridges`, `buildStreetDetails`,
+   and colliders), `buildAirport` (the Ławica layer cut out of the block raster), `buildCanopies`, `populateLeftoverSlabs`,
+   `buildOutskirts`, `buildBridges`, `buildStreetDetails`,
    `createTrafficSystem`, `buildRoadPaint`, `buildTramInfrastructure`, `createTramSystem`, then
    `trafficSystem.setTrams(tramSystem)`. After
    traffic configures the road network, street details add vehicle heads on existing or newly placed poles,

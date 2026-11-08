@@ -8,8 +8,9 @@ follow-up” w [backlogu](../backlog.md) i wcześniejsze zapisy
 
 > **Wdrożenie 2026-11-08:** Etap 1 (wariant A, `x_min = −5 250`) jest w `main`/`poznan`: dane scalone
 > `tools/merge-extent.mjs`, King Cross jako kwartał 1475, Business Garden jako kwartał 1492 z programem 9, pełny
-> zestaw testów 470/470. Pomiar i zmiany: [wdrożenie Etapu 1](detailbox-west-phase1-2026-11-08.md). Etap 2 (Ławica)
-> pozostaje otwarty.
+> zestaw testów 470/470. Pomiar i zmiany: [wdrożenie Etapu 1](detailbox-west-phase1-2026-11-08.md). **Etap 2 (Ławica,
+> `x_min = −9 120`) wdrożony 2026-11-08:** nowy snapshot `aeroway`, wycięcie aerodromu z rastra bloków i
+> `js/airport.js`; pomiar i zmiany: [wdrożenie Etapu 2](detailbox-west-phase2-2026-11-08.md).
 
 ## Wniosek
 

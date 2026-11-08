@@ -1800,6 +1800,9 @@ function buildCityGrid(scene, opts = {}) {
               if (!moved) continue;
             }
           }
+          // A narrow or folded park walk can put the 1.05 m inset line within the audit's 0.5 m of the curb: keep the
+          // lamp only when its 0.2 m pole is at least 0.7 m inside the block outline.
+          if (ringDist(b.poly, px, pz) < 0.7) continue;
           addLamp(px, y, pz);
         }
       }

@@ -232,6 +232,27 @@ const RAIL_BUILDING_NAME = /dworzec|zajezdni|parowozownia|lokomotywownia|pkp|kol
   log(`blocks: ${islands} railway building islands given back from rail land (${cells} m², ${skipped} footprints outside the box or with no cells)`);
 }
 
+// --- Aerodrome: not a block ----------------------------------------------------------------------------------------
+// The 2.81 km² Ławica outline would otherwise become one giant block and buildings.js would raise a villa estate on
+// the runway. The aerodrome is a dedicated surface layer (GEO.aeroway, js/airport.js), so clear it from the raster
+// after the railway islands have been given back and before labelling. Every surface inside it (runway, taxiways,
+// aprons, terminals) is drawn by the airport module instead (docs/observations/detailbox-west-expansion-2026-11-08.md §5).
+{
+  const osm = load('poz_aeroway.json');
+  let rings = 0, before = 0, after = 0;
+  for (let k = 0; k < W * H; k++) before += D[k];
+  for (const e of osm.elements) {
+    if ((e.tags || {}).aeroway !== 'aerodrome') continue;
+    for (const ring of elemRings(e, toWorld)) {
+      if (ring.length < 4) continue;
+      R.fillRing(ring, 0);
+      rings++;
+    }
+  }
+  for (let k = 0; k < W * H; k++) after += D[k];
+  log(`blocks: aerodrome cleared (${rings} outline ring${rings === 1 ? '' : 's'}, ${(before - after).toLocaleString('en-US')} m²)`);
+}
+
 // --- Label curb islands (4-connected) ------------------------------------------------------------------------------
 const lab = new Int32Array(W * H);
 const comps = [];
