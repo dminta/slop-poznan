@@ -252,13 +252,16 @@ Per frame: `cityBlocks.update(camX, camZ)` (detail streaming), `cityBlocks.updat
     [observation record](observations/zebra-visibility-2026-10-30.md).
   - **Measured on the grid-and-furniture network (2026-10-29):** 5,221 P-1b strips (205.3 km), 15 P-1a strips (2.3 km), 30 solid P-4 strips (0.95 km, both parallel lines counted) and 864 P-14 stop-line strips. The 2,409 pedestrian crosswalks emit 2,560 zebra pieces (16.5 km) after rail clearance cuts; eight crosswalks are split across a median or tram strip. These supersede the earlier smaller-box paint counts. See the measurement snapshot above for the omitted colliders.
   - **P-22 BUS:** the long 1.62 × 4.00 m white inscription (annex 2, fig. 5.2.8.1) is instanced at build time on
-    explicitly designated OSM bus/PSV lanes whose directional lane vector matches the runtime lane count. B, U and S
-    stand side by side across the lane; the strokes use lit, wet-aware transparent paint and the road-paint SSR pass.
-    The long variant is used at all speeds; the annex also defines a 1.62 × 1.60 m short variant. It repeats
-    at 30 m intervals on each straight edge, at least 5 m from the stop-line ends and clear of crossings; there are no
+    explicitly designated OSM bus/PSV lanes. The OSM vector maps onto the runtime lanes even when their counts differ:
+    an equal-length vector keeps its index, otherwise the designation lands by its fractional place across the lane
+    (Bukowska's two-lane direction modelled as one lane, a roundabout's outer lanes on their side); a designated lane
+    removed by an obstacle paints nothing. B, U and S stand side by side across the lane; the strokes use lit,
+    wet-aware transparent paint and the road-paint SSR pass. The long variant is used at all speeds; the annex also
+    defines a 1.62 × 1.60 m short variant. It repeats at 30 m intervals on each straight edge, at least 5 m from the
+    stop-line ends (P-14 stays there), only in lanes at least 2.8 m wide and clear of crossings; there are no
     direction arrows in the current road-paint builder. Every inscription's full bounding rectangle is sampled against
     tracks, with a 1.7 m minimum clearance plus a sampling margin. On the furnished grid-and-street-details network,
-    14 OSM ways receive 27 inscriptions; 32 eligible directed edge segments total 0.764 km of bus lanes (including
+    39 OSM ways receive 86 inscriptions; 74 eligible directed edge segments total 2.515 km of bus lanes (including
     segments too short to fit an inscription). This headless measurement includes pedestrian crossings and rail
     clearance; it excludes building/landmark/bridge colliders. Appearance and backend performance still need browser checks.
     The input classification and omissions are in [geodata.md](geodata.md).

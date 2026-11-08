@@ -231,20 +231,23 @@ The build reads only the committed `poz_*.json` snapshots. The current output co
 - Bus lanes: each `roadGraph.links` tuple ends with `[forward, backward]` vectors (null or left-to-right 0/1 for
   `designated` in `bus:lanes` / `psv:lanes`) and the OSM way ID for a designated vector. Unsuffixed vectors apply
   only to one-way roads. Opposite directions of one-way roads are discarded; count-only and turn tags never infer a
-  position. Runtime checks the vector against the actual directional lane count and suppresses it if any lane was
-  removed by obstacles. Rail and crossing clearance are checked when placing each P-22 inscription.
+  position. Runtime maps each vector onto the directional runtime lanes instead of suppressing a count mismatch: an
+  equal-length vector keeps its own index, otherwise the designated position is placed by its fractional distance
+  across the lanes (a narrow two-lane direction becomes the single lane it models; a roundabout's outer lanes stay on
+  their side). A designated lane removed by an obstacle paints nothing, while other removed lanes leave it alone. Rail,
+  crossing and lane-width clearance are checked when placing each P-22 inscription.
   In the full committed source snapshot, 75 ways have positional bus/PSV tags, of which 71 have `designated`; 12
   more have only counts and 19 have only bus/PSV turn tags (these categories exclude positional and count tags).
   Seven one-way ways allow opposite-direction buses/PSVs via `oneway:bus` or `oneway:psv`; none provides a designated
   opposite-direction positional vector, so none produces a contraflow marking. Categories can overlap.
-  In the furnished headless measurement, of the 71 designated ways, 14 receive paint, 29 have mismatching runtime
-  lane counts, five have eligible segments too short for a mark, and 23 have no corresponding retained paint edge
-  (outside the graph, collapsed, or removed). Track/crossing clearance removes no additional whole way in this sample.
-  These are OSM ways, not street names; the same street can have many ways. Eligible directed segments total 0.764 km
-  and 27 P-22 inscriptions. The furnished-network regression prints and checks the following report against this document
-  (`node --test tests/zebra-visibility.test.cjs`):
+  In the furnished headless measurement, of the 71 designated ways, 39 receive paint, 29 are mapped from a runtime
+  lane-count mismatch, nine have eligible segments too short for a mark, and 23 have no corresponding retained paint
+  edge (outside the graph, collapsed, or removed). Track/crossing clearance removes no additional whole way in this
+  sample. These are OSM ways, not street names; the same street can have many ways. Eligible directed segments total
+  2.515 km and 86 P-22 inscriptions. The furnished-network regression prints and checks the following report against this
+  document (`node --test tests/zebra-visibility.test.cjs`):
 
-  `P-22 ways: 71 designated, 14 painted, 29 lane-count mismatch, 5 too short, 0 rail clearance, 0 crossing clearance, 0 blocked lanes, 23 no retained edge; 12 count-only, 19 turn-only, 7 one-way ways allow opposite buses/PSVs`
+  `P-22 ways: 71 designated, 39 painted, 29 mapped from lane-count mismatch, 9 too short, 0 rail clearance, 0 crossing clearance, 0 blocked lanes, 23 no retained edge; 12 count-only, 19 turn-only, 7 one-way ways allow opposite buses/PSVs`
 
   The latter seven are a separate, overlapping source-tag count, not seven additional designated ways. See [world.md](world.md#road-network-shared-by-traffic-pedestrians-and-paint) for measurement scope.
 - No bike lanes: the OSM `cycleway` tags are ignored since the bike lanes were removed (2026-10-28).
