@@ -79,12 +79,14 @@ test('seeded species assignment preserves the full built city tree sites and col
   };
   // Street placement and production crossing constants change these pins; park/grid colliders changed only when the
   // Chartowo corridor moved three block 1304 lamps off the new cut curb. The 2026-11-08 railway-island and park
-  // facility carve-outs restored blocks and kept mapped sports centres on their OSM lots.
-  // See docs/observations/railway-building-islands-2026-11-08.md and park-sports-facilities-2026-11-08.md.
-  assert.deepEqual(before, [18630, 22583, 8703, 0]);
-  assert.deepEqual(after, [17866, 21686, 8352, 2012]);
-  assert.equal(siteHash, '4e14e313ee40078b9717b70e549d2b0eef3cc311909931908e44be5ea6eb9f09');
-  assert.equal(digest(grid.propColliders), 'ddbab232ebba16b7dbfbe259162e8c74899ee0cdf825aad2f5e5d0612ca72cde');
+  // facility carve-outs restored blocks and kept mapped sports centres on their OSM lots, and the block anchors
+  // (2026-11-08) replaced 30 generic street-tree sites around the newly occupied mall/hall envelopes.
+  // See docs/observations/railway-building-islands-2026-11-08.md, park-sports-facilities-2026-11-08.md and
+  // block-anchors-2026-11-08.md.
+  assert.deepEqual(before, [18601, 22577, 8690, 0]);
+  assert.deepEqual(after, [17840, 21680, 8339, 2009]);
+  assert.equal(siteHash, '1f46cfe15c420e33b6944b4901be51e638c28b2f563185ef181d743b5f67da2b');
+  assert.equal(digest(grid.propColliders), '76a9ce263a3c830fd746d9f8f25a22d444bd5ed39f2153983b317759a744f242');
   assert.equal(digest(details.colliders), '8bf56f42472ebc3216b994e70af0cc7ab6a5f118fadaf458c97b76cd242fb390');
   assert.equal(meshCount((t) => t.species || 0), 13857);
   assert.equal(meshCount(treeSpecies), 16798);

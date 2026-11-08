@@ -316,11 +316,12 @@ obrysu. To rozszerza kontrakt `GEO.blockStats` — zaktualizować komentarz przy
 
 ### 3. Dać generatorowi „kotwice” z OSM
 
-Największa pojedyncza poprawka jakości: `poz-buildings.mjs` już liczy każdy obrys. Warto emitować per kwartał
-1–3 największe obrysy niemieszkalne jako `GEO.blockAnchors`: `{ x, z, w, d, ang, levels, use }` (ten sam
-format co `GEO.landmarks`). `buildings.js` stawiałby wtedy jeden obiekt na kotwicy (MALL/INDUSTRIAL/STADIUM),
-a resztę działek uzupełniał parkingiem, placem lub niską zabudową. Koszt: ~2 000 wpisów po ~40 B; brak nowych
-pipeline'ów. To rozwiązuje jednocześnie „złą morfologię” i „przesunięcie względem realnego obrysu”.
+**Wdrożone 2026-11-08** — szczegóły i pomiary w [zapisie kotwic](block-anchors-2026-11-08.md). `poz-buildings.mjs`
+emituje per kwartał 1–3 największe obrysy niemieszkalne jako `GEO.blockAnchors`
+(`[x0, x1, z0, z1, area, use, levels]`), a `buildings.js` stawia na każdej kotwicy dedykowaną bryłę (mall/hala/
+zajezdnia/arena), przyciętą do własnych działek kwartału. Resztę kwartału wypełniają niskie pawilony i place do
+wysokości realnego built. Pokrycie: Posnania 68 → 94 %, Castorama 22 → 84 %, ZNTK 21 → 74 %, Hala Arena 83 →
+97 %. Koszt: 61 kotwic w 35 kwartałach, 2 KB w `js/geodata.js`.
 
 ### 4. Priorytet programu nad dzielnicą
 

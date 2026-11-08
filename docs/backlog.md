@@ -107,8 +107,12 @@ Implementation details and completed measurements live in the [topic docs](../AG
      `HOSPITAL` gets a wider gate (area >= 0.4 ha, built <= 55 %) for #828/#991, while `UNIVERSITY` keeps the 5 ha /
      40 % gate. EC Garbary and the Madalińskiego depot stay `SPECIAL_SITES` fallbacks because OSM tags them too sparsely
      for the 40 % share. [Record](observations/block-programs-2026-11-08.md).
-  3. *Building anchors (`GEO.blockAnchors`):* emit 1–3 largest non-residential footprints per block so `buildings.js`
-     can place solitary big-box structures at their true OSM location and fill remainder with parking/service lots.
+  3. *Building anchors (`GEO.blockAnchors`)* (done 2026-11-08): `tools/poz-buildings.mjs` emits the 1–3 largest
+     mapped non-residential footprints of a block that dominate its built mass (35 blocks, 61 anchors in the current
+     build), and `buildings.js` fills each anchor's OSM envelope clipped to the block's own lot rects. Posnania
+     68 → 94 %, Castorama 22 → 84 %, ZNTK 21 → 74 % and Hala Arena 83 → 97 % outline coverage; the rest of an anchored
+     block is parking/yard plus low service pavilions instead of kamienice.
+     [Record](observations/block-anchors-2026-11-08.md).
   4. *Park clearance carve-out* (done 2026-11-08): `GEO.blockFootprints` emits the OSM envelopes of mapped sport/show/public
      facilities (≥ 150 m²) in park blocks; `parkFreeCells` in `js/city-config.js` keeps them as dedicated lots for
      `facilityBlock` in `js/buildings.js`. Hala Arena (block 927) coverage rises 0 → 74 %, Enea Stadion (939) 0 → 67 %

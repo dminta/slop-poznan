@@ -179,6 +179,20 @@ test('Poznań geodata builds offline with default paths in a checkout containing
       Math.hypot(c.cx + 1580, c.cz - 800) < 300);
     assert.ok(mainStation.length >= 5, 'Poznań Główny platform canopies');
     assert.ok(mainStation.some((c) => c.w > 200), 'the long platform canopy');
+    // blockAnchors: the 1-3 largest mapped non-residential footprints of each block, [x0, x1, z0, z1, area, use,
+    // levels]; use 1 retail/mall, 2 industrial/warehouse, 3 rail/depot, 4 sport/leisure, 5 utility. buildings.js builds
+    // each anchor on its own envelope and keeps the rest of the block as yard/auxiliary.
+    const anchors = GEO.blockAnchors;
+    assert.ok(anchors && Object.keys(anchors).length >= 30, 'block anchors emitted');
+    const anchorHolds = (id, minArea, use) => (anchors[id] || []).some((a) => a[1] > a[0] && a[3] > a[2] &&
+      a[4] >= minArea && a[5] === use);
+    assert.ok(anchorHolds(955, 70000, 1), 'Posnania mall anchor in block 955');
+    assert.ok(anchorHolds(21, 7000, 1), 'Castorama retail anchor in block 21');
+    assert.ok(anchorHolds(848, 20000, 2), 'ZNTK industrial anchor in block 848');
+    assert.ok(anchorHolds(927, 7000, 4), 'Hala Arena sports anchor in block 927');
+    assert.ok(anchorHolds(1250, 6000, 3), 'Głogowska depot anchor in block 1250');
+    assert.ok(Object.values(anchors).every((list) => list.every((a) => a.length === 7 && a.every(Number.isFinite) &&
+      a[1] > a[0] && a[3] > a[2] && a[4] > 0 && [1, 2, 3, 4, 5].includes(a[5]) && a[6] >= 0 && a[6] < 60)));
     // frame.ll puts the Ratusz (the D1 origin) at the world origin
     const ll = GEO.frame.ll;
     const [lon, lat] = [16.93401, 52.40856];
