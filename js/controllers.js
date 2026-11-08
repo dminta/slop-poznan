@@ -14,6 +14,7 @@ import {
   buildCarGeometry,
   buildCarSidePatch,
   buildSteerableWheelGeo,
+  drawPoznanCrest,
   createLoftedCarMaterial,
   PLATE_FONT_FAMILY,
   buildHelicopterBodyGeometry,
@@ -167,10 +168,11 @@ function buildingContact(c, x, y, z, body, contact) {
   return true;
 }
 
-// The taxi's side stripe, one per side: a white band edged with yellow & black checks that runs over both doors, "TAXI"
-// and the city on the front door, the side number on the rear one. The patch's u runs front to rear on the +x side and
-// rear to front on the -x side (buildCarSidePatch), so each side gets its own canvas with the blocks placed by their z:
-// one mirrored texture would mirror the lettering too. No city crest (a licensed emblem); the number is made up.
+// The taxi's side stripe, one per side: a white band edged with yellow & black checks that runs over both doors. The
+// front door carries the arms of Poznań, "TAXI" and "POZNAŃ", the rear one the side number. The patch's u runs front
+// to rear on the +x side and rear to front on the -x side (buildCarSidePatch), so each side gets its own canvas with
+// the blocks placed by their z: one mirrored texture would mirror the lettering too. The city arms are a municipal
+// symbol, outside copyright under art. 4 of the Polish Copyright Act; the number is made up.
 const TAXI_STRIPE_PX_PER_M = 588; // ~1024 px over the 1.74 m stripe
 const TAXI_SIDE_NUMBER = '1427';
 
@@ -190,20 +192,30 @@ function createTaxiStripeTexture(spec, z0, z1, frontOnLeft) {
     ctx.fillStyle = k % 2 ? '#f5c400' : '#15171b';
     ctx.fillRect(x, h - check, check, check);
   }
+  const frontDoor = (spec.doors[0] + spec.doors[1]) / 2;
+  const rearDoor = (spec.doors[1] + spec.doors[2]) / 2;
+  // The crest sits ahead of the lettering on the front door: 52 x 68 px, roughly 8.8 x 11.6 cm at stripe scale
+  const crestW = 52, crestH = 68;
+  drawPoznanCrest(ctx, xAt(frontDoor + 0.24) - crestW / 2, (h - crestH) / 2, crestW, crestH);
   ctx.fillStyle = '#15171b';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  const frontDoor = (spec.doors[0] + spec.doors[1]) / 2;
-  const rearDoor = (spec.doors[1] + spec.doors[2]) / 2;
-  ctx.font = '900 54px Inter, Arial, sans-serif';
-  ctx.fillText('TAXI', xAt(frontDoor), h * 0.39);
+  const textZ = frontDoor - 0.10;
+  ctx.font = '900 44px Inter, Arial, sans-serif';
+  ctx.fillText('TAXI', xAt(textZ), h * 0.37);
   ctx.font = '700 15px Inter, Arial, sans-serif';
-  ctx.fillText('POZNAŃ', xAt(frontDoor), h * 0.74);
-  ctx.font = '800 40px Inter, Arial, sans-serif';
-  const boxW = ctx.measureText(TAXI_SIDE_NUMBER).width + 24;
-  ctx.fillRect(xAt(rearDoor) - boxW / 2, check + 8, boxW, h - 2 * check - 16);
+  ctx.fillText('POZNAŃ', xAt(textZ), h * 0.67);
+  // The official side number is black digits 6 cm high on a white panel in a black frame (19 x 8 cm)
+  ctx.font = '800 46px Inter, Arial, sans-serif';
+  const boxW = Math.max(112, ctx.measureText(TAXI_SIDE_NUMBER).width + 28);
+  const boxH = 54;
+  const boxX = xAt(rearDoor) - boxW / 2, boxY = (h - boxH) / 2;
+  ctx.fillStyle = '#15171b';
+  ctx.fillRect(boxX, boxY, boxW, boxH);
   ctx.fillStyle = '#f7f7f2';
-  ctx.fillText(TAXI_SIDE_NUMBER, xAt(rearDoor), h * 0.5);
+  ctx.fillRect(boxX + 3, boxY + 3, boxW - 6, boxH - 6);
+  ctx.fillStyle = '#15171b';
+  ctx.fillText(TAXI_SIDE_NUMBER, xAt(rearDoor), h * 0.5 + 1);
   // The decal covers the middle shut line the body material draws, so it carries its own
   ctx.fillStyle = 'rgba(20, 22, 26, 0.75)';
   ctx.fillRect(xAt(spec.doors[1]) - 1, 0, 2, h);
@@ -612,7 +624,7 @@ class ThirdPersonControllerManager {
 
     // 3. Polish EU plates on black holders. The holders are wider and taller than the plate the body material paints
     // underneath, so none of it shows round the plate.
-    const plateTex = createPolishLicensePlateTexture('P0', 'ROGAL');
+    const plateTex = createPolishLicensePlateTexture('P1', 'ROGAL');
     const plateMat = new THREE.MeshStandardNodeMaterial({ map: plateTex, roughness: 0.28 });
     const holderMat = new THREE.MeshStandardNodeMaterial({ color: 0x121417, roughness: 0.6 });
     const plateGeo = new THREE.BoxGeometry(PLATE_W, PLATE_H, 0.008);

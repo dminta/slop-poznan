@@ -1337,6 +1337,272 @@ function carLetteringTexture() {
   return _carLetteringTexture;
 }
 
+// The arms of Poznań. Official municipal symbols are outside copyright under art. 4 of the Polish Copyright Act
+// (Dz.U. 1994 nr 24 poz. 83), so the taxi door can carry the city's own crest instead of a generic badge. The drawing
+// follows the current Statut Miasta Poznania: a blue field with a silver wall and three towers, St Peter with a key and
+// St Paul with a sword on the side towers, a red gothic shield with the crowned Piast eagle over the taller central
+// tower, golden stars and crescents beside the saints, golden crossed keys and a cross in the open gate, and a golden
+// crown above the eagle shield. Flat vector shapes keep it legible at an 8-12 cm door decal.
+function drawPoznanCrest(ctx, x, y, w, h) {
+  const field = '#0091c9'; // the current Statut Miasta Poznania blue
+  const fieldDark = '#006b96';
+  const wall = '#eef3f7';
+  const shade = '#c4d2df';
+  const gold = '#e8b923';
+  const red = '#b4222c';
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(w, h);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+
+  // Shield
+  ctx.beginPath();
+  ctx.moveTo(0.055, 0.025);
+  ctx.lineTo(0.945, 0.025);
+  ctx.lineTo(0.945, 0.6);
+  ctx.bezierCurveTo(0.945, 0.8, 0.78, 0.93, 0.5, 0.985);
+  ctx.bezierCurveTo(0.22, 0.93, 0.055, 0.8, 0.055, 0.6);
+  ctx.closePath();
+  ctx.fillStyle = field;
+  ctx.fill();
+  ctx.lineWidth = 0.02;
+  ctx.strokeStyle = fieldDark;
+  ctx.stroke();
+
+  const star = (cx, cy, r) => {
+    ctx.beginPath();
+    for (let i = 0; i < 12; i++) {
+      const a = -Math.PI / 2 + i * Math.PI / 6;
+      const rr = i % 2 ? r * 0.45 : r;
+      const px = cx + Math.cos(a) * rr;
+      const py = cy + Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+  };
+  const crescent = (cx, cy, r) => {
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = field;
+    ctx.beginPath();
+    ctx.arc(cx + r * 0.4, cy - r * 0.12, r * 0.88, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = gold;
+  };
+  // Golden stars and crescents flank the side towers
+  ctx.fillStyle = gold;
+  for (const cx of [0.085, 0.915]) {
+    star(cx, 0.455, 0.028);
+    crescent(cx, 0.535, 0.024);
+  }
+
+  // Wall and towers, with crenellations and masonry joints
+  const crenellate = (x0, x1, yTop, yBase) => {
+    ctx.fillStyle = wall;
+    ctx.fillRect(x0, yTop, x1 - x0, yBase - yTop);
+    const n = Math.max(3, Math.round((x1 - x0) / 0.04));
+    const step = (x1 - x0) / n;
+    for (let i = 0; i < n; i += 2) ctx.fillRect(x0 + i * step, yTop - 0.018, step, 0.02);
+  };
+  crenellate(0.125, 0.875, 0.645, 0.795);
+  crenellate(0.14, 0.35, 0.395, 0.79);
+  crenellate(0.65, 0.86, 0.395, 0.79);
+  crenellate(0.39, 0.61, 0.325, 0.79);
+  // The central tower is taller and carries a window (the field showing through)
+  ctx.fillStyle = fieldDark;
+  ctx.fillRect(0.462, 0.37, 0.076, 0.075);
+  ctx.fillStyle = gold;
+  ctx.fillRect(0.497, 0.37, 0.006, 0.075);
+  // A few joints suggest masonry without muddying the small decal
+  ctx.strokeStyle = shade;
+  ctx.lineWidth = 0.008;
+  for (const [y0, x0, x1] of [[0.70, 0.15, 0.85], [0.76, 0.15, 0.85]]) {
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y0);
+    ctx.stroke();
+  }
+  for (const cx of [0.245, 0.755]) {
+    ctx.beginPath();
+    ctx.moveTo(cx, 0.42);
+    ctx.lineTo(cx, 0.78);
+    ctx.stroke();
+  }
+
+  // Open gate: the field shows through, with the crossed keys and cross
+  ctx.fillStyle = fieldDark;
+  ctx.beginPath();
+  ctx.moveTo(0.44, 0.795);
+  ctx.lineTo(0.44, 0.69);
+  ctx.quadraticCurveTo(0.44, 0.635, 0.5, 0.635);
+  ctx.quadraticCurveTo(0.56, 0.635, 0.56, 0.69);
+  ctx.lineTo(0.56, 0.795);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = gold;
+  ctx.lineWidth = 0.018;
+  ctx.beginPath();
+  ctx.moveTo(0.462, 0.77);
+  ctx.lineTo(0.538, 0.715);
+  ctx.moveTo(0.538, 0.77);
+  ctx.lineTo(0.462, 0.715);
+  ctx.stroke();
+  ctx.lineWidth = 0.012;
+  ctx.beginPath();
+  ctx.arc(0.458, 0.777, 0.016, 0, Math.PI * 2);
+  ctx.arc(0.542, 0.777, 0.016, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = gold;
+  ctx.fillRect(0.492, 0.655, 0.016, 0.042);
+  ctx.fillRect(0.482, 0.665, 0.036, 0.013);
+
+  // St Paul (viewer's left, with the sword) and St Peter (viewer's right, with the key) on the side towers
+  const saint = (cx, attribute) => {
+    ctx.fillStyle = gold;
+    ctx.beginPath();
+    ctx.arc(cx, 0.292, 0.025, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = wall;
+    ctx.beginPath();
+    ctx.arc(cx, 0.295, 0.016, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx - 0.032, 0.398);
+    ctx.lineTo(cx - 0.018, 0.315);
+    ctx.lineTo(cx + 0.018, 0.315);
+    ctx.lineTo(cx + 0.032, 0.398);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = gold;
+    ctx.lineWidth = 0.011;
+    ctx.beginPath();
+    if (attribute === 'key') {
+      ctx.moveTo(cx + 0.04, 0.388);
+      ctx.lineTo(cx + 0.04, 0.322);
+      ctx.arc(cx + 0.04, 0.318, 0.014, 0, Math.PI * 2);
+    } else {
+      ctx.moveTo(cx + 0.038, 0.31);
+      ctx.lineTo(cx + 0.038, 0.392);
+      ctx.moveTo(cx + 0.028, 0.322);
+      ctx.lineTo(cx + 0.048, 0.322);
+    }
+    ctx.stroke();
+  };
+  saint(0.245, 'sword');
+  saint(0.755, 'key');
+
+  // Red gothic shield with the crowned white Piast eagle over the central tower
+  ctx.beginPath();
+  ctx.moveTo(0.405, 0.145);
+  ctx.lineTo(0.595, 0.145);
+  ctx.lineTo(0.595, 0.235);
+  ctx.quadraticCurveTo(0.595, 0.3, 0.5, 0.335);
+  ctx.quadraticCurveTo(0.405, 0.3, 0.405, 0.235);
+  ctx.closePath();
+  ctx.fillStyle = red;
+  ctx.fill();
+  ctx.lineWidth = 0.012;
+  ctx.strokeStyle = gold;
+  ctx.stroke();
+  ctx.fillStyle = wall;
+  ctx.beginPath();
+  ctx.ellipse(0.5, 0.23, 0.017, 0.046, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(0.5, 0.178, 0.016, 0, Math.PI * 2);
+  ctx.fill();
+  for (const s of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(0.5 + s * 0.012, 0.2);
+    ctx.lineTo(0.5 + s * 0.072, 0.18);
+    ctx.lineTo(0.5 + s * 0.085, 0.218);
+    ctx.lineTo(0.5 + s * 0.022, 0.238);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.beginPath();
+  ctx.moveTo(0.488, 0.252);
+  ctx.lineTo(0.5, 0.295);
+  ctx.lineTo(0.512, 0.252);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = gold;
+  ctx.beginPath();
+  ctx.moveTo(0.478, 0.165);
+  ctx.lineTo(0.484, 0.153);
+  ctx.lineTo(0.492, 0.162);
+  ctx.lineTo(0.5, 0.149);
+  ctx.lineTo(0.508, 0.162);
+  ctx.lineTo(0.516, 0.153);
+  ctx.lineTo(0.522, 0.165);
+  ctx.closePath();
+  ctx.fill();
+
+  // Closed golden crown over the eagle shield
+  ctx.fillStyle = gold;
+  ctx.beginPath();
+  ctx.moveTo(0.4, 0.128);
+  ctx.lineTo(0.4, 0.082);
+  ctx.lineTo(0.437, 0.104);
+  ctx.lineTo(0.462, 0.066);
+  ctx.lineTo(0.5, 0.102);
+  ctx.lineTo(0.538, 0.066);
+  ctx.lineTo(0.563, 0.104);
+  ctx.lineTo(0.6, 0.082);
+  ctx.lineTo(0.6, 0.128);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(0.5, 0.072, 0.013, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+let _poznanCrestTexture;
+
+// One high-resolution crest texture shared by every street taxi (the door decal samples it through the car material)
+function poznanCrestTexture() {
+  if (_poznanCrestTexture) return _poznanCrestTexture;
+  const canvas = document.createElement('canvas');
+  canvas.width = 192;
+  canvas.height = 256;
+  drawPoznanCrest(canvas.getContext('2d'), 0, 0, canvas.width, canvas.height);
+  _poznanCrestTexture = new THREE.CanvasTexture(canvas);
+  _poznanCrestTexture.colorSpace = THREE.SRGBColorSpace;
+  _poznanCrestTexture.anisotropy = 4;
+  return _poznanCrestTexture;
+}
+
+let _taxiNumberTexture;
+
+// The street taxis' side number: black digits 6 cm high on a white panel in a black frame, as on the player's stripe
+function taxiNumberTexture() {
+  if (_taxiNumberTexture) return _taxiNumberTexture;
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 112;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#f4f6f8';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = '#15171b';
+  ctx.lineWidth = 12;
+  ctx.strokeRect(6, 6, canvas.width - 12, canvas.height - 12);
+  ctx.fillStyle = '#15171b';
+  ctx.font = '800 78px Inter, Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('1427', canvas.width / 2, canvas.height / 2 + 4);
+  _taxiNumberTexture = new THREE.CanvasTexture(canvas);
+  _taxiNumberTexture.colorSpace = THREE.SRGBColorSpace;
+  _taxiNumberTexture.anisotropy = 4;
+  return _taxiNumberTexture;
+}
+
 /**
  * Paint of an EU plate (PLATE size, centred on x = 0 at height plateY) on a nose (atFront 1) or tail (0), for the car
  * and bus materials: the blue strip with its ring of stars on the viewer's left, then the registration packed in
@@ -1571,7 +1837,7 @@ function createLoftedCarMaterial(spec, fixedColorHex = null) {
   // POLICJA, light-blue pin; 2 PRM ambulance: red band, white AMBULANS, blue pin; 3 PSP: white band, red STRAŻ, white
   // pin. The band runs at spec.band (a van's higher up, over the cargo box), by default 0.5-0.64 m, 5 cm higher on a
   // body with lower cladding. Vans in PRM and PSP livery also carry red-and-white / red-and-yellow chevrons on the
-  // rear doors (approximated: no crests or emblems anywhere).
+  // rear doors (approximated: the only crest is the taxi's Poznań arms, below).
   const livery = state.w;
   const police = step(0.5, livery).mul(step(livery, 1.5));
   const ambulance = step(1.5, livery).mul(step(livery, 2.5));
@@ -1607,22 +1873,39 @@ function createLoftedCarMaterial(spec, fixedColorHex = null) {
   let signGlyph = float(0.0);
   if (spec.sign) {
     signGlyph = glyph.mul(signFace);
-    // Poznań taxi side marking (local rules unverified, docs/poznan-plan.md Phase 10): a black & yellow chequered
-    // strip (two rows of 3 cm squares) along both doors, a plain red badge ahead of it (no city crest: licensing) and
-    // the side number on the rear door
+    // Poznań taxi side marking, after the city's uchwała (XX/342/VIII/2019, § 10): the black & yellow chequered strip
+    // along both doors, the city crest on the front door and the run's side number on the rear door. The chequer is
+    // the model's stylised version of the official 4 cm white-and-black squares, kept yellow-and-black for visibility.
     const [d0, d1, d2] = spec.doors;
     const onSide = isSide.mul(isBody);
     const strip = smoothstep(0.558, 0.562, p.y).mul(smoothstep(0.622, 0.618, p.y))
       .mul(step(d2 + 0.06, p.z)).mul(step(p.z, d0 - 0.14)).mul(onSide);
     const chequer = step(0.25, fract(floor(p.z.div(0.03)).add(floor(p.y.sub(0.56).div(0.03))).mul(0.5)));
-    const crest = roundedRect(vec2(p.z.sub(d0 - 0.08), p.y.sub(0.59)), vec2(0.026, 0.034), 0.012).mul(onSide);
-    const number = step(0.3, sin(p.z.mul(150.0)))
-      .mul(step(abs(p.z.sub((d1 + d2) / 2)), 0.075))
-      .mul(smoothstep(0.022, 0.018, abs(p.y.sub(0.68))))
-      .mul(onSide);
+    // The crest decal: 8.8 x 11.6 cm ahead of the chequer on the front door, the same size as the player's stripe
+    // crest. Its texture is drawn in viewer space, so the same `facing` as the lettering keeps the shield (and St
+    // Peter's key) the right way round on both sides.
+    const crestZ = d0 - 0.085;
+    const crestHW = 0.044;
+    const crestHH = 0.058;
+    const crestY = 0.6315;
+    const crestArea = step(abs(p.z.sub(crestZ)), crestHW).mul(step(abs(p.y.sub(crestY)), crestHH)).mul(onSide);
+    const crestUV = vec2(
+      p.z.sub(crestZ).mul(facing).div(crestHW * 2).add(0.5),
+      p.y.sub(crestY).div(crestHH * 2).add(0.5)
+    );
+    const crest = texture(poznanCrestTexture(), crestUV);
+    // The side number on the rear door: the same white panel and black frame as the player's stripe
+    const numberZ = (d1 + d2) / 2;
+    const numberY = 0.66;
+    const numberArea = step(abs(p.z.sub(numberZ)), 0.09).mul(step(abs(p.y.sub(numberY)), 0.04)).mul(onSide);
+    const numberUV = vec2(
+      p.z.sub(numberZ).mul(facing).div(0.18).add(0.5),
+      p.y.sub(numberY).div(0.08).add(0.5)
+    );
+    const number = texture(taxiNumberTexture(), numberUV);
     painted = mix(painted, mix(color(0x121417), color(0xf3c316), chequer), strip);
-    painted = mix(painted, color(0xb4161e), crest);
-    painted = mix(painted, color(0x121417), number);
+    painted = mix(painted, crest.rgb, crest.a.mul(crestArea));
+    painted = mix(painted, number.rgb, number.a.mul(numberArea));
   }
 
   // Panel shading: soft occlusion low down & under the arch lips; unpainted cladding (crossovers, vans); door shut lines &
@@ -3138,6 +3421,7 @@ export {
   encodeRegistration,
   carLayout,
   carBodyHalfWidthAt,
+  drawPoznanCrest,
   buildCarSidePatch,
   buildSteerableWheelGeo,
   buildCarGeometry,
