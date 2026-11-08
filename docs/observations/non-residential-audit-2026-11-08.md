@@ -355,7 +355,8 @@ Dwie opcje, w kolejności kosztu:
 1. **Tanie (rekomendowane)**: nie powiększać detail box. Dodać `SATELLITE_SITES` w `js/outskirts.js` — kilka
    ręcznie umieszczonych, rzeczywistych obrysów (Pestka, Makro, Plaza, King Cross, M1, Franowo, Karolin, VW)
    jako modele/instancje w pasie outskirts, z prawdziwymi wymiarami z OSM. Koszt: kilkanaście brył, bez
-   rastrów i bez zmiany `GEO.blocks`.
+   rastrów i bez zmiany `GEO.blocks`. **Wdrożone 2026-11-08:** 14 stanowisk, 27 części i 79 instancji w
+   [zapisie satelitów](outskirts-satellites-2026-11-08.md).
 2. **Pełne**: powiększyć detail box do ≈ 52.376–52.441 N, 16.858–17.010 E. To +45 % komórek rastra; czas
    budowy geodaty rośnie z ~29 s do ~45 s, pamięć z ~1,27 GB do ~1,9 GB. Wymaga też ponownego fetchu
    wszystkich snapshotów i przejrzenia progów testów.

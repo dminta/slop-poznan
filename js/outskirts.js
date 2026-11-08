@@ -27,6 +27,7 @@ import {
 } from 'three/tsl';
 import { cityUniforms, parkLawnColorNode, parkLawnNormalNode, setParkLawnSpecular, createPanelBlockMaterial, createFacadeBoxes, WALL_KINDS } from './tsl-materials.js';
 import { LL, OUTSKIRTS, OUTSKIRTS_HOLES, DISTRICTS, CITY_BOUNDS } from './city-config.js';
+import { SATELLITE_SITES, satelliteClearance } from './satellite-sites.js';
 
 // js/outskirts.js
 // Poznań beyond the detailed core, at true 1:1 scale on the real geography (1 unit = 1 m, x = east, z = south, origin
@@ -39,6 +40,8 @@ import { LL, OUTSKIRTS, OUTSKIRTS_HOLES, DISTRICTS, CITY_BOUNDS } from './city-c
 // - Instanced buildings on the same grids: 5/11/16-storey panel slabs and point blocks on lawns on the osiedla
 //   (Winogrady, Piątkowo, Rataje, Chartowo, Żegrze) in the shared wielka płyta facade (createPanelBlockMaterial),
 //   plastered blocks in Grunwald, houses in the suburban belt, sheds on the industrial estates
+// - Hand-placed satellite silhouettes just outside the box (satellite-sites.js): the OSM-sized malls, retail parks,
+//   VW halls and Karolin's cooling towers/chimney, on the same box pipeline and two instanced non-box structures
 
 // =====================================================================================================================
 // 1. GEOMETRY HELPERS & LAND
@@ -1131,6 +1134,8 @@ function generateBlock(list, zone, land, i, j, c, dM, lu, rand) {
   // Footprint centred at (uc, vc) in zone coordinates, w along u, d along v
   const place = (uc, vc, w, d, h, tint, style) => {
     const p = zoneToWorld(zone, uc, vc);
+    // The hand-placed satellite silhouettes stand on these footprints; a generic shed would poke through them
+    if (satelliteClearance(p.x, p.z) < Math.hypot(w, d) * 0.5 + 4) return null;
     if (nearShore) {
       for (let k = 0; k < 8; k++) {
         const q = zoneToWorld(zone, uc + [-1, 0, 1, 1, 1, 0, -1, -1][k] * w * 0.5, vc + [-1, -1, -1, 0, 1, 1, 1, 0][k] * d * 0.5);
@@ -1301,6 +1306,89 @@ function generateOutskirtsBuildings() {
   return { list, stats };
 }
 
+// Satellite silhouettes: retail panels, sheet-metal sheds and glass entrance wings on the same box pipeline as the
+// outskirts buildings, plus a few roof-mounted HVAC boxes so the flat roofs read as roofs from above. One fixed seed
+// keeps the roof plant reproducible.
+const SATELLITE_STYLE = { panels: 4, steel: 2, glass: 1 };
+const SATELLITE_ROOF_TINT = [0.55, 0.54, 0.52];
+
+function buildSatelliteSiteBuildings() {
+  const list = [];
+  const rand = mulberry32(20261108);
+  for (const site of SATELLITE_SITES) {
+    for (const p of site.parts) {
+      const a = (p.angle * Math.PI) / 180;
+      const rot = -a;
+      list.push({ x: p.x, y: LAND_TOP, z: p.z, w: p.w, h: p.h, d: p.d, rot, tint: p.tint, style: SATELLITE_STYLE[p.finish], seed: rand() * 100 });
+      if (p.w * p.d < 3000) continue;
+      const n = Math.max(1, Math.min(4, Math.round((p.w * p.d) / 9000)));
+      const cs = Math.cos(a);
+      const sn = Math.sin(a);
+      for (let k = 0; k < n; k++) {
+        const uw = 6 + rand() * 8;
+        const ud = 4 + rand() * 6;
+        const uu = (rand() - 0.5) * Math.max(0, p.w - uw - 8);
+        const vv = (rand() - 0.5) * Math.max(0, p.d - ud - 8);
+        list.push({
+          x: p.x + cs * uu - sn * vv,
+          y: LAND_TOP + p.h,
+          z: p.z + sn * uu + cs * vv,
+          w: uw, h: 1.2 + rand() * 1.3, d: ud, rot, tint: SATELLITE_ROOF_TINT, style: 2, seed: rand() * 100
+        });
+      }
+    }
+  }
+  return list;
+}
+
+// Karolin's two cooling towers and its 204 m chimney are the only non-box shapes. A unit lathe and a unit cylinder are
+// instanced, so the whole skyline costs two draws and two pipelines.
+const COOLING_PROFILE = [
+  { r: 1.0, y: 0 }, { r: 0.94, y: 0.06 }, { r: 0.78, y: 0.28 }, { r: 0.64, y: 0.52 },
+  { r: 0.68, y: 0.72 }, { r: 0.80, y: 0.9 }, { r: 0.86, y: 1.0 }
+];
+
+function buildSatelliteStructures() {
+  const cooling = [];
+  const chimneys = [];
+  for (const site of SATELLITE_SITES) {
+    for (const s of site.structures || []) (s.kind === 'cooling' ? cooling : chimneys).push(s);
+  }
+  if (!cooling.length && !chimneys.length) return [];
+  const meshes = [];
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const p = new THREE.Vector3();
+  const sc = new THREE.Vector3();
+  const make = (geo, mat, data, name) => {
+    const mesh = new THREE.InstancedMesh(geo, mat, data.length);
+    for (let i = 0; i < data.length; i++) {
+      const s = data[i];
+      m.compose(p.set(s.x, LAND_TOP, s.z), q, sc.set(s.radius, s.height, s.radius));
+      mesh.setMatrixAt(i, m);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.name = name;
+    meshes.push(mesh);
+  };
+  if (cooling.length) {
+    const geo = new THREE.LatheGeometry(COOLING_PROFILE.map((v) => new THREE.Vector2(v.r, v.y)), 18);
+    const mat = new THREE.MeshStandardNodeMaterial({ color: 0xbcb9b2, roughness: 0.94, metalness: 0 });
+    make(geo, mat, cooling, 'OutskirtsSatelliteCoolingTowers');
+  }
+  if (chimneys.length) {
+    const geo = new THREE.CylinderGeometry(0.55, 1, 1, 14);
+    geo.translate(0, 0.5, 0);
+    const mat = new THREE.MeshStandardNodeMaterial({ roughness: 0.76, metalness: 0 });
+    mat.colorNode = mix(srgb(0.76, 0.74, 0.70), srgb(0.58, 0.16, 0.13), step(0.5, fract(positionWorld.y.div(28.0))));
+    make(geo, mat, chimneys, 'OutskirtsSatelliteChimneys');
+  }
+  return meshes;
+}
+
 // Spatially chunked InstancedMeshes (frustum culled per chunk) sharing one facade material
 function buildBuildingChunks(list, material, chunkSize, name) {
   const chunks = new Map();
@@ -1412,15 +1500,18 @@ function buildOutskirts(scene) {
   group.add(landMesh, bankMesh, fillerMesh);
 
   const { list, stats } = generateOutskirtsBuildings();
+  const satellites = buildSatelliteSiteBuildings();
+  for (const b of satellites) list.push(b);
   const panels = list.filter((b) => b.panel);
   const others = list.filter((b) => !b.panel);
   const buildingMat = createBoroughBuildingMaterial();
   for (const mesh of buildBuildingChunks(others, buildingMat, 1200, 'OutskirtsBuildings')) group.add(mesh);
   // Bigger chunks for the panel blocks, as each costs one draw per finish: 60 draws over the osiedla (2400 m: 96)
   for (const mesh of buildPanelChunks(panels, 3600, 'OutskirtsPanelBlocks')) group.add(mesh);
+  for (const mesh of buildSatelliteStructures()) group.add(mesh);
 
   scene.add(group);
-  console.info(`[outskirts] ${list.length} buildings (${panels.length} panel blocks) ${JSON.stringify(stats)} built in ${(performance.now() - t0).toFixed(0)} ms`);
+  console.info(`[outskirts] ${list.length} buildings (${panels.length} panel blocks, ${satellites.length} satellite boxes) ${JSON.stringify(stats)} built in ${(performance.now() - t0).toFixed(0)} ms`);
   return { group, colliders: [] };
 }
 

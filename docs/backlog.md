@@ -99,9 +99,11 @@ Implementation details and completed measurements live in the [topic docs](../AG
      Chwiałka ice rink) so sports facilities in park grounds are not cleared to zero.
   5. *Railway building preservation:* in `tools/poz-blocks.mjs`, carve out building footprints (Dworzec Garbary,
      Dworzec Letni, LCS, Głogowska depot hall) from `landuse=railway` and track buffers so they receive block lots.
-  6. *Outskirts satellite sites (`SATELLITE_SITES`):* lightweight placement of true-dimension OSM big-box silhouettes
-     in `js/outskirts.js` for major out-of-box hubs (Pestka, Makro, Plaza, King Cross, M1, Franowo, VW, Karolin) without
-     expanding the costly geodata raster.
+  6. *Outskirts satellite sites (`SATELLITE_SITES`):* **done 2026-11-08** — `js/satellite-sites.js` places 14 OSM
+     big-box and utility sites (Pestka, Makro, Plaza, King Cross, M1, IKEA, Selgros, Franowo, VW Antoninek, Karolin)
+     as 27 instanced rectangles plus 52 roof HVAC boxes in `js/outskirts.js`, and two instanced structures for Karolin's
+     cooling towers and 204 m chimney. No geodata raster change; generic outskirts sheds keep out of the footprints via
+     `satelliteClearance`. [Record](observations/outskirts-satellites-2026-11-08.md).
   7. *Industrial tagging supplement:* snapshot `poz_industry.json` for cooling towers, power plants and chimneys,
      plus regression tests in `tests/buildings-density.test.cjs`.
 - **Merge starvation and short-link left turns:** the 2026-11-07 Centrum seed 99 10-minute hold (`waitMax`/`longestHeld`
