@@ -172,9 +172,14 @@ The build reads only the committed `poz_*.json` snapshots. The current output co
   - `poz-buildings.mjs`: the building footprints rasterised on the block raster (outer minus inner rings), giving
     `blockStats`: per block the built share of the curb island, the area-weighted median `building:levels` of the
     buildings whose centroid lies in it (else the block holding most of their cells), their count, and `program`
-    (0 none, 1 hospital/clinic campus, 2 university campus, from `building`, `amenity`, `healthcare`, `office` and
-    names such as Szpital, Klinika, Collegium or Uniwersytet). `building=roof` (555 canopies) and `building=no` are
-    skipped, and a way that is also a building relation's outer is counted once.
+    (0 none, 1 hospital/clinic, 2 university, 3 retail/mall, 4 industrial, 5 rail/depot, 6 sport/stadium/arena,
+    7 utility). The programme comes from `building`, `amenity`, `healthcare`, `office`, `shop`, `power`, `railway`,
+    `leisure`/`sport`, `landuse` and names such as Szpital, Klinika, Collegium, Posnania, Dworzec or Elektrociepłownia;
+    a non-campus programme needs at least 40 % of the block's mapped footprint area (weighted by raster cells, or the
+    ring area for slivers with no cell centre), so one 7.7 ha mall outweighs 30 kamienice. A campus keeps the block when
+    its own footprint is larger; blocks under 0.4 ha and uses under 150 m² are left to the district profile.
+    `building=roof` (555 canopies) and `building=no` are skipped, and a way that is also a building relation's outer is
+    counted once.
     It also emits `blockFootprints`: for blocks with any park share, the `{ block id: [[x0, x1, z0, z1, area], ...] }`
     envelopes of mapped sport/show/public facilities of at least 150 m² (`leisure=stadium|sports_hall|ice_rink|…`,
     `building=stadium|public|civic|…`, cultural amenities, a name match such as Stadion/Arena/Lodowisko/Termy, or

@@ -108,13 +108,22 @@ test('Poznań geodata builds offline with default paths in a checkout containing
       assert.ok(GEO.blocks.some(built), 'square frontage remains built');
     }
     // blockStats: [built share, median levels, buildings, program] per block, from the OSM footprints
-    // (poz-buildings.mjs); program 0 none, 1 hospital/clinic campus, 2 university campus
+    // (poz-buildings.mjs); program 0 none, 1 hospital/clinic, 2 university, 3 retail/mall, 4 industrial, 5 rail/depot,
+    // 6 sport/stadium/arena, 7 utility. A non-campus programme needs >= 40 % of the block's footprint area.
     const stats = GEO.blockStats;
     assert.equal(stats.length, GEO.blocks.length);
     assert.ok(stats.every(([s, lv, n, p = 0]) => s >= 0 && s <= 1 && lv >= 0 && lv < 60 && Number.isInteger(n) && n >= 0 &&
-      (p === 0 || p === 1 || p === 2)));
+      Number.isInteger(p) && p >= 0 && p <= 7));
     assert.ok(stats.filter(([, , , p = 0]) => p === 1).length >= 5, 'hospital campuses tagged');
     assert.ok(stats.filter(([, , , p = 0]) => p === 2).length >= 5, 'university campuses tagged');
+    const programs = new Map();
+    for (const [, , , p] of stats) programs.set(p, (programs.get(p) || 0) + 1);
+    for (const p of [3, 4, 5, 6, 7]) assert.ok((programs.get(p) || 0) >= 1, `programme ${p} tagged`);
+    // Posnania (955), Castorama (21), ZNTK Robocza (848), Szpital Kliniczny (828) and Szpital Strusia (991); the
+    // audit's #953/#847/#827/#989 moved by the 2026-11-08 railway building islands.
+    for (const [id, program] of [[955, 3], [21, 3], [848, 4], [828, 1], [991, 1]]) {
+      assert.equal(stats[id][3], program, `block ${id} programme ${program}`);
+    }
     const blockArea = (f) => { let a = 0; for (let i = 0, j = f.length - 2; i < f.length; j = i, i += 2) a += f[j] * f[i + 1] - f[i] * f[j + 1]; return Math.abs(a) / 2; };
     const nearRatusz = (f) => { const x = f.filter((_, i) => i % 2 === 0), z = f.filter((_, i) => i % 2); return Math.hypot(x.reduce((t, v) => t + v, 0) / x.length, z.reduce((t, v) => t + v, 0) / z.length) < 150; };
     // the Stary Rynek frontages and the central block: 52-85 % built, 3-4 storeys on the 2026-10-27 snapshot

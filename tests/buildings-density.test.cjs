@@ -194,15 +194,24 @@ test('villa districts, Chartowo and the hospital campuses come out near their re
     assert.ok(share > b.built * 0.8 && share < b.built * 1.2,
       `campus ${id}: generated ${(100 * share).toFixed(1)}% vs real ${(100 * b.built).toFixed(1)}%`);
   }
-  // Dense central blocks tagged with a campus keep their district profile: the campus alley grid could not spend their
-  // steep share on fragmented lots and fell below the pre-change result (192 43.4 -> 22.0 %, 814 26.4 -> 19.4,
-  // 769 39.1 -> 35.8, 827 41.8 -> 35.7). The gate is area >= 5 ha and built <= 0.4 in blockProfile.
-  for (const [id, before] of [[192, 0.434], [815, 0.264], [769, 0.391], [828, 0.418]]) {
+  // Dense central university blocks keep their district profile: the campus alley grid could not spend their steep
+  // share on fragmented lots and fell below the pre-change result (192 43.4 -> 22.0 %, 814 26.4 -> 19.4,
+  // 769 39.1 -> 35.8). The university gate is area >= 5 ha and built <= 0.4 in blockProfile.
+  for (const [id, before] of [[192, 0.434], [815, 0.264], [769, 0.391]]) {
     const b = config.BLOCKS[id];
     assert.ok(b.program > 0, `block ${id} is still tagged as a campus`);
     const share = (gen.get(id) || 0) / b.area;
     assert.ok(share >= before - 0.005,
       `gated campus ${id}: generated ${(100 * share).toFixed(1)}% vs pre-change ${(100 * before).toFixed(1)}%`);
+  }
+  // Hospitals use a wider gate (area >= 0.4 ha, built <= 55 %), so the real hospitals that the 5 ha campus gate
+  // degraded to kamienice now take HOSPITAL: 828 (Szpital Kliniczny, 50 % built) generates 35.7 % and 991 (Strusia,
+  // 25 %) 25.0 %, against 50 and 25 % real; the old district/campus mix left them at 41.8 and below.
+  for (const [id, floor] of [[828, 0.35], [991, 0.24]]) {
+    const b = config.BLOCKS[id];
+    assert.equal(b.program, 1, `block ${id} is a hospital`);
+    const share = (gen.get(id) || 0) / b.area;
+    assert.ok(share >= floor, `hospital ${id}: generated ${(100 * share).toFixed(1)}% below ${(100 * floor).toFixed(1)}%`);
   }
   // Office courtyard fill (2026-11-08): the deep frontage lots and core wings move 868 from 33.4% to 48.2%, 814 from
   // 26.4% to 32.0% and 769 from 40.2% to 47.8%. Blocks already over their real share (593 36.8%, 786 44.8%) keep

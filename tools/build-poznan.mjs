@@ -96,7 +96,8 @@ const GEO = {
     b.frames ? b.frames.map(([th, px, pz, rs]) => [Math.round(th * 1e4) / 1e4, q(px), q(pz), rs.map((r) => r.map(q))]) : 0]),
   // One per blocks entry, same order: [built share of the curb island under OSM building footprints (0..1), area-weighted
   // median building:levels of the buildings centred in it (0 if none tagged), building count, program (0 none, 1
-  // hospital/clinic campus, 2 university campus)] (poz-buildings.mjs)
+  // hospital/clinic, 2 university, 3 retail/mall, 4 industrial, 5 rail/depot, 6 sport/arena, 7 utility; programs 3-7
+  // need >= 40 % of the block's footprint area)] (poz-buildings.mjs)
   blockStats,
   // { block id: [[x0, x1, z0, z1, area], ...] }: axis-aligned envelopes of the mapped sport/show/public facilities
   // (>= 150 m²) in blocks with any park share, plus their OSM footprint area. city-config turns them into lots so

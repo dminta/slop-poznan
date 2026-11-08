@@ -99,9 +99,13 @@ Implementation details and completed measurements live in the [topic docs](../AG
      `STADIUM`, `ARENA` and `UTILITY` now have layouts, `KIND_SHARE` weights, a morphology classifier and site
      anchors in `js/buildings.js`; Posnania, Castorama and ZNTK are low halls (see
      [record](observations/building-profiles-nonres-2026-11-08.md)).
-  2. *Dominant block program in `GEO.blockStats`:* expand `buildingUse` in `tools/poz-buildings.mjs` beyond 1 (hospital)
-     and 2 (university) to classify retail (3), industrial (4), rail/depot (5), sports/arena (6), utility (7), and
-     pick program by dominant footprint area (≥ 40%) before district switch.
+  2. *Dominant block program in `GEO.blockStats`* (done 2026-11-08): `buildingUse` in `tools/poz-buildings.mjs`
+     classifies 1 hospital, 2 university, 3 retail/mall, 4 industrial, 5 rail/depot, 6 sport/stadium/arena and
+     7 utility, and `blockStats` picks a non-campus programme by dominant footprint area (>= 40 %), with the campus
+     kept when its own footprint is larger. `blockProfile` consumes it before `OFFICE_SITES` and the district switch;
+     `HOSPITAL` gets a wider gate (area >= 0.4 ha, built <= 55 %) for #828/#991, while `UNIVERSITY` keeps the 5 ha /
+     40 % gate. EC Garbary and the Madalińskiego depot stay `SPECIAL_SITES` fallbacks because OSM tags them too sparsely
+     for the 40 % share. [Record](observations/block-programs-2026-11-08.md).
   3. *Building anchors (`GEO.blockAnchors`):* emit 1–3 largest non-residential footprints per block so `buildings.js`
      can place solitary big-box structures at their true OSM location and fill remainder with parking/service lots.
   4. *Park clearance carve-out* (done 2026-11-08): `GEO.blockFootprints` emits the OSM envelopes of mapped sport/show/public
