@@ -31,11 +31,18 @@ and `blockAt` returns Park Nad Wartą's block 966 along its whole centreline, so
 surface and no greenery is cut there.
 
 The tram-corridor intersection fix also restores cuts where track segments cross block edges, including Kaponiera;
-`tests/kaponiera-clearance.test.cjs` checks two affected points. Chrome/WebGPU spot checks covered the vicinity of
-Chopina, Milczańska and Cicha / Pułaskiego; they are not whole-road or WebGL2 checks. The user confirmed the first
-Witosa lawn correction and reported a separate opposite-side sidewalk, subsequently corrected in geometry and tests.
-The remaining visual checks are in
-[the backlog](backlog.md#park-surfaces-and-road-clearance-remaining-visual-review).
+`tests/kaponiera-clearance.test.cjs` checks two affected points. The user confirmed the first Witosa lawn correction
+and reported a separate opposite-side sidewalk, subsequently corrected in geometry and tests. The 2026-11-08 review
+then completed the remaining visual check on both backends. Chrome 157 loaded the full scene with WebGPU and with
+`?backend=webgl` (WebGL2 through ANGLE Metal), and the later Witosa / Niestachowska opposite-sidewalk island and long
+island, the Armii Poznań / Pułaskiego island at both its long bed and its southern tip at Księcia Mieszka I, Przepadek
+and Franklina Roosevelta were inspected from ground-level chase views and 25–45 m oblique aerial views at midday and
+golden hour. No lawn, coping or paving crossed a carriageway or tram track; the narrow 0.1–1 m margins stayed on the
+park side of the curb, and there was no z-fighting or planting spill. The isolated lawn patches on the plaza east of
+Roosevelta are separate mapped park blocks (e.g. 403 and Park Henryka Wieniawskiego), not spill from the Roosevelta
+cut. WebGPU and WebGL2 rendered the same surfaces and transitions, and neither run logged a console error. No geometry
+change was needed; the only source change is the `?backend=webgl` review switch in `main.js`. The 20 targeted
+park-clearance tests and the full `node --test tests/*.cjs` suite (427/427) pass.
 
 ## Measurement snapshot (2026-10-29)
 

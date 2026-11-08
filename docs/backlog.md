@@ -1,6 +1,6 @@
 # Poznań backlog
 
-Updated 2026-11-07. Only remaining work, open decisions and outstanding browser checks are listed below.
+Updated 2026-11-08. Only remaining work, open decisions and outstanding browser checks are listed below.
 Implementation details and completed measurements live in the [topic docs](../AGENTS.md#docs) and
 [observation records](observations/). Original phase references refer to the [archived port plan](archive/poznan-plan.md).
 
@@ -97,14 +97,6 @@ Implementation details and completed measurements live in the [topic docs](../AG
   used street-running tracks: **47 runs / 45 lanes / 417 m** remain, with 14 runs / 12 lanes / 200 m off-street or unused
   tracks listed under `--all`. Moving the Rynek Jeżycki stubs still increases overlaps and adds a deadlock.
   [Eight-seed results and rejected variants](observations/tram-overlaps-2026-11-04.md).
-
-## Park surfaces and road clearance: remaining visual review
-
-The Grudzieniec, Chartowo and Wioślarska candidates are resolved headlessly (measurements in
-[world.md](world.md#park-and-road-clearance-follow-up-2026-11-02)); the remaining work is visual only.
-
-- Visually review the later Witosa / Niestachowska opposite-sidewalk correction and the Armii Poznań / Pułaskiego
-  island, Przepadek and Roosevelt cuts, including WebGL2. Some planting margins are narrow.
 
 ## Optional features and fidelity
 
