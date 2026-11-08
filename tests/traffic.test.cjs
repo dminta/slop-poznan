@@ -40,6 +40,7 @@ function intersectionHarness() {
     laneCoord: () => 0,
     timeTo: () => 1,
     room: () => state.space,
+    shortLinkLane: (v, e, f, m, j) => j,
     alongside: () => false,
     mergingAhead: () => null,
     tramBlocks: () => state.tram,
@@ -292,17 +293,20 @@ test('a physically blocked lead does not reserve a short exit lane', () => {
   assert.equal(room(exit, 0, newer), false, 'a lead that is moving reserves normally');
 });
 
-test('a car that cannot stop does not take a long feeder with a tight rear gap', () => {
+test('a long feeder keeps the upstream box clear when its short exit is full', () => {
   const road = { len: 9.4, from: { signal: true }, to: { signal: true } };
   const n = { signal: true, in: [] };
-  const lead = { s: 3.5, v: { half: 2.2, driver: { s0: 2 } } };
+  const lead = { s: 3.5, v: { half: 2.2, driver: { s0: 2 }, speed: 0 } };
   const exit = { len: 25.1, occ: [[lead]], from: n, to: { out: [road] } };
   const car = { half: 2.2, driver: { s0: 2 } };
   const room = trafficFunction('room', {});
   assert.equal(room(exit, 0, car, true), false, 'the space behind the rearmost car is too small');
   assert.equal(room(exit, 0, car, false), true, 'a stoppable car keeps the total-gap estimate');
   road.from.signal = false;
-  assert.equal(room(exit, 0, car, true), true, 'only a short signal-to-signal link ahead scopes the rule');
+  assert.equal(room(exit, 0, car, true), false, 'a give-way short exit also scopes a committed car');
+  assert.equal(room(exit, 0, car, false), false, 'and a stoppable car behind a stopped queue');
+  lead.v.speed = 2;
+  assert.equal(room(exit, 0, car, false), true, 'a moving rear car leaves room to follow it');
 });
 
 test('a left turn on a short link falls back to a straight move from the same lane', () => {
