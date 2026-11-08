@@ -44,10 +44,13 @@ async function initApp() {
   }
 
   // 1. Initialize Three.js WebGPURenderer with 32-bit float reversedDepthBuffer
+  // ?backend=webgl forces the WebGL2 fallback for browser reviews without touching the default WebGPU path.
+  const forceWebGL = new URLSearchParams(window.location.search).get('backend') === 'webgl';
   const renderer = new THREE.WebGPURenderer({
     antialias: true,
     powerPreference: 'high-performance',
-    reversedDepthBuffer: true
+    reversedDepthBuffer: true,
+    forceWebGL
   });
   renderer.setPixelRatio(1.0);
   renderer.setSize(window.innerWidth, window.innerHeight);
