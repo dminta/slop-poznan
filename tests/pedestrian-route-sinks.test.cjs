@@ -52,12 +52,13 @@ test('pedestrian routes do not U-turn over a crossing line or cross into a dead 
   assert.ok(ends > 5000, `the whole network has crosswalk ends (${ends})`);
   // The 2026-11-07 landing work (sidewalk track ends in the long fallback, a 16 m corner corridor with a courtyard
   // sight line) left 109 empty ends / 98 tracks on this bare network. Splitting each sidewalk line into its clear
-  // same-block runs, linking a landing to a kerb end within 8 m and keeping split runs clear of every lane brings that
-  // to 38 / 33; tram-cut islands with no road-edge line at all get a short kerb track of their own. With no building or
-  // rail input the bare network is more permissive than the furnished world (47 / 41), so these ceilings only catch a
-  // regression that reopens dead ends.
-  assert.ok(emptyEnds <= 40, `the bare network leaves isolated crosswalk ends (${emptyEnds})`);
-  assert.ok(emptyTracks <= 40, `the bare network leaves tracks with an empty end (${emptyTracks})`);
+  // same-block runs, linking a landing to a kerb end within 8 m and keeping split runs clear of every lane brought that
+  // to 38 / 33; tram-cut islands with no road-edge line at all get a short kerb track of their own. The 2026-11-08
+  // same-block kerb step (up to 32 m, lane/rail/wall checked) then reaches 11 / 11. With no building or rail input the
+  // bare network is more permissive than the furnished world (24 / 24), so these ceilings only catch a regression that
+  // reopens dead ends.
+  assert.ok(emptyEnds <= 15, `the bare network leaves isolated crosswalk ends (${emptyEnds})`);
+  assert.ok(emptyTracks <= 15, `the bare network leaves tracks with an empty end (${emptyTracks})`);
 
   // Sample route choices across the city with several goals per end. A chosen crossing must have links at the landing
   // it walks to, and must not be a turn back onto the same crossing's other line.

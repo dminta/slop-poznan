@@ -448,3 +448,90 @@ with 17 in the strict ≥10.5 m band, 22 reused poles and 10 new masts; all pede
 `node --test tests/*.cjs`: 421 pass. The landing test pins all five keys, their rail/building/block/lane clearance, `next()`
 for six city goals per end and the new bare-network ceilings; the signal-audit fixture is updated to the new counts and
 placement hash.
+
+## Follow-up 2026-11-08: same-block kerb steps and the production full-scene count
+
+Stage 3 left 47 empty crosswalk ends on 41 tracks. Every remaining end already had a legal kerb track on its own
+block, but `baseLinks` rejected the step through `cornerClear`'s 4 m block-edge band: the zebra lands 2 m past the
+kerb, the sidewalk line ends at its own setback, and at a junction corner both points can stand 4-5.4 m inside the
+mapped block polygon (minPoly 4.19 m at Strzelecka/Zielona, 5.22 m at Wierzbięcice/Wujka, 5.4 m at
+Warszawska/Swarzędzka). Sixteen ends were exactly that shape; seven more had the next kerb track of the same block
+10-32 m away, out of `CURB_LINK_MAX` 8 m and unreachable by `fallbackPaths`, whose candidate list is built from the
+node's ports rather than every kerb end on the block. The other 24 were already genuine roadway cases (a lane, a rail,
+a wall or non-walkable ground between the landing and every kerb track), and remain so.
+
+### Mechanisms
+
+1. `js/pedestrian-routes.js`: `clearHazards(a, b, lots = true)` keeps the conservative 2 m lot envelope for every
+   cross-block and long connector. The new kerb step passes `lots = false`: the envelope covers the sidewalk itself
+   (the landing and its kerb end both test `inLot` true), so it cannot be the test for a step between two points that
+   are already on that sidewalk. The lane (`edge.half + 0.8 m`), `RAIL_KEEP` 2 m and building-collider checks still
+   run at 0.5 m samples.
+2. `curbStepPaths(track, dir)` offers the same-block kerb ends (and the node's other zebra ends) up to
+   `CURB_STEP_MAX = CURB_RUN_LINK_MAX` 32 m, requiring the same block and walkable ground along the whole connector,
+   plus `clearHazards(..., false)`. `links` calls it only when `baseLinks` and `fallbackPaths` both found nothing, so
+   no existing route changes; the same-arm sibling lines stay excluded and `siblingLinks` stays 0.
+3. `tools/audit-crosswalk-landings.mjs` re-checks every kerb-step connector independently, exactly like the fallback
+   legs (`curbStepEnds`, `curbStepLegs`, `curbStepLaneHits`, `curbStepRailHits`, `curbStepBuildingHits`,
+   `curbStepMaxLen`). The leg check moved into one `legHits` helper shared by both tiers.
+
+### Before / after (benchmark world)
+
+`buildWorld` from `tools/bench-world.mjs`, 3,270 crosswalks and 4,527 tracks in both runs.
+
+| metric | before | after |
+|---|---|---|
+| empty crosswalk ends | 47 | **24** |
+| tracks with an empty end | 41 | **24** |
+| kerb-step ends / connector legs | - | **23 / 144** |
+| kerb-step lane / rail / building hits | - | **0 / 0 / 0** |
+| longest kerb step | - | **31.9 m** |
+| fallback ends / legs | 87 / 574 | 87 / 574 |
+| sibling U-turn links | 0 | **0** |
+| laneHits / railHits / buildingHits | 0 / 0 / 0 | **0 / 0 / 0** |
+| spur links / tracks | 5 / 4 | **3 / 3** |
+| spur rail / building / block hits | 0 / 0 / 0 | **0 / 0 / 0** |
+| closest spur sample to a rail | 2.48 m | **3.22 m** |
+| split runs / `splitLaneHits` | 16,046 / 0 | 16,046 / **0** |
+
+The two spurs that disappear are the kerb tracks those landings no longer need; the third tier reaches them first.
+On the bare `buildRoadNetwork([], [])` network empty ends fall **38 → 11** and tracks with an empty end **33 → 11**
+(the ceilings in `tests/pedestrian-route-sinks.test.cjs` are now 15/15). The remaining 24 benchmark ends are ordinary
+roadway cases; the overlapping `reasonCounts` are lane 19, length 14, walk 6, lot 4, building 4, rail 3, corridor 1 and
+block 1.
+
+### Production full-scene count
+
+`node tools/audit-crosswalk-landings.mjs --full` builds the rendered world with the tree-clearance world builder:
+118 landmark + 33,487 building + 194 bridge colliders, the real city-grid curbs in the network's `walkable`, and
+12,698 split runs instead of the benchmark's 16,046. The route factory receives the production collider set
+(landmark + city-block; `main.js` does not pass bridge colliders to it), while the network is the same furnished
+street-details network `main.js` hands to traffic.
+
+| metric | full-scene before | full-scene after |
+|---|---|---|
+| crosswalks / tracks / routed ends | 2,397 / 3,341 / 6,682 | same |
+| empty crosswalk ends | 32 | **18** |
+| tracks with an empty end | 27 | **18** |
+| kerb-step ends / legs / max length | - | **14 / 68 / 31.8 m** |
+| kerb-step lane / rail / building hits | - | **0 / 0 / 0** |
+| fallback ends / legs | 52 / 329 | 52 / 329 |
+| sibling / lane / rail / building hits | 0 / 0 / 0 / 0 | **0 / 0 / 0 / 0** |
+| spur links / tracks | 6 / 5 | **4 / 4** |
+| spur rail / building / block hits | 0 / 0 / 0 | **0 / 0 / 0** |
+
+The full scene has 873 fewer crosswalks than the benchmark (the city-grid curbs and landmark walls put more arms out
+of `CROSSWALK_REACH`), so its empty-end count is lower in absolute terms; the reduction is the same shape (44.8 % here,
+48.9 % on the benchmark). The 18 remaining full-scene ends are the same hard roadway/wall cases: Gwarna / 27 Grudnia
+(two lines, rail and lane), Droga Dębińska (two, lane), Macieja Palacza / Arciszewskiego (three, lane/length), Aleje
+Marcinkowskiego / 23 Lutego (split run off the block), Strzelecka / Zielona (two, lane), Ewarysta Estkowskiego
+(split run, no walkable step), Dąbrowskiego / Botaniczna (lane), Do Alei / Słowiańska (lane), Koronkarska (wall),
+Rzeczańska / Osiedle Stare Żegrze (two, length 32+), Jackowskiego / Gorczyczewskiego (wall) and Śremska (split run).
+No full-scene connector clips a lane, rail or wall.
+
+### Regression checks
+
+`node --test tests/*.cjs` passes. `tests/pedestrian-route-buildings.test.cjs` adds a synthetic landing 9-10 m from
+its kerb track, deeper than the 4 m band: the step joins when clear, and a wall, a rail inside 2 m or a lane between
+the points each reject it (an overhead collider above 1.9 m does not). The named tram-island pins and the sink/route
+checks pass unchanged.

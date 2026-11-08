@@ -157,17 +157,27 @@ the clear same-block runs separately (`split: true`), indexes every sidewalk-tra
 still has no road-edge run at the landing (Miła), `links` adds a short kerb spur (`landing: true`, at most 6 m) along
 the landing's block outline; it keeps 2.22 m from every rail centreline and is rejected if it would cross a lane, a
 lot or a wall. A spur is a terminus: its far end has no node, so `next()`'s dead-end guard never routes a walker into it
-as a through path; it only gives the zebra a legal place to land. On the headless world this leaves **47 empty ends /
-41 tracks** (bare network **38 / 33**, down from 109 / 98), with 16,046 split runs whose `splitLaneHits` is 0
-(`splitMinLane` 0.8 m), 5 spur links on 4 generated tracks, `spurRailHits`,
-`spurBuildingHits` and `spurBlockHits` all 0, and the closest spur sample 2.48 m from a rail. The five named nodes are
-linked: Okrąglak, Okrąglak / Święty Marcin, Miła / Dąbrowskiego (the `-3269.1, -884.3` end; its far end on the ordinary
-block at `-3263, -901.3` stays isolated), Promienista / Grochowska (both lines) and Wierzbięcice / Górna Wilda (both
-lines). Route build stays ~223 ms and `links()` over all ends rises 6.3 → 8.8 s (worst call 57.6 ms) after the 16,046
-split runs; it is still lazy and cached per end, and the split runs add no per-frame work. The remaining isolated landings are ordinary blocks and
-roadway cases, listed in the [backlog](backlog.md) with reasons;
-`tools/audit-crosswalk-landings.mjs` counts them, re-checks every fallback leg's lane, rail and building clearance, and
-re-checks the generated spurs' rail/building/block clearance. A pedestrian that still
+as a through path; it only gives the zebra a legal place to land. **Kerb step (stage 4, 2026-11-08).** `links` adds a
+third tier after the fallback: `curbStepPaths` offers the same-block kerb ends (and the node's other zebra ends) up to
+`CURB_RUN_LINK_MAX` 32 m away when `baseLinks` and `fallbackPaths` both found nothing. It keeps the same block and
+walkable ground along the whole connector, the exact `edge.half + 0.8 m` lane margin, `RAIL_KEEP` 2 m and the real
+building colliders; only the 2 m lot envelope is dropped, because it covers the sidewalk itself (both endpoints test
+`inLot` true). The 4 m `cornerClear` band had rejected the 1.4-5.4 m steps where a junction corner pushes the landing
+and the sidewalk end inside the mapped block polygon.
+
+On the headless benchmark world this leaves **24 empty ends / 24 tracks** (bare network **11 / 11**, down from
+38 / 33), with 23 kerb-step ends / 144 connector legs, 0 lane/rail/building hits and a longest step of 31.9 m. Of the
+16,046 split runs `splitLaneHits` is 0 (`splitMinLane` 0.8 m), 3 spur links on 3 generated tracks remain (from 5 / 4),
+`spurRailHits`, `spurBuildingHits` and `spurBlockHits` are all 0, and the closest spur sample is 3.22 m from a rail.
+The five named nodes are linked: Okrąglak, Okrąglak / Święty Marcin, Miła / Dąbrowskiego (the `-3269.1, -884.3` end;
+its far end on the ordinary block at `-3263, -901.3` stays isolated), Promienista / Grochowska (both lines) and
+Wierzbięcice / Górna Wilda (both lines). The third tier runs only on ends with no other link, so it adds no cost to
+populated landings; `links()` stays lazy and cached per end. The remaining isolated landings are ordinary roadway
+cases (a lane, a rail, a wall or non-walkable ground between the landing and every kerb end), listed in the
+[backlog](backlog.md) with reasons; `tools/audit-crosswalk-landings.mjs` counts them, re-checks every fallback and
+kerb-step leg's lane, rail and building clearance, and re-checks the generated spurs' rail/building/block clearance.
+Its `--full` mode builds the rendered world's landmark, bridge and building colliders plus the city-grid curbs, where
+the same change moves **32 / 27 → 18 / 18** on 2,397 crosswalks; no connector clips a lane, rail or wall. A pedestrian that still
 stands with no legitimate wait (not a curb wait, strip hold, conversation or rest) for `PED_STUCK_TIME` 20 s is
 re-placed 60-280 m away with the normal view protection. Removal is postponed while `nearView` says the camera can
 see the old spot, but only for `PED_STUCK_VIEW_TIME` 30 s in total: after 10 s of a held view the body is re-placed
