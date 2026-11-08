@@ -752,14 +752,18 @@ function buildRoadNetwork(sidewalks, obstacles) {
     // On right-hand running the left track of a parallel pair is the oncoming one; a one-way piece pointing against the
     // edge is oncoming, and a two-way piece with no partner can be. Move all lanes of an edge together (their spacing
     // stays) by the least amount that clears every such track over its close run, on the car part of the carriageway
-    // and with laneOpen passing; strip roads must not leave a lane on a same-direction track. Place the stop lines
-    // again afterwards for moved edges at bends and their neighbours, since the move changes the bend setbacks. Runs
-    // under 10 m are junction stubs (49 of the baseline 64), left to the junction curves and tram proxies; most remain
-    // because their lane has no lateral room between the track and the curb. A move that would make a straight
-    // connector steeper than the base's (a bend at both ends with a > 2 m shift) is not applied; short two-way shared
-    // stubs are left to the proxies too.
+    // and with laneOpen passing; strip roads must not leave a lane on a same-direction track.
+    // Long runs (10 m or more) keep the base pass: place the stop lines again afterwards for moved edges at bends and
+    // their neighbours, since the move changes the bend setbacks. A move that would make a straight connector steeper
+    // than the base's (a bend at both ends with a > 2 m shift) is not applied there (Głogowska 4257).
+    // Short stubs (5-10 m, the audit's own minimum) get a second look only when the edge has no long run. They must
+    // clear 0.6 m more than the audit and move at least 0.5 m; both keep a move from merely re-placing a neighbour's
+    // stop lines and turning a 5 m stub into a steeper connector (Głogowska at -1604, 659). Their own stop lines stay
+    // put. Most short stubs still have no lateral room between the track and the curb and stay with the proxies.
     const OPPOSING_CLEAR = 2.3; // car half 0.92 + tram half 1.2 + 0.2 margin (tools/audit-tram-opposing-lanes.mjs)
-    const OPPOSING_RUN = 10;
+    const OPPOSING_RUN = 10; // the base pass: a lane this close for 10 m or more moves the whole edge
+    const OPPOSING_STUB = 5; // ...and this pass covers the audit's 5 m stubs too
+    const OPPOSING_MARGIN = 0.6; // target clearance beyond the audit, for a non-shared stub move
     const TRACK_CELL = 32;
     const trackGrid = new Map();
     const trackKey = (ix, iz) => (ix + 4096) * 8192 + iz + 4096;
@@ -792,7 +796,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
       return [...ids];
     }
     // Contiguous runs (sampled at 1 m) where a lane is under OPPOSING_CLEAR from an oncoming track
-    function opposingRuns(e, lanes, ids, all = false) {
+    function opposingRuns(e, lanes, ids, all = false, minimum = OPPOSING_RUN) {
       const runs = [];
       const active = new Map();
       for (let s = 0; s <= e.len; s += 1) {
@@ -843,13 +847,20 @@ function buildRoadNetwork(sidewalks, obstacles) {
         }
       }
       for (const r of active.values()) runs.push(r);
-      return runs.filter((r) => r.s1 - r.s0 >= OPPOSING_RUN);
+      return runs.filter((r) => r.s1 - r.s0 >= minimum);
     }
     for (const e of edges) {
-      if (!e.lanes.length || e.len < OPPOSING_RUN) continue;
+      if (!e.lanes.length || e.len < OPPOSING_STUB) continue;
       const ids = tracksNear(e);
       if (!ids.length) continue;
-      const close = opposingRuns(e, e.lanes, ids);
+      let close = opposingRuns(e, e.lanes, ids);
+      let minimum = OPPOSING_RUN;
+      let margin = 0;
+      if (!close.length) {
+        close = opposingRuns(e, e.lanes, ids, false, OPPOSING_STUB);
+        minimum = OPPOSING_STUB;
+        margin = e.sharedTram ? 0 : OPPOSING_MARGIN;
+      }
       if (!close.length) continue;
       // The lane body must stay on the car part of the carriageway: a tram strip is not road for cars.
       const carHalf = e.half - (e.strip ? TRAM_W / 2 : 0);
@@ -859,8 +870,8 @@ function buildRoadNetwork(sidewalks, obstacles) {
       let parts = [[low - Math.min(...e.lanes), high - Math.max(...e.lanes)]];
       for (const r of close) {
         const lane = e.lanes[r.lane];
-        const left = r.latMin - OPPOSING_CLEAR - lane; // with all lanes moved left of this track
-        const right = r.latMax + OPPOSING_CLEAR - lane; // ...or all of them right of it
+        const left = r.latMin - OPPOSING_CLEAR - margin - lane; // with all lanes moved left of this track
+        const right = r.latMax + OPPOSING_CLEAR + margin - lane; // ...or all of them right of it
         const next = [];
         for (const [p, q] of parts) {
           if (p <= left) next.push([p, Math.min(q, left)]);
@@ -879,7 +890,8 @@ function buildRoadNetwork(sidewalks, obstacles) {
       const rightSide = e.lanes.every((o) => o >= -1e-6);
       const leftSide = e.lanes.every((o) => o <= 1e-6);
       for (const delta of choices) {
-        if (Math.abs(delta) < 0.01) continue;
+        // A stub move under 0.5 m only re-places its neighbours' stop lines; it cannot fix a body overlap.
+        if (Math.abs(delta) < 0.01 || (minimum === OPPOSING_STUB && Math.abs(delta) < 0.5)) continue;
         // A large shift on an edge that bends at both ends cannot be absorbed by both setbacks: its straight
         // connector gets steeper (Głogowska 4257, 22.4° against 19.3° at the base). Leave that lane as it is.
         if (e.from.shape && e.to.shape && Math.abs(delta) > 2) continue;
@@ -887,11 +899,13 @@ function buildRoadNetwork(sidewalks, obstacles) {
         if ((rightSide && lanes.some((o) => o < -1e-6)) || (leftSide && lanes.some((o) => o > 1e-6))) continue;
         if (lanes.some((o) => o < low - 1e-6 || o > high + 1e-6)) continue;
         if (!lanes.every((o) => laneOpen(e.x0, e.z0, e.dx, e.dz, e.span, o))) continue;
-        if (opposingRuns(e, lanes, ids).length) continue;
+        if (opposingRuns(e, lanes, ids, false, minimum).length) continue;
         // A strip road has its track on its own formation; do not leave a lane on or beside any track there.
-        if (!e.sharedTram && opposingRuns(e, lanes, ids, true).length) continue;
+        if (!e.sharedTram && opposingRuns(e, lanes, ids, true, minimum).length) continue;
         e.lanes = lanes;
-        moved.add(e);
+        // A stub keeps its placed stop lines: re-placing its bend neighbours turned a 9 m move into new steep
+        // straight connectors without changing the cleared run.
+        if (minimum !== OPPOSING_STUB) moved.add(e);
         break;
       }
     }

@@ -476,3 +476,8 @@ lanes / 200 m skipped. `tests/opposing-tram-audit.test.mjs` pins both totals and
 three curved-track runs and three constant-shift cases from the earlier classification still need per-station lane
 geometry; the Rynek Jeżycki stubs remain rejected for the traffic regression recorded above. Edge 305's 2.446 m lane
 move and its paint have not been checked in a browser.
+
+**Follow-up 2026-11-08:** the short-stub pass in `clearOpposingTracks` moves the 5–10 m stubs with lateral room and
+takes the audit to **43 runs / 41 lanes / 390 m** (`--all` 57 / 53 / 590 m); the four cleared edges, the rejected
+loose-two-way variant and the unchanged Rynek Jeżycki cluster are in the
+[short-stub record](tram-opposing-lanes-2026-11-08.md).
