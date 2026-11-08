@@ -10,6 +10,7 @@ import { water, land, landHoles, outskirts, outskirtsHoles } from './poz-water.m
 import { parks, landmarks, districts, labels } from './poz-extra.mjs';
 import { blocks, STRIP, SIDEWALK } from './poz-blocks.mjs';
 import { blockStats, blockFootprints, industry } from './poz-buildings.mjs';
+import { canopies } from './poz-canopies.mjs';
 import { buildRoadGraph } from './poz-roadgraph.mjs';
 
 const OUT = process.argv[2] || fileURLToPath(new URL('../js/geodata.js', import.meta.url));
@@ -107,6 +108,13 @@ const GEO = {
   // structures and power/substation sites from poz_industry.json inside the detail box. Cooling towers and chimneys
   // are drawn as real tower geometry; the other kinds classify their block and keep the towers company.
   industry: industry.map((s) => ({ ...s, x: q(s.x), z: q(s.z), w: q(s.w), d: q(s.d), h: q(s.h), area: Math.round(s.area) })),
+  // [{ x0, x1, z0, z1, h, clearance, kind, cx, cz, w, d, ang, area, columns: [x, z, ...] }]: open canopies from the
+  // building=roof outlines (platforms, tram stops, fuel-station forecourts, market halls and ordinary open roofs) of at
+  // least 60 m². x0..z1 is the world bounding box; cx/cz/w/d/ang the oriented rectangle (ang: the long side's angle
+  // east from +x towards +z; the runtime turns it by rotation.y = -ang); h the roof top and clearance its underside
+  // (4.5-5.6 m, above a train/tram body and a pedestrian); columns the 0.4 m posts, kept 2.6 m clear of every rail
+  // centreline (poz-canopies.mjs). No canopy has walls, so vehicles and pedestrians pass underneath.
+  canopies,
   parks,
   // { name: { x, z, w, d, h, area, ring, ang } }: w and d along the turned axes (ang, radians)
   landmarks

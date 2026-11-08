@@ -5,8 +5,9 @@
 // - Footprints: every building way, and every building multipolygon relation as its chained outer rings minus its
 //   chained inner rings (even-odd). A way that is also the outer member of a building relation is skipped, so a
 //   building tagged on both is counted once.
-// - building=roof (555 elements on the 2026-10-27 snapshot: petrol-station and platform canopies, market roofs) and
-//   building=no are left out: they have no walls, so they are not the built mass the runtime fills a block with.
+// - building=roof (1,038 elements on the 2026-10-28 snapshot: platform and petrol-station canopies, market roofs) and
+//   building=no are left out of the built mass: they have no walls. The roofs are not lost, though: poz-canopies.mjs
+//   turns their outlines into GEO.canopies for the open, column-supported canopies in js/canopies.js.
 //   building=construction (60) is kept: a site under construction (AND2) is a built lot, not an empty one.
 // - Each building belongs to the block under its area centroid; when that falls off every block (on a sidewalk cut, a
 //   service lane or outside the box), to the block holding most of its cells.

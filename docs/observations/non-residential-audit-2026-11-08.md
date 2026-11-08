@@ -126,7 +126,9 @@ generyczną zabudowę zamiast modelu; część nie dostaje nic.
 - 574 z 1 422 kwartałów nie mają żadnych prostokątów działkowych. Prawie wszystkie to parki, skwery i szczeliny,
   ale **#1254** jest jedynym dużym kwartałem z realną zabudową i bez działek.
 - `building=roof` (1 038 elementów, w tym duże wiaty i zadaszenia peronów) jest świadomie pomijany — to poprawne
-  dla masy zabudowy, ale zadaszenia stadionów i wiaty magazynowe nie mają potem żadnego odpowiednika.
+  dla masy zabudowy, ale zadaszenia stadionów i wiaty magazynowe nie mają potem żadnego odpowiednika. **Wdrożone
+  2026-11-08:** osobny `GEO.canopies` (157 zadaszeń, 1 935 słupów) renderowany przez `js/canopies.js`;
+  [zapis](platform-canopies-2026-11-08.md).
 
 ### F. Luki w zapytaniu OSM
 

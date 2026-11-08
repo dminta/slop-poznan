@@ -143,6 +143,33 @@ test('Poznań geodata builds offline with default paths in a checkout containing
     assert.ok(industry.some((s) => s.kind === 'tank'), 'storage tanks kept');
     assert.ok(stats[848][3] === 4, 'ZNTK block classified industrial');
     assert.ok(stats[266][3] === 7, 'EC Garbary block classified utility');
+    // canopies: open building=roof outlines (platforms, tram stops, fuel forecourts) as oriented rectangles with
+    // their audited column posts. The clearance is above a train/tram body and a pedestrian, and the columns keep
+    // 2.5 m from every track centreline (checked in tests/canopies.test.cjs).
+    const canopies = GEO.canopies;
+    assert.ok(Array.isArray(canopies) && canopies.length >= 140, `canopies emitted (${canopies?.length})`);
+    const canopyKinds = new Set(['platform', 'tram', 'fuel', 'market', 'shelter', 'roof']);
+    for (const c of canopies) {
+      for (const key of ['x0', 'x1', 'z0', 'z1', 'h', 'clearance', 'cx', 'cz', 'w', 'd', 'ang', 'area']) {
+        assert.ok(Number.isFinite(c[key]), `canopy ${key}`);
+      }
+      assert.ok(c.x0 <= c.cx && c.cx <= c.x1 && c.z0 <= c.cz && c.cz <= c.z1, 'centre in the bounds');
+      assert.ok(c.w >= 2 && c.d >= 1 && c.w >= c.d, 'long side first');
+      assert.ok(c.area >= 60, `canopy area ${c.area}`);
+      assert.ok(c.clearance >= 4.5 && c.clearance < c.h, 'underside above the ground actors');
+      assert.ok(c.h >= 4.8 && c.h <= 6.5, `canopy top ${c.h}`);
+      assert.ok(canopyKinds.has(c.kind), `canopy kind ${c.kind}`);
+      assert.ok(Array.isArray(c.columns) && c.columns.length >= 4 && c.columns.length % 2 === 0, 'columns');
+      assert.ok(c.columns.every(Number.isFinite));
+      const cx = c.cx, cz = c.cz;
+      assert.ok(cx >= x0 && cx <= x1 && cz >= z0 && cz <= z1, 'canopy centre inside the detail box');
+    }
+    assert.ok(canopies.filter((c) => c.kind === 'platform').length >= 8, 'railway platform canopies');
+    assert.ok(canopies.filter((c) => c.kind === 'fuel').length >= 5, 'petrol-station canopies');
+    const mainStation = canopies.filter((c) => c.kind === 'platform' &&
+      Math.hypot(c.cx + 1580, c.cz - 800) < 300);
+    assert.ok(mainStation.length >= 5, 'Poznań Główny platform canopies');
+    assert.ok(mainStation.some((c) => c.w > 200), 'the long platform canopy');
     // frame.ll puts the Ratusz (the D1 origin) at the world origin
     const ll = GEO.frame.ll;
     const [lon, lat] = [16.93401, 52.40856];
