@@ -2471,6 +2471,14 @@ function buildCityBlocks(scene) {
     { name: 'Historyczna hala zajezdni', x: -1864, z: -103, reach: 100, profile: DEPOT },
     { name: 'Hale Główna', x: 2490, z: -2315, reach: 160, profile: INDUSTRIAL_HALL }
   ];
+  // EC Garbary has no cooling tower or chimney in the 2026-10-28 OSM snapshot (only the turbine/boiler halls), so the
+  // two landmarks of the plant are curated here: a 65 m concrete stack and a 55 m cooling tower in the free yard east
+  // and west of the halls. They are added only when the industry snapshot has no mapped tower within 250 m, so a newer
+  // OSM extract replaces them silently.
+  const INDUSTRY_FALLBACK = [
+    { site: 'EC Garbary', kind: 'chimney', x: 740, z: -930, radius: 5.5, height: 65 },
+    { site: 'EC Garbary', kind: 'cooling', x: 655, z: -875, radius: 14, height: 55 }
+  ];
 
   // Areas inside the osiedla, anchored on landmark sites (world metres)
   const siteAt = (name) => LANDMARK_SITES[name] || null;
@@ -2651,7 +2659,8 @@ function buildCityBlocks(scene) {
     if (FAIR_BLOCK && srcBlock === FAIR_BLOCK) return FAIRGROUND;
     // Large, sparse campuses only: on dense central blocks (827, 769, 814, 192 and the like) the campus grid cannot
     // spend their steep share on the fragmented lot rects and would build less than the district profile did
-    if (srcBlock && srcBlock.program && srcBlock.park <= 0.5 && srcBlock.area >= 50000 && srcBlock.built <= 0.4) {
+    if (srcBlock && (srcBlock.program === 1 || srcBlock.program === 2) && srcBlock.park <= 0.5 &&
+      srcBlock.area >= 50000 && srcBlock.built <= 0.4) {
       return srcBlock.program === 2 ? UNIVERSITY : HOSPITAL;
     }
     // Non-residential uses without a blockStats programme: the known objects first, then the morphology test
@@ -2659,6 +2668,10 @@ function buildCityBlocks(scene) {
     for (const s of SPECIAL_SITES) {
       if (Math.hypot(s.x - wx, s.z - wz) <= s.reach) return { ...s.profile, exact: true };
     }
+    // Programme 4 (industrial) is classification data for now: the morphology test below already turns ZNTK and the
+    // Główna works into halls, while a blanket programme-4 override also caught mixed office blocks (817 lost its
+    // courtyards and 5k city-wide balconies). Programmes 3/5/6/7/8 likewise stay data-only: a utility or water park
+    // usually occupies a corner of a mixed block, and whole-block profiles would overbuild the rest.
     const big = bigBoxKind(srcBlock);
     if (big === 'mall') return MALL;
     if (big === 'retail') return RETAIL_PARK;
@@ -3229,6 +3242,62 @@ function buildCityBlocks(scene) {
   }
 
   // ============================================================================
+  // C2. INDUSTRIAL LANDMARKS: chimneys and cooling towers (GEO.industry, tools/poz-buildings.mjs). Instanced as one
+  //     cylinder and one lathe, so the whole skyline costs two draws. The EC Garbary fallback above supplies the two
+  //     missing OSM towers; the mapped chimney elsewhere in the box (45 m by the Warta) keeps its real position.
+  //     Tanks and silos stay with the block's generated volume.
+  // ============================================================================
+  const industryStructures = [];
+  for (const s of (GEO.industry || [])) {
+    if (s.kind !== 'chimney' && s.kind !== 'cooling') continue;
+    industryStructures.push({ kind: s.kind, x: s.x, z: s.z, radius: Math.max(2, Math.min(s.w, s.d) * 0.5), height: s.h });
+  }
+  for (const s of INDUSTRY_FALLBACK) {
+    if (industryStructures.some((o) => o.kind === s.kind && Math.hypot(o.x - s.x, o.z - s.z) < 250)) continue;
+    industryStructures.push(s);
+  }
+  if (industryStructures.length) {
+    const cooling = industryStructures.filter((s) => s.kind === 'cooling');
+    const chimneys = industryStructures.filter((s) => s.kind === 'chimney');
+    const place = (mesh, list) => {
+      for (let i = 0; i < list.length; i++) {
+        const s = list[i];
+        dummy.position.set(s.x, 0, s.z);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.set(s.radius, s.height, s.radius);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+        colliders.push({ minX: s.x - s.radius, maxX: s.x + s.radius, minZ: s.z - s.radius, maxZ: s.z + s.radius, minY: 0, maxY: s.height });
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    };
+    if (cooling.length) {
+      const profile = [
+        { r: 1.0, y: 0 }, { r: 0.94, y: 0.06 }, { r: 0.78, y: 0.28 }, { r: 0.64, y: 0.52 },
+        { r: 0.68, y: 0.72 }, { r: 0.80, y: 0.9 }, { r: 0.86, y: 1.0 }
+      ];
+      const geo = new THREE.LatheGeometry(profile.map((v) => new THREE.Vector2(v.r, v.y)), 18);
+      const mat = new THREE.MeshStandardNodeMaterial({ color: 0xbcb9b2, roughness: 0.94, metalness: 0 });
+      const mesh = new THREE.InstancedMesh(geo, mat, cooling.length);
+      mesh.name = 'IndustryCoolingTowers';
+      place(mesh, cooling);
+    }
+    if (chimneys.length) {
+      const geo = new THREE.CylinderGeometry(0.55, 1, 1, 14);
+      geo.translate(0, 0.5, 0);
+      const mat = new THREE.MeshStandardNodeMaterial({ roughness: 0.76, metalness: 0 });
+      mat.colorNode = mix(color(0xbfbab0), color(0x8f211a), step(0.5, fract(positionWorld.y.div(28.0))));
+      const mesh = new THREE.InstancedMesh(geo, mat, chimneys.length);
+      mesh.name = 'IndustryChimneys';
+      place(mesh, chimneys);
+    }
+  }
+
+  // ============================================================================
   // D. QUADTREE-STREAMED HIGH-DETAIL ARCHITECTURAL POOLS (LOD0 around player)
   // ============================================================================
   const MAX_CORNICES = 7000;
@@ -3707,6 +3776,7 @@ function buildCityBlocks(scene) {
     quadtree,
     allBlocks,
     footprintsByBlock,
+    industryStructures,
     populateLeftoverSlabs,
     update,
     updateLights

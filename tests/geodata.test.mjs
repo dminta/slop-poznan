@@ -107,12 +107,13 @@ test('Poznań geodata builds offline with default paths in a checkout containing
       const built = (b, i) => inside(b[0], x, z) && GEO.blockStats[i][2] > 0;
       assert.ok(GEO.blocks.some(built), 'square frontage remains built');
     }
-    // blockStats: [built share, median levels, buildings, program] per block, from the OSM footprints
-    // (poz-buildings.mjs); program 0 none, 1 hospital/clinic campus, 2 university campus
+    // blockStats: [built share, median levels, buildings, program] per block, from the OSM footprints and the industry
+    // snapshot (poz-buildings.mjs); program 0 none, 1 hospital/clinic, 2 university, 3 retail, 4 industrial, 5 rail/depot,
+    // 6 sport/arena, 7 utility, 8 leisure/water park
     const stats = GEO.blockStats;
     assert.equal(stats.length, GEO.blocks.length);
     assert.ok(stats.every(([s, lv, n, p = 0]) => s >= 0 && s <= 1 && lv >= 0 && lv < 60 && Number.isInteger(n) && n >= 0 &&
-      (p === 0 || p === 1 || p === 2)));
+      Number.isInteger(p) && p >= 0 && p <= 8));
     assert.ok(stats.filter(([, , , p = 0]) => p === 1).length >= 5, 'hospital campuses tagged');
     assert.ok(stats.filter(([, , , p = 0]) => p === 2).length >= 5, 'university campuses tagged');
     const blockArea = (f) => { let a = 0; for (let i = 0, j = f.length - 2; i < f.length; j = i, i += 2) a += f[j] * f[i + 1] - f[i] * f[j + 1]; return Math.abs(a) / 2; };
@@ -133,6 +134,15 @@ test('Poznań geodata builds offline with default paths in a checkout containing
     assert.ok(holds(927, 7843), 'Hala Arena envelope in block 927');
     assert.ok(holds(939, 52909), 'Enea Stadion envelope in block 939');
     assert.ok(Object.values(footprints).every((list) => list.every((f) => f.length === 5 && f.every(Number.isFinite))));
+    // industry: industrial structures and power/substation sites from poz_industry.json inside the detail box
+    const industry = GEO.industry;
+    assert.ok(Array.isArray(industry) && industry.length > 100, 'industry snapshot consumed');
+    assert.ok(industry.every((s) => ['cooling', 'chimney', 'silo', 'tank', 'works', 'plant', 'substation'].includes(s.kind) &&
+      Number.isFinite(s.x) && Number.isFinite(s.z) && s.w > 0 && s.d > 0 && s.h > 0));
+    assert.ok(industry.some((s) => s.kind === 'chimney'), 'mapped chimney kept');
+    assert.ok(industry.some((s) => s.kind === 'tank'), 'storage tanks kept');
+    assert.ok(stats[848][3] === 4, 'ZNTK block classified industrial');
+    assert.ok(stats[266][3] === 7, 'EC Garbary block classified utility');
     // frame.ll puts the Ratusz (the D1 origin) at the world origin
     const ll = GEO.frame.ll;
     const [lon, lat] = [16.93401, 52.40856];

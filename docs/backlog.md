@@ -88,40 +88,22 @@ Implementation details and completed measurements live in the [topic docs](../AG
   logged. [Measurements, code changes and the office geometry audit](observations/office-courtyards-2026-11-08.md),
   [first central-density pass](observations/central-density-2026-11-08.md).
 - **Non-residential building coverage and specialized profiles (2026-11-08 audit):** the comprehensive audit
-  (`tools/audit-nonresidential.mjs`, [record](observations/non-residential-audit-2026-11-08.md)) revealed that
-  almost all missing non-residential buildings stem from morphology replacement (shopping malls, industrial halls,
-  railway depots and stadiums being turned into generic kamienice, villas or panel estates by district fallback)
-  rather than empty blocks. Only two blocks ≥ 1,500 m² generate 0 m²: block 1254 (Głogowska tram depot hall cut by
-  railway landuse) and block 575 (Collegium Maius landmark reserve). In-box: 31 large objects (9.3 ha) have 0%
-  coverage and 211 (74.0 ha footprint) only partial/fragmented coverage. 34 large objects (29.8 ha) sit outside the
-  detail box (Pestka, Makro, Plaza, Karolin, M1, IKEA, Selgros, Franowo, VW Antoninek). The audit's outstanding work:
-  1. *Specialized building profiles* (done 2026-11-08): `MALL`, `RETAIL_PARK`, `INDUSTRIAL_HALL`, `DEPOT`,
-     `STADIUM`, `ARENA` and `UTILITY` now have layouts, `KIND_SHARE` weights, a morphology classifier and site
-     anchors in `js/buildings.js`; Posnania, Castorama and ZNTK are low halls (see
-     [record](observations/building-profiles-nonres-2026-11-08.md)).
-  2. *Dominant block program in `GEO.blockStats`:* expand `buildingUse` in `tools/poz-buildings.mjs` beyond 1 (hospital)
-     and 2 (university) to classify retail (3), industrial (4), rail/depot (5), sports/arena (6), utility (7), and
-     pick program by dominant footprint area (≥ 40%) before district switch.
-  3. *Building anchors (`GEO.blockAnchors`):* emit 1–3 largest non-residential footprints per block so `buildings.js`
+  (`tools/audit-nonresidential.mjs`, [record](observations/non-residential-audit-2026-11-08.md)) found that almost all
+  missing non-residential buildings stem from morphology replacement rather than empty blocks. The 2026-11-08 passes
+  added the specialized profiles, dominant block programmes, the park facility carve-out, railway building islands,
+  the outskirts satellite sites and the industrial tagging supplement (`poz_industry.json`, `GEO.industry`, EC Garbary's
+  chimney/cooling tower fallback and the regression tests). Remaining:
+  1. *Building anchors (`GEO.blockAnchors`):* emit 1–3 largest non-residential footprints per block so `buildings.js`
      can place solitary big-box structures at their true OSM location and fill remainder with parking/service lots.
-  4. *Park clearance carve-out* (done 2026-11-08): `GEO.blockFootprints` emits the OSM envelopes of mapped sport/show/public
-     facilities (≥ 150 m²) in park blocks; `parkFreeCells` in `js/city-config.js` keeps them as dedicated lots for
-     `facilityBlock` in `js/buildings.js`. Hala Arena (block 927) coverage rises 0 → 74 %, Enea Stadion (939) 0 → 67 %
-     and Lodowisko Chwiałka (939) 4 → 65 %, while lawn meshes and non-facility park land stay clear.
-     [Record](observations/park-sports-facilities-2026-11-08.md).
-  5. *Railway building preservation* (done 2026-11-08): in `tools/poz-blocks.mjs`, mapped station, depot and signal-box
-     footprints are given back from `landuse=railway` and track buffers grown by `SIDEWALK` (keeping 1 m outside the track
-     corridors and 1 cell short of adjacent blocks). Restores 9 railway islands (19,098 m²): Głogowska tram depot
-     block #1254 (1,176 m², 0 lots) becomes #1250 with 8,196 m², 13 lots and 820 m² built (50 % outline coverage);
-     LCS Poznań Główny (#1003) and Dworzec Letni (#804) gain their own blocks.
-     [Record](observations/railway-building-islands-2026-11-08.md).
-  6. *Outskirts satellite sites (`SATELLITE_SITES`):* **done 2026-11-08** — `js/satellite-sites.js` places 14 OSM
-     big-box and utility sites (Pestka, Makro, Plaza, King Cross, M1, IKEA, Selgros, Franowo, VW Antoninek, Karolin)
-     as 27 instanced rectangles plus 52 roof HVAC boxes in `js/outskirts.js`, and two instanced structures for Karolin's
-     cooling towers and 204 m chimney. No geodata raster change; generic outskirts sheds keep out of the footprints via
-     `satelliteClearance`. [Record](observations/outskirts-satellites-2026-11-08.md).
-  7. *Industrial tagging supplement:* snapshot `poz_industry.json` for cooling towers, power plants and chimneys,
-     plus regression tests in `tests/buildings-density.test.cjs`.
+  2. *Programme-priority layouts:* `GEO.blockStats` now carries programmes 3 retail, 4 industrial, 5 rail/depot,
+     6 sport/arena, 7 utility and 8 leisure/water park, but blocks still choose layouts from `SPECIAL_SITES` and the
+     morphology test. A blanket programme override regressed mixed block 817 and cut city-wide balconies 14.6k → 10.4k,
+     so revisit this after the anchors.
+  3. *Browser pass:* inspect the new non-residential silhouettes from a free camera and street level: Posnania (#953,
+     11–16 m mall), Castorama (#21, 7.6 m retail park), ZNTK (#848, 11.4 m halls), EC Garbary (#266, utility halls plus
+     the fallback 65 m chimney and 55 m cooling tower) and the Główna halls (36/78/95), on WebGPU and WebGL2.
+     [Profiles record](observations/building-profiles-nonres-2026-11-08.md),
+     [industrial tagging record](observations/industrial-tagging-2026-11-08.md).
 - **Merge starvation and short-link left turns:** the 2026-11-07 Centrum seed 99 10-minute hold (`waitMax`/`longestHeld`
   184 s at `(-1117, 132)`) is fixed. A blocked lead no longer reserves the 9.4 m link between signals, and a left turn
   that cannot clear falls back to a straight move from the same lane, so it no longer waits on the link. That run is
@@ -180,8 +162,9 @@ Implementation details and completed measurements live in the [topic docs](../AG
 ### Geometry, materials and collisions
 
 - Inspect the new non-residential silhouettes from a free camera and street level: Posnania (#953, 11–16 m mall with
-  rooflights), Castorama (#21, 7.6 m retail park), ZNTK (#847, 11.4 m halls), EC Garbary (#266) and the Główna halls
-  (blocks 36/78/95), on WebGPU and WebGL2, including yard/apron joins and any z-fighting.
+  rooflights), Castorama (#21, 7.6 m retail park), ZNTK (#848, 11.4 m halls), EC Garbary (#266, utility halls plus the
+  fallback 65 m chimney and 55 m cooling tower) and the Główna halls (blocks 36/78/95), on WebGPU and WebGL2, including
+  yard/apron joins, tower colliders and any z-fighting.
   [Profiles record](observations/building-profiles-nonres-2026-11-08.md).
 - Inspect all 11 historic landmarks on WebGPU and WebGL2: Biblioteka Raczyńskich, Pałac Działyńskich, Hotel Bazar,
   Muzeum Narodowe, Teatr Polski, Collegium Maius, Kościół Bernardynów, Kościół Franciszkanów, Kościół NMP in Summo,

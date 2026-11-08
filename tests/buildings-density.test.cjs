@@ -278,6 +278,49 @@ test('park facility halls on 927/939 do not overlap each other or a roadway', as
   }
 });
 
+test('EC Garbary keeps its utility halls, chimney and cooling tower', async () => {
+  const { config, city } = await buildCity();
+  const block = config.BLOCKS[266];
+  assert.equal(block.program, 7, 'block 266 is classified as utility');
+  // The turbine/boiler halls are 15-27 m; the fallback chimney and cooling tower stand in the free yard east/west of
+  // them. Before the industry snapshot the block had only generic 21 m stock and no tower at all.
+  const parts = city.allBlocks.filter((b) => b.srcBlockId === 266).flatMap((b) => b.footprints);
+  const halls = parts.filter((f) => (f.x1 - f.x0) * (f.z1 - f.z0) >= 1500 && f.h >= 15 && f.h <= 27);
+  assert.ok(halls.length >= 2, `block 266 has ${halls.length} utility halls >= 1,500 m² at 15-27 m`);
+  const towers = city.industryStructures.filter((s) => Math.hypot(s.x - 691, s.z + 902) < 250);
+  assert.ok(towers.some((s) => s.kind === 'chimney' && s.height >= 55), 'EC Garbary has a chimney >= 55 m');
+  assert.ok(towers.some((s) => s.kind === 'cooling' && s.height >= 45), 'EC Garbary has a cooling tower >= 45 m');
+  const { GEO } = await import('../js/geodata.js');
+  assert.ok(GEO.industry.some((s) => s.kind === 'chimney'), 'the OSM industry snapshot contributed a chimney');
+});
+
+test('ZNTK is an industrial block with low halls, not residential Wilda', async () => {
+  const { config, city } = await buildCity();
+  const block = config.BLOCKS[848];
+  assert.equal(block.district, 'Wilda');
+  assert.equal(block.program, 4, 'the ZNTK ruins dominate block 848 as industrial use');
+  const parts = city.allBlocks.filter((b) => b.srcBlockId === 848).flatMap((b) => b.footprints);
+  const halls = parts.filter((f) => (f.x1 - f.x0) * (f.z1 - f.z0) >= 1800);
+  assert.ok(halls.length >= 8, `${halls.length} ZNTK hall parts >= 1,800 m²`);
+  const maxH = Math.max(0, ...parts.map((f) => f.h));
+  assert.ok(maxH <= 16, `ZNTK is built as 7.4-11.4 m halls, not ${maxH.toFixed(1)} m kamienice`);
+});
+
+test('Termy Maltańskie keeps its recreation hall on Malta', async () => {
+  const { config, city } = await buildCity();
+  const block = config.BLOCKS[613];
+  assert.equal(block.program, 8, 'block 613 is classified as leisure/water park');
+  // OSM way 158699450: an unnamed building=yes with addr:street=Termalna, 2633.6-2783.2 x 310.4-446.4
+  const envelope = [2633.6, 2783.2, 310.4, 446.4];
+  assert.ok((block.parkFootprints || []).some(([x0, x1, z0, z1, area]) =>
+    Math.abs(x0 - envelope[0]) < 2 && Math.abs(x1 - envelope[1]) < 2 &&
+    Math.abs(z0 - envelope[2]) < 2 && Math.abs(z1 - envelope[3]) < 2 && area > 13000),
+  'the Termalna envelope survives the park carve-out');
+  const { share, hMax } = footprintCoverage(city, envelope);
+  assert.ok(share > 0.15, `only ${(100 * share).toFixed(1)} % of Termy is built`);
+  assert.ok(hMax >= 8 && hMax <= 25, `Termy generated at ${hMax.toFixed(1)} m`);
+});
+
 test('villa blocks are detached houses with gardens between them', async () => {
   const { city } = await buildCity();
   const villas = city.allBlocks.filter((b) => b.district === 'Sołacz');

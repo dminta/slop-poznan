@@ -421,8 +421,13 @@ Built before the road network, so everything that stands near a lane is checked 
     `built × area / buildings`. A very large average (≥ 12,000 m² and ≥ 45% built) takes `MALL`; 2,500 m² and up
     takes `RETAIL_PARK` outside the industrial districts (Główna, Wilda, Antoninek, Starołęka) and `INDUSTRIAL_HALL`
     inside them; smaller hall-scale averages take a retail park or an industrial hall by district and storey median.
-    This is the interim classifier until `GEO.blockStats` carries the use programme (backlog item 2); the known
-    sites keep the stadium, arena, utility and depot cases, which their stats alone cannot name. `KIND_SHARE` gains
+    `GEO.blockStats` now also carries the use programmes 3 retail, 4 industrial, 5 rail/depot, 6 sport/arena,
+    7 utility and 8 leisure/water park, picked by a dominant footprint share (≥ 40 % of tagged uses); ZNTK's ruins
+    are 4, EC Garbary is 7 and Termy Maltańskie is 8. The layouts still use `SPECIAL_SITES` and morphology before
+    the programme classes: a blanket programme override turned mixed blocks such as 817 into utility halls and cut
+    city-wide balconies from 14.6k to 10.4k, so programmes 3-8 remain classification data until block anchors land
+    (backlog item 3). The known sites keep the stadium, arena, utility and depot cases, which their stats alone
+    cannot name. `KIND_SHARE` gains
     `mall` 0.75, `retail` 0.6, `industrial` 0.55, `depot` 0.5, `stadium` 0.25, `arena` 0.6 and `utility` 0.45;
     `steerProfile` returns its usual skip for the three morphology kinds, keeps a site-anchored profile unthinned
     (`exact`), and measures hall heights within their band (industrial/depot 2–3 storeys, mall 3–4) rather than
@@ -441,6 +446,13 @@ Built before the road network, so everything that stands near a lane is checked 
     - `arenaBlock`: a two-storey podium with an octagonal 5–7-storey hall above it (19–27 m), flat roof with plant.
     - `utilityBlock`: a low turbine hall (4–6 storeys) and a taller boiler house (5–7 storeys, 19–27 m) in
       industrial brick or render, with blank walls.
+    **Industrial structures** (`GEO.industry`, `tools/poz-buildings.mjs`): `buildings.js` draws every mapped chimney and
+    cooling tower inside the detail box as one instanced cylinder and one instanced lathe, two draws in all, with a
+    player collider up to the tower top. EC Garbary has no OSM tower in the 2026-10-28 snapshot, so the runtime adds a
+    curated 65 m chimney and 55 m cooling tower in its free yard (only when no mapped structure of that kind stands
+    within 250 m). The OSM extract supplies one 45 m chimney by the Warta; Karolin's towers stay outside the box in
+    `satellite-sites.js`. Tanks and silos keep the block's generated volume.
+    [Record](observations/industrial-tagging-2026-11-08.md).
     The audit's measured silhouettes: Posnania's generated height falls 23 → 16 m and its OSM outline coverage rises
     43.5 → 68%; Castorama 31 → 7.6 m and 17.7 → 22.1%; ZNTK Robocza 27 → 11.4 m and 25.9 → 34.2%; EC Garbary
     0 → 31.2% at 22.9 m mean; the Główna halls fall to 10–11.4 m and gain coverage (6.57 ha hall 31.4 → 80.4%).
