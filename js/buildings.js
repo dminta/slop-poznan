@@ -1922,6 +1922,260 @@ function buildCityBlocks(scene) {
     }
   }
 
+  // Shopping mall: one broad, low box of 3-4 storeys (11-16 m) over most of its lot, a glazed entrance pavilion on
+  // the main street, a central run of rooflights and packaged plant on the flat roof. Slivers too narrow for a hall
+  // stay as the car park and service apron round the box; the lot's built share is set by KIND_SHARE (0.75).
+  function mallBlock(blk, cfg) {
+    const R = blockRect(blk);
+    blk.yards.push(insetAll(R, 0.5));
+    const W = rectW(R);
+    const D = rectD(R);
+    if (Math.min(W, D) < 20) return;
+    const front = mainFront(blk) || (W >= D ? 'n' : 'w');
+    const fore = Math.min(cfg.forecourt, Math.max(6, Math.min(W, D) * 0.1));
+    const C = rect(R.x0 + (front === 'w' ? fore : 3), R.x1 - (front === 'e' ? fore : 3),
+      R.z0 + (front === 'n' ? fore : 3), R.z1 - (front === 's' ? fore : 3));
+    if (rectW(C) < 14 || rectD(C) < 14) return;
+    const floors = irange(cfg.floors[0], cfg.floors[1]);
+    const b = building(blk, pickW(cfg.mats), C);
+    const body = mass(b, [C], 0, floors);
+    commit(blk, b, { cornice: false, shops: 'none', awnings: false, walls: WALL_KINDS.blankStone });
+    // The representative entrance: a glazed box filling the setback on the main front
+    const span = sideLen(R, front);
+    const ew = Math.min(span - 6, range(22, 40));
+    if (ew >= 14) {
+      const ea = (span - ew) * 0.5;
+      const e = sideRect(R, front, ea, ea + ew, 0, fore);
+      const eb = building(blk, pickW(GLASS), e);
+      mass(eb, [e], 0, Math.min(3, floors));
+      commit(blk, eb, { cornice: false, shops: 'all', awnings: false });
+    }
+    // A central row of rooflights and packaged plant units; the body stays flat
+    const top = body.reduce((y, p) => Math.max(y, p.y1), 0);
+    const longX = rectW(C) >= rectD(C);
+    const len = longX ? rectW(C) : rectD(C);
+    const n = Math.max(2, Math.min(5, Math.round(len / 26)));
+    const cx = (C.x0 + C.x1) * 0.5;
+    const cz = (C.z0 + C.z1) * 0.5;
+    for (let k = 0; k < n; k++) {
+      const t = ((k + 0.5) / n - 0.5) * len * 0.72;
+      const sw = longX ? range(9, 14) : range(5, 8);
+      const sd = longX ? range(5, 8) : range(9, 14);
+      blk.skylights.push({ x: longX ? cx + t : cx, y: top, z: longX ? cz : cz + t, w: sw, d: sd });
+    }
+    for (let k = 0; k < 5; k++) {
+      blk.hvacUnits.push({
+        x: C.x0 + range(4, rectW(C) - 4), y: top, z: C.z0 + range(4, rectD(C) - 4),
+        w: range(3, 7), h: range(2.4, 4.5), d: range(3, 7)
+      });
+    }
+  }
+
+  // Retail park / big-box: one to three two-storey halls (7.6 m) behind a front car park, with parking aisles
+  // between them and a plain flat roof with packaged plant. The lot's built share is KIND_SHARE (0.6), so the
+  // forecourt and aisles take the rest; steerProfile's skip thins whole lot pieces on sparser blocks.
+  function retailParkBlock(blk, cfg) {
+    const R = blockRect(blk);
+    blk.yards.push(insetAll(R, 0.5));
+    const W = rectW(R);
+    const D = rectD(R);
+    if (Math.min(W, D) < 18) return;
+    const front = mainFront(blk) || (W >= D ? 'n' : 'w');
+    const across = front === 'n' || front === 's' ? D : W;
+    const fore = Math.min(cfg.forecourt, Math.max(8, across * 0.22));
+    const C = rect(R.x0 + (front === 'w' ? fore : 4), R.x1 - (front === 'e' ? fore : 4),
+      R.z0 + (front === 'n' ? fore : 4), R.z1 - (front === 's' ? fore : 4));
+    const cw = rectW(C);
+    const cd = rectD(C);
+    if (Math.min(cw, cd) < 12) return;
+    const alongX = cw >= cd;
+    const len = alongX ? cw : cd;
+    const wid = alongX ? cd : cw;
+    const at = (u0, u1, v0, v1) => (alongX
+      ? rect(C.x0 + u0, C.x0 + u1, C.z0 + v0, C.z0 + v1)
+      : rect(C.x0 + v0, C.x0 + v1, C.z0 + u0, C.z0 + u1));
+    const n = Math.max(1, Math.min(3, Math.round(len / range(55, 85))));
+    const cell = len / n;
+    for (let k = 0; k < n; k++) {
+      const aisle = n > 1 ? range(8, 16) * 0.5 : 0;
+      const u0 = k * cell + (k ? aisle : 0);
+      const u1 = (k + 1) * cell - (k < n - 1 ? aisle : 0);
+      if (u1 - u0 < 16) continue;
+      const r = at(u0, u1, wid * 0.04, wid * 0.96);
+      if (Math.min(rectW(r), rectD(r)) < 10) continue;
+      const b = building(blk, pickW(cfg.mats), r);
+      mass(b, [r], 0, irange(cfg.floors[0], cfg.floors[1]));
+      commit(blk, b, {
+        cornice: false, hvac: true, hvacH: range(2.4, 3.6), skylights: true, shops: 'all', awnings: false,
+        freestanding: true
+      });
+    }
+  }
+
+  // Industrial hall: the lot under one long gabled hall split into 18-26 m bays (the sawtooth/north-light rhythm),
+  // plus a low office at the street. The bays keep a 0.8 m gap so neighbouring roof eaves never overlap; the lot's
+  // built share is KIND_SHARE (0.55).
+  function industrialBlock(blk, cfg) {
+    const R = blockRect(blk);
+    blk.yards.push(insetAll(R, 0.5));
+    const W = rectW(R);
+    const D = rectD(R);
+    if (Math.min(W, D) < 18) return;
+    const front = mainFront(blk) || (W >= D ? 'n' : 'w');
+    const fore = Math.min(range(4, 8), Math.min(W, D) * 0.15);
+    const C = rect(R.x0 + (front === 'w' ? fore : 4), R.x1 - (front === 'e' ? fore : 4),
+      R.z0 + (front === 'n' ? fore : 4), R.z1 - (front === 's' ? fore : 4));
+    const cw = rectW(C);
+    const cd = rectD(C);
+    if (Math.min(cw, cd) < 14) return;
+    const alongX = cw >= cd;
+    const len = alongX ? cw : cd;
+    const wid = alongX ? cd : cw;
+    const at = (u0, u1, v0, v1) => (alongX
+      ? rect(C.x0 + u0, C.x0 + u1, C.z0 + v0, C.z0 + v1)
+      : rect(C.x0 + v0, C.x0 + v1, C.z0 + u0, C.z0 + u1));
+    const mat = pickW(cfg.mats);
+    const b = building(blk, mat, C);
+    const bays = Math.max(2, Math.min(6, Math.round(len / range(18, 26))));
+    const gap = 0.8;
+    const step = (len - gap * (bays - 1)) / bays;
+    for (let k = 0; k < bays; k++) {
+      const u0 = k * (step + gap);
+      const part = mass(b, [at(u0, u0 + step, 0, wid)], 0, irange(cfg.floors[0], cfg.floors[1]));
+      pitch(part, 'gable', pickW([['slate', 2], ['tile', 1]]), alongX ? 'z' : 'x', range(12, 20));
+    }
+    commit(blk, b, { cornice: false, shops: 'none', awnings: false, walls: WALL_KINDS.blankStone });
+    // A low brick or glass office/workshop on the front strip, where there is room for one
+    if (fore >= 6 && chance(0.7)) {
+      const span = sideLen(R, front);
+      const ow = Math.min(span - 6, range(16, 34));
+      if (ow >= 12) {
+        const oa = (span - ow) * 0.5;
+        const o = sideRect(R, front, oa, oa + ow, 0, fore);
+        const ob = building(blk, pickW([[F.brick, 2], [F.cream, 1], [F.glassSilver, 1]]), o);
+        mass(ob, [o], 0, 2);
+        commit(blk, ob, { cornice: false, shops: 'all', awnings: false });
+      }
+    }
+  }
+
+  // Railway/tram depot: long 2-3-storey halls along the lot's main axis, spaced for the tracks and service yards
+  // between them, each under a shallow gable. The lot's built share is KIND_SHARE (0.5); the open tracks stay yard.
+  function depotBlock(blk, cfg) {
+    const R = blockRect(blk);
+    blk.yards.push(insetAll(R, 0.5));
+    const W = rectW(R);
+    const D = rectD(R);
+    if (Math.min(W, D) < 16) return;
+    const alongX = W >= D;
+    const len = alongX ? W : D;
+    const wid = alongX ? D : W;
+    const at = (u0, u1, v0, v1) => (alongX
+      ? rect(R.x0 + u0, R.x0 + u1, R.z0 + v0, R.z0 + v1)
+      : rect(R.x0 + v0, R.x0 + v1, R.z0 + u0, R.z0 + u1));
+    const n = Math.max(1, Math.min(3, Math.round(wid / range(24, 38))));
+    const cell = wid / n;
+    for (let k = 0; k < n; k++) {
+      const hallW = Math.min(cell - 10, range(14, 24));
+      if (hallW < 10) continue;
+      const v0 = k * cell + (cell - hallW) * 0.5;
+      const hl = Math.min(len - 6, range(len * 0.55, len * 0.92));
+      const u0 = (len - hl) * range(0.1, 0.9);
+      const r = at(u0, u0 + hl, v0, v0 + hallW);
+      const b = building(blk, pickW(cfg.mats), r);
+      const part = mass(b, [r], 0, irange(cfg.floors[0], cfg.floors[1]));
+      pitch(part, 'gable', pickW([['slate', 2], ['tile', 1]]), alongX ? 'x' : 'z', range(12, 18));
+      commit(blk, b, { cornice: false, shops: 'none', awnings: false, walls: WALL_KINDS.blankStone });
+    }
+  }
+
+  // Stadium: four grandstands round a grass pitch, the main stands 6-8 storeys (23-31 m) and the end stands two
+  // storeys lower, with the corners open. The pitch stays a lawn (blk.yards); the rest of the lot is concourse and
+  // parking. Lots under 80 m across have no room for the bowl and stay open.
+  function stadiumBlock(blk, cfg) {
+    const R = blockRect(blk);
+    const W = rectW(R);
+    const D = rectD(R);
+    if (Math.min(W, D) < 80) return;
+    const stand = Math.min(cfg.stand, Math.min(W, D) * 0.18);
+    const alongX = W >= D;
+    const pw = Math.min(alongX ? cfg.pitch[0] : cfg.pitch[1], W - 2 * stand - 8);
+    const pd = Math.min(alongX ? cfg.pitch[1] : cfg.pitch[0], D - 2 * stand - 8);
+    if (pw < 60 || pd < 40) return;
+    const cx = (R.x0 + R.x1) * 0.5;
+    const cz = (R.z0 + R.z1) * 0.5;
+    const pitchRect = rect(cx - pw * 0.5, cx + pw * 0.5, cz - pd * 0.5, cz + pd * 0.5);
+    blk.yards.push(pitchRect);
+    const b = building(blk, pickW(cfg.mats), R);
+    const f = irange(cfg.floors[0], cfg.floors[1]);
+    const end = Math.max(3, f - 2);
+    mass(b, [
+      rect(pitchRect.x0 - stand, pitchRect.x0, pitchRect.z0 - stand, pitchRect.z1 + stand),
+      rect(pitchRect.x1, pitchRect.x1 + stand, pitchRect.z0 - stand, pitchRect.z1 + stand)
+    ], 0, f);
+    mass(b, [
+      rect(pitchRect.x0, pitchRect.x1, pitchRect.z0 - stand, pitchRect.z0),
+      rect(pitchRect.x0, pitchRect.x1, pitchRect.z1, pitchRect.z1 + stand)
+    ], 0, end);
+    commit(blk, b, {
+      cornice: false, hvac: 'small', hvacH: range(2, 3), shops: 'none', awnings: false, freestanding: true
+    });
+  }
+
+  // Arena / sports hall: one big hall 5-7 storeys (19-27 m) with its corners cut into an octagon, a lower podium
+  // round the base and a flat roof with plant. The lot's built share is KIND_SHARE (0.6).
+  function arenaBlock(blk, cfg) {
+    const R = blockRect(blk);
+    blk.yards.push(insetAll(R, 0.5));
+    const W = rectW(R);
+    const D = rectD(R);
+    if (Math.min(W, D) < 28) return;
+    const C = insetAll(R, Math.min(6, Math.min(W, D) * 0.08));
+    if (Math.min(rectW(C), rectD(C)) < 22) return;
+    const b = building(blk, pickW(cfg.mats), C);
+    const f = irange(cfg.floors[0], cfg.floors[1]);
+    const cut = Math.min(rectW(C), rectD(C)) * range(0.12, 0.2);
+    // A two-storey podium fills the lot; the hall above it is cut back at the corners into an octagon, so the
+    // silhouette reads as a free-standing arena rather than a rectangular office block.
+    if (cut >= 3) {
+      mass(b, [C], 0, Math.min(2, f - 1));
+      mass(b, carve(C, cornerHoles(C, cut, cut), 'x'), Math.min(2, f - 1), f);
+    } else {
+      mass(b, [C], 0, f);
+    }
+    commit(blk, b, {
+      cornice: false, hvac: true, hvacH: range(2.4, 4), shops: 'none', awnings: false, freestanding: true
+    });
+  }
+
+  // Utility block (power station, pumping works): two plain technical volumes of 4-7 storeys (15-27 m),
+  // the tallest a boiler house beside the low turbine hall, in industrial brick or render. The lot's built share
+  // is KIND_SHARE (0.45).
+  function utilityBlock(blk, cfg) {
+    const R = blockRect(blk);
+    blk.yards.push(insetAll(R, 0.5));
+    const W = rectW(R);
+    const D = rectD(R);
+    if (Math.min(W, D) < 18) return;
+    const alongX = W >= D;
+    const len = alongX ? W : D;
+    const wid = alongX ? D : W;
+    const at = (u0, u1, v0, v1) => (alongX
+      ? rect(R.x0 + u0, R.x0 + u1, R.z0 + v0, R.z0 + v1)
+      : rect(R.x0 + v0, R.x0 + v1, R.z0 + u0, R.z0 + u1));
+    const mat = pickW(cfg.mats);
+    const hall = at(0, len * 0.62, wid * 0.08, wid * 0.92);
+    const b = building(blk, mat, hall);
+    mass(b, [hall], 0, irange(cfg.floors[0], cfg.floors[1] - 1));
+    commit(blk, b, { cornice: false, shops: 'none', awnings: false, walls: WALL_KINDS.blankStone });
+    const tall = at(len * 0.7, len * 0.96, wid * 0.18, wid * 0.82);
+    if (Math.min(rectW(tall), rectD(tall)) >= 10) {
+      const tb = building(blk, mat, tall);
+      mass(tb, [tall], 0, irange(cfg.floors[1] - 2, cfg.floors[1]));
+      commit(blk, tb, { cornice: false, shops: 'none', awnings: false, walls: WALL_KINDS.blankStone });
+    }
+  }
+
   // Hospital and university campuses: institutional blocks along the streets and a loose grid of clinics and
   // institutes inside, with 9-16 m clear service alleys (10-16 m along a row, 16 m in the wide cores). `cfg.share` is
   // the block's real OSM built share over its lot area (steerProfile), so each lot rect builds its target: the frontage
@@ -2052,7 +2306,14 @@ function buildCityBlocks(scene) {
     lowrise: lowriseBlock,
     fair: fairBlock,
     villas: villaBlock,
-    campus: campusBlock
+    campus: campusBlock,
+    mall: mallBlock,
+    retail: retailParkBlock,
+    industrial: industrialBlock,
+    depot: depotBlock,
+    stadium: stadiumBlock,
+    arena: arenaBlock,
+    utility: utilityBlock
   };
 
   // ============================================================================
@@ -2158,6 +2419,36 @@ function buildCityBlocks(scene) {
     mats: [[F.cream, 3], [F.greyGreen, 2], [F.glassSilver, 2], [F.sandstone, 1]] };
   const UNIVERSITY = { kind: 'campus', program: 2, floors: [2, 4], pitched: 0.3,
     mats: [[F.cream, 3], [F.sandstone, 2], [F.greyGreen, 2], [F.brick, 1]] };
+  // Non-residential profiles (audit 2026-11-08): one broad mall box, retail-park halls, industrial halls,
+  // depots, stadium/arena bowls and technical utility volumes. Heights follow the real objects: a mall is
+  // 3-4 storeys of curtain wall (12-16 m), a big-box 2 storeys (7.6 m), an industrial hall 2-3 storeys (7.6-11.4 m),
+  // a stadium 6-8 storeys (23-31 m), an arena 5-7 (19-27 m) and a utility 4-7 (15-27 m).
+  const MALL = { kind: 'mall', floors: [3, 4], forecourt: 12,
+    mats: [[F.glassSilver, 2], [F.glassTeal, 1], [F.cream, 1], [F.greyGreen, 1]] };
+  const RETAIL_PARK = { kind: 'retail', floors: [2, 2], forecourt: 22,
+    mats: [[F.cream, 3], [F.greyGreen, 2], [F.brick, 2], [F.yellowBrick, 1]] };
+  const INDUSTRIAL_HALL = { kind: 'industrial', floors: [2, 3],
+    mats: [[F.brick, 4], [F.yellowBrick, 3], [F.greyGreen, 2], [F.cream, 1]] };
+  const DEPOT = { kind: 'depot', floors: [2, 3],
+    mats: [[F.yellowBrick, 4], [F.brick, 3], [F.cream, 1]] };
+  const STADIUM = { kind: 'stadium', floors: [6, 8], stand: 22, pitch: [104, 68],
+    mats: [[F.glassSilver, 2], [F.cream, 2], [F.greyGreen, 1], [F.sandstone, 1]] };
+  const ARENA = { kind: 'arena', floors: [5, 7],
+    mats: [[F.glassSilver, 2], [F.glassTeal, 1], [F.cream, 2], [F.sandstone, 1]] };
+  const UTILITY = { kind: 'utility', floors: [4, 7],
+    mats: [[F.brick, 3], [F.greyGreen, 2], [F.cream, 1], [F.yellowBrick, 1]] };
+  // The block stats still carry only the campus programme (hospital/university), so the remaining uses are
+  // anchored on their known sites. A lot whose centre falls in the reach takes the profile exactly (no thinning,
+  // see steerProfile); the footprint itself decides whether the lot is big enough for the hall or stays apron.
+  const SPECIAL_SITES = [
+    { name: 'Enea Stadion', x: -312, z: 1373, reach: 150, profile: STADIUM },
+    { name: 'Hala Arena', x: -2857, z: 1206, reach: 130, profile: ARENA },
+    { name: 'EC Garbary', x: 691, z: -902, reach: 150, profile: UTILITY },
+    { name: 'Zajezdnia Głogowska', x: -2719, z: 2318, reach: 100, profile: DEPOT },
+    { name: 'Zajezdnia Madalińskiego', x: -1356, z: 2478, reach: 120, profile: DEPOT },
+    { name: 'Historyczna hala zajezdni', x: -1864, z: -103, reach: 100, profile: DEPOT },
+    { name: 'Hale Główna', x: 2490, z: -2315, reach: 160, profile: INDUSTRIAL_HALL }
+  ];
 
   // Areas inside the osiedla, anchored on landmark sites (world metres)
   const siteAt = (name) => LANDMARK_SITES[name] || null;
@@ -2193,9 +2484,32 @@ function buildCityBlocks(scene) {
   // its real share and Rataje at 0.6x
   const KIND_SHARE = {
     res: 0.28, rynek: 0.4, cesarska: 0.4, offices: 0.29, loft: 0.57, projects: 0.1, lowrise: 0.48, fair: 0.45, villas: 0.15,
-    campus: 0.3
+    campus: 0.3, mall: 0.75, retail: 0.6, industrial: 0.55, depot: 0.5, stadium: 0.25, arena: 0.6, utility: 0.45
   };
   const RES_KINDS = new Set(['res', 'rynek', 'cesarska']);
+  // Big-box and industrial blocks: a block whose mapped footprints average over BIG_BOX m² and whose buildings
+  // average 1-3 storeys is a mall, retail park or hall, not a perimeter block. The threshold is measured on the
+  // OSM snapshot: a kamienica or slab block averages 150-600 m² per building, while Posnania's single outline is
+  // 77,000 m², Castorama 2,920 m² and the Główna halls 1,000-7,400 m². A park block with a modest average keeps
+  // its district profile (the stadium and arena come from SPECIAL_SITES); this morphology test is the interim
+  // classifier until GEO.blockStats carries the non-residential programme (backlog item 2).
+  const BIG_BOX = 900;
+  const INDUSTRIAL_DISTRICTS = new Set([
+    'Główna', 'Wilda', 'Antoninek-Zieliniec-Kobylepole', 'Starołęka-Minikowo-Marlewo'
+  ]);
+  function bigBoxKind(b) {
+    if (!b || b.area < 12000 || b.built < 0.12 || b.levels > 3 || b.park > 0.45) return null;
+    const avg = (b.built * b.area) / Math.max(1, b.buildings);
+    if (avg < BIG_BOX) return null;
+    if (b.park > 0.3 && avg < 2500) return null;
+    // IKEA's block is a 20-26 m cell grid cut by the park; the district's LOWRISE halls already match its 7.6 m
+    // height and fill its footprint, while the retail layout only finds room for a few small boxes there.
+    if (b.park > 0.3 && b.area < 30000) return null;
+    if (avg >= 12000 && b.built >= 0.45) return 'mall';
+    if (avg >= 2500) return INDUSTRIAL_DISTRICTS.has(b.district) ? 'industrial' : 'retail';
+    if (INDUSTRIAL_DISTRICTS.has(b.district)) return 'industrial';
+    return b.levels <= 2 && avg >= 1200 ? 'retail' : 'industrial';
+  }
   // Villa layouts are steered exactly (villaBlock builds cfg.share of its lot rects): the block's real share over the
   // lot area its pieces cover (srcLotArea; the lot rects stand 4.6 m in from the curb, so a Sołacz block's 9% of the
   // island is ~12% of its lots), at most VILLA_MAX
@@ -2207,6 +2521,9 @@ function buildCityBlocks(scene) {
     // building:levels), and the 37 ha of such blocks over 0.8 ha are meadows, allotments and building sites (the
     // Naramowice bank of the Warta, 17 ha). Built at half the profile's share they added 5 ha that is not there
     if (!b.buildings && !(b.built > 0.01)) return { ...cfg, skipP: 1 };
+    // Site-anchored non-residential objects (stadium, arena, utility, depot) stand on their own lot rects: no
+    // thinning, because the use is known and its layout leaves the uncovered part as concourse or yard.
+    if (cfg.exact) return { ...cfg, skipP: 0 };
     const T = (b.park > 0.6 && cfg.kind !== 'villas' && srcLotArea > 0 && fullLotArea > 0)
       ? (b.built * fullLotArea) / srcLotArea
       : b.built;
@@ -2280,6 +2597,14 @@ function buildCityBlocks(scene) {
       // 37% built but 37% park). 593/786 (1.03/0.97), 938/939 (1.07) and 733 (37%, no park) are already over their
       // real share and keep their plazas; 816, 814, 769 and 868 have room for the core.
       if (base.kind === 'offices') out.core = q >= 1.15 && (b.built >= 0.4 || b.park >= 0.3);
+      // Halls follow the block's median only within their own band: OSM often tags a 10-12 m hall as one storey,
+      // so the volume stays 2-3 storeys (7.6-11.4 m) and a mall 3-4 (12-16 m) instead of collapsing to a shed.
+      if (base.kind === 'industrial' || base.kind === 'depot') {
+        if (L) out.floors = [2, Math.max(2, Math.min(3, Math.round(L) + 1))];
+      }
+      if (base.kind === 'mall' && L) {
+        out.floors = [Math.max(3, Math.min(4, Math.round(L) + 1)), Math.max(3, Math.min(4, Math.round(L) + 2))];
+      }
     }
     return out;
   }
@@ -2307,6 +2632,15 @@ function buildCityBlocks(scene) {
     if (srcBlock && srcBlock.program && srcBlock.park <= 0.5 && srcBlock.area >= 50000 && srcBlock.built <= 0.4) {
       return srcBlock.program === 2 ? UNIVERSITY : HOSPITAL;
     }
+    // Non-residential uses without a blockStats programme: the known objects first, then the morphology test
+    // (big mapped footprints on a low-rise block). Both come before OFFICE_SITES and the osiedle switch.
+    for (const s of SPECIAL_SITES) {
+      if (Math.hypot(s.x - wx, s.z - wz) <= s.reach) return { ...s.profile, exact: true };
+    }
+    const big = bigBoxKind(srcBlock);
+    if (big === 'mall') return MALL;
+    if (big === 'retail') return RETAIL_PARK;
+    if (big === 'industrial') return INDUSTRIAL_HALL;
     if (OFFICE_SITES.some((t) => Math.hypot(t.x - wx, t.z - wz) < OFFICE_REACH)) return OFFICES;
     if (inBox(CESARSKA_BOX, wx, wz)) return CESARSKA;
     if (blk.rynekSides) return RYNEK;

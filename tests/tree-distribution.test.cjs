@@ -67,13 +67,14 @@ test('seeded species assignment preserves the full built city tree sites and col
   for (const site of sites) { before[site.species || 0]++; after[treeSpecies(site)]++; }
   assert.equal(digest(sites), siteHash, 'assignment must not mutate sites');
   // Street placement and production crossing constants change these pins; park/grid colliders changed only when the
-  // Chartowo corridor moved three block 1304 lamps off the new cut curb.
-  // See docs/observations/street-tree-clearance-2026-11-06.md for each deliberate pin change.
-  assert.deepEqual(before, [18694, 22614, 8739, 0]);
-  assert.deepEqual(after, [17927, 21715, 8385, 2020]);
-  assert.equal(siteHash, 'a8eda0e907e088e5fe396f4db32895f5e7ef00200277bacc3872a5683b6622c5');
+  // Chartowo corridor moved three block 1304 lamps off the new cut curb. The 2026-11-08 non-residential profiles
+  // changed one lot's building colliders, which moved one street tree into the seeded site set.
+  // See docs/observations/building-profiles-nonres-2026-11-08.md for the deliberate pin change.
+  assert.deepEqual(before, [18694, 22614, 8740, 0]);
+  assert.deepEqual(after, [17927, 21715, 8386, 2020]);
+  assert.equal(siteHash, '984ee5e402c5a593197433bfdeba264bc8a14dc0cb9055cad3d72eb6ebc05c71');
   assert.equal(digest(grid.propColliders), '47fe61199ef3204842393df05dd6d1b56f9431240acefcf6316f8612ea4d2c6b');
-  assert.equal(digest(details.colliders), '8cb2524d7bf91560e84ec364d796e9f0994f7f51c235d7bb9288c7049edbc0aa');
+  assert.equal(digest(details.colliders), '4250b345aa131cf0a51710501224f767422b0d77ef94cab47a84c3a3cb79ff8b');
   const meshCount = (pick) => {
     const types = new Set();
     for (const t of sites) {
