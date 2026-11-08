@@ -9,7 +9,7 @@ import { levelCrossings, pieces, plazas, rail, roads, signalNodes, tramRoutes, t
 import { water, land, landHoles, outskirts, outskirtsHoles } from './poz-water.mjs';
 import { parks, landmarks, districts, labels } from './poz-extra.mjs';
 import { blocks, STRIP, SIDEWALK } from './poz-blocks.mjs';
-import { blockStats, blockFootprints, industry, blockAnchors } from './poz-buildings.mjs';
+import { blockStats, blockFootprints, blockParkBuildings, industry, blockAnchors } from './poz-buildings.mjs';
 import { canopies } from './poz-canopies.mjs';
 import { buildRoadGraph } from './poz-roadgraph.mjs';
 
@@ -104,6 +104,12 @@ const GEO = {
   // (>= 150 m²) in blocks with any park share, plus their OSM footprint area. city-config turns them into lots so
   // parkFreeCells does not clear Hala Arena, Enea Stadion, Chwiałka or Termy Maltańskie to lawn.
   blockFootprints,
+  // { block id: [[x0, x1, z0, z1, area], ...] }: axis-aligned envelopes of ordinary mapped buildings (>= 60 m²) in
+  // park blocks, over their in-block footprint area. city-config adds them to blockFootprints as non-facility lots when
+  // the park carve would leave less lot area than the block's real built share, so an estate standing in parkland is
+  // not cleared to lawn (875 Antoninek, 968 Rataje, 886 Łazarz, 1271 Chartowo). Facility envelopes stay in
+  // blockFootprints and keep their hall layout.
+  blockParkBuildings,
   // { block id: [[x0, x1, z0, z1, area, use, levels], ...] }: the 1-3 largest mapped non-residential footprints of the
   // block, with their in-block envelope and area, use (1 retail/mall, 2 industrial/warehouse, 3 rail/depot,
   // 4 sport/leisure, 5 utility) and storeys. buildings.js puts one dedicated building on each anchor (mall box, hall,

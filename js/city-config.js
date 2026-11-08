@@ -590,6 +590,11 @@ function nearestRoads(x, z, radius = 60) {
 // The lot layout keeps a hall lot on each, so facilities standing on parkland (Hala Arena, Enea Stadion, Chwiałka,
 // Termy Maltańskie) are built instead of being cleared like the rest of the park.
 const BLOCK_FOOTPRINTS = GEO.blockFootprints || {};
+// Ordinary mapped buildings in park-heavy blocks (GEO.blockParkBuildings): parkFreeCells clears park land to lawn, so
+// without their own lots an estate standing in parkland loses its entire real stock (875 Antoninek 17 % built, no lot;
+// 968 Rataje 63 % park, 25 % of the island left as lots). They join blockFootprints as non-facility entries, so
+// buildings.js keeps the district's house or kamienica layout on them instead of the one-hall facility layout.
+const BLOCK_PARK_BUILDINGS = GEO.blockParkBuildings || {};
 // Block anchors (GEO.blockAnchors: block id -> [x0, x1, z0, z1, area, use, levels]): the block's largest mapped
 // non-residential footprints. buildings.js builds one dedicated building on each and leaves the rest as yard.
 const BLOCK_ANCHORS = GEO.blockAnchors || {};
@@ -606,9 +611,12 @@ const BLOCKS = GEO.blocks.map(([flat, rects, park, parkName, isRect, frames], id
   a *= 0.5;
   const area = Math.abs(a);
   const [built, levels, buildings, program = 0] = GEO.blockStats[id];
+  // Park facility envelopes keep their hall layout (6th entry 1); ordinary buildings stay with the district profile.
+  const parkFootprints = (BLOCK_FOOTPRINTS[id] || []).map((f) => [f[0], f[1], f[2], f[3], f[4], 1]);
+  if (park > 0.4) for (const f of BLOCK_PARK_BUILDINGS[id] || []) parkFootprints.push([f[0], f[1], f[2], f[3], f[4], 0]);
   return {
     id, poly, rects, frames: frames || null, park, parkName, rect: !!isRect, area, built, levels, buildings, program,
-    parkFootprints: BLOCK_FOOTPRINTS[id] || null, anchors: BLOCK_ANCHORS[id] || null,
+    parkFootprints: parkFootprints.length ? parkFootprints : null, anchors: BLOCK_ANCHORS[id] || null,
     minX, maxX, minZ, maxZ,
     cx: a ? cx / (6 * a) : (minX + maxX) / 2,
     cz: a ? cz / (6 * a) : (minZ + maxZ) / 2,
@@ -705,7 +713,7 @@ function parkFreeCells(x0, x1, z0, z1, xf = null, footprints = null) {
       const [fx0, fx1, fz0, fz1] = footprintInFrame(facilityEnvelope(f), xf);
       const r = [Math.max(x0, fx0), Math.min(x1, fx1), Math.max(z0, fz0), Math.min(z1, fz1)];
       if (r[1] - r[0] < 6 || r[3] - r[2] < 6 || !pieceInPark(...r, xf)) continue;
-      r.facility = true;
+      if (f.length < 6 || f[5]) r.facility = true;
       facilityRects.push(r);
       out.push(r);
     }

@@ -135,6 +135,15 @@ Implementation details and completed measurements live in the [topic docs](../AG
      the fallback 65 m chimney and 55 m cooling tower) and the Główna halls (36/78/95), on WebGPU and WebGL2.
      [Profiles record](observations/building-profiles-nonres-2026-11-08.md),
      [industrial tagging record](observations/industrial-tagging-2026-11-08.md).
+   10. *Building-density TOP-30 pass* (done 2026-11-08): `steerProfile` now steers kamienice and halls by the real built
+     share of their effective lots (`lotTarget`) instead of the island share; non-res `skipP` uses the same target;
+     Rataje/Chartowo/Stare Winogrady five-storey PROJECTS stay panel estates with an interpolated dense layout, and
+     their small park-carved pieces get garage/pavilion rows; `retailParkBlock` accepts 12–18 m pieces with a short
+     forecourt; `GEO.blockParkBuildings` keeps ordinary mapped buildings in park blocks as lots. Deficits fall from
+     628,008 to ~385,000 m² (top-30 405,000 → ~211,000), with 875, 417, 266 and 58 near or above their OSM share and
+     887/968/1166/1271 much closer; city-wide net overbuild grows from +580,000 to ~+836,000 m², the documented
+     trade-off of densifying the underbuilt blocks without a parallel thinning pass.
+     [Record](observations/building-density-investigation-2026-11-08.md).
 - **Merge starvation and short-link left turns:** the 2026-11-07 Centrum seed 99 10-minute hold (`waitMax`/`longestHeld`
   184 s at `(-1117, 132)`) is fixed. A blocked lead no longer reserves the 9.4 m link between signals, and a left turn
   that cannot clear falls back to a straight move from the same lane, so it no longer waits on the link. That run is

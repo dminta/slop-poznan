@@ -390,6 +390,24 @@ for (const b of buildings) {
 }
 log(`buildings: ${parkFootprints} footprints in ${Object.keys(blockFootprints).length} park blocks kept for the lot carve-out (>= ${PARK_BUILDING_MIN} m²)`);
 
+// Ordinary mapped buildings in park-heavy blocks (housing estates, allotment colonies, cemeteries, riverside gardens)
+// also keep their own lots, not only the large facilities: parkFreeCells otherwise clears the block's whole real stock
+// to lawn (875 Antoninek was 17 % built with no lot at all; 968 Rataje kept 25 % of its island as lots). Footprints of
+// at least 60 m² keep sheds, kiosks and garages out; they are marked non-facility so buildings.js keeps the district's
+// house or kamienica layout on them instead of one big hall. The runtime includes them only where the park carve
+// leaves too few lots for the block's built share (city-config blockFootprints).
+const PARK_HOUSE_MIN = 60;
+const blockParkBuildings = {};
+let parkBuildings = 0;
+for (const b of buildings) {
+  const i = blockIndexByLabel.get(b.label);
+  if (i === undefined || b.facility || !(blocks[i].park > 0.4) || b.area < PARK_HOUSE_MIN) continue;
+  const id = blocks[i].id;
+  (blockParkBuildings[id] || (blockParkBuildings[id] = [])).push([...(b.inBoxBox || b.bbox).map(q1), Math.round(b.area)]);
+  parkBuildings++;
+}
+log(`buildings: ${parkBuildings} ordinary park buildings in ${Object.keys(blockParkBuildings).length} blocks kept for the lot carve-out (>= ${PARK_HOUSE_MIN} m²)`);
+
 // Block anchors: the 1-3 largest mapped non-residential footprints of each block, with their in-block envelope, area,
 // use (see anchorUse) and OSM storeys. 600 m² keeps ordinary shops, sheds and kiosks out while catching every mall,
 // big-box hall, depot and arena; a block whose only non-residential buildings are smaller keeps its largest one
@@ -461,4 +479,4 @@ log(`buildings: ${osm.elements.length} elements, ${buildings.length} footprints 
 log(`buildings: ${inBlocks} in a block, ${blocks.filter((b, i) => blockStats[i][2]).length} of ${blocks.length} blocks hold one; built ${(builtArea / 1e6).toFixed(2)} km² of ${(blockArea / 1e6).toFixed(2)} km² block land (${Math.round((builtArea / blockArea) * 100)} %), ${Date.now() - T0} ms`);
 log(`industry: ${industry.length} structures/sites inside the detail box (${industry.filter((s) => s.kind === 'chimney' || s.kind === 'cooling').length} chimneys/cooling towers), ${blockStats.filter((s) => s[3] >= 3).length} blocks with a non-campus programme`);
 
-export { blockStats, blockFootprints, blockAnchors, industry, buildingMask, buildings };
+export { blockStats, blockFootprints, blockParkBuildings, blockAnchors, industry, buildingMask, buildings };
