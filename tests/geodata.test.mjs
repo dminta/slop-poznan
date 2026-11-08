@@ -219,6 +219,46 @@ test('Poznań geodata builds offline with default paths in a checkout containing
     assert.ok(fallback && Object.keys(fallback).length >= 150, 'fallback lots emitted');
     assert.ok(Object.values(fallback).every((list) => list.every((a) => a.length === 5 && a.every(Number.isFinite) &&
       a[1] > a[0] && a[3] > a[2] && a[4] >= 60)));
+    // Linear pedestrian streets are not drivable and therefore absent from roadGraph/roadClearance; their corridors are
+    // emitted separately so fallback lots (whole building envelopes) can be kept off Wrocławska and Półwiejska.
+    assert.ok(GEO.pedestrianWays.length > 200, 'pedestrian streets emitted');
+    const rectSegDist = (x0, x1, z0, z1, ax, az, bx, bz) => {
+      const pointRect = (x, z) => Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(z0 - z, 0, z - z1));
+      let best = Math.min(pointRect(ax, az), pointRect(bx, bz));
+      const dx = bx - ax, dz = bz - az, len2 = dx * dx + dz * dz || 1e-9;
+      for (const [x, z] of [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]) {
+        const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / len2));
+        best = Math.min(best, Math.hypot(ax + t * dx - x, az + t * dz - z));
+      }
+      if (best === 0) return 0;
+      let t0 = 0, t1 = 1;
+      const p = [-dx, dx, -dz, dz], q = [ax - x0, x1 - ax, az - z0, z1 - az];
+      for (let k = 0; k < 4; k++) {
+        if (p[k] === 0) {
+          if (q[k] < 0) return best;
+          continue;
+        }
+        const r = q[k] / p[k];
+        if (p[k] < 0) {
+          if (r > t1) return best;
+          if (r > t0) t0 = r;
+        } else {
+          if (r < t0) return best;
+          if (r < t1) t1 = r;
+        }
+      }
+      return t0 <= t1 ? 0 : best;
+    };
+    for (const [id, list] of Object.entries(fallback)) {
+      for (const [x0, x1, z0, z1] of list) {
+        for (const way of GEO.pedestrianWays) {
+          for (let i = 0; i + 3 < way.pts.length; i += 2) {
+            const clear = rectSegDist(x0, x1, z0, z1, way.pts[i], way.pts[i + 1], way.pts[i + 2], way.pts[i + 3]) - way.w / 2;
+            assert.ok(clear >= -0.01, `fallback lot ${id} reaches the ${way.name || 'unnamed'} pedestrian street`);
+          }
+        }
+      }
+    }
     // frame.ll puts the Ratusz (the D1 origin) at the world origin
     const ll = GEO.frame.ll;
     const [lon, lat] = [16.93401, 52.40856];

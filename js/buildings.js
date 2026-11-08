@@ -34,7 +34,8 @@ import {
   pointInPark,
   parkFreeCells,
   splitDeep,
-  roadClearance
+  roadClearance,
+  pedestrianClearance
 } from './city-config.js';
 import {
   createParkLawnMaterial,
@@ -2506,6 +2507,27 @@ function buildCityBlocks(scene) {
     }
     return [x0, x1, z0, z1];
   }
+  // A fallback envelope is a world rect from GEO.blockFallbackLots. It must stand inside the source block's curb
+  // island and clear of every roadway and pedestrian corridor: populateBlock fills a whole perimeter block (rows,
+  // corner houses, oficyny) on it, so a lot that reaches a street would put houses in the street.
+  function insideCurbIsland(x, z) {
+    const poly = srcBlock && srcBlock.poly;
+    if (!poly || poly.length < 3) return false;
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[i], b = poly[j];
+      if ((a.z > z) !== (b.z > z) && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
+    }
+    return inside;
+  }
+  function fallbackPartClear(x0, x1, z0, z1) {
+    const mx = (x0 + x1) * 0.5, mz = (z0 + z1) * 0.5;
+    for (const [x, z] of [[x0, z0], [x1, z0], [x1, z1], [x0, z1], [mx, mz],
+      [mx, z0], [mx, z1], [x0, mz], [x1, mz]]) {
+      if (roadClearance(x, z) < 0 || pedestrianClearance(x, z) < 0 || !insideCurbIsland(x, z)) return false;
+    }
+    return true;
+  }
   function objectProfile(o) {
     const use = o[6];
     const levels = o[7] || 0;
@@ -3650,6 +3672,9 @@ function buildCityBlocks(scene) {
     for (const o of srcObjects) {
       extraLotArea += o[5];
     }
+    // GEO.blockFallbackLots are world rects; the frames above hold the last frontage frame of this block. Clearing xf
+    // keeps them in the world frame (a stale frame used to rotate the lots into other blocks and streets).
+    xf = null;
     for (const f of srcFallbackLots) {
       const e = fallbackEnvelope(f);
       for (const part of minusReserves(e)) {
@@ -3686,8 +3711,10 @@ function buildCityBlocks(scene) {
     // block's remaining budget cannot spend their spot on a kamienica elsewhere.
     for (const r of fallbackPieces) {
       const pieceArea = (r[1] - r[0]) * (r[3] - r[2]);
-      srcPieceBudget = srcLeftArea > 0 ? Math.max(0, (srcTarget - srcBuiltArea) * (pieceArea / srcLeftArea)) : 0;
-      populateBlock(r[0], r[1], r[2], r[3], b.district, false, null, false, null, true);
+      if (fallbackPartClear(r[0], r[1], r[2], r[3])) {
+        srcPieceBudget = srcLeftArea > 0 ? Math.max(0, (srcTarget - srcBuiltArea) * (pieceArea / srcLeftArea)) : 0;
+        populateBlock(r[0], r[1], r[2], r[3], b.district, false, null, false, null, true);
+      }
       srcLeftArea = Math.max(0, srcLeftArea - pieceArea);
     }
     minLot = framedMinLot;
