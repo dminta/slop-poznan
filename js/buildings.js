@@ -5,7 +5,6 @@ import {
   Fn,
   float,
   vec2,
-  vec4,
   color,
   uv,
   positionWorld,
@@ -19,8 +18,7 @@ import {
   min,
   mix,
   length,
-  mx_noise_float,
-  mx_worley_noise_float
+  mx_noise_float
 } from 'three/tsl';
 import {
   CITY_BOUNDS,
@@ -36,9 +34,7 @@ import {
   splitDeep
 } from './city-config.js';
 import {
-  parkLawnColorNode,
-  parkLawnNormalNode,
-  setParkLawnSpecular,
+  createParkLawnMaterial,
   createPreWarBuildingMaterial,
   createCurtainWallMaterial,
   createPanelBlockMaterial,
@@ -3467,39 +3463,10 @@ function buildCityBlocks(scene) {
   roofs.finish();
 
   // Rear yards, light courts & project lawns: one thin slab per patch just above the sidewalk (buildings standing on
-  // it hide the rest). Lawn, paving and tree canopies come from world-space noise; paving and canopy detail finer
-  // than a pixel fades to its average, and the lawn is the parks' own turf (createParkLawnMaterial's nodes)
-  const yardMat = new THREE.MeshStandardNodeMaterial({ roughness: 0.94, metalness: 0.0 });
-  const yardSurface = Fn(() => {
-    const p = positionWorld.xz;
-    const px = length(fwidth(p)); // metres per pixel
-    const fine = smoothstep(0.9, 0.12, px);
-    const crownLOD = smoothstep(8.0, 3.0, px); // crowns a few pixels wide or more are drawn, smaller ones averaged
-    const grain = mx_noise_float(p.mul(1.9)).mul(fine).mul(0.5).add(0.5);
-    const clump = mx_noise_float(p.mul(0.7).add(5.3)).mul(smoothstep(2.0, 0.4, px)).mul(0.5).add(0.5);
-
-    // Lawns with grey / beige patios & light-court paving
-    const patch = mx_noise_float(p.mul(0.21)).mul(smoothstep(12.0, 4.0, px));
-    const lawn = parkLawnColorNode();
-    const paving = mix(color(0x8c8679), color(0xa59e90), grain);
-    const pavingMask = smoothstep(0.15, 0.45, patch);
-    const ground = mix(lawn, paving, pavingMask);
-
-    // Street-tree-sized (~12 m) & small (~6 m) crowns, domed: sunlit crowns, softer & darker towards their rims
-    const w1 = mx_worley_noise_float(p.mul(0.085));
-    const w2 = mx_worley_noise_float(p.mul(0.16).add(17.0));
-    const crowns = max(smoothstep(0.55, 0.3, w1), smoothstep(0.45, 0.25, w2).mul(0.85));
-    const rim = smoothstep(0.0, 1.0, min(w1.div(0.55), w2.div(0.45)));
-    const leaves = mix(color(0x3f5e2a), color(0x5e7f3b), clump.mul(0.6).add(grain.mul(0.4))).mul(mix(float(1.08), float(0.78), rim));
-    const leavesMean = mix(color(0x3f5e2a), color(0x5e7f3b), 0.5).mul(0.93);
-    const canopy = mix(float(0.5), crowns, crownLOD);
-    return vec4(mix(ground, mix(leavesMean, leaves, crownLOD), canopy),
-      float(1.0).sub(pavingMask).mul(float(1.0).sub(canopy)));
-  })();
-  yardMat.colorNode = yardSurface.rgb;
-  yardMat.normalNode = parkLawnNormalNode(yardSurface.a);
-  yardMat.roughnessNode = mix(float(0.94), float(0.86), yardSurface.a);
-  setParkLawnSpecular(yardMat, yardSurface.a);
+  // it hide the rest). The turf is the parks' own material, pattern and normal response, so a courtyard reads as the
+  // same lawn as the park across the street. The former painted patios and Worley tree crowns were fake detail on a
+  // flat slab and made the courtyards blotchy; real paving, where wanted, belongs in city-grid geometry instead.
+  const yardMat = createParkLawnMaterial(false);
   const yardRects = [];
   for (const blk of allBlocks) yardRects.push(...blk.yards);
   if (yardRects.length) {
