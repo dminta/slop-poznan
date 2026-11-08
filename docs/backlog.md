@@ -21,25 +21,21 @@ Implementation details and completed measurements live in the [topic docs](../AG
   meeting clearance and the connector line key; `node --test tests/*.cjs` passes 446.
   [Mechanisms and results](observations/ped-overlap-remnants-2026-11-08.md),
   [earlier phases](observations/ped-overlaps-2026-11-05.md#follow-up-2026-11-07-direction-specific-inset-lanes).
-- **Isolated crosswalk landings:** stage 3 (2026-11-07) splits every road-edge sidewalk line into its clear same-block
-  runs instead of dropping the whole line when it leaves a block, indexes every sidewalk-track end by block
-  (`curbPorts`) and offers a crosswalk end the same-block ends within 8 m. A tram-cut island or median with no run at
-  the landing gets a short kerb spur (≤ 6 m, `landing: true`) along its outline; the spur keeps 2.22 m from every rail
-  centreline, is rejected by the lane/lot/wall checks, and its far end is a terminus (the dead-end guard keeps it out of
-  through routes). On the 2026-11-07 headless world (`tools/bench-world.mjs`, city-block colliders; city-grid curbs,
-  landmarks and bridges omitted) empty ends fall **156 → 47** and tracks with an empty end **143 → 41**, with
-  crosswalks unchanged at 3,270, `laneHits` 0, rail hits 0 and building hits 0; the 16,046 split runs keep
-  `splitLaneHits` 0 (closest sample 0.8 m beyond half a lane + 0.8 m). The bare network falls 109/98 → 38/33.
-  The five named nodes are linked: **Okrąglak** (`-841.5, 30.6`), **Okrąglak / Święty Marcin** (`-1120.1, 112`),
-  **Miła / Dąbrowskiego** (`-3269.1, -884.3`; its far end at `-3263, -901.3` lies on an ordinary block and stays
-  isolated), **Promienista / Grochowska** (both lines) and **Wierzbięcice / Górna Wilda** (both lines). The audit
-  reproduces the counts, re-checks every fallback leg and now re-checks the generated spurs (`spur*` fields: 5 links
-  on 4 tracks, closest rail 2.48 m, 0 rail/building/block hits) and the split runs' lane distance (`splitLaneHits` 0,
-  `splitMinLane` 0.8 m). The remaining 47 ends are ordinary blocks and roadway cases; `reasonCounts` (overlapping
-  categories) are lane 36, length 29, lot 22, walkable 10, rail 5, building 4, corridor 3 and block 1. Stage 2's 16 m
-  fallback corridor and 32 m `FALLBACK_MAX` stay; a 40/48 m limit adds only 6/7 ends. The dead-end guard still covers sidewalk-track landings. Still open: a production full-scene count (the
-  benchmark omits landmark/bridge colliders and city-grid curbs).
-  [Routing observations](observations/ped-overlaps-2026-11-05.md#follow-up-2026-11-07-kerb-tracks-on-tram-cut-islands).
+- **Isolated crosswalk landings:** resolved 2026-11-08. Stage 3 split every road-edge sidewalk line into its
+  clear same-block runs, indexed every sidewalk-track end by block (`curbPorts`), and gave a tram-cut island or median
+  with no run at the landing a short kerb spur (≤ 6 m, `landing: true`). Stage 4 adds a third connector tier,
+  `curbStepPaths`: a landing may step to a kerb end on its own block up to 32 m away when `baseLinks` and the fallback
+  both found nothing. It keeps the same block and walkable ground along the connector, the `edge.half + 0.8 m` lane
+  margin, `RAIL_KEEP` 2 m and every building collider; only the 2 m lot envelope is dropped, because it covers the
+  sidewalk the step runs along. On the 2026-11-08 headless benchmark empty ends fall **47 → 24** and tracks with an
+  empty end **41 → 24** (23 kerb-step ends, 144 legs, 0 lane/rail/building hits, longest 31.9 m); `siblingLinks` stays
+  0, fallback legs stay 87/574, spurs fall 5/4 → 3/3 and the closest spur sample rises 2.48 → 3.22 m. The bare
+  network falls 38/33 → 11/11. The production full-scene pass (`--full`: 118 landmark + 33,487 building + 194 bridge
+  colliders and the real city-grid curbs) has 2,397 crosswalks and moves **32/27 → 18/18** with 14 kerb-step ends,
+  68 legs and 0 hits; the lower absolute count is the curbs putting some arms out of `CROSSWALK_REACH`. The remaining
+  24 benchmark / 18 full-scene ends are genuine roadway cases (a lane, a rail, a wall or non-walkable ground between
+  the landing and every kerb end); a 40 m `FALLBACK_MAX` still adds only 2 ends, so 32 stays.
+  [Routing observations](observations/ped-overlaps-2026-11-05.md#follow-up-2026-11-08-same-block-kerb-steps-and-the-production-full-scene-count).
 - **Other missing signal heads (15.5):** the widened overhead search and the new span-wire fallback now serve 74
   approaches: 48 cantilever heads (16 new 6.2 m masts, 32 reused poles) and 26 span heads (25 new 10 m masts,
   26 reused anchors; 18 span heads use at least one new mast and 8 sit entirely on existing poles). The furnished

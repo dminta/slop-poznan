@@ -227,7 +227,8 @@ async function runAudit({ worldOnly = false, streetSource = source('street-detai
   }).buildStreetDetails(stub, { buildingColliders: allBuildingColliders, grid: cityGridBuilt });
 
   if (worldOnly) return { sites, details, grid: cityGridBuilt, gridModule, liveGrid,
-    buildingColliders: allBuildingColliders, buildMs: Date.now() - streetStart };
+    buildingColliders: allBuildingColliders, routeColliders: [...landmarkColliders, ...blockColliders],
+    buildMs: Date.now() - streetStart };
 
   const keptColliders = new Set(sites.map((s) => s.collider).filter(Boolean));
   const remainingTrunkColliders = cityGridBuilt.propColliders.filter((c) => c.isTrunk);

@@ -10,7 +10,7 @@ const { createPedestrianRoutes } = loadModule(
   readFileSync(join(__dirname, '../js/pedestrian-routes.js'), 'utf8').replace(
     'return { along, across, next, crosswalks, segments, segmentsNear };',
     'return { along, across, next, crosswalks, segments, segmentsNear, links, fallbackPaths, ' +
-    'withinBlockEdge, crossings };'
+    'withinBlockEdge, crossings, curbStepPaths };'
   ),
   { imports: { './road-network.js': { CROSSWALK, CROSSWALK_REACH } } }
 );
@@ -194,3 +194,32 @@ test('a slanted connector stays out of a lane it passes 2 m from', () => {
   assert.equal(laneLinks(true).length, 0, 'a lane whose edge is 2 m from the connector blocks it');
 });
 
+// A crosswalk landing on a block whose kerb track ends ~10 m away and deeper than the 4 m corner band. The ordinary
+// corner link and the fallback reject it, so only `curbStepPaths` can join it: same block, walkable, and clear of
+// lanes, rails and walls. `wall`, `rail` and `lane` put one of those between the landing and the kerb end.
+function kerbStep({ edgeX = 12, wall = null, rail = null, lane = null } = {}) {
+  const block = { poly: [{ x: -40, z: 10 }, { x: 40, z: 10 }, { x: 40, z: -10 }, { x: -40, z: -10 }], rects: [] };
+  const edge = { sx: edgeX, sz: -3, dx: 0, dz: 1, rx: -1, rz: 0, len: 6, half: 0, from: null, to: null };
+  const node = { x: 0, z: 0, signal: false, arms: [], in: [], out: [] };
+  const landing = { ax: -0.25, az: 0, ux: 1, uz: 0, len: 0.5, node, side: 0, sides: null, group: 0, line: 0,
+    from: node, to: node };
+  const routes = createPedestrianRoutes({ nodes: [node], edges: lane ? [edge, lane] : [edge], walkable: () => true },
+    () => block, rail, wall ? [wall] : null);
+  routes.along(edge);
+  return routes.curbStepPaths(landing, 1);
+}
+
+test('a short same-block kerb step joins a landing the 4 m corner band rejects', () => {
+  const paths = kerbStep();
+  assert.ok(paths.length >= 2, 'the near-side kerb ends 9-10 m away join');
+  assert.ok(paths.every((p) => p.length === 2 && p[0].track.len <= 32), 'one connector leg, inside the 32 m limit');
+  assert.equal(kerbStep({ edgeX: 40 }).length, 0, 'no kerb step reaches past 32 m');
+  const wall = { minX: 5, maxX: 6, minZ: -2, maxZ: 2, minY: 0, maxY: 12 };
+  assert.equal(kerbStep({ wall }).length, 0, 'a building wall between the landing and the kerb blocks it');
+  const overhead = { minX: 5, maxX: 6, minZ: -2, maxZ: 2, minY: 2.0, maxY: 12 };
+  assert.ok(kerbStep({ overhead }).length > 0, 'a collider above the pedestrian clears the step');
+  const rail = (x, _z, r) => Math.min(r, Math.abs(x - 5));
+  assert.equal(kerbStep({ rail }).length, 0, 'a rail within the 2 m keep blocks it');
+  const lane = { sx: 6, sz: -10, dx: 0, dz: 1, rx: -1, rz: 0, len: 20, half: 1.5, from: null, to: null };
+  assert.equal(kerbStep({ lane }).length, 0, 'a road lane between the landing and the kerb blocks it');
+});

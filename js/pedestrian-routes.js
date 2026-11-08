@@ -851,15 +851,20 @@ function createPedestrianRoutes(
     }
     return false;
   }
-  function clearHazards(a, b) {
+  // `lots` keeps the conservative 2 m lot envelope for cross-block and long connectors. A short same-block step
+  // between a crosswalk landing and a kerb track may cross that envelope (the sidewalk itself stands inside it), so
+  // the kerb step below drops it and keeps the wall, lane and rail checks instead.
+  function clearHazards(a, b, lots = true) {
     if (!clearOfStreets(a, b)) return false;
     const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.5));
     for (let i = 0; i <= steps; i++) {
       const x = a.x + (b.x - a.x) * i / steps, z = a.z + (b.z - a.z) * i / steps;
       if (railClearance && railClearance(x, z, RAIL_KEEP) < RAIL_KEEP) return false;
       if (hitsBuilding(x, z)) return false;
-      const block = blockAt(x, z);
-      if (block && inLot(x, z, block)) return false;
+      if (lots) {
+        const block = blockAt(x, z);
+        if (block && inLot(x, z, block)) return false;
+      }
     }
     return true;
   }
@@ -1042,6 +1047,55 @@ function createPedestrianRoutes(
     return result;
   }
 
+  // A zebra landing often stands deeper than the 4 m corner band that `cornerClear` allows: the sidewalk runs along
+  // the kerb, the zebra lands 2 m past it, and a junction corner can push both ends 4-6 m inside the mapped block
+  // polygon. `baseLinks` then rejects the short step even though no lane, rail or wall lies between them. A landing
+  // can also stand 10-32 m from the next kerb track of its block when the junction complex splits the sidewalk at
+  // nodes the crosswalk does not share. On the furnished headless world this tier links 23 of the 47 empty ends; the
+  // rest have a lane, rail, wall or non-walkable ground between the landing and every kerb end.
+  // Offer the same-block kerb ends (and the other zebra ends of the same node) up to CURB_STEP_MAX away, on the
+  // ordinary clearance checks: same block, walkable, `edge.half + 0.8 m` from every lane, `RAIL_KEEP` from every rail
+  // and outside every building collider. The lot envelope is deliberately not applied here: its 2 m pad covers the
+  // sidewalk itself, while real walls are already rejected by `hitsBuilding`. Called only when every ordinary link
+  // and the fallback found nothing.
+  const CURB_STEP_MAX = CURB_RUN_LINK_MAX;
+  function curbStepPaths(track, dir) {
+    const end = dir > 0 ? 1 : 0, a = point(track, end), n = endNode(track, end);
+    const block = blockAt(a.x, a.z), result = [];
+    if (!block) return result;
+    const candidates = (n ? ports(n) : []).concat(curbPorts.get(block) || []);
+    // One legal end per target track, nearest first: `baseLinks` keeps a single port per track, and a second end of
+    // the same kerb line is no extra destination. A nearer end that a wall, rail or lane rejects falls through to the
+    // farther one before the track is given up.
+    const byTrack = new Map();
+    for (const port of candidates) {
+      const next = port.track;
+      if (next === track || (track.arm && next.arm === track.arm)) continue;
+      const b = point(next, port.end), distance = Math.hypot(b.x - a.x, b.z - a.z);
+      if (distance <= 0.01 || distance > CURB_STEP_MAX) continue;
+      let list = byTrack.get(next);
+      if (!list) byTrack.set(next, list = []);
+      if (list.some((p) => p.port.end === port.end)) continue;
+      list.push({ port, b, distance });
+    }
+    for (const list of byTrack.values()) {
+      list.sort((p, q) => p.distance - q.distance);
+      for (const { port, b } of list) {
+        if (blockAt(b.x, b.z) !== block || !clear(a, b, block)) continue;
+        if (!clearHazards(a, b, false)) continue;
+        const next = port.track;
+        result.push([
+          { track: segment(a, b, {
+            insetLane: laneClear(a, b, block), walkKey: `corner:${physicalLine(next)}`
+          }), dir: 1 },
+          { track: next, dir: port.end ? -1 : 1 }
+        ]);
+        break;
+      }
+    }
+    return result;
+  }
+
   function links(track, dir) {
     let ends = connections.get(track);
     if (!ends) connections.set(track, ends = []);
@@ -1050,6 +1104,8 @@ function createPedestrianRoutes(
     const result = ends[end] = baseLinks(track, dir);
     if (!result.length && track.node) {
       result.push(...fallbackPaths(track, dir));
+      // A short same-block kerb step that the corner band rejected: still no lane, rail or wall.
+      if (!result.length) result.push(...curbStepPaths(track, dir));
       // A tram-cut island or median with no road-edge sidewalk line through the cut still has a kerb: give the
       // isolated zebra end a short track on it instead of a connector across the lane or the rails.
       if (!result.length) {

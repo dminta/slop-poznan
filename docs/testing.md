@@ -119,8 +119,8 @@ cluster is a connected group of at least four such peds lasting over 5 s, and it
 per second and crosswalk entries per minute so throughput is visible. Each cluster lists its centroid, street name,
 member states, route positions, spawn origins and age. It uses the benchmark's headless world and omissions. Results are
 in [observations/ped-overlaps-2026-11-05.md](observations/ped-overlaps-2026-11-05.md); no test runs the whole audit.
-`tests/pedestrian-route-sinks.test.cjs` covers the route-side regression on the bare network (38 empty ends / 33 tracks,
-ceilings 40/40) and builds the furnished headless world once to pin the five named landings, their kerb links, `next()`
+`tests/pedestrian-route-sinks.test.cjs` covers the route-side regression on the bare network (11 empty ends / 11 tracks,
+ceilings 15/15) and builds the furnished headless world once to pin the five named landings, their kerb links, `next()`
 for six city goals, and the 2.22 m rail / building / block / lane clearance.
 
 ## Traffic benchmark
@@ -153,14 +153,19 @@ from the grid-and-furniture measurement snapshot in
 [`world.md`](world.md#measurement-snapshot-2026-10-29) and from the full browser world. Compare runs with the same
 builder inputs, seed, population rules and sample window.
 
-Empty-ending counts are not printed by the benchmark. They were taken from the same `buildWorld()` result by exposing
-`links` with the source replacement in `tests/pedestrian-route-sinks.test.cjs` and asking `links(track, ±1)` for every
-crosswalk track end. That makes the 2026-11-07 before/after pairs **269 → 246 → 212 ends** and **247 → 225 → 197
-tracks with an empty end** reproducible without a separate tool; crosswalk count and the harness's omissions must be
-reported with it. The direct fit (up to 8 m) and the 32 m fallback (8 m corridor) are measured together, as are the
-2 m rail keep and building colliders. The same run audits every fallback connector leg against each road lane with the
-exact segment-to-segment distance and reports `laneHits` (0; the former line-line form admitted 17 legs by up to
-1.09 m).
+Empty-ending counts are not printed by the benchmark, but `node tools/audit-crosswalk-landings.mjs` reads the same
+`buildWorld()` result, exposes `links` (and the three connector tiers) with the source replacement used by
+`tests/pedestrian-route-sinks.test.cjs`, and asks `links(track, ±1)` for every crosswalk track end. It prints the
+empty ends, tracks, reason counts, every fallback/kerb-step leg's lane, rail and building clearance, the generated
+spurs and the split runs' lane distance. Its `--full` switch builds the rendered world's landmark, bridge and
+building colliders and the real city-grid curbs through `tools/audit-tree-clearance.mjs` instead of the benchmark's
+city blocks. The 2026-11-08 run leaves **24 ends / 24 tracks** on the benchmark (full scene **18 / 18** on 2,397
+crosswalks), down from **47 / 41**; the measured before/after pairs since the first fallback pass are 269 → 246 → 212
+→ 156 → 47 ends and 247 → 225 → 197 → 143 → 41 tracks. Crosswalk count and the harness's omissions must be reported
+with any count. The direct fit (up to 8 m), the 32 m fallback (16 m corridor) and the 32 m kerb step are measured
+together, as are the 2 m rail keep and building colliders. Every fallback and kerb-step connector leg is audited
+against each road lane with the exact segment-to-segment distance and reported as `laneHits` / `curbStepLaneHits`
+(0; the former line-line form admitted 17 fallback legs by up to 1.09 m).
 
 Per district it prints the cars sampled, mean speed (and of the moving ones), the share stopped (< 0.5 m/s), the longest
 stopped queue in a lane, the distribution of finished waits (p50/p90/max), cars held over 60 and 120 s, why the stopped
