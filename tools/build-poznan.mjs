@@ -9,7 +9,7 @@ import { levelCrossings, pieces, plazas, rail, roads, signalNodes, tramRoutes, t
 import { water, land, landHoles, outskirts, outskirtsHoles } from './poz-water.mjs';
 import { parks, landmarks, districts, labels } from './poz-extra.mjs';
 import { blocks, STRIP, SIDEWALK } from './poz-blocks.mjs';
-import { blockStats, blockFootprints } from './poz-buildings.mjs';
+import { blockStats, blockFootprints, blockAnchors } from './poz-buildings.mjs';
 import { buildRoadGraph } from './poz-roadgraph.mjs';
 
 const OUT = process.argv[2] || fileURLToPath(new URL('../js/geodata.js', import.meta.url));
@@ -102,6 +102,11 @@ const GEO = {
   // (>= 150 m²) in blocks with any park share, plus their OSM footprint area. city-config turns them into lots so
   // parkFreeCells does not clear Hala Arena, Enea Stadion, Chwiałka or Termy Maltańskie to lawn.
   blockFootprints,
+  // { block id: [[x0, x1, z0, z1, area, use, levels], ...] }: the 1-3 largest mapped non-residential footprints of the
+  // block, with their in-block envelope and area, use (1 retail/mall, 2 industrial/warehouse, 3 rail/depot,
+  // 4 sport/leisure, 5 utility) and storeys. buildings.js puts one dedicated building on each anchor (mall box, hall,
+  // depot, arena) and treats the rest of the block as service yard and low auxiliary pavilions.
+  blockAnchors,
   parks,
   // { name: { x, z, w, d, h, area, ring, ang } }: w and d along the turned axes (ang, radians)
   landmarks

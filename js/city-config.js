@@ -590,6 +590,9 @@ function nearestRoads(x, z, radius = 60) {
 // The lot layout keeps a hall lot on each, so facilities standing on parkland (Hala Arena, Enea Stadion, Chwiałka,
 // Termy Maltańskie) are built instead of being cleared like the rest of the park.
 const BLOCK_FOOTPRINTS = GEO.blockFootprints || {};
+// Block anchors (GEO.blockAnchors: block id -> [x0, x1, z0, z1, area, use, levels]): the block's largest mapped
+// non-residential footprints. buildings.js builds one dedicated building on each and leaves the rest as yard.
+const BLOCK_ANCHORS = GEO.blockAnchors || {};
 
 const BLOCKS = GEO.blocks.map(([flat, rects, park, parkName, isRect, frames], id) => {
   const poly = toPts(flat);
@@ -605,7 +608,7 @@ const BLOCKS = GEO.blocks.map(([flat, rects, park, parkName, isRect, frames], id
   const [built, levels, buildings, program = 0] = GEO.blockStats[id];
   return {
     id, poly, rects, frames: frames || null, park, parkName, rect: !!isRect, area, built, levels, buildings, program,
-    parkFootprints: BLOCK_FOOTPRINTS[id] || null,
+    parkFootprints: BLOCK_FOOTPRINTS[id] || null, anchors: BLOCK_ANCHORS[id] || null,
     minX, maxX, minZ, maxZ,
     cx: a ? cx / (6 * a) : (minX + maxX) / 2,
     cz: a ? cz / (6 * a) : (minZ + maxZ) / 2,

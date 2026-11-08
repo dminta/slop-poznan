@@ -15,9 +15,12 @@
 // 0 none, 1 hospital/clinic campus, 2 university campus, from building tags and names); blockFootprints ({ block id:
 // [[x0, x1, z0, z1, area], ...] }) for park blocks only, the axis-aligned envelopes of their mapped sport/show/public
 // facilities of at least PARK_BUILDING_MIN area (buildings.js keeps those park cells as lots, so a stadium or arena is
-// not cleared to lawn);
+// not cleared to lawn); blockAnchors ({ block id: [[x0, x1, z0, z1, area, use, levels], ...] }), the 1-3 largest
+// mapped non-residential footprints of each block (use 1 retail, 2 industrial, 3 rail/depot, 4 sport/leisure,
+// 5 utility), with their in-block raster envelope and OSM storeys. buildings.js puts one dedicated building on each
+// anchor and leaves the rest of the block as service yard or low auxiliary pavilions;
 // buildingMask (Uint8Array over blockRaster, 1 = under a counted footprint); buildings [{ id, levels, use, cells, cx,
-// cz, label }].
+// cz, label, anchorUse }].
 import { load, log, toWorld } from './poz-base.mjs';
 import { elemRings, ringArea, scanRings } from './geo-util.mjs';
 import { blocks, blockRaster as R, blockLabels as lab } from './poz-blocks.mjs';
@@ -50,6 +53,47 @@ const buildingUse = (t) => {
   if (t.building === 'university' || t.building === 'college' || t.building === 'dormitory' ||
     t.amenity === 'university' || t.amenity === 'college' || t.office === 'university' ||
     UNIVERSITY_NAME.test(name)) return 2;
+  return 0;
+};
+
+// Anchor use for the big non-residential boxes: 1 retail/mall, 2 industrial/warehouse, 3 rail/depot, 4 sport/leisure,
+// 5 utility. Civic campuses (hospitals, universities, schools) are deliberately 0: they already have their own profile
+// and an anchor would carve a campus wing out of a block laid out as a campus. The order matters: a hospital called
+// "Szpital HCP" must not become an industrial hall because of "HCP", and a station's retail arcade is still a station.
+const RETAIL_KINDS = new Set(['retail', 'commercial', 'supermarket', 'department_store', 'wholesale', 'shop',
+  'marketplace', 'kiosk', 'stall']);
+const INDUSTRIAL_KINDS = new Set(['industrial', 'warehouse', 'warehouses', 'factory', 'manufacture', 'hangar', 'shed',
+  'service', 'utility', 'transformer_tower', 'water_tower', 'storage_tank', 'silo', 'greenhouse', 'barn', 'stable',
+  'digester', 'gasometer', 'cooling_tower', 'slurry_tank']);
+const RAIL_KINDS = new Set(['train_station', 'transportation', 'station', 'railway_station', 'bus_station',
+  'engine_shed', 'signal_box']);
+const SPORT_KINDS = new Set(['stadium', 'sports_hall', 'sports_centre', 'arena', 'ice_rink', 'water_park',
+  'swimming_pool', 'grandstand', 'riding_hall', 'exhibition_centre']);
+const RETAIL_NAME = /posnania|avenida|stary browar|kupiec|galeria (panorama|pestka|mm|polskie meble|wroclaw)|king cross|poznań plaza|poznan plaza|^m1\b|castorama|makro|ikea|selgros|market|centrum handlowe|pawilon \d|targi|^mtp\b/i;
+const RAIL_NAME = /dworzec|zajezdni|parowozownia|pkp|kolejow|bocznica|lokomotyw/i;
+const SPORT_NAME = /stadion|\barena\b|hala sportow|lodowisko|term[y|y ]|basen|pływalni|plywalni|tor regat|korty|hala widowisk|olimpij|amfiteatr|hipodrom/i;
+const INDUSTRIAL_NAME = /elektrociepłowni|elektrocieplowni|zakład|zaklad|warsztat|cegielski|volkswagen|spalarni|oczyszczalni|magazyn|hurtowni|chłodni|chlodni|fabryk|kopalni|cukrowni|zntk/i;
+const UTILITY_NAME = /elektrociepłowni|elektrocieplowni|ciepłowni|elektrowni|energetyki/i;
+const CIVIC_NAME = /szpital|klinik|przychodni|centrum medyczne|ambulator|sanatori|collegium|uniwers|uczel|akadem|politechnik|instytut|szkoła|szkola|liceum|technikum|\bawf\b/i;
+const isCivicBuilding = (t) => t.building === 'hospital' || t.amenity === 'hospital' || t.healthcare ||
+  t.building === 'university' || t.building === 'college' || t.building === 'dormitory' ||
+  t.amenity === 'university' || t.amenity === 'college' || t.amenity === 'school' || t.office === 'university' ||
+  CIVIC_NAME.test(`${t.name || ''} ${t['name:pl'] || ''}`);
+const anchorUse = (t) => {
+  const name = `${t.name || ''} ${t['name:pl'] || ''}`;
+  const kind = String(t.building || '').toLowerCase();
+  if (isCivicBuilding(t)) return 0;
+  if (RAIL_KINDS.has(kind) || t.railway || t.public_transport === 'station' || RAIL_NAME.test(name)) return 3;
+  if (SPORT_KINDS.has(kind) || SPORT_KINDS.has(t.leisure) || t.sport || t['addr:street'] === 'Termalna' ||
+    SPORT_NAME.test(name)) return 4;
+  if (RETAIL_KINDS.has(kind) || t.shop || t.amenity === 'marketplace' || RETAIL_NAME.test(name)) return 1;
+  if (t.power === 'plant' || t.power === 'substation' || t.man_made === 'cooling_tower' || t.man_made === 'chimney' ||
+    t.man_made === 'silo' || t.man_made === 'storage_tank' || t.man_made === 'water_tower' ||
+    UTILITY_NAME.test(name)) return 5;
+  if (INDUSTRIAL_KINDS.has(kind) || t.man_made === 'works' || t.power || t.landuse === 'industrial' ||
+    t.landuse === 'railway' || INDUSTRIAL_NAME.test(name)) return 2;
+  if (kind === 'ruins' && /zntk|naprawcze|zakłady|zaklady|warsztat/i.test(
+    `${t.wikipedia || ''} ${t.wikidata || ''} ${name}`)) return 2;
   return 0;
 };
 
@@ -111,12 +155,23 @@ for (const e of osm.elements) {
   if (levels) tagged++;
   let cells = 0;
   const byLabel = new Map();
+  const boxByLabel = new Map(); // label -> [i0, i1, j0, j1] of this footprint's cells in that block
   scanRings(inner.length ? outer.concat(inner) : outer, R, (i, j) => {
     const k = j * W + i;
     buildingMask[k] = 1;
     cells++;
     const L = lab[k];
-    if (L) byLabel.set(L, (byLabel.get(L) || 0) + 1);
+    if (L) {
+      byLabel.set(L, (byLabel.get(L) || 0) + 1);
+      const bb = boxByLabel.get(L);
+      if (!bb) boxByLabel.set(L, [i, i, j, j]);
+      else {
+        if (i < bb[0]) bb[0] = i;
+        if (i > bb[1]) bb[1] = i;
+        if (j < bb[2]) bb[2] = j;
+        if (j > bb[3]) bb[3] = j;
+      }
+    }
   });
   const ci = Math.floor((cx - R.x0) / R.res), cj = Math.floor((cz - R.z0) / R.res);
   let label = ci >= 0 && cj >= 0 && ci < W && cj < H ? lab[cj * W + ci] : 0;
@@ -124,9 +179,14 @@ for (const e of osm.elements) {
     let best = 0;
     for (const [L, n] of byLabel) if (n > best) { best = n; label = L; }
   }
-  buildings.push({ id: e.id, levels, use: buildingUse(e.tags || {}), cells, facility: isFacilityBuilding(e.tags || {}),
-    area: Math.abs(outer.reduce((t, r) => t + ringArea(r), 0)), cx, cz, label,
-    bbox: [bx0, bx1, bz0, bz1] });
+  const cb = label ? boxByLabel.get(label) : null;
+  // The anchor envelope is the footprint's own cells in this block, not its full OSM bbox: an object clipped by the
+  // detail-box edge (M1, Selgros) must not turn into a building spanning the whole curb island.
+  const inBoxBox = cb ? [R.x0 + cb[0] * R.res, R.x0 + (cb[1] + 1) * R.res,
+    R.z0 + cb[2] * R.res, R.z0 + (cb[3] + 1) * R.res] : null;
+  buildings.push({ id: e.id, levels, use: buildingUse(e.tags || {}), anchorUse: anchorUse(e.tags || {}), cells,
+    facility: isFacilityBuilding(e.tags || {}), civic: isCivicBuilding(e.tags || {}),
+    area: Math.abs(outer.reduce((t, r) => t + ringArea(r), 0)), cx, cz, label, bbox: [bx0, bx1, bz0, bz1], inBoxBox });
 }
 
 // --- Per-block stats -----------------------------------------------------------------------------------------------
@@ -179,6 +239,69 @@ for (const b of buildings) {
 }
 log(`buildings: ${parkFootprints} footprints in ${Object.keys(blockFootprints).length} park blocks kept for the lot carve-out (>= ${PARK_BUILDING_MIN} m²)`);
 
+// Block anchors: the 1-3 largest mapped non-residential footprints of each block, with their in-block envelope, area,
+// use (see anchorUse) and OSM storeys. 600 m² keeps ordinary shops, sheds and kiosks out while catching every mall,
+// big-box hall, depot and arena; a block whose only non-residential buildings are smaller keeps its largest one
+// (>= 250 m²), so a small hall still gets a real footprint rather than a row of kamienice. Nested duplicates (a mall
+// hall plus its parking deck) are dropped by envelope overlap, and civic campuses are left to the campus profile.
+const ANCHOR_MIN = 600;
+const ANCHOR_FALLBACK_MIN = 250;
+const ANCHOR_MAX = 3;
+const blockAnchors = {};
+let anchorCount = 0, anchorBlocks = 0;
+// A block is anchored only when its mapped non-residential footprints dominate its built mass (>= 30% of the block's
+// OSM building cells), or when one of them is a mapped park facility (Hala Arena, Enea Stadion, Chwiałka). Without that
+// gate a single 600 m² shop anchored a whole kamienica quarter and the block lost its housing: the city-wide balcony
+// stack count fell from ~16.5k to 9.1k.
+const ANCHOR_BUILT_SHARE = 0.3;
+// Anchors also have to be a visible part of the island (>= 10% of its area), or be a mapped park facility: a couple
+// of 1,300 m² shops on a 12 ha campus block are not the block's morphology and should not switch it to service yard.
+const ANCHOR_BLOCK_SHARE = 0.1;
+const nonResByLabel = new Map();
+for (const b of buildings) {
+  if (!b.label || !b.anchorUse) continue;
+  nonResByLabel.set(b.label, (nonResByLabel.get(b.label) || 0) + Math.min(b.area, b.cells));
+}
+const rectOverlap = (a, b) => {
+  const w = Math.min(a[1], b[1]) - Math.max(a[0], b[0]);
+  const d = Math.min(a[3], b[3]) - Math.max(a[2], b[2]);
+  return w > 0 && d > 0 ? w * d : 0;
+};
+for (const [label, list] of inBlock) {
+  const i = blockIndexByLabel.get(label);
+  if (i === undefined) continue;
+  const candidates = list.filter((b) => b.anchorUse && b.inBoxBox)
+    .map((b) => ({ b, area: Math.min(b.area, b.cells),
+      boxArea: (b.inBoxBox[1] - b.inBoxBox[0]) * (b.inBoxBox[3] - b.inBoxBox[2]) }))
+    .sort((p, q) => q.area - p.area);
+  if (!candidates.length) continue;
+  const builtCells = builtByLabel.get(label) || 0;
+  const nonResCells = nonResByLabel.get(label) || 0;
+  const anchorArea = candidates.reduce((sum, c) => sum + c.area, 0);
+  const parkFacility = candidates.some((c) => c.b.facility) && blocks[i].park > 0.3;
+  // A block that also holds a real campus building keeps its campus/generic layout: anchoring the MTP pavilions out of
+  // block 770 took UAM Szamarzewo from 33% to 27%, and the AWF block 939 lost its sports halls entirely.
+  const civic = list.some((b) => b.civic && Math.min(b.area, b.cells) >= 1000);
+  if (civic || (!parkFacility && (!(nonResCells >= ANCHOR_BUILT_SHARE * builtCells) ||
+    anchorArea < ANCHOR_BLOCK_SHARE * blocks[i].area))) continue;
+  let pool = candidates.filter((c) => c.area >= ANCHOR_MIN);
+  if (!pool.length) pool = candidates[0].area >= ANCHOR_FALLBACK_MIN ? [candidates[0]] : [];
+  const chosen = [];
+  for (const c of pool) {
+    if (chosen.length >= ANCHOR_MAX) break;
+    if (chosen.some((p) => rectOverlap(p.b.inBoxBox, c.b.inBoxBox) >
+      0.5 * Math.min(p.boxArea, c.boxArea))) continue;
+    chosen.push(c);
+  }
+  if (!chosen.length) continue;
+  blockAnchors[blocks[i].id] = chosen.map(({ b, area }) => [
+    ...b.inBoxBox.map(q1), Math.round(area), b.anchorUse, b.levels
+  ]);
+  anchorCount += chosen.length;
+  anchorBlocks++;
+}
+log(`buildings: ${anchorCount} anchors in ${anchorBlocks} blocks (>= ${ANCHOR_MIN} m², largest ${ANCHOR_MAX})`);
+
 const emitted = new Set(blocks.map((b) => b.label));
 const inBlocks = buildings.filter((b) => emitted.has(b.label)).length;
 const blockArea = blocks.reduce((t, b) => t + b.area, 0);
@@ -186,4 +309,4 @@ const builtArea = blocks.reduce((t, b) => t + (builtByLabel.get(b.label) || 0), 
 log(`buildings: ${osm.elements.length} elements, ${buildings.length} footprints (${skipped} roof/no skipped, ${dup} relation outers deduplicated), building:levels on ${tagged} (${Math.round((tagged / buildings.length) * 100)} %)`);
 log(`buildings: ${inBlocks} in a block, ${blocks.filter((b, i) => blockStats[i][2]).length} of ${blocks.length} blocks hold one; built ${(builtArea / 1e6).toFixed(2)} km² of ${(blockArea / 1e6).toFixed(2)} km² block land (${Math.round((builtArea / blockArea) * 100)} %), ${Date.now() - T0} ms`);
 
-export { blockStats, blockFootprints, buildingMask, buildings };
+export { blockStats, blockFootprints, blockAnchors, buildingMask, buildings };

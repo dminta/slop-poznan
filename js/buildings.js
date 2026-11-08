@@ -275,6 +275,7 @@ function buildCityBlocks(scene) {
   let xf = null; // { th, cs, sn, px, pz }
   let minLot = 15; // smallest lot side built on (frontage frames come in lots of 12 m and up, see geo-blocks.mjs)
   let srcBlock = null; // the BLOCKS entry being populated (its curb outline gives the lot rects' frontages)
+  let srcAnchors = []; // its GEO.blockAnchors kept for this block (world [x0, x1, z0, z1, area, use, levels])
   let srcRects = []; // its lot rects { x0, x1, z0, z1 } in their frames { cs, sn, px, pz } (see frontages)
   let srcLotArea = 0; // the area of the lot pieces it builds on (m², see steerProfile)
   let fullLotArea = 0; // lot area before park carve-out (m², see steerProfile)
@@ -2176,6 +2177,109 @@ function buildCityBlocks(scene) {
     }
   }
 
+  // GEO.blockAnchors: the largest mapped non-residential boxes of a block. A dedicated building fills the anchor's own
+  // OSM envelope (not a generic lot cut out of the quarter), at exactly the mapped plan and the real storey count; the
+  // rest of the block is then service yard or a low pavilion, never a row of kamienice. Use codes come from
+  // tools/poz-buildings.mjs: 1 retail/mall, 2 industrial/warehouse, 3 rail/depot, 4 sport/leisure, 5 utility.
+  function anchorFloors(a, cfg, minF, maxF) {
+    const levels = a[6];
+    return levels >= 2 ? Math.max(minF, Math.min(maxF, Math.round(levels))) : irange(cfg.floors[0], cfg.floors[1]);
+  }
+  function anchorProfile(a) {
+    const use = a[5];
+    const area = a[4];
+    if (use === 4) return { ...ARENA, kind: 'anchor', exact: true, anchor: a };
+    if (use === 5) return { ...UTILITY, kind: 'anchor', exact: true, anchor: a };
+    if (use === 3) return { ...DEPOT, kind: 'anchor', exact: true, anchor: a };
+    if (use === 1) return { ...(area >= 8000 ? MALL : RETAIL_PARK), kind: 'anchor', exact: true, anchor: a };
+    return { ...INDUSTRIAL_HALL, kind: 'anchor', exact: true, anchor: a };
+  }
+  // `parts` are the anchor envelope intersected with the block's own lot rects in the current frame (see
+  // populateAnchor): the building fills exactly that union, so a mall or hall never spills across a street or into a
+  // neighbouring block, while an L-shaped OSM outline is still covered by its own parts.
+  function anchorBlock(blk, cfg) {
+    fillAnchor(blk, cfg, cfg.parts || [blockRect(blk)]);
+  }
+  function fillAnchor(blk, cfg, parts) {
+    const a = cfg.anchor;
+    const use = a[5];
+    if (!parts.length) return;
+    const lot = rect(Math.min(...parts.map((p) => p[0])), Math.max(...parts.map((p) => p[1])),
+      Math.min(...parts.map((p) => p[2])), Math.max(...parts.map((p) => p[3])));
+    const area = a[4];
+    let mat, floors, opts;
+    if (use === 1) {
+      // A mall or big-box: one broad low box; the mapped outline already contains the car park and service apron.
+      mat = area >= 8000 ? pickW([[F.glassSilver, 3], [F.glassTeal, 1], [F.cream, 1]])
+        : pickW([[F.cream, 3], [F.greyGreen, 2], [F.brick, 2]]);
+      floors = a[6] >= 2 ? Math.max(3, Math.min(5, Math.round(a[6]))) : irange(cfg.floors[0], cfg.floors[1]);
+      opts = { cornice: false, hvac: true, hvacH: range(2.4, 4), skylights: true, shops: 'all', awnings: false,
+        freestanding: true };
+    } else if (use === 4) {
+      // An arena or sports hall: one big hall, no podium stacked over the same plan (the plan footprints must stay
+      // disjoint for the park-facility audit). A stadium bowl never reaches here (filtered to its stand layout).
+      mat = pickW(ARENA.mats);
+      floors = anchorFloors(a, ARENA, 4, 6);
+      opts = { cornice: false, hvac: true, hvacH: range(2.4, 4), skylights: true, shops: 'none', awnings: false,
+        freestanding: true };
+    } else if (use === 5) {
+      mat = pickW(UTILITY.mats);
+      floors = anchorFloors(a, UTILITY, 3, 6);
+      opts = { cornice: false, shops: 'none', awnings: false, walls: WALL_KINDS.blankStone };
+    } else {
+      mat = pickW(use === 3 ? DEPOT.mats : INDUSTRIAL_HALL.mats);
+      floors = anchorFloors(a, use === 3 ? DEPOT : INDUSTRIAL_HALL, 2, 4);
+      opts = { cornice: false, hvac: use === 2 && chance(0.4), hvacH: range(2.4, 3.6), skylights: false,
+        shops: 'none', awnings: false, walls: WALL_KINDS.blankStone };
+    }
+    const b = building(blk, mat, lot);
+    for (const r of parts) {
+      if (Math.min(rectW(r), rectD(r)) < 4) continue;
+      if (use === 2 || use === 3) {
+        // Industrial hall or depot: each part split into 18-30 m bays, the sawtooth/north-light rhythm, under shallow
+        // gables. The mapped anchor is the hall itself, so its bays fill it end to end.
+        const alongX = rectW(r) >= rectD(r);
+        const len = alongX ? rectW(r) : rectD(r);
+        const wid = alongX ? rectD(r) : rectW(r);
+        const bays = Math.max(1, Math.min(6, Math.round(len / range(22, 32))));
+        const gap = 0.8;
+        const step = (len - gap * (bays - 1)) / bays;
+        for (let k = 0; k < bays; k++) {
+          const u0 = k * (step + gap);
+          const part = mass(b, [alongX
+            ? rect(r.x0 + u0, r.x0 + u0 + step, r.z0, r.z1)
+            : rect(r.x0, r.x1, r.z0 + u0, r.z0 + u0 + step)], 0, floors);
+          if (wid >= 12) pitch(part, 'gable', pickW([['slate', 2], ['tile', 1]]), alongX ? 'z' : 'x', range(10, 18));
+        }
+      } else {
+        mass(b, [r], 0, floors);
+      }
+    }
+    commit(blk, b, opts);
+  }
+  // Remaining lots of an anchored block: only as much low service pavilion as the block's real built share still has
+  // unspent (srcPieceBudget, set from srcBuiltArea after the anchors were committed); everything else stays yard.
+  function ancillaryBlock(blk) {
+    const R = blockRect(blk);
+    blk.yards.push(insetAll(R, 1.5));
+    const W = rectW(R);
+    const D = rectD(R);
+    if (Math.min(W, D) < 10) return;
+    const budget = Math.min(srcPieceBudget, 0.45 * W * D);
+    if (budget < 80) return;
+    const alongX = W >= D;
+    const len = alongX ? W : D;
+    const wid = alongX ? D : W;
+    const dep = Math.min(wid - 2, Math.max(5, Math.sqrt(budget * 0.5)));
+    const w = Math.min(len - 2, Math.max(8, budget / dep));
+    if (w < 8 || dep < 5) return;
+    const r = alongX ? rect(R.x0 + 1, R.x0 + 1 + w, R.z1 - 1 - dep, R.z1 - 1)
+      : rect(R.x1 - 1 - dep, R.x1 - 1, R.z0 + 1, R.z0 + 1 + w);
+    const b = building(blk, pickW([[F.cream, 2], [F.greyGreen, 2], [F.brick, 1]]), r);
+    mass(b, [r], 0, irange(1, 2));
+    commit(blk, b, { cornice: false, skylights: true, shops: 'none', awnings: false, walls: WALL_KINDS.rear });
+  }
+
   // Hospital and university campuses: institutional blocks along the streets and a loose grid of clinics and
   // institutes inside, with 9-16 m clear service alleys (10-16 m along a row, 16 m in the wide cores). `cfg.share` is
   // the block's real OSM built share over its lot area (steerProfile), so each lot rect builds its target: the frontage
@@ -2335,7 +2439,9 @@ function buildCityBlocks(scene) {
     depot: depotBlock,
     stadium: stadiumBlock,
     arena: arenaBlock,
-    utility: utilityBlock
+    utility: utilityBlock,
+    anchor: anchorBlock,
+    ancillary: ancillaryBlock
   };
 
   // ============================================================================
@@ -2862,7 +2968,7 @@ function buildCityBlocks(scene) {
    * high-detail architectural features (stone cornices, chimney stacks, skylights, rooftop penthouses, balconies,
    * awnings, storefront fascia signs and renovation scaffolding) into the Quadtree.
    */
-  function populateBlock(minX, maxX, minZ, maxZ, district = null, facility = false) {
+  function populateBlock(minX, maxX, minZ, maxZ, district = null, facility = false, anchor = null, ancillary = false) {
     const bw = maxX - minX;
     const bd = maxZ - minZ;
     if (bw < minLot || bd < minLot) return;
@@ -2901,14 +3007,19 @@ function buildCityBlocks(scene) {
     const roofMark = roofs.mark();
     rand = mulberry32((Math.imul(Math.round(minX * 4), 73856093) ^ Math.imul(Math.round(minZ * 4), 19349663) ^ 10019) >>> 0);
 
-    const profile = facility ? { kind: 'facility' } : steerProfile(blockProfile(blockDetail, district), srcBlock);
+    // Anchors are exact by definition (their own OSM envelope); facility lots still build their mapped hall; only an
+    // ordinary lot of an anchored block is limited to the low ancillary pavilion.
+    const profile = anchor ? { ...anchorProfile(anchor.a), parts: anchor.parts }
+      : facility ? { kind: 'facility' }
+        : ancillary ? { kind: 'ancillary' }
+          : steerProfile(blockProfile(blockDetail, district), srcBlock);
     if (!(profile.skipP && chance(profile.skipP))) LAYOUTS[profile.kind](blockDetail, profile, minX, maxX);
     openOntoVoidLots(blockDetail);
 
     // Renovation scaffolding with green netting up one stretch of street facade, on the longest ground-floor street
     // front of ~1 lot rect in 8; a third of them carry a building-wrap advert (siatka reklamowa) instead
     const fronts = blockDetail.streetFronts;
-    if (fronts.length && chance(0.12)) {
+    if (!anchor && fronts.length && chance(0.12)) {
       const fr = fronts.reduce((a, b) => (b.a1 - b.a0 > a.a1 - a.a0 ? b : a));
       const len = Math.min(26, (fr.a1 - fr.a0) * 0.9);
       if (len > 8) {
@@ -2932,6 +3043,31 @@ function buildCityBlocks(scene) {
     }
     quadtree.insert(blockDetail);
     allBlocks.push(blockDetail);
+  }
+
+  // A GEO.blockAnchors box, clipped to the source block's own lot rects in each frontage frame. This keeps the
+  // dedicated building off the neighbouring block, a street or an internal park island: an anchor's world AABB can span
+  // such a hole (Posnania's L-plan, IKEA's clipped bbox), and a single filled rectangle would build over it.
+  function populateAnchor(a) {
+    for (const [th, px, pz, rects] of srcBlock.frames || [[0, 0, 0, srcBlock.rects]]) {
+      const saved = xf;
+      xf = th ? { th, cs: Math.cos(th), sn: Math.sin(th), px, pz } : null;
+      const box = inFrameRect(a);
+      const parts = [];
+      for (const r of rects) {
+        const x0 = Math.max(r[0], box[0]);
+        const x1 = Math.min(r[1], box[1]);
+        const z0 = Math.max(r[2], box[2]);
+        const z1 = Math.min(r[3], box[3]);
+        if (x1 - x0 >= 4 && z1 - z0 >= 4) parts.push(rect(x0, x1, z0, z1));
+      }
+      if (parts.length) {
+        populateBlock(Math.min(...parts.map((p) => p.x0)), Math.max(...parts.map((p) => p.x1)),
+          Math.min(...parts.map((p) => p.z0)), Math.max(...parts.map((p) => p.z1)),
+          srcBlock.district, false, { a, parts });
+      }
+      xf = saved;
+    }
   }
 
   // Turns everything a lot of the current frame emitted into place: facade boxes, roof gear, cornices, balconies,
@@ -3028,9 +3164,29 @@ function buildCityBlocks(scene) {
     };
   }
   const hitR = (a, x0, x1, z0, z1) => a.x0 < x1 && a.x1 > x0 && a.z0 < z1 && a.z1 > z0;
+  // World-axis AABB -> bounds in the current frontage frame (the frame's few degrees make the bounds conservative)
+  function inFrameRect(f) {
+    if (!xf) return [f[0], f[1], f[2], f[3]];
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const [x, z] of [[f[0], f[2]], [f[1], f[2]], [f[1], f[3]], [f[0], f[3]]]) {
+      const dx = x - xf.px, dz = z - xf.pz;
+      const lx = xf.px + dx * xf.cs - dz * xf.sn;
+      const lz = xf.pz + dx * xf.sn + dz * xf.cs;
+      if (lx < x0) x0 = lx;
+      if (lx > x1) x1 = lx;
+      if (lz < z0) z0 = lz;
+      if (lz > z1) z1 = lz;
+    }
+    return [x0, x1, z0, z1];
+  }
   // [x0, x1, z0, z1] minus the reserved rects, as up to four slabs per hole (strips across the full depth first). In a
-  // frontage frame the reserves are their bounds in the frame
+  // frontage frame the reserves are their bounds in the frame. Block anchors are reserves too, so no generic lot or
+  // park facility lot is laid over a mapped mall, hall, depot or arena.
   function minusReserves(r) {
+    const anchors = srcAnchors.map((a) => {
+      const b = inFrameRect(a);
+      return { x0: b[0], x1: b[1], z0: b[2], z1: b[3] };
+    });
     let reserves = LANDMARK_RESERVE;
     if (xf) {
       reserves = LANDMARK_RESERVE.map((h) => outlineBounds(h.pts.map(([x, z]) => [
@@ -3038,6 +3194,7 @@ function buildCityBlocks(scene) {
         xf.pz + (x - xf.px) * xf.sn + (z - xf.pz) * xf.cs
       ])));
     }
+    reserves = reserves.concat(anchors);
     let parts = [r];
     for (const h of reserves) {
       const next = [];
@@ -3071,6 +3228,16 @@ function buildCityBlocks(scene) {
     if ((b.park > 0.6 && !b.buildings) || b.median) continue;
     minLot = b.frames ? 12 : 15;
     srcBlock = b;
+    // Mapped anchors of this block: a stadium bowl (>= 2 ha) stays with its park-footprint/facility layout, and an
+    // anchor under a landmark reserve is already a hand-built model.
+    srcAnchors = (b.anchors || []).filter((a) => !(a[5] === 4 && a[4] >= 20000) &&
+      !LANDMARK_RESERVE.some((h) => hitR(h, a[0], a[1], a[2], a[3])));
+    // Park blocks keep their calibrated facility layout (blockFootprints/facilityBlock): an anchor there would fill the
+    // whole OSM bbox of an oval stadium or arena instead of its footprint area, and park surfaces are rastered from
+    // these footprints. A remainder that is tiny next to its island also stays generic: the Stary Browar reserve leaves
+    // one 700 m² shop on block 817, and anchoring it would turn a 37%-built office block into yard.
+    const anchorArea = srcAnchors.reduce((sum, a) => sum + a[4], 0);
+    if (b.park > 0.6 || anchorArea < 0.03 * b.area) srcAnchors = [];
     srcRects = (b.frames || [[0, 0, 0, b.rects]]).flatMap(([th, px, pz, rects]) => rects.map(([x0, x1, z0, z1]) => (
       { cs: Math.cos(th), sn: Math.sin(th), px, pz, x0, x1, z0, z1 })));
     // The block's pieces first: their area is the lot area the villa layouts steer by (srcLotArea)
@@ -3105,17 +3272,24 @@ function buildCityBlocks(scene) {
       srcBuiltArea = 0;
       srcLeftArea = srcLotArea;
     }
+    // The mapped boxes first: each commits its own footprint to srcBuiltArea, so the remaining lots only get what the
+    // block's real built share has left.
+    const framedMinLot = minLot;
+    minLot = 4;
+    for (const a of srcAnchors) populateAnchor(a);
+    minLot = framedMinLot;
     for (const [f, x0, x1, z0, z1, facility] of pieces) {
       xf = f;
       const pieceArea = (x1 - x0) * (z1 - z0);
       srcPieceBudget = srcLeftArea > 0 ? Math.max(0, (srcTarget - srcBuiltArea) * (pieceArea / srcLeftArea)) : 0;
-      populateBlock(x0, x1, z0, z1, b.district, facility);
+      populateBlock(x0, x1, z0, z1, b.district, facility, null, srcAnchors.length > 0);
       srcLeftArea = Math.max(0, srcLeftArea - pieceArea);
     }
     xf = null;
   }
   minLot = 15;
   srcBlock = null;
+  srcAnchors = [];
   srcRects = [];
   srcLotArea = 0;
   fullLotArea = 0;
