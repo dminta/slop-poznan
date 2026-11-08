@@ -114,7 +114,7 @@ test.before(async () => {
 });
 
 test('Hetmańska/Dmowskiego rails stay at roadway height across the former curb conflict', () => {
-  const pieces = world.layout.pieces.filter((p) => p.railIndex === 577 && p.s0 > 263 && p.s0 < 272);
+  const pieces = world.layout.pieces.filter((p) => p.railIndex === 578 && p.s0 > 263 && p.s0 < 272);
   assert.equal(pieces.length, 3, 'the original track pieces remain, including both formerly raised pieces');
   const raisedLength = pieces.reduce((sum, p) => sum + (p.ground ? Math.hypot(p.bx - p.ax, p.bz - p.az) : 0), 0);
   assert.equal(raisedLength, 0, `${raisedLength.toFixed(3)} m of rail is lifted onto the curb island`);
@@ -124,7 +124,7 @@ test('Hetmańska/Dmowskiego rails stay at roadway height across the former curb 
 test('the actual Hetmańska/Dmowskiego curb and sidewalk leave both rail heads uncovered', () => {
   const { GEO, raised } = world;
   const covered = (x, z) => raised.some(({ poly, holes }) => inside(poly, x, z) && !holes.some((h) => inside(h, x, z)));
-  const track = GEO.rail[577].pts;
+  const track = GEO.rail[578].pts;
   const ax = track[2], az = track[3], bx = track[4], bz = track[5];
   const len = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / len, uz = (bz - az) / len;
   let samples = 0;

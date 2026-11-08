@@ -142,17 +142,17 @@ test('the live Krucza approaches have correctly facing heads without changing th
 
 test('exact park polygons restore signal heads and street furniture across the city', () => {
   const { street, baseline, config, gridModule } = world;
-  assert.equal(street.vehicleHeads, baseline.vehicleHeads + 154, 'restores 154 vehicle heads across 128 junctions');
-  assert.equal(street.audioSignals.length, baseline.audioSignals.length + 276, 'restores 276 pedestrian heads');
+  assert.equal(street.vehicleHeads, baseline.vehicleHeads + 167, 'restores 167 vehicle heads across the junctions');
+  assert.equal(street.audioSignals.length, baseline.audioSignals.length + 306, 'restores 306 pedestrian heads');
   const nonSignals = (details) => details.footprints.filter((r) => r.kind !== 'signal').length;
-  assert.equal(nonSignals(street), nonSignals(baseline) + 4649, 'restores 4,649 non-signal street furniture footprints');
+  assert.equal(nonSignals(street), nonSignals(baseline) + 5415, 'restores 5,415 non-signal street furniture footprints');
 
   // Verify clearances for all restored signal poles
   const basePoles = new Set(baseline.footprints.filter((r) => r.kind === 'signal')
     .map((r) => `${((r.minX + r.maxX) / 2).toFixed(2)},${((r.minZ + r.maxZ) / 2).toFixed(2)}`));
   const newPoles = street.footprints.filter((r) => r.kind === 'signal' &&
     !basePoles.has(`${((r.minX + r.maxX) / 2).toFixed(2)},${((r.minZ + r.maxZ) / 2).toFixed(2)}`));
-  assert.equal(newPoles.length, 276, 'adds exactly 276 restored signal poles');
+  assert.equal(newPoles.length, 306, 'adds exactly 306 restored signal poles');
   for (const p of newPoles) {
     const cx = (p.minX + p.maxX) / 2, cz = (p.minZ + p.maxZ) / 2;
     assert.ok(config.roadClearance(cx, cz) >= 0.8, `pole at ${cx}, ${cz} keeps >= 0.8 m road clearance`);
@@ -239,8 +239,8 @@ test('runtime approaches use existing left poles when no right head or pole serv
   const plates = meshes.filter((m) => m.geo === types.backplateGeo || m.geo === types.backplateBorderGeo);
   const plateCount = runtimeHeads.filter((h) => h.a.w >= 14.5 || h.a.lanes >= 3).length;
   assert.equal(housing.length, 1);
-  assert.equal(housing[0].matrices.length, cases.length);
-  assert.equal(lenses.reduce((sum, m) => sum + m.matrices.length, 0), cases.length);
+  assert.equal(housing[0].matrices.length, runtimeHeads.length);
+  assert.equal(lenses.reduce((sum, m) => sum + m.matrices.length, 0), runtimeHeads.length);
   assert.ok(plateCount > 0);
   assert.equal(plates.length, 2);
   for (const plate of plates) assert.equal(plate.matrices.length, plateCount);
@@ -252,8 +252,8 @@ test('runtime approaches use existing left poles when no right head or pole serv
   assert.equal(attrs.length, lenses.length);
   assert.ok(attrs.every((a) => a.key === 'signalIndex' && a.size === 1 && a.attr));
   assert.deepEqual(attrs.flatMap((a) => a.data).sort((a, b) => a - b), expectedIndices);
-  assert.equal(runtimeHeads.length, cases.length);
-  assert.equal(street.vehicleHeads, count + cases.length);
+  assert.ok(runtimeHeads.length >= cases.length, 'every handpicked left-pole approach gets a head');
+  assert.equal(street.vehicleHeads, count + runtimeHeads.length);
   assert.equal(JSON.stringify(street.footprints), footprints);
   assert.equal(JSON.stringify(street.colliders), colliders);
   assert.deepEqual(Array.from(street.audioSignals, (s) => [s.x, s.y, s.z, s.isAvenue, s.signalTiming]), audioSignals);

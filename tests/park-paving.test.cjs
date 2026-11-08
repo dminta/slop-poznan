@@ -207,7 +207,7 @@ function fillWinding(g, mask, ring) {
   }
 }
 
-// Per-kind raster comparison of the emitted surfaces of the 41 park blocks with buildings (real triangles), at 0.5 m,
+// Per-kind raster comparison of the emitted surfaces of the 42 park blocks with buildings (real triangles), at 0.5 m,
 // computed once. The inset bed and lawn outlines fold across themselves at narrow walks, so there are two references
 // (like the measurement scripts): `missing` counts cells wound the outline's own way (a retrograde fold loop is not
 // meant to be lawn) and `extra` counts cover outside the outline by even-odd; both minus ponds or pond paths, road
@@ -291,12 +291,13 @@ function surfaceCoverage() {
 
 test('park blocks with buildings: no curb or paving under footprints, granite and lawn match the intended region', () => {
   const { tot, perBlock, footprint, blocks } = surfaceCoverage();
-  assert.equal(blocks, 41, 'all 41 park blocks with buildings checked');
-  // ground footprint union across the 41 blocks, 0.5 m raster (239,736 m² after the central density pass on
+  assert.equal(blocks, 42, 'all 42 park blocks with buildings checked');
+  // ground footprint union across the 42 blocks, 0.5 m raster (239,736 m² after the central density pass on
   // 2026-11-08; 243,502 m² after the park facility carve-out put Hala Arena, Enea Stadion and the other mapped
   // sports centres back on their OSM lots; 305,226 m² after the park-building pass restored the ordinary mapped
-  // buildings of 875, 968, 1166, 1271, 886 and 405 as lots)
-  assert.ok(footprint > 304000 && footprint < 306000, `footprint union ~305.2k m² (got ${footprint})`);
+  // buildings of 873, 966, 1164, 1268, 884 and 403 as lots; 337,613 m² with the west-expansion park block at
+  // Marcelin, whose mapped buildings are now in the detail box)
+  assert.ok(footprint > 335000 && footprint < 340000, `footprint union ~337.6k m² (got ${footprint})`);
   const fmt = (k) => JSON.stringify(tot[k]);
   for (const row of perBlock) {
     assert.equal(row.curb.underFp, 0, `block ${row.id} curb under footprints`);
@@ -316,10 +317,10 @@ test('park blocks with buildings: no curb or paving under footprints, granite an
   }
 });
 
-test('real triangulation: every park surface mesh of the 41 blocks triangulates to its area with no fill in holes', () => {
+test('real triangulation: every park surface mesh of the 42 blocks triangulates to its area with no fill in holes', () => {
   const { config, recordedMeshes, helpers } = getWorld();
   const parkBlocks = new Set(config.BLOCKS.filter((b) => isParkBlock(b) && b.buildings > 0).map((b) => b.id));
-  assert.equal(parkBlocks.size, 41, 'all 41 park blocks with buildings checked');
+  assert.equal(parkBlocks.size, 42, 'all 42 park blocks with buildings checked');
 
   const triArea = (a, b, c) => 0.5 * Math.abs((b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x));
   const polyArea = (pts) => {
@@ -439,10 +440,10 @@ test('critical gap locations covered by exactly one real triangle', () => {
   const mk = (x, y) => ({ x, y, equals(o) { return Math.abs(o.x - x) < 1e-4 && Math.abs(o.y - y) < 1e-4; } });
 
   const ptsToCheck = [
-    { id: 613, k: 'lawn', bottomY: 0.3, x: 1556.8, z: 262.3 },
-    { id: 614, k: 'granite', bottomY: 0.2, x: 4360.8, z: 1691.3 },
-    { id: 614, k: 'lawn', bottomY: 0.3, x: 4192.8, z: 1595.8 },
-    { id: 613, k: 'granite', bottomY: 0.2, x: 1464.8, z: 46.8 }
+    { id: 611, k: 'lawn', bottomY: 0.3, x: 1556.8, z: 262.3 },
+    { id: 612, k: 'granite', bottomY: 0.2, x: 4360.8, z: 1691.3 },
+    { id: 612, k: 'lawn', bottomY: 0.3, x: 4192.8, z: 1595.8 },
+    { id: 611, k: 'granite', bottomY: 0.2, x: 1464.8, z: 46.8 }
   ];
 
   for (const pt of ptsToCheck) {

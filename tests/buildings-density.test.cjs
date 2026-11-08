@@ -184,10 +184,10 @@ test('villa districts, Chartowo and the hospital campuses come out near their re
     assert.ok(s.gen > s.real * 0.8 && s.gen < s.real * 1.2,
       `${district}: generated ${(100 * s.gen).toFixed(1)}% vs real ${(100 * s.real).toFixed(1)}%`);
   }
-  // The campus blocks named in the backlog: 666 Szpital Święcickiego (21% real), 577 Szpital Jonschera (37%),
-  // 427/476 Ogrody/UMP (22/15%). The campus layout steers each to its block's real share instead of the
-  // perimeter-only kamienica/villa share: before it 666 was 14.9% and 577 47.7%
-  for (const id of [666, 577, 427, 476]) {
+  // The campus blocks named in the backlog: 664 Szpital Święcickiego (21% real), 575 Szpital Jonschera (37%),
+  // 425/474 Ogrody/UMP (22/15%). The campus layout steers each to its block's real share instead of the
+  // perimeter-only kamienica/villa share: before it 664 was 14.9% and 575 47.7% (ids moved by the west expansion)
+  for (const id of [664, 575, 425, 474]) {
     const b = config.BLOCKS[id];
     assert.equal(b.program, 1, `block ${id} is a hospital campus`);
     const share = (gen.get(id) || 0) / b.area;
@@ -197,7 +197,7 @@ test('villa districts, Chartowo and the hospital campuses come out near their re
   // Dense central university blocks keep their district profile: the campus alley grid could not spend their steep
   // share on fragmented lots and fell below the pre-change result (192 43.4 -> 22.0 %, 814 26.4 -> 19.4,
   // 769 39.1 -> 35.8). The university gate is area >= 5 ha and built <= 0.4 in blockProfile.
-  for (const [id, before] of [[192, 0.434], [815, 0.264], [769, 0.391]]) {
+  for (const [id, before] of [[192, 0.434], [813, 0.264], [767, 0.391]]) {
     const b = config.BLOCKS[id];
     assert.ok(b.program > 0, `block ${id} is still tagged as a campus`);
     const share = (gen.get(id) || 0) / b.area;
@@ -207,7 +207,7 @@ test('villa districts, Chartowo and the hospital campuses come out near their re
   // Hospitals use a wider gate (area >= 0.4 ha, built <= 55 %), so the real hospitals that the 5 ha campus gate
   // degraded to kamienice now take HOSPITAL: 828 (Szpital Kliniczny, 50 % built) generates 35.7 % and 991 (Strusia,
   // 25 %) 25.0 %, against 50 and 25 % real; the old district/campus mix left them at 41.8 and below.
-  for (const [id, floor] of [[828, 0.35], [991, 0.24]]) {
+  for (const [id, floor] of [[826, 0.35], [989, 0.24]]) {
     const b = config.BLOCKS[id];
     assert.equal(b.program, 1, `block ${id} is a hospital`);
     const share = (gen.get(id) || 0) / b.area;
@@ -216,11 +216,11 @@ test('villa districts, Chartowo and the hospital campuses come out near their re
   // Office courtyard fill (2026-11-08): the deep frontage lots and core wings move 868 from 33.4% to 48.2%, 814 from
   // 26.4% to 32.0% and 769 from 40.2% to 47.8%. Blocks already over their real share (593 36.8%, 786 44.8%) keep
   // their plazas because steerProfile leaves cfg.core off; neither may grow from the old office layout.
-  for (const [id, floor] of [[869, 0.47], [815, 0.31], [769, 0.46], [817, 0.14]]) {
+  for (const [id, floor] of [[867, 0.47], [813, 0.31], [767, 0.46], [815, 0.14]]) {
     const share = (gen.get(id) || 0) / config.BLOCKS[id].area;
     assert.ok(share >= floor, `office block ${id}: generated ${(100 * share).toFixed(1)}% below ${(100 * floor).toFixed(1)}%`);
   }
-  for (const [id, ceiling] of [[593, 0.378], [786, 0.458]]) {
+  for (const [id, ceiling] of [[591, 0.378], [784, 0.458]]) {
     const share = (gen.get(id) || 0) / config.BLOCKS[id].area;
     assert.ok(share <= ceiling, `over-built office ${id}: generated ${(100 * share).toFixed(1)}% above ${(100 * ceiling).toFixed(1)}%`);
   }
@@ -252,9 +252,9 @@ test('park sports facilities keep their mapped OSM footprint', async () => {
   // 183357024 Lodowisko Chwiałka). Before the park carve-out parkFreeCells cleared their park cells to lawn and the
   // district profile left 0 %, 0 % and 4 % of these outlines under any building.
   const targets = [
-    ['Hala Arena', 927, [-2903.6, -2803.4, 1157.1, 1257.1]],
-    ['Enea Stadion', 939, [-442.1, -193.1, 1231.6, 1510.5]],
-    ['Lodowisko Chwiałka', 939, [-376.3, -322.3, 1759.7, 1847.1]]
+    ['Hala Arena', 925, [-2903.6, -2803.4, 1157.1, 1257.1]],
+    ['Enea Stadion', 937, [-442.1, -193.1, 1231.6, 1510.5]],
+    ['Lodowisko Chwiałka', 937, [-376.3, -322.3, 1759.7, 1847.1]]
   ];
   for (const [name, id, envelope] of targets) {
     const b = config.BLOCKS[id];
@@ -265,18 +265,18 @@ test('park sports facilities keep their mapped OSM footprint', async () => {
   }
 });
 
-test('park facility halls on 927/939 do not overlap each other or a roadway', async () => {
+test('park facility halls on 925/937 do not overlap each other or a roadway', async () => {
   const { config, city } = await buildCity();
   // Arena, Enea and Chwiałka generate as one large hall per lot piece (>= 2,000 m² each); ordinary houses and
   // kamienice on Wilda's edges are below that, so this reads the facility massing directly.
-  const big = city.allBlocks.filter((b) => b.srcBlockId === 927 || b.srcBlockId === 939)
+  const big = city.allBlocks.filter((b) => b.srcBlockId === 925 || b.srcBlockId === 937)
     .flatMap((b) => b.footprints)
     .filter((f) => (f.x1 - f.x0) * (f.z1 - f.z0) >= 2000)
     .map((f) => ({
       h: f.h,
       pts: f.pts || [[f.x0, f.z0], [f.x1, f.z0], [f.x1, f.z1], [f.x0, f.z1]].map(([x, z]) => ({ x, z }))
     }));
-  assert.ok(big.length >= 5, `${big.length} large facility parts generated on 927/939`);
+  assert.ok(big.length >= 5, `${big.length} large facility parts generated on 925/937`);
   for (let i = 0; i < big.length; i++) {
     for (let j = i + 1; j < big.length; j++) {
       assert.ok(!polygonsOverlap(big[i].pts, big[j].pts), `facility parts ${i} and ${j} overlap`);
@@ -305,10 +305,10 @@ test('EC Garbary keeps its utility halls, chimney and cooling tower', async () =
 
 test('ZNTK is an industrial block with low halls, not residential Wilda', async () => {
   const { config, city } = await buildCity();
-  const block = config.BLOCKS[848];
+  const block = config.BLOCKS[846];
   assert.equal(block.district, 'Wilda');
-  assert.equal(block.program, 4, 'the ZNTK ruins dominate block 848 as industrial use');
-  const parts = city.allBlocks.filter((b) => b.srcBlockId === 848).flatMap((b) => b.footprints);
+  assert.equal(block.program, 4, 'the ZNTK ruins dominate block 846 as industrial use');
+  const parts = city.allBlocks.filter((b) => b.srcBlockId === 846).flatMap((b) => b.footprints);
   const halls = parts.filter((f) => (f.x1 - f.x0) * (f.z1 - f.z0) >= 1800);
   assert.ok(halls.length >= 8, `${halls.length} ZNTK hall parts >= 1,800 m²`);
   const maxH = Math.max(0, ...parts.map((f) => f.h));
@@ -317,8 +317,8 @@ test('ZNTK is an industrial block with low halls, not residential Wilda', async 
 
 test('Termy Maltańskie keeps its recreation hall on Malta', async () => {
   const { config, city } = await buildCity();
-  const block = config.BLOCKS[613];
-  assert.equal(block.program, 8, 'block 613 is classified as leisure/water park');
+  const block = config.BLOCKS[611];
+  assert.equal(block.program, 8, 'block 611 is classified as leisure/water park');
   // OSM way 158699450: an unnamed building=yes with addr:street=Termalna, 2633.6-2783.2 x 310.4-446.4
   const envelope = [2633.6, 2783.2, 310.4, 446.4];
   assert.ok((block.parkFootprints || []).some(([x0, x1, z0, z1, area]) =>

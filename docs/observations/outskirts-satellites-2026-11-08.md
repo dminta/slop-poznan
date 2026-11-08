@@ -6,6 +6,11 @@ Zakres: 14 zgrupowań wielkopowierzchniowych i przemysłowych tuż za detail box
 wymiarach i pozycjach z OSM, widocznych z drona, helikoptera i wysokich punktów widokowych, bez powiększania
 rastra geodaty o 45 % (szacunkowo +0,6 GB pamięci i +16 s builda).
 
+**Aktualizacja po Etapie 1 rozszerzenia na zachód (2026-11-08):** King Cross Marcelin wszedł do detail boxu jako
+kwartał 1475, więc wpis `king-cross` został usunięty z `SATELLITE_SITES`. Zostaje **13 stanowisk i 24 prostokątne
+części**; pozostałe liczby w tym dokumencie opisują stan przed rozszerzeniem. Szczegóły:
+[wdrożenie Etapu 1](detailbox-west-phase1-2026-11-08.md).
+
 ## Rozwiązanie
 
 - **`js/satellite-sites.js`** — dane `SATELLITE_SITES`: 14 stanowisk, 27 prostokątnych części (obrysy z OSM,

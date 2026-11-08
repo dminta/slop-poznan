@@ -477,7 +477,7 @@ function paintLandUse() {
   }
 
   // --- The suburban belt around the 1970s estates: single-family houses ---
-  luRect(-30000, -30000, -5600, 30000, SUBURB, 150);           // Junikowo, Ławica, Krzyżowniki, Kiekrz (west)
+  luRect(-30000, -30000, -5250, 30000, SUBURB, 150);           // Junikowo, Ławica, Krzyżowniki, Kiekrz (west)
   luRect(-30000, -30000, 30000, -6200, SUBURB, 140);           // Strzeszyn, Morasko, Umultowo (north)
   luRect(-30000, 5200, 30000, 30000, SUBURB, 150);             // Dębiec, Starołęka, Minikowo (south)
   luRect(5600, -30000, 30000, 30000, SUBURB, 160);             // Antoninek, Kobylepole, Szczepankowo (east)

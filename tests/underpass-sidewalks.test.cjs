@@ -86,7 +86,7 @@ test('no kept railway track piece collides with any underpass sidewalk', () => {
 
 test('pedestrian routes cross through rail underpass corridors', () => {
   // Key underpass edges across Poznań
-  const sampleEdges = [519, 6631, 6549, 3440, 4457, 5779, 7589];
+  const sampleEdges = [338, 574, 2968, 3741, 4545, 4770, 8164];
   for (const id of sampleEdges) {
     const edge = net.edges.find((e) => e.id === id);
     assert.ok(edge, `edge ${id} exists in road network`);

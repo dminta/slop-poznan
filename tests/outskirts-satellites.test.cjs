@@ -11,7 +11,7 @@ const site = (id) => SATELLITE_SITES.find((s) => s.id === id);
 
 test('SATELLITE_SITES covers the audited out-of-box hubs', () => {
   const ids = SATELLITE_SITES.map((s) => s.id);
-  for (const id of ['pestka', 'makro', 'poznan-plaza', 'king-cross', 'm1-franowo', 'ikea-franowo', 'selgros',
+  for (const id of ['pestka', 'makro', 'poznan-plaza', 'm1-franowo', 'ikea-franowo', 'selgros',
     'homepark-franowo', 'obi-franowo', 'centrum-franowo', 'decathlon-franowo', 'hala-m-franowo',
     'volkswagen-antoninek', 'karolin']) {
     assert.ok(ids.includes(id), `missing satellite site ${id}`);
@@ -24,7 +24,7 @@ test('SATELLITE_SITES covers the audited out-of-box hubs', () => {
   }
   assert.ok(site('volkswagen-antoninek').parts.length >= 5, 'VW Antoninek keeps its main halls');
   assert.ok(site('m1-franowo').parts.length >= 2, 'M1 is split into its two wings');
-  assert.ok(site('king-cross').parts.length >= 3, 'King Cross keeps its stepped front');
+  assert.equal(site('king-cross'), undefined, 'King Cross is now a detail-box block, not a satellite');
 });
 
 test('satellite footprints are real-sized and centred outside the detail box', async () => {

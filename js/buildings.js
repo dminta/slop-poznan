@@ -2577,6 +2577,12 @@ function buildCityBlocks(scene) {
     kind: 'offices', tower: [4, 16], mid: [6, 9], towerP: 0.45, coreFloors: [3, 6],
     inner: [['pavilion', 3], ['works', 1], ['yard', 1]]
   };
+  // Business Garden Marcelin (blockStats programme 9): modern 4-6 storey office pavilions round courtyards, without
+  // the Rondo Kaponiera tower stack. The OSM block is 27 % built and six storeys, so KIND_SHARE.offices 0.29 fits.
+  const OFFICE_CAMPUS = {
+    kind: 'offices', tower: [6, 6], mid: [4, 6], towerP: 0.25, coreFloors: [2, 4],
+    inner: [['pavilion', 2], ['yard', 3], ['works', 1]]
+  };
   // Rataje, Chartowo, Winogrady (where they reach the detail box): osiedla of panel slabs, by storeys and weight
   const PROJECTS = { kind: 'projects', types: [[5, 5], [11, 2.5], [16, 1]], setback: [8, 12] };
   // Nowe Winogrady, Żegrze, Piątkowo: whole districts of slabs. `estate` keeps the slabs where steerProfile would turn
@@ -2828,9 +2834,9 @@ function buildCityBlocks(scene) {
     const L = srcBlock && srcBlock.levels >= 2 ? srcBlock.levels : 0;
     const lv = srcBlock ? srcBlock.levels : 0;
     if (FAIR_BLOCK && srcBlock === FAIR_BLOCK) return FAIRGROUND;
-    // A blockStats programme comes before the district switch. Programmes 3-7 are the dominant OSM footprint use
-    // (>= 40 % of the block's footprint area), so no extra gate: Posnania, Castorama, ZNTK, the depots and the sports
-    // parks build their own morphology instead of the district's kamienice or osiedle.
+    // A blockStats programme comes before the district switch. Programmes 3-9 are the dominant OSM footprint use
+    // (>= 40 % of the block's footprint area), so no extra gate: Posnania, Castorama, ZNTK, the depots, the sports
+    // parks and Business Garden's offices build their own morphology instead of the district's kamienice or osiedle.
     if (srcBlock && srcBlock.program) {
       // Park-heavy blocks (Termy Maltańskie, the Sołacz speedway ground, Wilda's park frontages) keep their green and
       // district layout: their mapped halls already have their own lots through GEO.blockFootprints, and a block-level
@@ -2865,6 +2871,7 @@ function buildCityBlocks(scene) {
         }
         case 7: return UTILITY;
         case 8: return ARENA;
+        case 9: return OFFICE_CAMPUS;
       }
     }
     // Fallbacks for blocks OSM leaves without a programme: the EC/Madalińskiego anchors, then the morphology test

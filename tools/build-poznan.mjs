@@ -98,7 +98,8 @@ const GEO = {
   // One per blocks entry, same order: [built share of the curb island under OSM building footprints (0..1), area-weighted
   // median building:levels of the buildings centred in it (0 if none tagged), building count, program (0 none, 1
   // hospital/clinic campus, 2 university campus, 3 retail/mall, 4 industrial, 5 rail/depot, 6 sport/stadium/arena,
-  // 7 utility, 8 leisure/water park; programs 3-8 need >= 40 % of the block's footprint area)] (poz-buildings.mjs)
+  // 7 utility, 8 leisure/water park, 9 office campus; programs 3-9 need >= 40 % of the block's footprint area)]
+  // (poz-buildings.mjs)
   blockStats,
   // { block id: [[x0, x1, z0, z1, area], ...] }: axis-aligned envelopes of the mapped sport/show/public facilities
   // (>= 150 m²) in blocks with any park share, plus their OSM footprint area. city-config turns them into lots so
