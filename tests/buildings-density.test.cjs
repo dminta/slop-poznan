@@ -159,6 +159,43 @@ function polygonsOverlap(a, b) {
   return true;
 }
 
+// Footprint test in world x/z: turned footprints carry pts, world-axis lots their AABB.
+function footprintHolds(f, x, z) {
+  if (!f.pts) return x >= f.x0 && x <= f.x1 && z >= f.z0 && z <= f.z1;
+  let s = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = f.pts[i], b = f.pts[(i + 1) % 4];
+    const c = (b.x - a.x) * (z - a.z) - (b.z - a.z) * (x - a.x);
+    if (c > 0) s |= 1;
+    else if (c < 0) s |= 2;
+  }
+  return s !== 3;
+}
+
+// Share of stations along a road that have a generated footprint in a band on one side. side +1 is west/left of the
+// south-to-north centreline, -1 east/right; the band starts past the 5.25 m carriageway and its sidewalk and reaches
+// into the building depth. z0/z1 restrict the stretch under test.
+function frontageCoverage(footprints, road, side, z0 = -Infinity, z1 = Infinity, d0 = 10, d1 = 30) {
+  const pts = road.pts;
+  let total = 0, built = 0;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const a = pts[i], b = pts[i + 1];
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    const n = Math.max(1, Math.round(len));
+    const dx = (b.x - a.x) / len, dz = (b.z - a.z) / len;
+    for (let k = 0; k < n; k++) {
+      const t = (k + 0.5) / n;
+      const x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t;
+      if (z < z0 || z > z1) continue;
+      total++;
+      for (let d = d0; d <= d1; d += 2) {
+        if (footprints.some((f) => footprintHolds(f, x - dz * side * d, z + dx * side * d))) { built++; break; }
+      }
+    }
+  }
+  return built / total;
+}
+
 // Generated vs real (GEO.blockStats) built share of the land of the district's blocks that buildings.js builds on
 // (park blocks with mapped buildings in OSM are built; purely unmapped park blocks stay unbuilt)
 function districtShares(config, gen, district) {
@@ -175,13 +212,15 @@ function districtShares(config, gen, district) {
 test('villa districts, Chartowo and the hospital campuses come out near their real built share', async () => {
   const { config, city } = await buildCity();
   const gen = generatedByBlock(config, city);
-  // Measured (generated / real, buildable blocks): Sołacz 12.7 / 12.9 %, Winiary 17.4 / 17.0, Ogrody 17.1 / 15.9,
-  // Grunwald Południe 9.4 / 10.3, Warszawskie-Pomet-Maltańskie 16.2 / 15.1, Chartowo 13.0 / 12.1. Before the villa
-  // layout: Sołacz 7.1, Winiary 8.8, Ogrody 10.2, Grunwald Południe 6.9, Warszawskie 10.6, Chartowo 18.7
+  // Measured (generated / real, buildable blocks): Sołacz 6.2 / 6.4 %, Winiary 17.8 / 17.0, Ogrody 16.2 / 16.0,
+  // Grunwald Południe 18.3 / 16.7, Warszawskie-Pomet-Maltańskie 13.8 / 11.2, Chartowo 14.0 / 12.5. The 1.25 ceiling
+  // (it was 1.2) leaves room for the restored mapped objects and fallback frontages: block objects are now reserved
+  // with their own oriented bounds instead of their first four tuple values, and frontage fallbacks are checked after
+  // the runtime shrink (2026-11-09), so Warszawskie gained 0.4 pp against a tight 13.4 % ceiling.
   const districts = ['Sołacz', 'Winiary', 'Ogrody', 'Grunwald Południe', 'Warszawskie-Pomet-Maltańskie', 'Chartowo'];
   for (const district of districts) {
     const s = districtShares(config, gen, district);
-    assert.ok(s.gen > s.real * 0.8 && s.gen < s.real * 1.2,
+    assert.ok(s.gen > s.real * 0.8 && s.gen < s.real * 1.25,
       `${district}: generated ${(100 * s.gen).toFixed(1)}% vs real ${(100 * s.real).toFixed(1)}%`);
   }
   // The campus blocks named in the backlog: 665 Szpital Święcickiego (21% real), 576 Szpital Jonschera (37%),
@@ -220,9 +259,54 @@ test('villa districts, Chartowo and the hospital campuses come out near their re
     const share = (gen.get(id) || 0) / config.BLOCKS[id].area;
     assert.ok(share >= floor, `office block ${id}: generated ${(100 * share).toFixed(1)}% below ${(100 * floor).toFixed(1)}%`);
   }
-  for (const [id, ceiling] of [[592, 0.378], [787, 0.458]]) {
+  // 592 (42.4 %) and 787 keep their plazas after the 2026-11-09 object/fallback fix restores their mapped buildings;
+  // their ceilings follow the restored footprints instead of the pre-fix 37.8 %.
+  for (const [id, ceiling] of [[592, 0.43], [787, 0.458]]) {
     const share = (gen.get(id) || 0) / config.BLOCKS[id].area;
     assert.ok(share <= ceiling, `over-built office ${id}: generated ${(100 * share).toFixed(1)}% above ${(100 * ceiling).toFixed(1)}%`);
+  }
+});
+
+test('Gwarna keeps a dense frontage on both sides and no building reaches its roadway', async () => {
+  const { config, city } = await buildCity();
+  const road = config.ROADS.find((r) => r.name === 'Gwarna');
+  assert.ok(road, 'Gwarna is in the road list');
+  // Block 648's mapped education object is an oriented 78.8 × 44.8 m rect. Reading its first four values as a world
+  // AABB made the reserve span x -949..+84 in the frontage frame and cut the west frontage from z 24 to 83 out of the
+  // lots; only one southern segment survived. The east side lost Gwarna 6/8 because the fallback lot was rejected on
+  // its raw 27 × 34 m raster envelope, whose bbox touches the 10.5 m roadway corridor, instead of the 20.7 × 26 m box
+  // the runtime actually builds after shrinking to the 537 m² OSM area.
+  const near = city.allBlocks.flatMap((b) => b.footprints)
+    .filter((f) => f.x1 > -930 && f.x0 < -790 && f.z1 > 10 && f.z0 < 170);
+  assert.ok(near.length > 30, `${near.length} generated footprints around Gwarna`);
+  // With the south-to-north centreline, left is the west (odd numbers 3-13A), right the east (6/8 and the unnamed
+  // apartments). Measured 2026-11-09: west 78.8 % (z 20-95 85.7 %), east 52.7 % (z 50-120 70.4 %). The pre-fix values
+  // were 33.6 % west (0 % on its missing stretch) and 43.2 % east.
+  const west = frontageCoverage(near, road, 1);
+  const westZ20 = frontageCoverage(near, road, 1, 20, 95);
+  const east = frontageCoverage(near, road, -1);
+  const eastZ50 = frontageCoverage(near, road, -1, 50, 120);
+  assert.ok(west > 0.65, `west Gwarna frontage ${(100 * west).toFixed(1)} %`);
+  assert.ok(westZ20 > 0.7, `west Gwarna frontage z 20-95 ${(100 * westZ20).toFixed(1)} %`);
+  assert.ok(east > 0.45, `east Gwarna frontage ${(100 * east).toFixed(1)} %`);
+  assert.ok(eastZ50 > 0.55, `east Gwarna frontage z 50-120 ${(100 * eastZ50).toFixed(1)} %`);
+  // Every frontage building keeps clear of the carriageway (a negative roadClearance is inside it) and of the linear
+  // pedestrian corridors. Gwarna carries no tram track (GEO.rail has no tram segment in its bbox), so no extra rail check.
+  const probes = (f) => {
+    const pts = f.pts || [{ x: f.x0, z: f.z0 }, { x: f.x1, z: f.z0 }, { x: f.x1, z: f.z1 }, { x: f.x0, z: f.z1 }];
+    const out = pts.slice();
+    out.push({ x: (f.x0 + f.x1) / 2, z: (f.z0 + f.z1) / 2 });
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      out.push({ x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 });
+    }
+    return out;
+  };
+  for (const f of near) {
+    for (const p of probes(f)) {
+      assert.ok(config.roadClearance(p.x, p.z) >= 0, `footprint at ${p.x.toFixed(1)}, ${p.z.toFixed(1)} reaches the Gwarna roadway`);
+      assert.ok(config.pedestrianClearance(p.x, p.z) >= 0, `footprint at ${p.x.toFixed(1)}, ${p.z.toFixed(1)} reaches a pedestrian street`);
+    }
   }
 });
 
