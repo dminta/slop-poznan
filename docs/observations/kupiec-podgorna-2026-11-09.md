@@ -49,3 +49,30 @@ the game.
   or loader failure was seen. The street view is close to the glass wall; a future scenic camera preset would show
   the whole mass better.
 - The temporary inspection camera preset and buttons were removed before the commit.
+
+## Follow-up: street lawn and Strzelecka pavement, 2026-11-09
+
+The first Kupiec mass kept two leftovers from the raw OSM envelope:
+
+- `objectBlock` pushed `blk.yards.push(insetAll(R, 0.5))` before its Kupiec branch, so the full 101 × 63.7 m
+  minimum-area rectangle became a park-lawn slab. It reached 6.8 m into Plac Wiosny Ludów / Podgórna
+  (`roadClearance` −6.79 m), covering the tram tracks and the pavement.
+- The south wall used `sZ = cz + 31.5`, which left only 2.7–3.2 m between the building and the block's curb outline.
+  The generated frontage lots keep the `SIDEWALK` 4.6 m band, so Kupiec stood on the Strzelecka pavement.
+- `objectReserveBoxes` shrank the retail envelope to its OSM area (88 × 55.6 m) while `kupiecBlock` built the full
+  101 × 63.7 m frame. A kamienica therefore generated through Kupiec's south-east wing (57 m² overlap).
+
+Fixes:
+
+- `kupiecParts` is now the single source of the L-plan/glazed-corner geometry, shared by `kupiecBlock` and
+  `objectReserveBoxes`. The reserve reserves only the real parts, so the walls and the reserve cannot drift.
+- The Strzelecka wall moved to `v = 29.5` and the north-west treads step back from the raw rectangle, keeping at least
+  4.6 m to the block curb on every side. The plan covers 4,248 m² against the 4,899 m² OSM outline.
+- `objectBlock` builds no yard for Kupiec. A new `yardFitsBlock` guard samples every courtyard slab (perimeter every
+  ~2 m plus a 3×3 inner grid) and drops any slab that leaves the source block's curb outline or comes within 0.5 m of
+  a roadway. 61 of the 19,946 slabs city-wide failed (29 reached a roadway, 33 left their block); 19,885 remain.
+
+After the fix Kupiec keeps 4.52 m from the nearest roadway and 4.79 m from the nearest block curb, and no other
+building on block 792 overlaps it. `tests/buildings-density.test.cjs` now checks the whole-block yard guard, Kupiec's
+containment and 4.6 m pavement band, its empty yard list and zero overlap with the neighbouring kamienice.
+`node --test tests/*.cjs` passes 476/476 and `node tests/geodata.test.mjs` rebuilds the geodata byte for byte.

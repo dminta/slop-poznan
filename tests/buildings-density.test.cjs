@@ -172,6 +172,60 @@ function footprintHolds(f, x, z) {
   return s !== 3;
 }
 
+// Distance from (x, z) to a block's curb outline (the poly of {x, z} points).
+function distanceToOutline(poly, x, z) {
+  let best = Infinity;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[j], b = poly[i];
+    const vx = b.x - a.x, vz = b.z - a.z;
+    const len2 = vx * vx + vz * vz || 1e-9;
+    const t = Math.max(0, Math.min(1, ((x - a.x) * vx + (z - a.z) * vz) / len2));
+    best = Math.min(best, Math.hypot(x - (a.x + vx * t), z - (a.z + vz * t)));
+  }
+  return best;
+}
+
+// Perimeter samples every ~2 m plus a 3x3 inner grid: the same probes yardFitsBlock uses in production.
+function yardProbes(y) {
+  const cs = Math.cos(y.ry || 0), sn = Math.sin(y.ry || 0);
+  const cx = (y.x0 + y.x1) * 0.5, cz = (y.z0 + y.z1) * 0.5;
+  const hx = (y.x1 - y.x0) * 0.5, hz = (y.z1 - y.z0) * 0.5;
+  const at = (u, v) => ({ x: cx + u * cs + v * sn, z: cz - u * sn + v * cs });
+  const out = [];
+  const nu = Math.max(1, Math.ceil((2 * hx) / 2));
+  const nv = Math.max(1, Math.ceil((2 * hz) / 2));
+  for (let i = 0; i <= nu; i++) {
+    const u = -hx + (2 * hx * i) / nu;
+    out.push(at(u, -hz), at(u, hz));
+  }
+  for (let j = 0; j <= nv; j++) {
+    const v = -hz + (2 * hz * j) / nv;
+    out.push(at(-hx, v), at(hx, v));
+  }
+  for (const fu of [-0.5, 0, 0.5]) for (const fv of [-0.5, 0, 0.5]) out.push(at(hx * fu, hz * fv));
+  return out;
+}
+
+function pointInPoly(poly, x, z) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a.z > z) !== (b.z > z) && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+// Footprint corners plus edge midpoints: the probes used for clearance checks.
+function probePoints(f) {
+  const pts = f.pts || [{ x: f.x0, z: f.z0 }, { x: f.x1, z: f.z0 }, { x: f.x1, z: f.z1 }, { x: f.x0, z: f.z1 }];
+  const out = pts.slice();
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    out.push({ x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 });
+  }
+  return out;
+}
+
 // Share of stations along a road that have a generated footprint in a band on one side. side +1 is west/left of the
 // south-to-north centreline, -1 east/right; the band starts past the 5.25 m carriageway and its sidewalk and reaches
 // into the building depth. z0/z1 restrict the stretch under test.
@@ -418,14 +472,13 @@ test('Kupiec Poznański is a six-storey glazed-corner block clear of Podgórna',
   // The OSM minimum-area rectangle: 101 x 63.7 m at 36.7°, centred at (-128.5, 364.2) on block 792. Its west and
   // north ends reach Plac Wiosny Ludów and Podgórna, so the plan is an L with a stepped cut corner and an atrium-like
   // recess, not the old 66 x 34 m diagonal box at 3 storeys.
-  const cx = -128.5, cz = 364.2, ang = 0.6412;
-  const th = -ang, cs = Math.cos(th), sn = Math.sin(th);
-  const inEnvelope = (f) => {
-    const dx = (f.x0 + f.x1) / 2 - cx, dz = (f.z0 + f.z1) / 2 - cz;
-    return Math.abs(dx * cs - dz * sn) <= 50.5 && Math.abs(dx * sn + dz * cs) <= 31.9;
-  };
-  const parts = city.allBlocks.filter((b) => b.srcBlockId === 792).flatMap((b) => b.footprints)
-    .filter((f) => f.h > 20 && inEnvelope(f));
+  // Six 4.1 m glass storeys (24.6 m) and six 4.4 m sandstone storeys (26.4 m) identify the two Kupiec masses.
+  const kupiecBlocks = city.allBlocks.filter((b) => b.srcBlockId === 792 &&
+    b.footprints.some((f) => Math.abs(f.h - 24.6) < 0.05) &&
+    b.footprints.some((f) => Math.abs(f.h - 26.4) < 0.05));
+  assert.equal(kupiecBlocks.length, 1, `Kupiec builds one block detail, found ${kupiecBlocks.length}`);
+  const kupiec = kupiecBlocks[0];
+  const parts = kupiec.footprints;
   const area = parts.reduce((sum, f) => {
     const pts = f.pts || [{ x: f.x0, z: f.z0 }, { x: f.x1, z: f.z0 }, { x: f.x1, z: f.z1 }, { x: f.x0, z: f.z1 }];
     let s = 0;
@@ -438,23 +491,57 @@ test('Kupiec Poznański is a six-storey glazed-corner block clear of Podgórna',
   const heights = new Set(parts.map((f) => Math.round(f.h * 10) / 10));
   assert.ok(parts.length >= 8, `Kupiec generates ${parts.length} wings/corner parts`);
   assert.ok(area > 4000 && area < 5000, `Kupiec covers ${area.toFixed(0)} m² (OSM outline 4,899 m²)`);
-  // Six 4.1 m glass storeys (24.6 m) and six 4.4 m sandstone storeys (26.4 m), against the real 26.6 m block.
   assert.ok(heights.has(24.6) && heights.has(26.4), `Kupiec storeys ${[...heights].join(' / ')} m`);
-  const probes = (f) => {
-    const pts = f.pts || [{ x: f.x0, z: f.z0 }, { x: f.x1, z: f.z0 }, { x: f.x1, z: f.z1 }, { x: f.x0, z: f.z1 }];
-    const out = pts.slice();
-    for (let i = 0; i < pts.length; i++) {
-      const a = pts[i], b = pts[(i + 1) % pts.length];
-      out.push({ x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 });
-    }
-    return out;
-  };
+  // Kupiec is a department store, not a courtyard block: its raw 101 x 63.7 m envelope used to seed a lawn that reached
+  // 6.8 m into Plac Wiosny Ludów / Podgórna and covered the tram tracks and the pavement. It has no yard at all now.
+  assert.equal(kupiec.yards.length, 0, `Kupiec still carries ${kupiec.yards.length} yard slabs`);
+  const poly = config.BLOCKS[792].poly;
   for (const f of parts) {
-    for (const p of probes(f)) {
+    for (const p of probePoints(f)) {
       const d = config.roadClearance(p.x, p.z);
       assert.ok(d >= 2.49, `Kupiec keeps only ${d.toFixed(2)} m from the roadway at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`);
+      assert.ok(pointInPoly(poly, p.x, p.z), `Kupiec reaches outside block 792 at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`);
+      // A mapped-object wall may not stand on the pavement: the generated frontage lots keep SIDEWALK 4.6 m from the
+      // curb. The old walls came as close as 2.7 m; the Strzelecka wall was rebuilt so the whole walk stays free.
+      const curb = distanceToOutline(poly, p.x, p.z);
+      assert.ok(curb >= 4.59, `Kupiec keeps only ${curb.toFixed(2)} m from the block curb at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`);
     }
   }
+  // No other building on block 792 may share ground with Kupiec: the object reserve used to shrink to its OSM area
+  // (88 x 55.6 m) while the mass used the full 101 x 63.7 m frame, so a kamienica generated through the south-east wing.
+  const neighbours = city.allBlocks.filter((b) => b.srcBlockId === 792 && b !== kupiec).flatMap((b) => b.footprints);
+  const hits = [];
+  for (const f of parts) {
+    const a = f.pts || [{ x: f.x0, z: f.z0 }, { x: f.x1, z: f.z0 }, { x: f.x1, z: f.z1 }, { x: f.x0, z: f.z1 }];
+    for (const g of neighbours) {
+      const b = g.pts || [{ x: g.x0, z: g.z0 }, { x: g.x1, z: g.z0 }, { x: g.x1, z: g.z1 }, { x: g.x0, z: g.z1 }];
+      if (polygonsOverlap(a, b)) {
+        hits.push(`Kupiec ${f.h.toFixed(1)} m at ${f.x0.toFixed(1)}, ${f.z0.toFixed(1)} / building ${g.h.toFixed(1)} m at ${g.x0.toFixed(1)}, ${g.z0.toFixed(1)}`);
+      }
+    }
+  }
+  assert.deepEqual(hits, [], `buildings overlap Kupiec on block 792: ${hits.join('; ')}`);
+});
+
+test('every courtyard slab stays inside its block and clear of the roadways', async () => {
+  const { config, city } = await buildCity();
+  // The Kupiec yard was the visible case: a mapped object's raw envelope seeded a lawn across Plac Wiosny Ludów,
+  // Podgórna and the tram tracks. populateBlock now drops any courtyard whose turned rectangle leaves the source
+  // block's curb island or comes within 0.5 m of a roadway, so no lawn can cover a street, pavement or track again.
+  let checked = 0;
+  for (const blk of city.allBlocks) {
+    const poly = config.BLOCKS[blk.srcBlockId] && config.BLOCKS[blk.srcBlockId].poly;
+    assert.ok(poly && poly.length > 2, `block ${blk.srcBlockId} has a curb outline`);
+    for (const y of blk.yards) {
+      checked++;
+      for (const p of yardProbes(y)) {
+        const d = config.roadClearance(p.x, p.z);
+        assert.ok(d >= 0.5, `${blk.id} yard reaches a roadway at ${p.x.toFixed(1)}, ${p.z.toFixed(1)} (${d.toFixed(2)} m)`);
+        assert.ok(pointInPoly(poly, p.x, p.z), `${blk.id} yard leaves block ${blk.srcBlockId} at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`);
+      }
+    }
+  }
+  assert.ok(checked > 18000, `only ${checked} courtyard slabs checked`);
 });
 
 test('a block with no mapped building stays empty', async () => {

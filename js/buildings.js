@@ -2579,6 +2579,28 @@ function buildCityBlocks(scene) {
   // Kupiec Poznański (Plac Wiosny Ludów 2): the one retail object on block 792. Its mapped minimum-area rectangle is
   // 101 x 63.7 m across the corner of Podgórna and Plac Wiosny Ludów, and its real L-plan/atrium is not a retail hall.
   const KUPIEC_BLOCK = 792;
+  function isKupiecObject(o) {
+    return srcBlock && srcBlock.id === KUPIEC_BLOCK && o[6] === 1 && o[7] >= 6 && o[5] >= 4000;
+  }
+  // The Kupiec plan in its own minimum-area-rectangle frame, relative to the object centre: u runs along Strzelecka,
+  // v across it towards the street (positive v is the Strzelecka side, negative v faces Podgórna). The south wall at
+  // v = 29.5 keeps the full SIDEWALK 4.6 m pavement; the old +31.5 left only 3.1 m there. The north-west corner steps
+  // back from the raw rectangle along Podgórna and Plac Wiosny Ludów, where the rectangle reached across the curb.
+  // Each tread lies at least 4.6 m inside the block outline. The fifth value marks the glazed corner module.
+  function kupiecParts() {
+    return [
+      [20, 50, -28, -12, 0], // east wing, north of the recess
+      [6, 20, -26.2, -12, 0], // front wing on Podgórna
+      [4, 6, -25.5, -12, 0], // front wing step
+      [4, 50, -12, 29.5, 0], // east wing along Strzelecka
+      [-16, 4, -10, 29.5, 0], // west wing behind the glazed corner
+      [-34, -16, -10, 29.5, 1], // glazed west front
+      [-34, -24, -12.2, -10, 1], // cut corner tread 1
+      [-24, -12, -15.8, -12.2, 1], // cut corner tread 2
+      [-12, 0, -20, -15.8, 1], // cut corner tread 3
+      [0, 4, -24.2, -20, 1] // cut corner tread 4
+    ];
+  }
   function objectReserveBoxes(o, frame) {
     const [cx, cz, w0, d0, ang, area] = o;
     const s = area > 0 && w0 * d0 > 0 ? Math.min(1, Math.sqrt(area / (w0 * d0))) : 1;
@@ -2596,14 +2618,42 @@ function buildCityBlocks(scene) {
     // could touch the building then has its centre within that margin, so the reserve is a superset of the plan (no
     // generic lot can overlap it) while the ring around it stays as thin as the grid allows.
     const margin = C * Math.SQRT1_2;
-    const hw = w * 0.5 + margin, hd = d * 0.5 + margin;
-    const inside = (x, z) => {
-      const dx = x - fcx, dz = z - fcz;
-      return Math.abs(dx * cp + dz * sp) <= hw && Math.abs(-dx * sp + dz * cp) <= hd;
-    };
-    const ex = hw * Math.abs(cp) + hd * Math.abs(sp);
-    const ez = hw * Math.abs(sp) + hd * Math.abs(cp);
-    const x0 = fcx - ex, x1 = fcx + ex, z0 = fcz - ez, z1 = fcz + ez;
+    let inside, ex, ez, x0, x1, z0, z1;
+    if (isKupiecObject(o)) {
+      // The reserve must follow the L-plan kupiecBlock actually builds, not the shrunken OSM envelope: the old reserve
+      // used area/rect (88 x 55.6 m) while the mass used the full 101 x 63.7 m frame, so a kamienica could generate
+      // through Kupiec's south-east wing (57 m² on block 792). Test every cell against the real parts.
+      const parts = kupiecParts();
+      let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+      for (const p of parts) {
+        u0 = Math.min(u0, p[0]); u1 = Math.max(u1, p[1]);
+        v0 = Math.min(v0, p[2]); v1 = Math.max(v1, p[3]);
+      }
+      const local = (x, z) => {
+        const dx = x - fcx, dz = z - fcz;
+        return [dx * cp + dz * sp, -dx * sp + dz * cp];
+      };
+      inside = (x, z) => {
+        const [u, v] = local(x, z);
+        return parts.some((p) => u >= p[0] - margin && u <= p[1] + margin &&
+          v >= p[2] - margin && v <= p[3] + margin);
+      };
+      const uc = (u0 + u1) * 0.5, vc = (v0 + v1) * 0.5;
+      const hw = (u1 - u0) * 0.5 + margin, hd = (v1 - v0) * 0.5 + margin;
+      const bcx = fcx + uc * cp - vc * sp, bcz = fcz + uc * sp + vc * cp;
+      ex = hw * Math.abs(cp) + hd * Math.abs(sp);
+      ez = hw * Math.abs(sp) + hd * Math.abs(cp);
+      x0 = bcx - ex; x1 = bcx + ex; z0 = bcz - ez; z1 = bcz + ez;
+    } else {
+      const hw = w * 0.5 + margin, hd = d * 0.5 + margin;
+      inside = (x, z) => {
+        const dx = x - fcx, dz = z - fcz;
+        return Math.abs(dx * cp + dz * sp) <= hw && Math.abs(-dx * sp + dz * cp) <= hd;
+      };
+      ex = hw * Math.abs(cp) + hd * Math.abs(sp);
+      ez = hw * Math.abs(sp) + hd * Math.abs(cp);
+      x0 = fcx - ex; x1 = fcx + ex; z0 = fcz - ez; z1 = fcz + ez;
+    }
     const i0 = Math.floor(x0 / C), i1 = Math.ceil(x1 / C);
     const j0 = Math.floor(z0 / C), j1 = Math.ceil(z1 / C);
     const boxes = [];
@@ -2648,6 +2698,34 @@ function buildCityBlocks(scene) {
     }
     return false;
   }
+  // A yard slab is meant to be a courtyard inside the block, never a lawn in the street. Mapped-object envelopes and
+  // turned frontage frames could push one far past its lot: Kupiec Poznański's raw 101 x 63.7 m yard reached 6.8 m
+  // into Plac Wiosny Ludów / Podgórna and covered the tram tracks and the pavement. Sample the turned rectangle's
+  // perimeter every ~2 m plus a 3x3 inner grid, and drop the whole slab on the first probe that leaves the curb island
+  // or comes within half a metre of a roadway. The remaining courtyards are unchanged.
+  function yardFitsBlock(y) {
+    const cs = Math.cos(y.ry || 0), sn = Math.sin(y.ry || 0);
+    const cx = (y.x0 + y.x1) * 0.5, cz = (y.z0 + y.z1) * 0.5;
+    const hx = (y.x1 - y.x0) * 0.5, hz = (y.z1 - y.z0) * 0.5;
+    const check = (u, v) => {
+      const x = cx + u * cs + v * sn, z = cz - u * sn + v * cs;
+      return roadClearance(x, z) >= 0.5 && insideCurbIsland(x, z);
+    };
+    const nu = Math.max(1, Math.ceil((2 * hx) / 2));
+    const nv = Math.max(1, Math.ceil((2 * hz) / 2));
+    for (let i = 0; i <= nu; i++) {
+      const u = -hx + (2 * hx * i) / nu;
+      if (!check(u, -hz) || !check(u, hz)) return false;
+    }
+    for (let j = 0; j <= nv; j++) {
+      const v = -hz + (2 * hz * j) / nv;
+      if (!check(-hx, v) || !check(hx, v)) return false;
+    }
+    for (const fu of [-0.5, 0, 0.5]) {
+      for (const fv of [-0.5, 0, 0.5]) if (!check(hx * fu, hz * fv)) return false;
+    }
+    return true;
+  }
   function fallbackPartClear(x0, x1, z0, z1) {
     const mx = (x0 + x1) * 0.5, mz = (z0 + z1) * 0.5;
     for (const [x, z] of [[x0, z0], [x1, z0], [x1, z1], [x0, z1], [mx, mz],
@@ -2667,36 +2745,21 @@ function buildCityBlocks(scene) {
   // mass follows the safe part of the OSM envelope: an L along Podgórna and Plac Wiosny Ludów with a stepped cut
   // corner, and a glazed corner module (F.glassSilver) at the junction. All local coordinates are in the object's
   // minimum-area-rectangle frame; the object is turned into place by populateObject, so the -z edge faces Podgórna.
+  // The plan itself lives in kupiecParts, shared with objectReserveBoxes so the reserve and the walls cannot drift.
   function kupiecBlock(blk, R) {
     const floors = 6; // OSM building:levels and the real 26.6 m block
     const cx = (R.x0 + R.x1) * 0.5; // local u = 0
     const cz = (R.z0 + R.z1) * 0.5; // local v = 0
-    const wX = cx - 34; // the min rect's west corner reaches Plac Wiosny Ludów
-    const eX = cx + 50;
-    const nZ = cz - 28; // Podgórna's bend needs the last 3.9 m of the min rect left clear
-    const sZ = cz + 31.5;
+    const at = ([u0, u1, v0, v1]) => rect(cx + u0, cx + u1, cz + v0, cz + v1);
+    const parts = kupiecParts();
     // The glazed west end fills the corner of Plac Wiosny Ludów and the Podgórna cut; the sandstone wings run east
     // along Podgórna and round the large atrium/recess.
-    const gx0 = cx + 4;
     const main = building(blk, F.sandstone, R);
-    mass(main, [
-      rect(cx + 20, eX, nZ, cz - 12), // east wing, north of the recess
-      rect(cx + 6, cx + 20, nZ, cz - 12), // front wing on Podgórna, closing the recess
-      // The front wing steps 2 m back at its north-west corner, where the min rect comes within 2.2 m of the curb.
-      rect(gx0, cx + 6, cz - 26, cz - 12),
-      rect(gx0, eX, cz - 12, sZ), // east wing along Podgórna/Półwiejska
-      rect(cx - 16, gx0, cz - 10, sZ) // west wing, behind the glazed corner
-    ], 0, floors);
-    // The glazed corner is the whole west end plus the four-tread diagonal cut, which keeps the corner clear where the
-    // minimum-area rectangle crosses Podgórna and Plac Wiosny Ludów (3.4 and 2.8 m from the roadway at the treads).
+    mass(main, parts.filter((p) => p[4] === 0).map(at), 0, floors);
+    // The glazed corner is the whole west end plus the four-tread diagonal cut where the raw minimum-area rectangle
+    // crossed Podgórna and Plac Wiosny Ludów.
     const corner = building(blk, F.glassSilver, R);
-    mass(corner, [
-      rect(wX, cx - 16, cz - 10, sZ), // glazed west front
-      rect(wX, cx - 24, cz - 14, cz - 10),
-      rect(cx - 24, cx - 12, cz - 18, cz - 14),
-      rect(cx - 12, cx, cz - 22, cz - 18),
-      rect(cx, gx0, cz - 24, cz - 22)
-    ], 0, floors);
+    mass(corner, parts.filter((p) => p[4] === 1).map(at), 0, floors);
     commit(blk, main, { cornice: false, hvac: true, hvacH: range(3, 4.6), skylights: true, shops: 'all',
       awnings: false, freestanding: true });
     commit(blk, corner, { cornice: false, hvac: false, skylights: false, shops: 'all', awnings: false,
@@ -2708,13 +2771,13 @@ function buildCityBlocks(scene) {
     const W = rectW(R);
     const D = rectD(R);
     if (Math.min(W, D) < 5) return;
-    blk.yards.push(insetAll(R, 0.5));
     const use = cfg.objectUse;
     const lv = cfg.levels;
     if (srcBlock && srcBlock.id === KUPIEC_BLOCK && use === 1 && lv >= 6) {
       kupiecBlock(blk, R);
       return;
     }
+    blk.yards.push(insetAll(R, 0.5));
     const fl = (a, b) => (lv >= 1 ? Math.max(a, Math.min(b, Math.round(lv))) : irange(a, b));
     const alongX = W >= D;
     const len = alongX ? W : D;
@@ -3594,6 +3657,7 @@ function buildCityBlocks(scene) {
       placeInFrame(blockDetail, bucketMarks);
       roofs.transform(roofMark, toWorld, xf.th);
     }
+    blockDetail.yards = blockDetail.yards.filter(yardFitsBlock);
     quadtree.insert(blockDetail);
     allBlocks.push(blockDetail);
   }
