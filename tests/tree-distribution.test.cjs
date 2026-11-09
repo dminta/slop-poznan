@@ -93,17 +93,17 @@ test('seeded species assignment preserves the full built city tree sites and col
   // Zamek and Stadium landmark reserves, and the Królowej Jadwigi building restoration update tree pins. The same
   // day's central frontage pass (Stare Miasto object reserves as 4 m grid rows, no frontage gaps or piece thinning,
   // and the 0.5 m fallback property-line tolerance) moves the pins again.
-  assert.deepEqual(before, [45832, 49644, 22032, 1991]);
-  assert.deepEqual(after, [43957, 47576, 21123, 6843]);
-  assert.equal(siteHash, 'b826fc5320e44e5133ff0a3217ee97fcf02df6c72e10eb2d3d8bc5edb2045ee2');
+  assert.deepEqual(before, [45833, 49657, 22034, 1991]);
+  assert.deepEqual(after, [43958, 47589, 21125, 6843]);
+  assert.equal(siteHash, '4de81607dd20fc2aff0a44834cac2fd152d354bdef1abd45c094a69390ddd5b5');
   assert.equal(digest(grid.propColliders), '47a6c14dc68bbc1af16401871a15079f70273d9484ee826f45576f18a102a6c4');
-  assert.equal(digest(details.colliders), 'c6dd68e1e366347db8eca458c9648f50a72d88a9762230feae2e05a3a1fe02f6');
+  assert.equal(digest(details.colliders), '2cc9afdd6a5124d2f912b5c777ed3d6331a0bb936d83df97fb4f031f179960eb');
   assert.equal(meshCount((t) => t.species || 0), 25481);
   assert.equal(meshCount(treeSpecies), 30368);
   // Every surveyed node the clearance rules accept reaches the field exactly at its OSM position. The rest are dropped
   // where a wall, lane, track, water or building doorway leaves no room, rather than moved off the surveyed point.
   const osm = sites.filter((t) => t.source === 'osm');
-  assert.equal(osm.length, 33074);
+  assert.equal(osm.length, 33076);
   assert.ok(osm.every((t) => t.tier === 0 || (t.pitRot !== undefined && Number.isFinite(t.pitRot))));
   assert.ok(osm.every((t) => Number.isFinite(t.x) && Number.isFinite(t.z) && t.scale >= 0.55 && t.scale <= 1.3));
 });

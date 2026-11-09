@@ -381,6 +381,82 @@ test('Podgórna and Strzelecka keep their central street wall', async () => {
   }
 });
 
+test('Podgórna frontages keep a 2.5 m pavement clear of the roadway', async () => {
+  const { config, city } = await buildCity();
+  const road = config.ROADS.find((r) => r.name === 'Podgórna' && r.pts.some((p) => p.x > -160 && p.x < -100));
+  assert.ok(road, 'Podgórna exists');
+  const near = city.allBlocks.flatMap((b) => b.footprints).filter((f) => {
+    const xs = f.pts ? f.pts.map((p) => p.x) : [f.x0, f.x1];
+    const zs = f.pts ? f.pts.map((p) => p.z) : [f.z0, f.z1];
+    return Math.max(...xs) > -190 && Math.min(...xs) < -80 && Math.max(...zs) > 295 && Math.min(...zs) < 370;
+  });
+  const probes = (f) => {
+    const pts = f.pts || [{ x: f.x0, z: f.z0 }, { x: f.x1, z: f.z0 }, { x: f.x1, z: f.z1 }, { x: f.x0, z: f.z1 }];
+    const out = pts.slice();
+    out.push({ x: (f.x0 + f.x1) / 2, z: (f.z0 + f.z1) / 2 });
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      out.push({ x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 });
+    }
+    return out;
+  };
+  // The mapped corner house on block 770 (way 365954909) used to put its corner 1.1 m from the lane centre corridor,
+  // and Kupiec Poznański's envelope corner 1.5 m. Both now sit 2.5 m or more back, so the pavement stays walkable.
+  for (const f of near) {
+    for (const p of probes(f)) {
+      const d = config.roadClearance(p.x, p.z);
+      assert.ok(d >= 2.49,
+        `footprint at ${p.x.toFixed(1)}, ${p.z.toFixed(1)} keeps only ${d.toFixed(2)} m from the Podgórna roadway`);
+    }
+  }
+  const cornerHouse = near.filter((f) => f.z0 > 295 && f.z1 < 316 && f.x0 > -165 && f.x1 < -140);
+  assert.ok(cornerHouse.length > 0, 'the mapped Podgórna corner house on block 770 still generates');
+});
+
+test('Kupiec Poznański is a six-storey glazed-corner block clear of Podgórna', async () => {
+  const { config, city } = await buildCity();
+  // The OSM minimum-area rectangle: 101 x 63.7 m at 36.7°, centred at (-128.5, 364.2) on block 792. Its west and
+  // north ends reach Plac Wiosny Ludów and Podgórna, so the plan is an L with a stepped cut corner and an atrium-like
+  // recess, not the old 66 x 34 m diagonal box at 3 storeys.
+  const cx = -128.5, cz = 364.2, ang = 0.6412;
+  const th = -ang, cs = Math.cos(th), sn = Math.sin(th);
+  const inEnvelope = (f) => {
+    const dx = (f.x0 + f.x1) / 2 - cx, dz = (f.z0 + f.z1) / 2 - cz;
+    return Math.abs(dx * cs - dz * sn) <= 50.5 && Math.abs(dx * sn + dz * cs) <= 31.9;
+  };
+  const parts = city.allBlocks.filter((b) => b.srcBlockId === 792).flatMap((b) => b.footprints)
+    .filter((f) => f.h > 20 && inEnvelope(f));
+  const area = parts.reduce((sum, f) => {
+    const pts = f.pts || [{ x: f.x0, z: f.z0 }, { x: f.x1, z: f.z0 }, { x: f.x1, z: f.z1 }, { x: f.x0, z: f.z1 }];
+    let s = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      s += a.x * b.z - b.x * a.z;
+    }
+    return sum + Math.abs(s) / 2;
+  }, 0);
+  const heights = new Set(parts.map((f) => Math.round(f.h * 10) / 10));
+  assert.ok(parts.length >= 8, `Kupiec generates ${parts.length} wings/corner parts`);
+  assert.ok(area > 4000 && area < 5000, `Kupiec covers ${area.toFixed(0)} m² (OSM outline 4,899 m²)`);
+  // Six 4.1 m glass storeys (24.6 m) and six 4.4 m sandstone storeys (26.4 m), against the real 26.6 m block.
+  assert.ok(heights.has(24.6) && heights.has(26.4), `Kupiec storeys ${[...heights].join(' / ')} m`);
+  const probes = (f) => {
+    const pts = f.pts || [{ x: f.x0, z: f.z0 }, { x: f.x1, z: f.z0 }, { x: f.x1, z: f.z1 }, { x: f.x0, z: f.z1 }];
+    const out = pts.slice();
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      out.push({ x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 });
+    }
+    return out;
+  };
+  for (const f of parts) {
+    for (const p of probes(f)) {
+      const d = config.roadClearance(p.x, p.z);
+      assert.ok(d >= 2.49, `Kupiec keeps only ${d.toFixed(2)} m from the roadway at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`);
+    }
+  }
+});
+
 test('a block with no mapped building stays empty', async () => {
   const { config, city } = await buildCity();
   const gen = generatedByBlock(config, city);

@@ -520,8 +520,14 @@ roofs are drawn separately from `GEO.canopies` by `canopies.js`. Level crossing 
     minimum-area rectangle of its OSM outline. Use 1–5 keep the anchor massings; 6 education, 7 sacral, 8 health,
     9 civic and 10 office get their own plan: a school wing with a gym/annex, a gabled nave with a tower, a clinic
     with light courts, a stone civic block with a raised centre, or an office podium and set-back shaft. Each object
-    is built in its own frame, shrunk to its real ring area when the plan is not a rectangle, and skipped when a
-    corner reaches a roadway (`roadClearance < 0`). In Stare Miasto the generic lots are reserved against a 4 m
+    is built in its own frame, shrunk to its real ring area when the plan is not a rectangle, and set back from the
+    roadway by `OBJECT_CURB_CLEAR` 2.5 m (a narrow object that cannot afford that at both ends falls back to the old
+    0.5 m rule instead of disappearing). On Podgórna the old 0.5 m tolerance left the block-770 corner house 1.1 m
+    from the lane corridor and Kupiec Poznański's corner 1.5 m. Block 792's Kupiec (way 35277661) is a dedicated
+    six-storey plan instead of the generic retail hall: sandstone wings on the L-shaped safe part of its 101 × 63.7 m
+    OSM envelope plus a glazed west end and a four-tread cut corner at Plac Wiosny Ludów, 24.6–26.4 m tall and
+    4,454 m² over 10 parts ([record](observations/kupiec-podgorna-2026-11-09.md)). In Stare Miasto the generic lots
+    are reserved against a 4 m
     grid-row approximation of the object's rotated plan instead of its whole AABB: the bounding box of a diagonal
     hall (Kupiec Poznański's 4,899 m² bloc) used to cut 10–40 m of the neighbouring Strzelecka/Długa frontage and
     left holes that read as demolished kamienice. The row cells cover the envelope with a margin, so no generic lot
