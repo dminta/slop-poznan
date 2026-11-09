@@ -310,6 +310,77 @@ test('Gwarna keeps a dense frontage on both sides and no building reaches its ro
   }
 });
 
+test('Podgórna and Strzelecka keep their central street wall', async () => {
+  const { config, city } = await buildCity();
+  const footprintsIn = (x0, x1, z0, z1) => city.allBlocks.flatMap((b) => b.footprints).filter((f) => {
+    const xs = f.pts ? f.pts.map((p) => p.x) : [f.x0, f.x1];
+    const zs = f.pts ? f.pts.map((p) => p.z) : [f.z0, f.z1];
+    return Math.max(...xs) > x0 && Math.min(...xs) < x1 && Math.max(...zs) > z0 && Math.min(...zs) < z1;
+  });
+  const named = (name, pred) => {
+    const road = config.ROADS.find((r) => r.name === name && pred(r));
+    assert.ok(road, `${name} segment exists`);
+    return road;
+  };
+  const spans = (r, axis) => {
+    const v = r.pts.map((p) => p[axis]);
+    return [Math.min(...v), Math.max(...v)];
+  };
+  const strzelecka = named('Strzelecka', (r) => r.pts.length > 10 && spans(r, 'z')[0] < 400 && spans(r, 'z')[1] > 800);
+  const podgorna = named('Podgórna', (r) =>
+    spans(r, 'x')[0] > -160 && spans(r, 'x')[1] > -100 && spans(r, 'z')[1] < 350);
+  const dluga = named('Długa', (r) => spans(r, 'x')[0] < -200 && spans(r, 'x')[1] > -100 && spans(r, 'z')[1] < 540);
+  const zielona = named('Zielona', (r) => spans(r, 'x')[0] > 90);
+  const ogrodowa = named('Ogrodowa', (r) => spans(r, 'x')[0] > -380 && spans(r, 'x')[1] < -240);
+  // The four blocks between Podgórna and Strzelecka carry the 2026-11-09 regression: the AABB reserve of the mapped
+  // objects (Kupiec Poznański, the schools on Długa/Zielona) cut whole frontage lots out of the generic perimeter
+  // layout. The measured frontage coverage before/after the object-reserve fix (both sides sampled 10-30 m from the
+  // centreline): Strzelecka 57.0/61.2 -> 63.9/61.7 % (59.1 -> 62.8 % combined), Podgórna's eastern stretch 30.0 ->
+  // 81.7 % on its south side, Długa 59.4 -> 80.2 %, Zielona 66.7 -> 86.0 % and Ogrodowa 46.4 -> 61.6 % on its north
+  // side.
+  const checks = [
+    ['Strzelecka west', strzelecka, footprintsIn(-220, 115, 340, 900), 1, 363, 878, 0.60],
+    ['Strzelecka east', strzelecka, footprintsIn(-220, 115, 340, 900), -1, 363, 878, 0.60],
+    ['Podgórna south', podgorna, footprintsIn(-190, -80, 295, 370), -1, 322, 341, 0.65],
+    ['Podgórna north', podgorna, footprintsIn(-190, -80, 295, 370), 1, 322, 341, 0.85],
+    ['Długa north', dluga, footprintsIn(-260, -10, 495, 560), 1, 520, 535, 0.72],
+    ['Długa south', dluga, footprintsIn(-260, -10, 495, 560), -1, 520, 535, 0.72],
+    ['Zielona north', zielona, footprintsIn(70, 185, 430, 485), 1, 454, 463, 0.75],
+    ['Ogrodowa north', ogrodowa, footprintsIn(-390, -235, 495, 575), 1, 520, 549, 0.55],
+    ['Ogrodowa south', ogrodowa, footprintsIn(-390, -235, 495, 575), -1, 520, 549, 0.70]
+  ];
+  for (const [label, road, near, side, z0, z1, min] of checks) {
+    const share = frontageCoverage(near, road, side, z0, z1);
+    assert.ok(share >= min, `${label} frontage ${(100 * share).toFixed(1)} % below ${(100 * min).toFixed(0)} %`);
+  }
+  const strzNear = footprintsIn(-220, 115, 340, 900);
+  const strzBoth = (frontageCoverage(strzNear, strzelecka, 1, 363, 878) +
+    frontageCoverage(strzNear, strzelecka, -1, 363, 878)) / 2;
+  assert.ok(strzBoth >= 0.60, `Strzelecka combined frontage ${(100 * strzBoth).toFixed(1)} % below 60 %`);
+  // The denser frontages still stand clear of every roadway and pedestrian corridor: the fallback tolerance only
+  // accepts points within 0.5 m of the block's own property line, never a carriageway or a walking street.
+  const probes = (f) => {
+    const pts = f.pts || [{ x: f.x0, z: f.z0 }, { x: f.x1, z: f.z0 }, { x: f.x1, z: f.z1 }, { x: f.x0, z: f.z1 }];
+    const out = pts.slice();
+    out.push({ x: (f.x0 + f.x1) / 2, z: (f.z0 + f.z1) / 2 });
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      out.push({ x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 });
+    }
+    return out;
+  };
+  const guarded = new Set();
+  for (const [, , near] of checks) for (const f of near) guarded.add(f);
+  for (const f of guarded) {
+    for (const p of probes(f)) {
+      assert.ok(config.roadClearance(p.x, p.z) >= -1e-6,
+        `footprint at ${p.x.toFixed(1)}, ${p.z.toFixed(1)} reaches a roadway`);
+      assert.ok(config.pedestrianClearance(p.x, p.z) >= -1e-6,
+        `footprint at ${p.x.toFixed(1)}, ${p.z.toFixed(1)} reaches a pedestrian street`);
+    }
+  }
+});
+
 test('a block with no mapped building stays empty', async () => {
   const { config, city } = await buildCity();
   const gen = generatedByBlock(config, city);

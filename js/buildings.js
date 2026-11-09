@@ -332,6 +332,7 @@ function buildCityBlocks(scene) {
   let srcBlock = null; // the BLOCKS entry being populated (its curb outline gives the lot rects' frontages)
   let srcAnchors = []; // its GEO.blockAnchors kept for this block (world [x0, x1, z0, z1, area, use, levels])
   let srcObjects = []; // its GEO.blockObjects (same layout, including education/sacral/health/civic/office uses)
+  let srcObjectReserves = []; // srcObjects' reserve rects (objectReserveBoxes in Stare Miasto, else the full AABB)
   let srcFallbackLots = []; // its GEO.blockFallbackLots (world [x0, x1, z0, z1, area])
   let srcRects = []; // its lot rects { x0, x1, z0, z1 } in their frames { cs, sn, px, pz } (see frontages)
   let srcLotArea = 0; // the area of the lot pieces it builds on (m², see steerProfile)
@@ -2562,10 +2563,61 @@ function buildCityBlocks(scene) {
     }
     return [x0, x1, z0, z1];
   }
+  // Frame-space AABBs of an object envelope, approximated by 4 m grid rows clipped to its rotated plan. A diagonal
+  // hall's single AABB can span 10-40 m of a neighbouring frontage beyond its real walls (Kupiec Poznański's 4,899 m²
+  // bloc on block 792 reached the Strzelecka frontage through its bounding-box corners alone, and the generic perimeter
+  // layout then lost that whole stretch). The rows are cut in the lot frame, so a turned frontage frame does not turn
+  // each row back into a large AABB. They cover the envelope (any touched cell is kept), so no generic lot can overlap
+  // the mapped building, while the corners outside its walls stay available for the next kamienica.
+  const OBJECT_RESERVE_CELL = 4;
+  function objectReserveBoxes(o, frame) {
+    const [cx, cz, w0, d0, ang, area] = o;
+    const s = area > 0 && w0 * d0 > 0 ? Math.min(1, Math.sqrt(area / (w0 * d0))) : 1;
+    const w = w0 * s, d = d0 * s;
+    if (!(w > 0 && d > 0)) return [];
+    const th = frame ? frame.th : 0;
+    const cs = Math.cos(th), sn = Math.sin(th);
+    const px = frame ? frame.px : 0, pz = frame ? frame.pz : 0;
+    const fcx = px + (cx - px) * cs - (cz - pz) * sn;
+    const fcz = pz + (cx - px) * sn + (cz - pz) * cs;
+    const phi = ang + th;
+    const cp = Math.cos(phi), sp = Math.sin(phi);
+    const C = OBJECT_RESERVE_CELL;
+    // A cell is reserved when its centre falls inside the envelope inflated by the cell's half-diagonal: any cell that
+    // could touch the building then has its centre within that margin, so the reserve is a superset of the plan (no
+    // generic lot can overlap it) while the ring around it stays as thin as the grid allows.
+    const margin = C * Math.SQRT1_2;
+    const hw = w * 0.5 + margin, hd = d * 0.5 + margin;
+    const inside = (x, z) => {
+      const dx = x - fcx, dz = z - fcz;
+      return Math.abs(dx * cp + dz * sp) <= hw && Math.abs(-dx * sp + dz * cp) <= hd;
+    };
+    const ex = hw * Math.abs(cp) + hd * Math.abs(sp);
+    const ez = hw * Math.abs(sp) + hd * Math.abs(cp);
+    const x0 = fcx - ex, x1 = fcx + ex, z0 = fcz - ez, z1 = fcz + ez;
+    const i0 = Math.floor(x0 / C), i1 = Math.ceil(x1 / C);
+    const j0 = Math.floor(z0 / C), j1 = Math.ceil(z1 / C);
+    const boxes = [];
+    for (let j = j0; j < j1; j++) {
+      const za = j * C, zb = za + C;
+      let run = null;
+      for (let i = i0; i <= i1; i++) {
+        const xa = i * C, xb = xa + C;
+        const hit = i < i1 && inside(xa + C * 0.5, za + C * 0.5);
+        if (hit && run === null) run = xa;
+        if (!hit && run !== null) {
+          boxes.push([run, xa, za, zb]);
+          run = null;
+        }
+      }
+      if (run !== null) boxes.push([run, i1 * C, za, zb]);
+    }
+    return boxes;
+  }
   // A fallback envelope is a world rect from GEO.blockFallbackLots. It must stand inside the source block's curb
   // island and clear of every roadway and pedestrian corridor: populateBlock fills a whole perimeter block (rows,
   // corner houses, oficyny) on it, so a lot that reaches a street would put houses in the street.
-  function insideCurbIsland(x, z) {
+  function insideCurbIsland(x, z, tolerance = 0) {
     const poly = srcBlock && srcBlock.poly;
     if (!poly || poly.length < 3) return false;
     let inside = false;
@@ -2573,13 +2625,25 @@ function buildCityBlocks(scene) {
       const a = poly[i], b = poly[j];
       if ((a.z > z) !== (b.z > z) && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
     }
-    return inside;
+    if (inside || tolerance <= 0) return inside;
+    // A fallback envelope can share the property line with the curb polygon, and a 0.03 m corner outside it used to
+    // drop a whole mapped building (block 802's Ogrodowa/Długa frontage). Accept points within `tolerance` of the line;
+    // roadway and pedestrian clearance are checked separately and stay strict.
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[i], b = poly[j];
+      const vx = b.x - a.x, vz = b.z - a.z;
+      const len2 = vx * vx + vz * vz || 1e-9;
+      const t = Math.max(0, Math.min(1, ((x - a.x) * vx + (z - a.z) * vz) / len2));
+      const dx = x - (a.x + vx * t), dz = z - (a.z + vz * t);
+      if (dx * dx + dz * dz <= tolerance * tolerance) return true;
+    }
+    return false;
   }
   function fallbackPartClear(x0, x1, z0, z1) {
     const mx = (x0 + x1) * 0.5, mz = (z0 + z1) * 0.5;
     for (const [x, z] of [[x0, z0], [x1, z0], [x1, z1], [x0, z1], [mx, mz],
       [mx, z0], [mx, z1], [x0, mz], [x1, mz]]) {
-      if (roadClearance(x, z) < 0 || pedestrianClearance(x, z) < 0 || !insideCurbIsland(x, z)) return false;
+      if (roadClearance(x, z) < 0 || pedestrianClearance(x, z) < 0 || !insideCurbIsland(x, z, 0.5)) return false;
     }
     return true;
   }
@@ -2816,13 +2880,14 @@ function buildCityBlocks(scene) {
     rows: [['kamienica', 7], ['postwarBlock', 1], ['infill', 1.2], ['modernist1930s', 1]],
     kf: { kamienica: [4, 5], postwarBlock: [5, 6], infill: [4, 6] }
   });
-  // Stare Miasto round the Rynek, Garbary, Chwaliszewo: 3-5-storey kamienice, mixed, war gaps and pavilions
+  // Stare Miasto round the Rynek, Garbary, Chwaliszewo: 3-5-storey kamienice, mixed, pavilions; no base frontage gap
+  // (steerProfile adds war gaps only to sparser blocks outside the historic centre)
   const RES_STARE = res({
     corner: [14, 20],
     cornerFloors: [4, 5],
     turretP: 0.15,
     shops: 0.6,
-    rows: [['kamienica', 7], ['infill', 1], ['postwarBlock', 0.8], ['low', 0.38], ['gap', 0.18]],
+    rows: [['kamienica', 7], ['infill', 1], ['postwarBlock', 0.8], ['low', 0.38]],
     kf: { kamienica: [3, 5], postwarBlock: [4, 5] }
   });
   // Stary Rynek: the frontages facing the square are rows of rynekHouses, the back streets Old Town
@@ -3059,6 +3124,11 @@ function buildCityBlocks(scene) {
         out.cornerFloors = [Math.max(base.cornerFloors[0] - 1, f), Math.max(base.cornerFloors[1] - 1, Math.min(8, f + 1))];
       }
       const others = base.rows.filter(([k]) => k !== 'gap');
+      // The historic centre keeps an unbroken street wall: no base frontage gaps, no whole-piece thinning, and war
+      // gaps only as the interior thinning leaves them (the user reads a missing kamienica between Strzelecka and
+      // Podgórna as a hole in the frontage). Other districts keep the sparse-block gaps below 0.6.
+      const denseCentre = b.district === 'Stare Miasto';
+      if (denseCentre) out.rows = others;
       if (q >= 1) {
         out.rows = others;
         // (the villas' only inner kind is the yard: a dense villa block, Górczyn's houses on 30% of their lots, falls
@@ -3086,7 +3156,7 @@ function buildCityBlocks(scene) {
             ? [['yard', 1]]
             : [['yard', 3], ...(base.inner || INNER_RES).filter(([k]) => k !== 'yard')];
         out.noCore = q < 0.8 && !fillCore;
-        if (q < 0.6) {
+        if (q < 0.6 && !denseCentre) {
           const f = Math.min(0.6, 0.6 - q);
           const w = others.reduce((t, [, x]) => t + x, 0);
           out.rows = [...others, ['gap', (w * f) / (1 - f)]];
@@ -3670,11 +3740,13 @@ function buildCityBlocks(scene) {
   // park facility lot is laid over a mapped mall, hall, depot or arena.
   function minusReserves(r) {
     // Anchors are world AABBs [x0, x1, z0, z1, ...]; mapped objects are oriented rects [cx, cz, w, d, ang, ...] and
-    // must take their world AABB first. Reading the object's first four values as a box cut most of block 648 (the
-    // Gwarna frontage) out of its own lots, because the reserve spanned from -949 to +84 in the frontage frame.
+    // must take their world bounds first. Reading the object's first four values as a box cut most of block 648 (the
+    // Gwarna frontage) out of its own lots, because the reserve spanned from -949 to +84 in the frontage frame. In
+    // Stare Miasto the object reserves are grid rows clipped to its rotated plan (objectReserveBoxes), so a diagonal
+    // envelope does not cut a whole frontage through the corners of its AABB.
     const anchors = [
       ...srcAnchors.map((a) => inFrameRect(a)),
-      ...srcObjects.map((o) => inFrameRect(objectBounds(o)))
+      ...srcObjectReserves
     ].map((b) => ({ x0: b[0], x1: b[1], z0: b[2], z1: b[3] }));
     let reserves = LANDMARK_RESERVE;
     if (xf) {
@@ -3741,6 +3813,9 @@ function buildCityBlocks(scene) {
     fullLotArea = 0;
     for (const [th, px, pz, rects] of b.frames || [[0, 0, 0, b.rects]]) {
       xf = th ? { th, cs: Math.cos(th), sn: Math.sin(th), px, pz } : null;
+      srcObjectReserves = srcObjects.flatMap((o) => b.district === 'Stare Miasto'
+        ? objectReserveBoxes(o, xf)
+        : [inFrameRect(objectBounds(o))]);
       for (const r of rects) {
         for (const part of minusReserves(r)) {
           for (const piece of splitDeep(part)) {
@@ -3767,6 +3842,9 @@ function buildCityBlocks(scene) {
     // GEO.blockFallbackLots are world rects; the frames above hold the last frontage frame of this block. Clearing xf
     // keeps them in the world frame (a stale frame used to rotate the lots into other blocks and streets).
     xf = null;
+    srcObjectReserves = srcObjects.flatMap((o) => b.district === 'Stare Miasto'
+      ? objectReserveBoxes(o, null)
+      : [objectBounds(o)]);
     for (const f of srcFallbackLots) {
       const e = fallbackEnvelope(f);
       for (const part of minusReserves(e)) {
@@ -3946,6 +4024,7 @@ function buildCityBlocks(scene) {
   srcBlock = null;
   srcAnchors = [];
   srcObjects = [];
+  srcObjectReserves = [];
   srcFallbackLots = [];
   srcRects = [];
   srcLotArea = 0;
