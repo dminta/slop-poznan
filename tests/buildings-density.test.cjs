@@ -811,54 +811,132 @@ test('the same seed builds the same city', async () => {
   assert.equal(sum(again.city), first);
 });
 
-// Balcony pool capacities from js/balconies.js and js/buildings.js
-const MAX_STACKS = 2400;
-const MAX_NEAR_BALCONIES = 256;
-const NEAR_DISTANCE = 90;
-const STREAM_RADIUS = 560;
+// Balcony pool capacities, read from js/balconies.js and js/buildings.js so the test cannot drift from them
+const balconySource = readFileSync(join(__dirname, '../js/balconies.js'), 'utf8');
+const sourceConst = (text, name) => Number(text.match(new RegExp(`^ *const ${name} = (\\d+);`, 'm'))[1]);
+const MAX_STACKS = sourceConst(balconySource, 'MAX_STACKS');
+const MAX_NEAR_BALCONIES = sourceConst(balconySource, 'MAX_NEAR_BALCONIES');
+const NEAR_DISTANCE = sourceConst(balconySource, 'NEAR_DISTANCE');
+const STREAM_RADIUS = sourceConst(source, 'STREAM_RADIUS');
 
-function evaluateBalconiesAt(city, focusX, focusZ) {
+// Blocks within STREAM_RADIUS, nearest centre first, as the buildings update streams them
+function streamedBlocks(city, focusX, focusZ) {
   const nearby = city.quadtree.queryRange(focusX, focusZ, STREAM_RADIUS);
   nearby.sort((a, b) => {
     const da = (a.cx - focusX) * (a.cx - focusX) + (a.cz - focusZ) * (a.cz - focusZ);
     const db = (b.cx - focusX) * (b.cx - focusX) + (b.cz - focusZ) * (b.cz - focusZ);
     return da - db;
   });
+  return nearby;
+}
 
+function evaluateBalconiesAt(city, focusX, focusZ) {
   let total = 0;
-  let nearCount = 0;
-  let farCount = 0;
-  let nearDemand = 0;
   let totalStacksInRange = 0;
-
-  for (const blk of nearby) {
-    if (!blk.balconies) continue;
-    for (const b of blk.balconies) {
+  for (const blk of streamedBlocks(city, focusX, focusZ)) {
+    for (const b of blk.balconies || []) {
       totalStacksInRange++;
-      if (total >= MAX_STACKS) continue;
-      total++;
-      const dx = b.x - focusX, dz = b.z - focusZ;
-      if (dx * dx + dz * dz < NEAR_DISTANCE * NEAR_DISTANCE) {
-        nearDemand += b.landings;
-        if (nearCount + b.landings <= MAX_NEAR_BALCONIES) {
-          nearCount += b.landings;
-        } else {
-          farCount++;
+      if (total < MAX_STACKS) total++;
+    }
+  }
+  return { total, totalStacksInRange, dropped: totalStacksInRange - total };
+}
+
+// The real js/balconies.js on a three.js stand-in whose InstancedMesh keeps its count and the position of every
+// instance written, and refuses a slot past its capacity
+function createBalconyPools() {
+  const stub = anything();
+  const meshes = [];
+  class Object3D {
+    constructor() {
+      const vec = () => ({ x: 0, y: 0, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; } });
+      this.position = vec();
+      this.rotation = vec();
+      this.scale = vec();
+      this.matrix = null;
+    }
+    updateMatrix() {
+      this.matrix = { x: this.position.x, y: this.position.y, z: this.position.z };
+    }
+  }
+  class InstancedMesh {
+    constructor(_geometry, _material, capacity) {
+      this.capacity = capacity;
+      this.count = 0;
+      this.slots = [];
+      this.instanceMatrix = stub;
+    }
+    setMatrixAt(i, m) {
+      if (i >= this.capacity) throw new Error(`instance ${i} past capacity ${this.capacity}`);
+      this.slots[i] = m;
+    }
+  }
+  const three = new Proxy({ Object3D, InstancedMesh }, { get: (t, key) => (key in t ? t[key] : stub) });
+  const { createBalconies } = loadModule(balconySource, {
+    imports: { 'three/webgpu': three, 'three/tsl': stub },
+    globals: { Math, Array, Float32Array, Error },
+    filename: 'balconies.js'
+  });
+  const system = createBalconies({ add: (mesh) => meshes.push(mesh) });
+  return { system, near: meshes[0], far: meshes[1] };
+}
+
+test('near balcony landings stay within 85 % of MAX_NEAR_BALCONIES on a 10 m focus grid', async () => {
+  const { city } = await buildCity();
+  // Near demand at a focus is the landings of every stack within NEAR_DISTANCE. Stamp each stack onto the 10 m grid
+  // points inside its circle; that covers every point where any stack is near, ~307k points city-wide.
+  const STEP = 10;
+  const demand = new Map();
+  for (const blk of city.allBlocks) {
+    for (const b of blk.balconies) {
+      for (let x = Math.ceil((b.x - NEAR_DISTANCE) / STEP) * STEP; x <= b.x + NEAR_DISTANCE; x += STEP) {
+        for (let z = Math.ceil((b.z - NEAR_DISTANCE) / STEP) * STEP; z <= b.z + NEAR_DISTANCE; z += STEP) {
+          if ((x - b.x) ** 2 + (z - b.z) ** 2 >= NEAR_DISTANCE * NEAR_DISTANCE) continue;
+          const key = x * 100000 + z;
+          demand.set(key, (demand.get(key) || 0) + b.landings);
         }
-      } else {
-        farCount++;
       }
     }
   }
-  return {
-    total,
-    totalStacksInRange,
-    nearCount,
-    farCount,
-    nearDemand,
-    dropped: totalStacksInRange - total
-  };
-}
+  const peaks = [...demand.entries()].sort((p, q) => q[1] - p[1]).slice(0, 5)
+    .map(([key, want]) => {
+      const x = Math.round(key / 100000);
+      return { x, z: key - x * 100000, want };
+    });
+  // 282 at (-690, 1820) in Wilda on 2026-11-10, over the old 256 pool; 85 % of 384 is 326.
+  const peak = peaks[0];
+  assert.ok(peak.want <= 0.85 * MAX_NEAR_BALCONIES,
+    `peak near demand ${peak.want} at (${peak.x}, ${peak.z}) above 85 % of MAX_NEAR_BALCONIES (${MAX_NEAR_BALCONIES})`);
+
+  // At the densest foci the real pool, fed in the production block order, admits every near landing
+  const pools = createBalconyPools();
+  for (const { x, z, want } of peaks) {
+    pools.system.begin();
+    for (const blk of streamedBlocks(city, x, z)) for (const b of blk.balconies) pools.system.add(b, x, z);
+    pools.system.end();
+    assert.equal(pools.near.count, want, `near landings at (${x}, ${z})`);
+  }
+});
+
+test('the near balcony pool admits the nearest stacks first and sends the rest to far boxes', () => {
+  const { system, near, far } = createBalconyPools();
+  // Six-storey stacks on a line 10-80 m out, fed farthest first: more landings than the pool holds
+  const stacks = [];
+  const count = Math.ceil(MAX_NEAR_BALCONIES / 6) + 8;
+  for (let i = 0; i < count; i++) {
+    const d = 10 + 70 * (1 - i / (count - 1));
+    stacks.push({ x: d, y: 4, z: 0, facing: 0, storey: 3.2, landings: 6, h: 19 });
+  }
+  system.begin();
+  for (const b of stacks) system.add(b, 0, 0);
+  system.end();
+  const admitted = Math.floor(MAX_NEAR_BALCONIES / 6);
+  assert.equal(near.count, admitted * 6);
+  assert.equal(far.count, count - admitted);
+  const farthestNear = Math.max(...near.slots.slice(0, near.count).map((m) => m.x));
+  const nearestFar = Math.min(...far.slots.slice(0, far.count).map((m) => m.x));
+  assert.ok(farthestNear < nearestFar, `near stack at ${farthestNear} m beyond a far box at ${nearestFar} m`);
+});
 
 test('balcony stacks city-wide count and distribution', async () => {
   const { city } = await buildCity();
@@ -1011,29 +1089,6 @@ test('the Zamek Cesarski forecourt stays open towards Święty Marcin', async ()
     }
   }
   assert.deepEqual(hits, [], `generic buildings block the castle from Święty Marcin: ${hits.join('; ')}`);
-});
-
-test('near balcony landings respect MAX_NEAR_BALCONIES (256) buffer with graceful far LOD fallback', async () => {
-  const { config, city } = await buildCity();
-  const testPoints = [
-    { name: 'Wilda dense junction', x: -681.4, z: 1811.2 },
-    { name: 'Łazarz dense junction', x: -2600.7, z: 2325.0 },
-    { name: 'Rataje dense junction', x: 1794.7, z: 1977.0 },
-    { name: 'Jeżyce hotspot', x: -1994.1, z: -728.4 },
-    { name: 'Stare Miasto hotspot', x: 427.4, z: -414.6 },
-    { name: 'Stary Rynek', x: config.TELEPORT_LOCATIONS.rynek.x, z: config.TELEPORT_LOCATIONS.rynek.z }
-  ];
-
-  for (const pt of testPoints) {
-    const res = evaluateBalconiesAt(city, pt.x, pt.z);
-    // Hard invariant: instanced buffer never overflows
-    assert.ok(res.nearCount <= MAX_NEAR_BALCONIES, `nearCount ${res.nearCount} exceeded ${MAX_NEAR_BALCONIES} at ${pt.name}`);
-    // Graceful degradation: points with demand > 256 saturate near pool and push excess to far proxies
-    if (res.nearDemand > MAX_NEAR_BALCONIES) {
-      assert.ok(res.farCount > 0, `Overflowing balconies should degrade to far proxies at ${pt.name}`);
-      assert.ok(res.nearCount >= 240, `High demand point should saturate near pool: ${res.nearCount}`);
-    }
-  }
 });
 
 // Distance from (x, z) to the centreline of the named streets

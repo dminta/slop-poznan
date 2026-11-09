@@ -6,7 +6,9 @@ import {
 
 // Wrought-iron balcony stacks on kamienica fronts: one balcony per storey, no stairs or ladders.
 const MAX_STACKS = 2400;
-const MAX_NEAR_BALCONIES = 256;
+// Near landings within NEAR_DISTANCE of the focus. Peak demand on a 10 m focus grid was 282 (Wilda, 2026-11-10), over
+// the old 256; 384 leaves ~27 % headroom for 128 × 68 B ≈ 8.7 KB more GPU buffer (only `count` instances are drawn).
+const MAX_NEAR_BALCONIES = 384;
 const NEAR_DISTANCE = 90;
 const WIDTH = 2.4; // Default slab width; a record's optional `w` (clamped 1.5–3 m) scales the module across.
 const BACK = -0.55; // The record sits 0.55 m off the facade: local z = BACK is the wall, +z points into the street.
@@ -155,39 +157,70 @@ export function createBalconies(group) {
 
   const dummy = new THREE.Object3D();
   const centre = (BACK + FRONT) / 2;
-  let total = 0, nearCount = 0, farCount = 0;
+  let total = 0, nearCount = 0, farCount = 0, candidates = 0;
+  // Stacks within NEAR_DISTANCE wait here until end(), which admits them nearest first: blocks arrive sorted by their
+  // centre, so a tall stack 20 m away could otherwise lose the near pool to a farther stack of an earlier block.
+  const nearStacks = new Array(MAX_STACKS).fill(null);
+  const nearDistance = new Float32Array(MAX_STACKS);
+  const order = [];
+  const byDistance = (a, b) => nearDistance[a] - nearDistance[b];
+
+  function placeNear(b, width) {
+    // A stable per-stack motif, so every storey of a facade shares one railing pattern.
+    const style = b.style !== undefined ? b.style % STYLES : Math.floor(Math.abs(b.x * 7.13 + b.z * 3.71)) % STYLES;
+    dummy.scale.set(width / WIDTH, 1, 1);
+    for (let i = 0; i < b.landings; i++) {
+      dummy.position.set(b.x, b.y + i * b.storey, b.z);
+      dummy.updateMatrix();
+      near.setMatrixAt(nearCount, dummy.matrix);
+      styleData.setX(nearCount++, style);
+    }
+  }
+
+  function placeFar(b, angle, width) {
+    const height = b.h - 1 + RAIL + SLAB;
+    dummy.position.set(b.x + centre * Math.sin(angle), b.y - SLAB + height * 0.5, b.z + centre * Math.cos(angle));
+    dummy.scale.set(width, height, FRONT - BACK);
+    dummy.updateMatrix();
+    far.setMatrixAt(farCount, dummy.matrix);
+    farData.setXYZ(farCount++, b.storey, height, width);
+  }
+
+  function place(b, isNear) {
+    const angle = (b.ry || 0) + b.facing;
+    const width = b.w ? Math.min(3, Math.max(1.5, b.w)) : WIDTH;
+    dummy.rotation.set(0, angle, 0);
+    if (isNear) placeNear(b, width);
+    else placeFar(b, angle, width);
+  }
+
   return {
     begin() {
-      total = nearCount = farCount = 0;
+      total = nearCount = farCount = candidates = 0;
     },
     // b: { x, y, z, ry?, facing, storey, landings, h, w?, style? } — see docs/world.md.
     add(b, focusX, focusZ) {
       if (total >= MAX_STACKS) return;
       total++;
       const dx = b.x - focusX, dz = b.z - focusZ;
-      const angle = (b.ry || 0) + b.facing;
-      const width = b.w ? Math.min(3, Math.max(1.5, b.w)) : WIDTH;
-      dummy.rotation.set(0, angle, 0);
-      if (dx * dx + dz * dz < NEAR_DISTANCE * NEAR_DISTANCE && nearCount + b.landings <= MAX_NEAR_BALCONIES) {
-        // A stable per-stack motif, so every storey of a facade shares one railing pattern.
-        const style = b.style !== undefined ? b.style % STYLES : Math.floor(Math.abs(b.x * 7.13 + b.z * 3.71)) % STYLES;
-        dummy.scale.set(width / WIDTH, 1, 1);
-        for (let i = 0; i < b.landings; i++) {
-          dummy.position.set(b.x, b.y + i * b.storey, b.z);
-          dummy.updateMatrix();
-          near.setMatrixAt(nearCount, dummy.matrix);
-          styleData.setX(nearCount++, style);
-        }
+      const d2 = dx * dx + dz * dz;
+      if (d2 < NEAR_DISTANCE * NEAR_DISTANCE) {
+        nearStacks[candidates] = b;
+        nearDistance[candidates++] = d2;
       } else {
-        const height = b.h - 1 + RAIL + SLAB;
-        dummy.position.set(b.x + centre * Math.sin(angle), b.y - SLAB + height * 0.5, b.z + centre * Math.cos(angle));
-        dummy.scale.set(width, height, FRONT - BACK);
-        dummy.updateMatrix();
-        far.setMatrixAt(farCount, dummy.matrix);
-        farData.setXYZ(farCount++, b.storey, height, width);
+        place(b, false);
       }
     },
     end() {
+      order.length = candidates;
+      for (let i = 0; i < candidates; i++) order[i] = i;
+      order.sort(byDistance);
+      // A stack that no longer fits falls back to its far box; a smaller, farther one may still fit after it.
+      for (let i = 0; i < candidates; i++) {
+        const b = nearStacks[order[i]];
+        place(b, nearCount + b.landings <= MAX_NEAR_BALCONIES);
+        nearStacks[order[i]] = null;
+      }
       near.count = nearCount;
       flagRange(near.instanceMatrix, nearCount);
       flagRange(styleData, nearCount);
