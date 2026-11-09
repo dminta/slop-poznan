@@ -115,6 +115,16 @@ function rectClearance(grid, x0, x1, z0, z1) {
 const fallbackOffStreets = (box) =>
   rectClearance(roadGrid, box[0], box[1], box[2], box[3]) >= FALLBACK_ROAD_KEEP &&
   rectClearance(pedestrianGrid, box[0], box[1], box[2], box[3]) >= 0;
+// The runtime shrinks a fallback envelope to its real outline area (buildings.js fallbackEnvelope) before laying the
+// perimeter block on it. Check that same box, not the raw raster envelope: a narrow frontage building whose bbox
+// touches the roadway edge (Gwarna 6/8, x -855..-827) is rejected on the bbox but sits clear once shrunk to its
+// 537 m² footprint, and the block then keeps its whole street frontage.
+const fallbackFitBox = (b) => {
+  const [x0, x1, z0, z1] = b.inBoxBox;
+  const bw = x1 - x0, bd = z1 - z0;
+  const s = b.area > 0 && bw > 0 && bd > 0 ? Math.min(1, Math.sqrt(b.area / (bw * bd))) : 1;
+  return [x0 + (bw * (1 - s)) / 2, x1 - (bw * (1 - s)) / 2, z0 + (bd * (1 - s)) / 2, z1 - (bd * (1 - s)) / 2];
+};
 const osm = load('poz_buildings.json');
 const industryOsm = load('poz_industry.json');
 const SKIP = new Set(['roof', 'no']);
@@ -747,7 +757,7 @@ for (const [label, list] of inBlock) {
   const eligible = list.filter((b) => !b.objectUse && b.inBoxBox && b.area >= FALLBACK_MIN &&
     b.rawShare < FALLBACK_RAW_MAX && !(b.facility && park > 0) && !(park > 0.4 && !b.facility && b.area >= PARK_HOUSE_MIN) &&
     Math.min(b.inBoxBox[1] - b.inBoxBox[0], b.inBoxBox[3] - b.inBoxBox[2]) >= 5);
-  const offStreet = eligible.filter((b) => fallbackOffStreets(b.inBoxBox));
+  const offStreet = eligible.filter((b) => fallbackOffStreets(fallbackFitBox(b)));
   fallbackRejected += eligible.length - offStreet.length;
   const candidates = offStreet
     .map((b) => ({ b, area: Math.round(b.area),

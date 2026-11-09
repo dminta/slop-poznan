@@ -250,10 +250,18 @@ test('Poznań geodata builds offline with default paths in a checkout containing
       return t0 <= t1 ? 0 : best;
     };
     for (const [id, list] of Object.entries(fallback)) {
-      for (const [x0, x1, z0, z1] of list) {
+      for (const [x0, x1, z0, z1, area] of list) {
+        // The generator shrinks a fallback envelope to its real OSM outline area (buildings.js fallbackEnvelope)
+        // before laying the perimeter block on it. Check the box it builds, not the raster bbox; the bbox may touch a
+        // street while the building itself stands clear (Gwarna's 537 m² frontage lot is the motivating case).
+        const bw = x1 - x0, bd = z1 - z0;
+        const s = area > 0 && bw > 0 && bd > 0 ? Math.min(1, Math.sqrt(area / (bw * bd))) : 1;
+        const [fx0, fx1, fz0, fz1] = [x0 + (bw * (1 - s)) / 2, x1 - (bw * (1 - s)) / 2,
+          z0 + (bd * (1 - s)) / 2, z1 - (bd * (1 - s)) / 2];
         for (const way of GEO.pedestrianWays) {
           for (let i = 0; i + 3 < way.pts.length; i += 2) {
-            const clear = rectSegDist(x0, x1, z0, z1, way.pts[i], way.pts[i + 1], way.pts[i + 2], way.pts[i + 3]) - way.w / 2;
+            const clear = rectSegDist(fx0, fx1, fz0, fz1, way.pts[i], way.pts[i + 1],
+              way.pts[i + 2], way.pts[i + 3]) - way.w / 2;
             assert.ok(clear >= -0.01, `fallback lot ${id} reaches the ${way.name || 'unnamed'} pedestrian street`);
           }
         }

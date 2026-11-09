@@ -3669,10 +3669,13 @@ function buildCityBlocks(scene) {
   // frontage frame the reserves are their bounds in the frame. Block anchors are reserves too, so no generic lot or
   // park facility lot is laid over a mapped mall, hall, depot or arena.
   function minusReserves(r) {
-    const anchors = srcAnchors.concat(srcObjects).map((a) => {
-      const b = inFrameRect(a);
-      return { x0: b[0], x1: b[1], z0: b[2], z1: b[3] };
-    });
+    // Anchors are world AABBs [x0, x1, z0, z1, ...]; mapped objects are oriented rects [cx, cz, w, d, ang, ...] and
+    // must take their world AABB first. Reading the object's first four values as a box cut most of block 648 (the
+    // Gwarna frontage) out of its own lots, because the reserve spanned from -949 to +84 in the frontage frame.
+    const anchors = [
+      ...srcAnchors.map((a) => inFrameRect(a)),
+      ...srcObjects.map((o) => inFrameRect(objectBounds(o)))
+    ].map((b) => ({ x0: b[0], x1: b[1], z0: b[2], z1: b[3] }));
     let reserves = LANDMARK_RESERVE;
     if (xf) {
       reserves = LANDMARK_RESERVE.map((h) => outlineBounds(h.pts.map(([x, z]) => [
