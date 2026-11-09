@@ -217,8 +217,10 @@ test('Poznań geodata builds offline with default paths in a checkout containing
     // blockFallbackLots: mapped buildings the property-line grid never covered (the audit's structural gap).
     const fallback = GEO.blockFallbackLots;
     assert.ok(fallback && Object.keys(fallback).length >= 150, 'fallback lots emitted');
-    assert.ok(Object.values(fallback).every((list) => list.every((a) => a.length === 5 && a.every(Number.isFinite) &&
-      a[1] > a[0] && a[3] > a[2] && a[4] >= 60)));
+    // [x0, x1, z0, z1, area, ang]: the last value is the OSM minimum-area rectangle's long-axis angle, so the runtime
+    // can turn a world-frame fallback lot into its street frame instead of leaving it at 0° among turned kamienice.
+    assert.ok(Object.values(fallback).every((list) => list.every((a) => a.length === 6 && a.every(Number.isFinite) &&
+      a[1] > a[0] && a[3] > a[2] && a[4] >= 60 && Math.abs(a[5]) <= Math.PI)));
     // Linear pedestrian streets are not drivable and therefore absent from roadGraph/roadClearance; their corridors are
     // emitted separately so fallback lots (whole building envelopes) can be kept off Wrocławska and Półwiejska.
     assert.ok(GEO.pedestrianWays.length > 200, 'pedestrian streets emitted');

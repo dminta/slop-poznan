@@ -53,7 +53,7 @@ function loadBuildingColliders() {
       'three/addons/utils/BufferGeometryUtils.js': inert(),
       './balconies.js': inert(), './roofs.js': inert(), './tsl-materials.js': inert(),
       './city-config.js': config, './geodata.js': { GEO },
-      './city-grid.js': { pavedPlazaRects: [], parkTreeSites: [], sidewalkBlocks: [] }
+      './city-grid.js': { pavedPlazaRects: [], parkTreeSites: [], railClearance: () => 100, sidewalkBlocks: [] }
     },
     globals: { ...G, document: stub }, filename: 'buildings.js'
   });

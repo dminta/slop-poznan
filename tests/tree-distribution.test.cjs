@@ -92,18 +92,20 @@ test('seeded species assignment preserves the full built city tree sites and col
   // The 2026-11-09 object reserve fix (oriented block objects take their own bounds), the fallback frontage check,
   // Zamek and Stadium landmark reserves, and the Królowej Jadwigi building restoration update tree pins. The same
   // day's central frontage pass (Stare Miasto object reserves as 4 m grid rows, no frontage gaps or piece thinning,
-  // and the 0.5 m fallback property-line tolerance) moves the pins again.
-  assert.deepEqual(before, [45833, 49657, 22034, 1991]);
-  assert.deepEqual(after, [43958, 47589, 21125, 6843]);
-  assert.equal(siteHash, '4de81607dd20fc2aff0a44834cac2fd152d354bdef1abd45c094a69390ddd5b5');
+  // and the 0.5 m fallback property-line tolerance) moves the pins again. The 2026-11-09 street-alignment pass turns
+  // fallback lots into their frontage frame (OSM angle), snaps object plans within 3° and tightens yards to the 4.6 m
+  // pavement band, which moves the building colliders and a handful of street/park tree sites one last time.
+  assert.deepEqual(before, [45838, 49663, 22038, 1990]);
+  assert.deepEqual(after, [43963, 47595, 21129, 6842]);
+  assert.equal(siteHash, '2baa3fb79c6ac67b4ea31e8bcdadc6beda96beebbd5d1357210b223d1ed1d603');
   assert.equal(digest(grid.propColliders), '47a6c14dc68bbc1af16401871a15079f70273d9484ee826f45576f18a102a6c4');
-  assert.equal(digest(details.colliders), '2cc9afdd6a5124d2f912b5c777ed3d6331a0bb936d83df97fb4f031f179960eb');
-  assert.equal(meshCount((t) => t.species || 0), 25481);
-  assert.equal(meshCount(treeSpecies), 30368);
+  assert.equal(digest(details.colliders), 'a3fe35e9d124ae9c8ff6aeb558a9bc89f2878afb278e6833238a8d2583ba6341');
+  assert.equal(meshCount((t) => t.species || 0), 25496);
+  assert.equal(meshCount(treeSpecies), 30383);
   // Every surveyed node the clearance rules accept reaches the field exactly at its OSM position. The rest are dropped
   // where a wall, lane, track, water or building doorway leaves no room, rather than moved off the surveyed point.
   const osm = sites.filter((t) => t.source === 'osm');
-  assert.equal(osm.length, 33076);
+  assert.equal(osm.length, 33073);
   assert.ok(osm.every((t) => t.tier === 0 || (t.pitRot !== undefined && Number.isFinite(t.pitRot))));
   assert.ok(osm.every((t) => Number.isFinite(t.x) && Number.isFinite(t.z) && t.scale >= 0.55 && t.scale <= 1.3));
 });

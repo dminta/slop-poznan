@@ -281,7 +281,7 @@ test('generic building blocks do not generate inside any historic landmark footp
       './roofs.js': stub,
       './city-config.js': cityConfig,
       './geodata.js': { GEO },
-      './city-grid.js': { pavedPlazaRects: [], parkTreeSites: [], sidewalkBlocks: [] }
+      './city-grid.js': { pavedPlazaRects: [], parkTreeSites: [], railClearance: () => 100, sidewalkBlocks: [] }
     },
     globals: {
       console: { info() {}, log() {}, warn() {} }, document: stub, Math, Map, Set, WeakMap, Object, Array, Number, JSON,

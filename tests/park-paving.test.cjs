@@ -61,7 +61,7 @@ function setupTestWorld() {
     imports: {
       ...rendering, './balconies.js': stub, './roofs.js': stub,
       './city-config.js': config, './geodata.js': { GEO },
-      './city-grid.js': { pavedPlazaRects: [], parkTreeSites: [], sidewalkBlocks: [] }
+      './city-grid.js': { pavedPlazaRects: [], parkTreeSites: [], railClearance: () => 100, sidewalkBlocks: [] }
     },
     globals
   });

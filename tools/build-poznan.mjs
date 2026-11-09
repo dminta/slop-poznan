@@ -129,9 +129,11 @@ const GEO = {
   // oriented envelope (nave/tower for a church, wings for a school or hospital, hall bays for industry) and leaves the
   // rest of the block generic.
   blockObjects,
-  // { block id: [[x0, x1, z0, z1, area], ...] }: mapped buildings (>= 60 m²) whose footprint the property-line grid
-  // never covered (the audit's property-line gap and blocks without raw lot rects). city-config turns them into extra
-  // lots, so buildings.js can build on the real spot instead of losing the object between maskRects/fitRects.
+  // { block id: [[x0, x1, z0, z1, area, ang], ...] }: mapped buildings (>= 60 m²) whose footprint the property-line
+  // grid never covered (the audit's property-line gap and blocks without raw lot rects). city-config turns them into
+  // extra lots, so buildings.js can build on the real spot instead of losing the object between maskRects/fitRects.
+  // ang is the OSM minimum-area rectangle's long-axis angle (east from +x towards +z), used to turn the world-frame
+  // envelope into the street's frontage frame.
   blockFallbackLots,
   // [{ kind: 'cooling'|'chimney'|'silo'|'tank'|'works'|'plant'|'substation', x, z, w, d, h, area, block }]: industrial
   // structures and power/substation sites from poz_industry.json inside the detail box. Cooling towers and chimneys

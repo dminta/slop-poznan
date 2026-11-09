@@ -26,8 +26,9 @@
 // 2 industrial, 3 rail/depot, 4 sport/leisure, 5 utility), with their in-block raster envelope and OSM storeys;
 // blockObjects ({ block id: [[cx, cz, w, d, ang, area, use, levels], ...] }), every mapped non-residential building >= 100 m²
 // (adds 6 education, 7 sacral, 8 health, 9 civic, 10 office) on its oriented minimum-area OSM rectangle; blockFallbackLots
-// ({ block id: [[x0, x1, z0, z1, area], ...] }), buildings >= 60 m² whose footprint the raw lot grid never covered and whose
-// envelope stays clear of every carriageway and linear pedestrian street;
+// ({ block id: [[x0, x1, z0, z1, area, ang], ...] }), buildings >= 60 m² whose footprint the raw lot grid never covered and
+// whose envelope stays clear of every carriageway and linear pedestrian street, with the OSM long-axis angle so the runtime
+// can turn the world-frame envelope into the street's frontage frame;
 // industry ([{ kind, x, z, w, d, h, area, block }]) the industrial structures and plant/substation sites inside the
 // detail box, for the runtime's chimney/cooling-tower meshes; buildingMask (Uint8Array over blockRaster, 1 = under a
 // counted footprint); buildings [{ id, levels, use, cells, cx, cz, label, anchorUse }].
@@ -769,7 +770,8 @@ for (const [label, list] of inBlock) {
     chosen.push(c);
   }
   if (!chosen.length) continue;
-  blockFallbackLots[id] = chosen.map(({ b, area }) => [...b.inBoxBox.map(q1), area]);
+  blockFallbackLots[id] = chosen.map(({ b, area }) => [...b.inBoxBox.map(q1), area,
+    Math.round(b.obb.ang * 1e4) / 1e4]);
   fallbackCount += chosen.length;
   fallbackBlocks++;
 }

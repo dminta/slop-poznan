@@ -51,7 +51,7 @@ import {
 } from './tsl-materials.js';
 import { createRoofs } from './roofs.js';
 import { GEO } from './geodata.js';
-import { pavedPlazaRects, parkTreeSites, sidewalkBlocks } from './city-grid.js';
+import { pavedPlazaRects, parkTreeSites, railClearance, sidewalkBlocks } from './city-grid.js';
 
 // js/buildings.js
 // Generates the city's generic blocks of buildings (city-config.js BLOCKS), indexed by a spatial 2D quadtree that
@@ -76,6 +76,14 @@ function mulberry32(seed) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+const QUARTER_TURN = Math.PI / 2;
+// Difference of two turned-rectangle angles, wrapped to (-45°, 45°]: a rectangle turned by θ + k·90° is the same
+// rectangle. Street frames and OSM minimum-area rectangles are both modulo 90°.
+const wrapQuarter = (a) => ((((a + Math.PI / 4) % QUARTER_TURN) + QUARTER_TURN) % QUARTER_TURN) - Math.PI / 4;
+// OSM minimum-area rectangles carry 1-3° of noise from stepped walls and bays; a building whose plan is genuinely
+// 5°+ off every street frame keeps its real turn (swinging a 60-100 m hall round by 10° moves whole frontages).
+const OBJECT_FRAME_SNAP = 3 * Math.PI / 180;
 
 /**
  * Spatial 2D quadtree for range queries around the active player/camera position.
@@ -333,7 +341,7 @@ function buildCityBlocks(scene) {
   let srcAnchors = []; // its GEO.blockAnchors kept for this block (world [x0, x1, z0, z1, area, use, levels])
   let srcObjects = []; // its GEO.blockObjects (same layout, including education/sacral/health/civic/office uses)
   let srcObjectReserves = []; // srcObjects' reserve rects (objectReserveBoxes in Stare Miasto, else the full AABB)
-  let srcFallbackLots = []; // its GEO.blockFallbackLots (world [x0, x1, z0, z1, area])
+  let srcFallbackLots = []; // its GEO.blockFallbackLots (world [x0, x1, z0, z1, area, ang])
   let srcRects = []; // its lot rects { x0, x1, z0, z1 } in their frames { cs, sn, px, pz } (see frontages)
   let srcLotArea = 0; // the area of the lot pieces it builds on (m², see steerProfile)
   let fullLotArea = 0; // lot area before park carve-out (m², see steerProfile)
@@ -349,6 +357,93 @@ function buildCityBlocks(scene) {
   const toWorld = (x, z) => (xf
     ? [xf.px + (x - xf.px) * xf.cs + (z - xf.pz) * xf.sn, xf.pz - (x - xf.px) * xf.sn + (z - xf.pz) * xf.cs]
     : [x, z]);
+  const toFrame = (th, px, pz, x, z) => {
+    const cs = Math.cos(th), sn = Math.sin(th);
+    return [px + (x - px) * cs - (z - pz) * sn, pz + (x - px) * sn + (z - pz) * cs];
+  };
+  // An OSM object is built with its world long axis at `-th` (populateObject). A block with frontage frames has the
+  // street directions its lots are laid along; snap the object to the nearest one (modulo 90°, since a turned
+  // rectangle is the same at θ + k·π/2). Without this, the 1-3° noise of an OSM minimum-area rectangle left mapped
+  // schools, churches and offices visibly a few degrees off their neighbours' street wall. A mapped hall more than 3°
+  // off every frame keeps its OSM turn: forcing it round would swing 30-90 m of wall out of the frontage (block 877's
+  // church and school lost 34 Strzelecka stations); 132 central details stay off-frame this way.
+  function snappedObjectAngle(o) {
+    const raw = -o[4];
+    if (!srcBlock || !srcBlock.frames) return raw;
+    let best = raw, bestD = Infinity;
+    for (const [th] of srcBlock.frames) {
+      const d = wrapQuarter(raw - th);
+      if (Math.abs(d) < bestD) {
+        bestD = Math.abs(d);
+        best = raw - d;
+      }
+    }
+    return bestD <= OBJECT_FRAME_SNAP ? best : raw;
+  }
+  // The frontage frame a fallback envelope belongs to. Frames share the block centre and their lot rects can overlap,
+  // so a nearest-rect choice sent an Ogrodowa frontage lot to an internal courtyard frame 27° off the street. The
+  // fallback's own OSM minimum-area angle is the building's real wall direction: snap to the nearest frame when it is
+  // within 12°, but use the building's own turn for one already on a world-axis street that this block's frames do
+  // not model (Ogrodowa in block 802). Older data without the angle falls back to the nearest outline edge.
+  const FRAME_SNAP = 12 * Math.PI / 180;
+  const AXIS_SNAP = 7 * Math.PI / 180;
+  function fallbackFrame(f, e) {
+    if (!srcBlock || !srcBlock.frames || !srcBlock.frames.length) return null;
+    let nearest = null, bestD = Infinity;
+    if (f.length > 5 && Number.isFinite(f[5])) {
+      const raw = -f[5];
+      for (const [th, px, pz] of srcBlock.frames) {
+        const d = Math.abs(wrapQuarter(raw - th));
+        if (d < bestD) {
+          bestD = d;
+          nearest = { th, cs: Math.cos(th), sn: Math.sin(th), px, pz };
+        }
+      }
+      if (bestD > FRAME_SNAP && Math.abs(wrapQuarter(raw)) <= AXIS_SNAP) {
+        // No block frame models this building's street (Ogrodowa runs at 0° through block 802's 20° frames); use the
+        // OSM turn itself around the envelope centre instead of leaving the lot unrotated and reported as ry = 0.
+        const mx = (e[0] + e[1]) * 0.5, mz = (e[2] + e[3]) * 0.5;
+        return { th: raw, cs: Math.cos(raw), sn: Math.sin(raw), px: mx, pz: mz };
+      }
+      return nearest;
+    }
+    if (!srcBlock.poly || srcBlock.poly.length < 3) return null;
+    const cx = (e[0] + e[1]) * 0.5, cz = (e[2] + e[3]) * 0.5;
+    let edgeAngle = 0, edgeD = Infinity;
+    for (let i = 0, j = srcBlock.poly.length - 1; i < srcBlock.poly.length; j = i++) {
+      const a = srcBlock.poly[j], b = srcBlock.poly[i];
+      const dx = b.x - a.x, dz = b.z - a.z;
+      const L2 = dx * dx + dz * dz;
+      if (L2 < 1) continue;
+      const t = Math.max(0, Math.min(1, ((cx - a.x) * dx + (cz - a.z) * dz) / L2));
+      const d = Math.hypot(a.x + t * dx - cx, a.z + t * dz - cz);
+      if (d < edgeD) {
+        edgeD = d;
+        edgeAngle = Math.atan2(dz, dx);
+      }
+    }
+    const target = -edgeAngle;
+    let best = null, bestA = Infinity;
+    for (const [th, px, pz] of srcBlock.frames) {
+      const d = Math.abs(wrapQuarter(th - target));
+      if (d < bestA) {
+        bestA = d;
+        best = { th, cs: Math.cos(th), sn: Math.sin(th), px, pz };
+      }
+    }
+    return best;
+  }
+  // A world-axis fallback envelope turned into its frontage frame, keeping the envelope's own width and depth (so it
+  // does not grow through the corners of a frame AABB). A frame a quarter turn off swaps them, which is the same
+  // rectangle.
+  function fallbackLocalRect(e, frame) {
+    if (!frame) return e;
+    const bw = e[1] - e[0], bd = e[3] - e[2];
+    const [lx, lz] = toFrame(frame.th, frame.px, frame.pz, (e[0] + e[1]) * 0.5, (e[2] + e[3]) * 0.5);
+    const swap = Math.abs(frame.sn) > Math.abs(frame.cs);
+    const w = swap ? bd : bw, d = swap ? bw : bd;
+    return [lx - w * 0.5, lx + w * 0.5, lz - d * 0.5, lz + d * 0.5];
+  }
   // Player collider over the rect [x0, x1] x [z0, z1] (of the current frame): an oriented box inside its world AABB
   function pushCollider(x0, x1, z0, z1, minY, maxY) {
     if (!xf) {
@@ -2584,75 +2679,76 @@ function buildCityBlocks(scene) {
   }
   // The Kupiec plan in its own minimum-area-rectangle frame, relative to the object centre: u runs along Strzelecka,
   // v across it towards the street (positive v is the Strzelecka side, negative v faces Podgórna). The south wall at
-  // v = 29.5 keeps the full SIDEWALK 4.6 m pavement; the old +31.5 left only 3.1 m there. The north-west corner steps
-  // back from the raw rectangle along Podgórna and Plac Wiosny Ludów, where the rectangle reached across the curb.
-  // Each tread lies at least 4.6 m inside the block outline. The fifth value marks the glazed corner module.
+  // v = 28.7 keeps the full SIDEWALK 4.6 m pavement after the 2.7° frame-snapped turn; the old +31.5 left only 3.1 m
+  // there. The north side at -27.55/-25.75/-25.05/-23.75 likewise clears the Podgórna pavement. The north-west corner
+  // steps back from the raw rectangle along Podgórna and Plac Wiosny Ludów, where the rectangle reached across the
+  // curb. Each tread lies at least 4.6 m inside the block outline. The fifth value marks the glazed corner module.
   function kupiecParts() {
     return [
-      [20, 50, -28, -12, 0], // east wing, north of the recess
-      [6, 20, -26.2, -12, 0], // front wing on Podgórna
-      [4, 6, -25.5, -12, 0], // front wing step
-      [4, 50, -12, 29.5, 0], // east wing along Strzelecka
-      [-16, 4, -10, 29.5, 0], // west wing behind the glazed corner
-      [-34, -16, -10, 29.5, 1], // glazed west front
+      [20, 50, -27.55, -12, 0], // east wing, north of the recess
+      [6, 20, -25.75, -12, 0], // front wing on Podgórna
+      [4, 6, -25.05, -12, 0], // front wing step
+      [4, 50, -12, 28.7, 0], // east wing along Strzelecka (the snapped turn needs 0.8 m more setback)
+      [-16, 4, -10, 28.7, 0], // west wing behind the glazed corner
+      [-34, -16, -10, 28.7, 1], // glazed west front
       [-34, -24, -12.2, -10, 1], // cut corner tread 1
       [-24, -12, -15.8, -12.2, 1], // cut corner tread 2
       [-12, 0, -20, -15.8, 1], // cut corner tread 3
-      [0, 4, -24.2, -20, 1] // cut corner tread 4
+      [0, 4, -23.75, -20, 1] // cut corner tread 4
     ];
   }
   function objectReserveBoxes(o, frame) {
-    const [cx, cz, w0, d0, ang, area] = o;
+    const [cx, cz, w0, d0, , area] = o;
     const s = area > 0 && w0 * d0 > 0 ? Math.min(1, Math.sqrt(area / (w0 * d0))) : 1;
-    const w = w0 * s, d = d0 * s;
+    const kupiec = isKupiecObject(o);
+    const w = kupiec ? w0 : w0 * s, d = kupiec ? d0 : d0 * s;
     if (!(w > 0 && d > 0)) return [];
     const th = frame ? frame.th : 0;
     const cs = Math.cos(th), sn = Math.sin(th);
     const px = frame ? frame.px : 0, pz = frame ? frame.pz : 0;
     const fcx = px + (cx - px) * cs - (cz - pz) * sn;
     const fcz = pz + (cx - px) * sn + (cz - pz) * cs;
-    const phi = ang + th;
+    // The object is built snapped to its street frame (populateObject), so its reserve must use that same turn; the
+    // raw OSM angle would leave a wedge of the reserve in the frontage lot and the wall outside it. The built object's
+    // world long axis is -snappedObjectAngle(o); in frame coordinates that is alpha + th.
+    const phi = -snappedObjectAngle(o) + th;
     const cp = Math.cos(phi), sp = Math.sin(phi);
     const C = OBJECT_RESERVE_CELL;
     // A cell is reserved when its centre falls inside the envelope inflated by the cell's half-diagonal: any cell that
     // could touch the building then has its centre within that margin, so the reserve is a superset of the plan (no
     // generic lot can overlap it) while the ring around it stays as thin as the grid allows.
     const margin = C * Math.SQRT1_2;
-    let inside, ex, ez, x0, x1, z0, z1;
-    if (isKupiecObject(o)) {
-      // The reserve must follow the L-plan kupiecBlock actually builds, not the shrunken OSM envelope: the old reserve
-      // used area/rect (88 x 55.6 m) while the mass used the full 101 x 63.7 m frame, so a kamienica could generate
-      // through Kupiec's south-east wing (57 m² on block 792). Test every cell against the real parts.
+    const hw = w * 0.5 + margin, hd = d * 0.5 + margin;
+    const ex = hw * Math.abs(cp) + hd * Math.abs(sp);
+    const ez = hw * Math.abs(sp) + hd * Math.abs(cp);
+    const x0 = fcx - ex, x1 = fcx + ex, z0 = fcz - ez, z1 = fcz + ez;
+    let inside;
+    if (kupiec) {
+      // The L-plan leaves the cut Plac corner unbuilt. Reserving only the L let a generic kamienica stand 0.3 m from
+      // the Podgórna roadway in that corner; reserving the whole rectangle took the Strzelecka frontage away. Reserve
+      // the L plus only the unused cells that fall in the pavement band or outside the block, so safe corners stay
+      // buildable.
       const parts = kupiecParts();
-      let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
-      for (const p of parts) {
-        u0 = Math.min(u0, p[0]); u1 = Math.max(u1, p[1]);
-        v0 = Math.min(v0, p[2]); v1 = Math.max(v1, p[3]);
-      }
       const local = (x, z) => {
         const dx = x - fcx, dz = z - fcz;
         return [dx * cp + dz * sp, -dx * sp + dz * cp];
       };
+      const toWorldPoint = (x, z) => (frame
+        ? [frame.px + (x - frame.px) * cs + (z - frame.pz) * sn,
+          frame.pz - (x - frame.px) * sn + (z - frame.pz) * cs]
+        : [x, z]);
       inside = (x, z) => {
         const [u, v] = local(x, z);
-        return parts.some((p) => u >= p[0] - margin && u <= p[1] + margin &&
-          v >= p[2] - margin && v <= p[3] + margin);
+        if (parts.some((p) => u >= p[0] - margin && u <= p[1] + margin &&
+          v >= p[2] - margin && v <= p[3] + margin)) return true;
+        const [wx, wz] = toWorldPoint(x, z);
+        return roadClearance(wx, wz) < YARD_ROAD_KEEP || !insideCurbIsland(wx, wz);
       };
-      const uc = (u0 + u1) * 0.5, vc = (v0 + v1) * 0.5;
-      const hw = (u1 - u0) * 0.5 + margin, hd = (v1 - v0) * 0.5 + margin;
-      const bcx = fcx + uc * cp - vc * sp, bcz = fcz + uc * sp + vc * cp;
-      ex = hw * Math.abs(cp) + hd * Math.abs(sp);
-      ez = hw * Math.abs(sp) + hd * Math.abs(cp);
-      x0 = bcx - ex; x1 = bcx + ex; z0 = bcz - ez; z1 = bcz + ez;
     } else {
-      const hw = w * 0.5 + margin, hd = d * 0.5 + margin;
       inside = (x, z) => {
         const dx = x - fcx, dz = z - fcz;
         return Math.abs(dx * cp + dz * sp) <= hw && Math.abs(-dx * sp + dz * cp) <= hd;
       };
-      ex = hw * Math.abs(cp) + hd * Math.abs(sp);
-      ez = hw * Math.abs(sp) + hd * Math.abs(cp);
-      x0 = fcx - ex; x1 = fcx + ex; z0 = fcz - ez; z1 = fcz + ez;
     }
     const i0 = Math.floor(x0 / C), i1 = Math.ceil(x1 / C);
     const j0 = Math.floor(z0 / C), j1 = Math.ceil(z1 / C);
@@ -2701,15 +2797,18 @@ function buildCityBlocks(scene) {
   // A yard slab is meant to be a courtyard inside the block, never a lawn in the street. Mapped-object envelopes and
   // turned frontage frames could push one far past its lot: Kupiec Poznański's raw 101 x 63.7 m yard reached 6.8 m
   // into Plac Wiosny Ludów / Podgórna and covered the tram tracks and the pavement. Sample the turned rectangle's
-  // perimeter every ~2 m plus a 3x3 inner grid, and drop the whole slab on the first probe that leaves the curb island
-  // or comes within half a metre of a roadway. The remaining courtyards are unchanged.
+  // perimeter every ~2 m plus a 3x3 inner grid, and drop the whole slab on the first probe that leaves the curb island,
+  // enters the 4.6 m pavement band (SIDEWALK in tools/poz-blocks.mjs), a pedestrian corridor or a rail/tram track.
+  // The old half-metre roadway rule still let a large courtyard cover the pavement, which reads as a lawn in the street.
+  const YARD_ROAD_KEEP = 4.6;
   function yardFitsBlock(y) {
     const cs = Math.cos(y.ry || 0), sn = Math.sin(y.ry || 0);
     const cx = (y.x0 + y.x1) * 0.5, cz = (y.z0 + y.z1) * 0.5;
     const hx = (y.x1 - y.x0) * 0.5, hz = (y.z1 - y.z0) * 0.5;
     const check = (u, v) => {
       const x = cx + u * cs + v * sn, z = cz - u * sn + v * cs;
-      return roadClearance(x, z) >= 0.5 && insideCurbIsland(x, z);
+      return roadClearance(x, z) >= YARD_ROAD_KEEP && pedestrianClearance(x, z) >= 0.5 &&
+        railClearance(x, z) >= 0.5 && insideCurbIsland(x, z);
     };
     const nu = Math.max(1, Math.ceil((2 * hx) / 2));
     const nv = Math.max(1, Math.ceil((2 * hz) / 2));
@@ -2727,10 +2826,18 @@ function buildCityBlocks(scene) {
     return true;
   }
   function fallbackPartClear(x0, x1, z0, z1) {
-    const mx = (x0 + x1) * 0.5, mz = (z0 + z1) * 0.5;
-    for (const [x, z] of [[x0, z0], [x1, z0], [x1, z1], [x0, z1], [mx, mz],
-      [mx, z0], [mx, z1], [x0, mz], [x1, mz]]) {
-      if (roadClearance(x, z) < 0 || pedestrianClearance(x, z) < 0 || !insideCurbIsland(x, z, 0.5)) return false;
+    const at = (lx, lz) => toWorld(lx, lz);
+    const probes = [];
+    for (let i = 0; i <= 8; i++) {
+      const t = i / 8;
+      probes.push([x0 + (x1 - x0) * t, z0], [x0 + (x1 - x0) * t, z1],
+        [x0, z0 + (z1 - z0) * t], [x1, z0 + (z1 - z0) * t]);
+    }
+    probes.push([(x0 + x1) * 0.5, (z0 + z1) * 0.5]);
+    for (const [lx, lz] of probes) {
+      const [x, z] = at(lx, lz);
+      if (roadClearance(x, z) < 0 || pedestrianClearance(x, z) < 0 || railClearance(x, z) < 0.5 ||
+        !insideCurbIsland(x, z, 0.5)) return false;
     }
     return true;
   }
@@ -3656,6 +3763,8 @@ function buildCityBlocks(scene) {
     if (xf) {
       placeInFrame(blockDetail, bucketMarks);
       roofs.transform(roofMark, toWorld, xf.th);
+    } else {
+      blockDetail.ry = 0; // a world-frame detail still reports its turn (consumers read blk.ry without a fallback)
     }
     blockDetail.yards = blockDetail.yards.filter(yardFitsBlock);
     quadtree.insert(blockDetail);
@@ -3694,7 +3803,7 @@ function buildCityBlocks(scene) {
   // end (an L-plan, a corner cut), which used to drop the whole building. Such an envelope is trimmed symmetrically
   // until it clears the curb instead, so the mapped building survives on a slightly smaller footprint.
   function populateObject(o) {
-    const [cx, cz, w0, d0, ang, area] = o;
+    const [cx, cz, w0, d0, , area] = o;
     // Kupiec Poznański is L-shaped: the min-area rectangle is 101 x 63.7 m, but only its safe L-shaped half is
     // built. Shrinking the rectangle to the 4,899 m² outline would turn it into the small diagonal box this object
     // used to produce, so kupiecBlock gets the full frame instead.
@@ -3702,7 +3811,7 @@ function buildCityBlocks(scene) {
     const s = kupiec || !(area > 0 && w0 * d0 > 0) ? 1 : Math.min(1, Math.sqrt(area / (w0 * d0)));
     const w = w0 * s, d = d0 * s;
     if (Math.min(w, d) < 4) return;
-    const th = -ang;
+    const th = snappedObjectAngle(o);
     const cs = Math.cos(th), sn = Math.sin(th);
     // toWorld of the object's own frame (placeInFrame rotates the same way); the old check used -ang here too, which
     // mirrored the outline and rejected Maraton and AWF opposite Karmelicka although their real envelopes stand clear.
@@ -3970,20 +4079,26 @@ function buildCityBlocks(scene) {
     for (const o of srcObjects) {
       extraLotArea += o[5];
     }
-    // GEO.blockFallbackLots are world rects; the frames above hold the last frontage frame of this block. Clearing xf
-    // keeps them in the world frame (a stale frame used to rotate the lots into other blocks and streets).
-    xf = null;
-    srcObjectReserves = srcObjects.flatMap((o) => b.district === 'Stare Miasto'
-      ? objectReserveBoxes(o, null)
-      : [objectBounds(o)]);
+    // GEO.blockFallbackLots are world rects. Each one is turned into the frontage frame it fronts and laid out there,
+    // like the block's own lots: built in the world frame it stood at 0° while its neighbours followed the street
+    // (a 19° off-axis house between two aligned kamienice). A block without frames keeps the world frame.
     for (const f of srcFallbackLots) {
       const e = fallbackEnvelope(f);
-      for (const part of minusReserves(e)) {
+      const frame = fallbackFrame(f, e);
+      const local = fallbackLocalRect(e, frame);
+      const saved = xf;
+      xf = frame;
+      srcObjectReserves = srcObjects.flatMap((o) => b.district === 'Stare Miasto'
+        ? objectReserveBoxes(o, frame)
+        : [inFrameRect(objectBounds(o))]);
+      for (const part of minusReserves(local)) {
         if (part[1] - part[0] < 5 || part[3] - part[2] < 5) continue;
-        fallbackPieces.push(part);
+        fallbackPieces.push([frame, part[0], part[1], part[2], part[3]]);
         extraLotArea += (part[1] - part[0]) * (part[3] - part[2]);
       }
+      xf = saved;
     }
+    xf = null;
     srcLotArea += extraLotArea;
     fullLotArea += extraLotArea;
     // The block's real building area (steerProfile's T × the curb island): offices spend what is left of it on
@@ -4010,14 +4125,16 @@ function buildCityBlocks(scene) {
     if (srcObjectArea > 0) srcTarget = Math.min(srcLotArea + srcObjectArea, b.built * b.area);
     // Fallback lots are real buildings the property-line grid missed; build them before the generic pieces so the
     // block's remaining budget cannot spend their spot on a kamienica elsewhere.
-    for (const r of fallbackPieces) {
-      const pieceArea = (r[1] - r[0]) * (r[3] - r[2]);
-      if (fallbackPartClear(r[0], r[1], r[2], r[3])) {
+    for (const [frame, x0, x1, z0, z1] of fallbackPieces) {
+      xf = frame;
+      const pieceArea = (x1 - x0) * (z1 - z0);
+      if (fallbackPartClear(x0, x1, z0, z1)) {
         srcPieceBudget = srcLeftArea > 0 ? Math.max(0, (srcTarget - srcBuiltArea) * (pieceArea / srcLeftArea)) : 0;
-        populateBlock(r[0], r[1], r[2], r[3], b.district, false, null, false, null, true);
+        populateBlock(x0, x1, z0, z1, b.district, false, null, false, null, true);
       }
       srcLeftArea = Math.max(0, srcLeftArea - pieceArea);
     }
+    xf = null;
     minLot = framedMinLot;
     for (const [f, x0, x1, z0, z1, facility] of pieces) {
       xf = f;

@@ -40,7 +40,10 @@ async function buildCity() {
       './roofs.js': stub,
       './city-config.js': config,
       './geodata.js': { GEO },
-      './city-grid.js': { pavedPlazaRects: [], parkTreeSites: [], sidewalkBlocks: [] }
+      // The real track distance (city-grid.js railClearance), so courtyards are filtered as in the browser build.
+      './city-grid.js': {
+        pavedPlazaRects: [], parkTreeSites: [], railClearance: railDistanceIndex(GEO), sidewalkBlocks: []
+      }
     },
     globals: {
       console: { info() {}, log() {}, warn() {} }, document: stub, Math, Map, Set, WeakMap, Object, Array, Number, JSON,
@@ -205,6 +208,42 @@ function yardProbes(y) {
   for (const fu of [-0.5, 0, 0.5]) for (const fv of [-0.5, 0, 0.5]) out.push(at(hx * fu, hz * fv));
   return out;
 }
+
+// Distance to the nearest GEO.rail centreline (tram or mainline), from a 64 m bucket index. GEO.rail pts are flat
+// [x0, z0, x1, z1, ...] arrays (js/geodata.js header).
+function railDistanceIndex(GEO) {
+  const CELL = 64;
+  const grid = new Map();
+  for (const chain of GEO.rail || []) {
+    const pts = chain.pts || [];
+    for (let i = 0; i + 3 < pts.length; i += 2) {
+      const a = { x: pts[i], z: pts[i + 1] }, b = { x: pts[i + 2], z: pts[i + 3] };
+      const seg = [a.x, a.z, b.x, b.z];
+      for (let ix = Math.floor(Math.min(a.x, b.x) / CELL); ix <= Math.floor(Math.max(a.x, b.x) / CELL); ix++) {
+        for (let iz = Math.floor(Math.min(a.z, b.z) / CELL); iz <= Math.floor(Math.max(a.z, b.z) / CELL); iz++) {
+          const k = ix * 100000 + iz;
+          if (!grid.has(k)) grid.set(k, []);
+          grid.get(k).push(seg);
+        }
+      }
+    }
+  }
+  return (x, z) => {
+    let best = Infinity;
+    for (let ix = Math.floor((x - 8) / CELL); ix <= Math.floor((x + 8) / CELL); ix++) {
+      for (let iz = Math.floor((z - 8) / CELL); iz <= Math.floor((z + 8) / CELL); iz++) {
+        for (const [ax, az, bx, bz] of grid.get(ix * 100000 + iz) || []) {
+          const dx = bx - ax, dz = bz - az;
+          const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1e-9)));
+          best = Math.min(best, Math.hypot(ax + t * dx - x, az + t * dz - z));
+        }
+      }
+    }
+    return best;
+  };
+}
+
+const wrapQuarter = (a) => ((((a + Math.PI / 4) % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2)) - Math.PI / 4;
 
 function pointInPoly(poly, x, z) {
   let inside = false;
@@ -435,6 +474,42 @@ test('Podgórna and Strzelecka keep their central street wall', async () => {
   }
 });
 
+test('framed central blocks keep their street turn and have no world-axis fallbacks', async () => {
+  const { config, city } = await buildCity();
+  // a033744 added fallback lots in the world frame: inside a block whose frontage frame is turned 19-43°, each one
+  // stood at 0° with its neighbours at the street angle. Object minimum-area rectangles added another 2-15° of noise.
+  // Every framed central detail now reports a turn; all but the mapped plans that are genuinely off every frame (kept
+  // at their OSM angle to preserve the frontage) sit on a frame, and no detail in a block whose frames are all turned
+  // more than 10° is left at world 0°.
+  const central = new Set(['Stare Miasto', 'Jeżyce', 'Wilda', 'Łazarz']);
+  const off = [];
+  let checked = 0, onFrame = 0, zeroOnTurned = 0, unset = 0;
+  for (const blk of city.allBlocks) {
+    const src = config.BLOCKS[blk.srcBlockId];
+    if (!src || !src.frames || !central.has(blk.district)) continue;
+    checked++;
+    if (!Number.isFinite(blk.ry)) {
+      unset++;
+      continue;
+    }
+    const best = Math.min(...src.frames.map(([th]) => Math.abs(wrapQuarter(blk.ry - th))));
+    if (best <= 2 * Math.PI / 180) {
+      onFrame++;
+    } else {
+      off.push({ id: blk.id, src: blk.srcBlockId, ry: blk.ry, best });
+    }
+    const allTurned = src.frames.every(([th]) => Math.abs(wrapQuarter(th)) > 10 * Math.PI / 180);
+    if (allTurned && Math.abs(wrapQuarter(blk.ry)) < 0.5 * Math.PI / 180) zeroOnTurned++;
+  }
+  assert.ok(checked > 4000, `only ${checked} framed central block details checked`);
+  assert.equal(unset, 0, `${unset} framed central block details have no turn`);
+  assert.equal(zeroOnTurned, 0, `${zeroOnTurned} details stay at world 0° in fully turned blocks`);
+  // 4,864 / 5,003 details sit on a frame; the rest are the mapped halls/schools whose OSM wall is off every frame.
+  assert.ok(onFrame / checked > 0.95, `only ${(100 * onFrame / checked).toFixed(1)} % of details follow a street frame`);
+  assert.ok(off.every((o) => Math.abs(wrapQuarter(o.ry)) > 0.5 * Math.PI / 180),
+    'the details off every frame are mapped plans, not world-axis fallbacks');
+});
+
 test('Podgórna frontages keep a 2.5 m pavement clear of the roadway', async () => {
   const { config, city } = await buildCity();
   const road = config.ROADS.find((r) => r.name === 'Podgórna' && r.pts.some((p) => p.x > -160 && p.x < -100));
@@ -523,11 +598,14 @@ test('Kupiec Poznański is a six-storey glazed-corner block clear of Podgórna',
   assert.deepEqual(hits, [], `buildings overlap Kupiec on block 792: ${hits.join('; ')}`);
 });
 
-test('every courtyard slab stays inside its block and clear of the roadways', async () => {
-  const { config, city } = await buildCity();
+test('every courtyard slab stays inside its block, off the pavement and clear of tracks', async () => {
+  const { config, city, GEO } = await buildCity();
   // The Kupiec yard was the visible case: a mapped object's raw envelope seeded a lawn across Plac Wiosny Ludów,
   // Podgórna and the tram tracks. populateBlock now drops any courtyard whose turned rectangle leaves the source
-  // block's curb island or comes within 0.5 m of a roadway, so no lawn can cover a street, pavement or track again.
+  // block's curb island, enters the 4.6 m pavement band (tools/poz-blocks.mjs SIDEWALK), crosses a pedestrian street
+  // or comes within 0.5 m of a rail/tram track. The old half-metre roadway rule still left lawns over the pavement.
+  const railDistance = railDistanceIndex(GEO);
+  assert.ok(railDistance(GEO.rail[0].pts[0], GEO.rail[0].pts[1]) < 0.01, 'the rail index finds the tracks');
   let checked = 0;
   for (const blk of city.allBlocks) {
     const poly = config.BLOCKS[blk.srcBlockId] && config.BLOCKS[blk.srcBlockId].poly;
@@ -536,7 +614,11 @@ test('every courtyard slab stays inside its block and clear of the roadways', as
       checked++;
       for (const p of yardProbes(y)) {
         const d = config.roadClearance(p.x, p.z);
-        assert.ok(d >= 0.5, `${blk.id} yard reaches a roadway at ${p.x.toFixed(1)}, ${p.z.toFixed(1)} (${d.toFixed(2)} m)`);
+        assert.ok(d >= 4.59, `${blk.id} yard enters the pavement at ${p.x.toFixed(1)}, ${p.z.toFixed(1)} (${d.toFixed(2)} m)`);
+        assert.ok(config.pedestrianClearance(p.x, p.z) >= 0.5,
+          `${blk.id} yard reaches a pedestrian street at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`);
+        assert.ok(railDistance(p.x, p.z) >= 0.5,
+          `${blk.id} yard reaches a rail/tram track at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`);
         assert.ok(pointInPoly(poly, p.x, p.z), `${blk.id} yard leaves block ${blk.srcBlockId} at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`);
       }
     }
