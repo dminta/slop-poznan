@@ -1256,7 +1256,17 @@ for (const b of BLOCKS) b.district = districtAt(b.cx, b.cz);
 // ---------------------------------------------------------------------------------------------------------------------
 // Landmarks (real footprints from OpenStreetMap, keyed by the curated name: { x, z, w, d, h, area, ring, ang })
 // ---------------------------------------------------------------------------------------------------------------------
-const LANDMARK_SITES = GEO.landmarks;
+// Enea Stadion (OSM relation 2240375) is a building=stadium outline in GEO.blockFootprints[1658] rather than in the
+// curated landmark snapshot: add its real lot here so the landmark model, the generic-building reserve and the map pin
+// share one site. x/z and w/d are the outline's world-axis bounds; ang is its minimum-area rectangle's turn (the OSM
+// outline is a rounded square turned 32.1°), so fitToSite turns the model onto the real octagon. The ring keeps the
+// whole OSM envelope free of stock buildings.
+const ENEA_STADIUM_SITE = {
+  x: -5160.2, z: 1211.7, w: 250.9, d: 251.0, h: 56, area: 39459, ang: -0.5605,
+  ring: [-5285.7, 1086.2, -5034.8, 1086.2, -5034.8, 1337.1, -5285.7, 1337.1]
+};
+const LANDMARK_SITES = { ...GEO.landmarks };
+if (!LANDMARK_SITES['Enea Stadion']) LANDMARK_SITES['Enea Stadion'] = ENEA_STADIUM_SITE;
 // The places the map pins and the location label names: [{ id, name, short, x, z, district }], one per LANDMARK_SITES
 // entry (tests/city-text.test.cjs). The map gives labels out in this order, so the better-known names come first.
 const site = (name, fallback) => LANDMARK_SITES[name] || fallback;
@@ -1296,7 +1306,8 @@ const CITY_LANDMARKS = [
   ['kosciolfranciszkanow', 'Kościół św. Antoniego Padewskiego (Franciszkanie)', 'Kościół Franciszkanów', 'Kościół Franciszkanów', 'Stare Miasto'],
   ['kosciolnmp', 'Kościół Najświętszej Marii Panny', 'Kościół NMP', 'Kościół Najświętszej Marii Panny', 'Ostrów Tumski'],
   ['kosciolswwojciecha', 'Kościół św. Wojciecha', 'Św. Wojciech', 'Kościół św. Wojciecha', 'Stare Miasto'],
-  ['kosciolbozegociala', 'Kościół Bożego Ciała', 'Boże Ciało', 'Kościół Bożego Ciała', 'Centrum']
+  ['kosciolbozegociala', 'Kościół Bożego Ciała', 'Boże Ciało', 'Kościół Bożego Ciała', 'Centrum'],
+  ['stadium', 'Enea Stadion', 'Enea Stadion', 'Enea Stadion', 'Grunwald Południe']
 ].filter((r) => LANDMARK_SITES[r[3]]).map(([id, name, short, osm, district]) => {
   const s = site(osm, { x: 0, z: 0 });
   return { id, name, short, x: s.x, z: s.z, district };

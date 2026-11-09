@@ -55,7 +55,7 @@ test('street trees carry player colliders, including Rybaki', async () => {
   // Surveyed OSM park trees have no city-grid site of their own, so street-details.js adds their trunk boxes to the
   // same player list as the street rows; count them separately rather than letting them hide a missing street trunk.
   const osmParkTrees = sites.filter((t) => t.source === 'osm' && t.tier === 0).length;
-  assert.equal(osmParkTrees, 25575, 'surveyed OSM park trees');
+  assert.equal(osmParkTrees, 25576, 'surveyed OSM park trees');
 
   const colliders = details.colliders;
   const trunkColliders = colliders.filter((c) => c.isTrunk);
