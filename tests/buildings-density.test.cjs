@@ -292,6 +292,41 @@ test('park facility halls on 925/937 do not overlap each other or a roadway', as
   }
 });
 
+test('Maraton and AWF stand opposite Karmelicka along Królowej Jadwigi', async () => {
+  const { config, city } = await buildCity();
+  // GEO.blockObjects[939] carries both: Biurowiec Maraton (Królowej Jadwigi 43, 112.3 x 56.3 m) and the AWF complex
+  // (27/39, 111.3 x 24.4 m). The clearance check used to rotate each envelope by -ang while the build uses +ang, so a
+  // mirrored corner of these 100+ m buildings reached Królowej Jadwigi and populateObject dropped the whole object,
+  // leaving the quarter opposite Karmelicka empty.
+  const targets = [
+    // Shares of the world AABB: 0.65 and 0.41 after the envelopes are tilted into place (the footprintCoverage
+    // raster counts the rotated quads, not their bounding boxes), so these gates only catch a missing object.
+    ['Maraton', [-239.0, -128.8, 1022.3, 1091.9], 0.6, 8],
+    ['AWF', [-113.4, 0.4, 1042.7, 1093.3], 0.35, 6]
+  ];
+  for (const [name, envelope, minShare, minH] of targets) {
+    const { share, hMax } = footprintCoverage(city, envelope);
+    assert.ok(share >= minShare, `${name}: only ${(100 * share).toFixed(1)} % of its OSM envelope is built`);
+    assert.ok(hMax >= minH, `${name}: generated at ${hMax.toFixed(1)} m`);
+  }
+  // Nothing on block 939 may stand on Królowej Jadwigi, Karmelicka or Maratońska.
+  const parts = city.allBlocks.filter((b) => b.srcBlockId === 939).flatMap((b) => b.footprints);
+  assert.ok(parts.length >= 5, `${parts.length} footprints on block 939`);
+  for (const f of parts) {
+    const pts = f.pts || [[f.x0, f.z0], [f.x1, f.z0], [f.x1, f.z1], [f.x0, f.z1]].map(([x, z]) => ({ x, z }));
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 8));
+      for (let k = 0; k < n; k++) {
+        const t = k / n;
+        const x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t;
+        assert.ok(config.roadClearance(x, z) >= -1e-6,
+          `block 939 footprint reaches the roadway at ${x.toFixed(1)}, ${z.toFixed(1)}`);
+      }
+    }
+  }
+});
+
 test('EC Garbary keeps its utility halls, chimney and cooling tower', async () => {
   const { config, city } = await buildCity();
   const block = config.BLOCKS[266];

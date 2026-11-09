@@ -3501,7 +3501,10 @@ function buildCityBlocks(scene) {
 
   // One mapped object from GEO.blockObjects: its oriented OSM minimum-area rectangle, shrunk to the real outline area
   // when the plan is not a full rectangle, in its own frame so a diagonal hall does not fill a much larger AABB.
-  // Landmark reserves are left to the hand-built models; an envelope that still reaches a roadway is skipped.
+  // Landmark reserves are left to the hand-built models. The outline is sampled along its whole perimeter (not only at
+  // the corners) in the same frame the lots are built in; an OSM min-area rectangle can still reach a roadway at one
+  // end (an L-plan, a corner cut), which used to drop the whole building. Such an envelope is trimmed symmetrically
+  // until it clears the curb instead, so the mapped building survives on a slightly smaller footprint.
   function populateObject(o) {
     const [cx, cz, w0, d0, ang, area] = o;
     const s = area > 0 && w0 * d0 > 0 ? Math.min(1, Math.sqrt(area / (w0 * d0))) : 1;
@@ -3509,12 +3512,36 @@ function buildCityBlocks(scene) {
     if (Math.min(w, d) < 4) return;
     const th = -ang;
     const cs = Math.cos(th), sn = Math.sin(th);
+    // toWorld of the object's own frame (placeInFrame rotates the same way); the old check used -ang here too, which
+    // mirrored the outline and rejected Maraton and AWF opposite Karmelicka although their real envelopes stand clear.
+    const world = (u, v) => [cx + u * cs + v * sn, cz - u * sn + v * cs];
+    const clear = (hw, hd) => {
+      const edges = [
+        [-hw, -hd, hw, -hd], [hw, -hd, hw, hd], [hw, hd, -hw, hd], [-hw, hd, -hw, -hd]
+      ];
+      for (const [u0, v0, u1, v1] of edges) {
+        const n = Math.max(1, Math.ceil(Math.hypot(u1 - u0, v1 - v0) / 8));
+        for (let i = 0; i < n; i++) {
+          const t = i / n;
+          const [x, z] = world(u0 + (u1 - u0) * t, v0 + (v1 - v0) * t);
+          // Half a metre of curb clearance: roadClearance (lane centrelines) and the OSM road corridor can disagree
+          // by up to ~0.35 m near a junction (Podgórna), where a zero margin put a corner into the street.
+          if (roadClearance(x, z) < 0.5) return false;
+        }
+      }
+      return true;
+    };
     const hw = w * 0.5, hd = d * 0.5;
-    const x0 = cx - hw, x1 = cx + hw, z0 = cz - hd, z1 = cz + hd;
-    const corners = [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]].map(([u, v]) => [
-      cx + u * cs - v * sn, cz + u * sn + v * cs
-    ]);
-    if (corners.some(([x, z]) => roadClearance(x, z) < 0)) return;
+    let inset = 0;
+    if (!clear(hw, hd)) {
+      const maxInset = Math.min(20, Math.min(hw, hd) - 2);
+      let found = false;
+      for (inset = 0.5; inset <= maxInset; inset += 0.5) {
+        if (clear(hw - inset, hd - inset)) { found = true; break; }
+      }
+      if (!found) return;
+    }
+    const x0 = cx - hw + inset, x1 = cx + hw - inset, z0 = cz - hd + inset, z1 = cz + hd - inset;
     const saved = xf;
     xf = { th, cs, sn, px: cx, pz: cz };
     populateBlock(x0, x1, z0, z1, srcBlock.district, false, null, false, o);
