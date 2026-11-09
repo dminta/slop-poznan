@@ -158,10 +158,18 @@ function buildDworzecLandmarks({ group, colliders, M }) {
       box(obj, w - 1, 1.2, d - 1, M.concrete, cx, 20.5, cz);
       collider(colliders, X0, xe, za, zb, 21.7);
     }
-    // Glazed entrance halls at both ends, a storey taller than the retail block
-    box(obj, 40, 16, 6, M.facade.glassBlue, -10, 0, Z0 + 3);
-    box(obj, 34, 16, 6, M.facade.glassBlue, X0 + 18, 0, Z1 - 3);
-    box(obj, 42, 0.8, 8, M.plasterWhite, -10, 16, Z0 + 4);
+    // Glazed entrance halls at both ends, a storey taller than the retail block. Each hall stands ENTRY_OUT proud of
+    // the retail front (Z0 / Z1): a face on the same plane as the main wall z-fights from Most Dworcowy, which looks
+    // straight at the north elevation. The north canopy overhangs the projection by CANOPY_LIP.
+    const ENTRY_OUT = 2.5;
+    const CANOPY_LIP = 0.5;
+    box(obj, 40, 16, 6, M.facade.glassBlue, -10, 0, Z0 + 3 - ENTRY_OUT);
+    box(obj, 34, 16, 6, M.facade.glassBlue, X0 + 18, 0, Z1 - 3 + ENTRY_OUT);
+    box(obj, 42, 0.8, 8 + ENTRY_OUT + CANOPY_LIP, M.plasterWhite, -10, 16,
+      Z0 + 4 - (ENTRY_OUT + CANOPY_LIP) / 2);
+    // The projecting strips are outside the mass colliders, so keep them solid to the player too
+    collider(colliders, -30, 10, Z0 - ENTRY_OUT, Z0, 16);
+    collider(colliders, X0 + 1, X0 + 35, Z1, Z1 + ENTRY_OUT, 16);
     // Stair and lift towers of the roof car park, and its ramp
     for (const z of [-150, -60, 30, 120]) box(obj, 6, 3.6, 6, M.concrete, X0 + 6, 21.7, z);
     for (const z of [-110, -20]) box(obj, 6, 3.6, 6, M.concrete, X1 - 6, 21.7, z);
