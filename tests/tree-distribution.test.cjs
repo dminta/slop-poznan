@@ -89,17 +89,18 @@ test('seeded species assignment preserves the full built city tree sites and col
   // block-anchors-2026-11-08.md, building-density-investigation-2026-11-08.md, osm-street-trees-2026-11-08.md
   // and missing-objects-recovery-2026-11-08.md. The 2026-11-08 street-buildings fix (fallback lots kept in the world
   // frame and clear of roads and pedestrian streets) moved a few building colliders and planter/tree sites again.
-  assert.deepEqual(before, [45760, 49580, 21969, 1990]);
-  assert.deepEqual(after, [43890, 47519, 21065, 6825]);
-  assert.equal(siteHash, 'cf4a3ba04f0b76f2fbd49455bcf29bc68c8bf202372c81dbc458631f80b63603');
+  // The Enea Stadion landmark reserve removes the generic facility hall from block 1658, freeing one surveyed park tree.
+  assert.deepEqual(before, [45761, 49580, 21969, 1990]);
+  assert.deepEqual(after, [43891, 47519, 21065, 6825]);
+  assert.equal(siteHash, '83fe4f5e9242f5ce44f867002f089a29baded4514f8ff13e4d3e96f5d5daf1b5');
   assert.equal(digest(grid.propColliders), 'f00a6740d1c0faa3533279e67a62cb0008afcf1c2cde24c1907acafc946f6f61');
-  assert.equal(digest(details.colliders), 'c03aacaeeaf64e71b4f1973175653349f567c842affa75b8c15aa5db502bbe38');
-  assert.equal(meshCount((t) => t.species || 0), 25479);
-  assert.equal(meshCount(treeSpecies), 30361);
+  assert.equal(digest(details.colliders), 'aff50c8e9cb2b7795f0f2023deefa8ca8af39c0210f56f861c0dd2e12b8b0489');
+  assert.equal(meshCount((t) => t.species || 0), 25481);
+  assert.equal(meshCount(treeSpecies), 30363);
   // Every surveyed node the clearance rules accept reaches the field exactly at its OSM position. The rest are dropped
   // where a wall, lane, track, water or building doorway leaves no room, rather than moved off the surveyed point.
   const osm = sites.filter((t) => t.source === 'osm');
-  assert.equal(osm.length, 32848);
+  assert.equal(osm.length, 32849);
   assert.ok(osm.every((t) => t.tier === 0 || (t.pitRot !== undefined && Number.isFinite(t.pitRot))));
   assert.ok(osm.every((t) => Number.isFinite(t.x) && Number.isFinite(t.z) && t.scale >= 0.55 && t.scale <= 1.3));
 });

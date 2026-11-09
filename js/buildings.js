@@ -3524,7 +3524,9 @@ function buildCityBlocks(scene) {
     'Novotel', 'AND2', 'Nowy Rynek', 'Delta',
     'Biblioteka Raczyńskich', 'Pałac Działyńskich', 'Hotel Bazar', 'Muzeum Narodowe', 'Teatr Polski',
     'Collegium Maius', 'Kościół Bernardynów', 'Kościół Franciszkanów', 'Kościół Najświętszej Marii Panny',
-    'Kościół św. Wojciecha', 'Kościół Bożego Ciała'
+    'Kościół św. Wojciecha', 'Kościół Bożego Ciała',
+    // Enea Stadion: its park block (GEO.blockFootprints[1658]) would otherwise put a generic facility hall on the bowl
+    'Enea Stadion'
   ].map((name) => {
     const t = LANDMARK_SITES[name];
     if (!t) return null;
