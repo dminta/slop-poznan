@@ -38,6 +38,9 @@ Three visible regressions from the 2026-11-08/09 missing-object recovery and cen
 - Central framed blocks (Stare Miasto, Jeżyce, Wilda, Łazarz), headless build:
   - 5,003 block details; 4,871 (97.4 %) sit on a frontage frame within 2°.
   - 132 are mapped halls/churches/schools whose OSM wall is off every frame and keep their real turn.
+  - Superseded after `42329c3` restored the 4d14df9 layout: 4,573 details, 4 off every frame (5–10°), the same at a
+    4° or 5° snap, so `OBJECT_FRAME_SNAP` stays 3° and the follow-up is closed
+    ([object-frame-snap record](object-frame-snap-2026-11-10.md)).
   - 0 details have no turn; 0 details stay at world 0° in a block whose every frame is turned more than 10°
     (the old fallback case was 0° everywhere).
 - Courtyard slabs: 19,297 survive the stricter guard (19,885 before it, so 588 slabs that crossed the pavement,
