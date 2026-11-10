@@ -69,6 +69,12 @@ const VEHICLE_RADIUS = 380;
 const PED_RADIUS = 320;
 const NEAR_RADIUS = 350;
 const PED_COURTESY = 5; // s a driver waits for people crossing at an unsignalised zebra before they let it go
+// m: a straight car on a link shorter than this between two signals may wait in the box before the exit zebra, but
+// only before an exit longer than BOX_WAIT_EXIT, a measured discriminator: Centrum's 18 / 26 m exits gain, while
+// Kaponiera's 10-17 m exits filled with the waiting car and held trams in box cycles
+// (docs/observations/centrum-exit-room-2026-11-11.md)
+const SHORT_SIGNAL_LINK = 12;
+const BOX_WAIT_EXIT = 17.5;
 // Vehicles per km of lane within NEAR_RADIUS (both ways counted: a two-way street with a lane each way is 2 km per
 // km). The pool used to fill up regardless, so the sparse single-lane grids (Wilda, Łazarz, Jeżyce: 2.9-5 lane-km)
 // carried 40-70 per lane-km, jam density, and 62% of cars stood still even without pedestrians or trams
@@ -1317,7 +1323,11 @@ function createTrafficSystem(
     // At a signal or priority road, the first in line to turn pulls into the intersection to wait there for the people crossing the
     // road it turns into (they walk on the same green): short of their crosswalk or, turning left across oncoming
     // traffic, short of the oncoming lanes until there is a gap. The light changing stops both for it at the latest.
-    const first = n.signal && (!v.isPolice || phase === 'green') && m.turn !== 'S' && !lead;
+    // A straight car on a short link between signals does the same, so the link behind it empties for the next green
+    // (Centrum (-1136, 127): 112 -> 86 s hold); only before an exit over 17.5 m, as Kaponiera's 10-17 m exits then
+    // held cars in boxes trams needed and added deadlock cycles (docs/observations/centrum-exit-room-2026-11-11.md).
+    const straightWait = m.turn === 'S' && e.len < SHORT_SIGNAL_LINK && e.from.signal && f.len > BOX_WAIT_EXIT;
+    const first = n.signal && (!v.isPolice || phase === 'green') && (m.turn !== 'S' || straightWait) && !lead;
     const across = m.turn === 'L' && !!e.opposite;
     const wait = first ? (across ? yieldPoint(v, c, e) : c.len - shortOfZebra(f) - v.half) : -1; // < 0: no room inside to wait
     if (m.turn === 'L' ? across && wait < 0 && yieldOncoming(e.opposite, v.wait > 8, v)

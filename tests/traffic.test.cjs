@@ -47,7 +47,7 @@ function intersectionHarness() {
     shortLinkTramBlocked: () => state.shortLink,
     tramRefusedClose: () => state.nextTram,
     refuse: (v, why) => { v.held = why; return false; },
-    PED_COURTESY: 5
+    PED_COURTESY: 5, SHORT_SIGNAL_LINK: 12, BOX_WAIT_EXIT: 17.5
   };
   return { car, state, context, mayEnter: trafficFunction('mayEnter', context), signalAhead: trafficFunction('signalAhead', context) };
 }
@@ -102,6 +102,24 @@ test('a turned Jeżyce car releases a disjoint approach before its distant exit 
   holder.yielding = true;
   assert.equal(boxBusy(n, 1, v), true, 'a car waiting inside to turn retains its claim');
   assert.deepEqual(n.box, [1, 0], 'clearance does not alter the occupancy or crossing counters');
+});
+
+test('a straight car on a short link between signals waits before a long exit link\'s zebra', () => {
+  // Centrum (-1136, 127) -> (-1117, 132): the 9.4 m link's cars were held at the downstream line while the exit zebra
+  // was crossed, so the upstream approach never got the room. Not on a short exit (Kaponiera's 10 m links: box cycles).
+  const { car, state, mayEnter } = intersectionHarness();
+  state.phase = 'green';
+  car.s = 4;
+  car.edge.len = 9.4;
+  car.edge.from = { signal: true };
+  car.move.to.len = 18;
+  assert.equal(mayEnter(car, 5), true);
+  assert.equal(car.yielding, true, 'it pulls into the box to wait short of the exit zebra');
+  car.yielding = false;
+  car.commit = null;
+  car.move.to.len = 10;
+  assert.equal(mayEnter(car, 5), true);
+  assert.equal(car.yielding, false, 'a short exit link keeps the straight car behind the line');
 });
 
 test('merge room uses a transitive approach order, so three cars cannot reserve an empty exit against each other', () => {
@@ -1169,7 +1187,8 @@ test('a driver kept waiting at an unsignalised zebra gets its turn: people still
   const calls = [];
   const enter = vm.runInNewContext(`(${match.trim()})`, {
     clock: 0,
-    LOOKAHEAD: 70, CROSSWALK: 4.3, PED_COURTESY: 5, shortOfZebra: () => 6.55, phaseOf: () => 'green', canStopBefore: () => true,
+    LOOKAHEAD: 70, CROSSWALK: 4.3, PED_COURTESY: 5, SHORT_SIGNAL_LINK: 12, BOX_WAIT_EXIT: 17.5,
+    shortOfZebra: () => 6.55, phaseOf: () => 'green', canStopBefore: () => true,
     stopAt: () => -3, boxBusy: () => false, ahead: () => null, connector: () => ({ len: 20 }), yieldToCrossTraffic: () => false,
     pedestrianOn: (n, side, coord, t0, t1, onIt) => (calls.push(onIt), !onIt), laneCoord: () => 0, timeTo: () => 1, room: () => true,
     alongside: () => false, mergingAhead: () => null, tramBlocks: () => false, shortLinkTramBlocked: () => false,

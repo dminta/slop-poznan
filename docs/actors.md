@@ -322,6 +322,8 @@ junction box; a moving queue can still be followed in. Measured over the 8 Kapon
 stopped 53.5% → 52.0%, worst wait 195 → 139 s, held > 120 s 25 → 7, deadlocks 2 → 0 and no `(-1490, 170)` box stop.
 [Measurements and rejected variants](observations/kaponiera-traffic-2026-11-08.md).
 
+A straight car on a signal-to-signal link under 12 m whose exit link is over 17.5 m (`mayEnter`'s `first`) pulls into the box to wait short of the exit zebra, like a turner, instead of standing at the downstream line while people cross: the upstream approach then gets its room to the link at the next green (Centrum seed 1 (-1136, 127) -> (-1117, 132): longest hold 112 -> 86 s, 2026-11-11). Not on exits of 17.5 m or less: the same rule on Kaponiera's 10-17 m links parked cars in boxes a tram needs and added deadlock cycles (see docs/observations/centrum-exit-room-2026-11-11.md).
+
 Trams reserve space for their full length plus 2 m beyond switches, track crossings, mapped road/mainline crossings
 and occupied platforms. A tram already inside continues through. A tram held before entry records `waitReason: 'room'`
 and its downstream `leader`; conflicting approaches can pass it. Actual switch conflicts retain `'switch'`.
