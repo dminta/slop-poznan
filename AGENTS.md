@@ -1,8 +1,8 @@
 # Slop Poznań
 
 A no-build three.js Poznań simulation (WebGPURenderer + TSL). `index.html` loads native ES modules from `js/`; three.js is
-`three@dev` from jsDelivr via the import map, so APIs can drift between visits. Served as static files (GitHub Pages) at
-https://dminta.github.io/slop-poznan/ from github.com/dminta/slop-poznan.
+a pinned `mrdoob/three.js` dev-branch commit from jsDelivr via the import map; bump the SHA in `index.html` only after
+a browser check. Served as static files at https://slop-poznan.dominikminta.com/ from github.com/dminta/slop-poznan.
 
 The Poznań port is implemented, with remaining fixes and optional features in `docs/backlog.md`. The original
 decisions and measurements are preserved in `docs/archive/poznan-plan.md`. Legacy localStorage keys are intentional

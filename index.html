@@ -29,14 +29,15 @@
   <meta name="twitter:image" content="https://slop-poznan.dominikminta.com/og-image.jpg" />
   <meta name="twitter:image:alt" content="Panorama Poznania o złotej godzinie — gęsta zabudowa, wieże kościołów i nowoczesne wieżowce w tle." />
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
-  <!-- three.js dev branch (builds committed to mrdoob/three.js@dev, served by jsDelivr) -->
+  <!-- three.js pinned to the mrdoob/three.js dev-branch commit (with committed builds) the app is developed against, served
+       by jsDelivr. Dev APIs drift between commits, so bump the SHA deliberately after a browser check -->
   <script type="importmap">
     {
       "imports": {
-        "three": "https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/build/three.webgpu.js",
-        "three/webgpu": "https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/build/three.webgpu.js",
-        "three/tsl": "https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/build/three.tsl.js",
-        "three/addons/": "https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/examples/jsm/"
+        "three": "https://cdn.jsdelivr.net/gh/mrdoob/three.js@0a980dcf032223a274fcdd60ab56330f1321cca0/build/three.webgpu.js",
+        "three/webgpu": "https://cdn.jsdelivr.net/gh/mrdoob/three.js@0a980dcf032223a274fcdd60ab56330f1321cca0/build/three.webgpu.js",
+        "three/tsl": "https://cdn.jsdelivr.net/gh/mrdoob/three.js@0a980dcf032223a274fcdd60ab56330f1321cca0/build/three.tsl.js",
+        "three/addons/": "https://cdn.jsdelivr.net/gh/mrdoob/three.js@0a980dcf032223a274fcdd60ab56330f1321cca0/examples/jsm/"
       }
     }
   </script>

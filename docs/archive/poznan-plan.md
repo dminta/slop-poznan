@@ -179,7 +179,7 @@ Stage A is what makes the port tractable: the risky refactors land while the old
 | D9 | UI language | **English UI, Polish place names** (with diacritics). `lang="en"` stays. A Polish UI can follow via a string table. | Smallest change. Translation is orthogonal. |
 | D10 | Units | Switch to **km/h and metres** | Poland uses metric. |
 | D11 | File naming | City-neutral names: `js/nyc-geodata.js` → `js/geodata.js`, `js/nyc-map.js` → `js/city-map.js` (`CityMapSystem`), `boroughs.js` → split into `outskirts.js` + `bridges.js`. Scene roots: `CityGrid`, `CityBlocks`, `StreetDetails`, `Landmarks`, `Outskirts`, `TrafficAndPedestrians`. | Avoids a second rename for the next city. |
-| D12 | Repo / live URL (**resolved**) | `dminta/slop-poznan`, live at https://dminta.github.io/slop-poznan/ (`index.html`, `README.md`, `tests/boot.test.cjs`). | Resolved in Phase 6 |
+| D12 | Repo / live URL (**resolved**) | `dminta/slop-poznan`, live at https://slop-poznan.dominikminta.com/ (`index.html`, `README.md`, `tests/boot.test.cjs`). | Resolved in Phase 6 |
 
 ---
 
@@ -680,7 +680,7 @@ at link time on any leftover.
 ### Phase 6: Map, HUD, branding
 
 **Status: done** (not yet checked in a browser). D12 is resolved: the repo is `dminta/slop-poznan`, live at
-https://dminta.github.io/slop-poznan/. Deviations and open points:
+https://slop-poznan.dominikminta.com/. Deviations and open points:
 - `city-map.js`: most layers, the north-up frame and the Ratusz default waypoint already came with Phase 5. New: the
   tram (red) and rail (dashed grey) layer from `RAIL`, the fit-to-city `minZoom()`, area labels straight from
   `GEO.labels` (`AREA_LABELS` is gone from `city-config.js`), arc-length road labels over same-name chains

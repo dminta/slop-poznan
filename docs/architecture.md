@@ -14,7 +14,8 @@
 
 ## Module graph and registering a new module
 - The project has no build step. The import map in `index.html` maps `three`, `three/webgpu` (same URL, so there is one Three.js
-  instance), `three/tsl` and `three/addons/` to `three.js@dev` on jsDelivr. App modules import each other with relative
+  instance), `three/tsl` and `three/addons/` to one pinned `mrdoob/three.js` dev-branch commit on jsDelivr
+  (bump the SHA after a browser check; dev APIs drift between commits). App modules import each other with relative
   `./x.js` specifiers, never with `?v=` queries.
 - New-module registration (`modulepreload` line plus the count in `tests/boot.test.cjs`), module syntax, import stubs and
   the tests that slice `main.js` by text markers (`teleportTo`) are covered in [`testing.md`](testing.md).

@@ -22,6 +22,9 @@ test('city module preloads start after the import map and before stylesheets', (
   assert.match(html, /<link rel="preconnect" href="https:\/\/cdn\.jsdelivr\.net" crossorigin\s*\/>/);
   const { imports } = JSON.parse(importMap[1]);
   assert.equal(imports.three, imports['three/webgpu'], 'Three.js aliases share one module instance');
+  for (const url of Object.values(imports)) {
+    assert.match(url, /\/mrdoob\/three\.js@[0-9a-f]{40}\//, 'three.js is pinned to a commit SHA, not a moving branch');
+  }
 });
 
 test('native module entry and imports share canonical preloaded URLs on GitHub Pages', () => {
@@ -32,7 +35,7 @@ test('native module entry and imports share canonical preloaded URLs on GitHub P
   assert.equal(entries[0][1], './js/main.js');
   assert.ok(links.includes(entries[0][1]));
   assert.equal([...html.matchAll(/<script\b/g)].length, 2, 'only the import map and native entry are needed');
-  const base = 'https://dminta.github.io/slop-poznan/';
+  const base = 'https://slop-poznan.dominikminta.com/';
   const urls = new Set(links.map((src) => new URL(src, base).href));
   for (const src of links) {
     assert.match(src, /^\.\/js\/[\w-]+\.js$/, 'preloads use the same unversioned paths as native imports');
