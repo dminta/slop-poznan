@@ -811,6 +811,17 @@ test('the same seed builds the same city', async () => {
   assert.equal(sum(again.city), first);
 });
 
+// A detail the quadtree refuses never streams its cornices, chimneys or roof kit. Two halls on the southern edge sat
+// 23-24 m past a tree bounded by CITY_BOUNDS + 50 m until the bounds came from the details themselves.
+test('every block detail is reachable through the streaming quadtree', async () => {
+  const { city } = await buildCity();
+  const b = city.quadtree.bounds;
+  const reachable = new Set(city.quadtree.queryRange((b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2, 1e7));
+  const missing = city.allBlocks.filter((blk) => !reachable.has(blk)).map((blk) => blk.id);
+  assert.equal(missing.length, 0, `not in the quadtree: ${missing.join(', ')}`);
+  assert.equal(reachable.size, city.allBlocks.length);
+});
+
 // Balcony pool capacities, read from js/balconies.js and js/buildings.js so the test cannot drift from them
 const balconySource = readFileSync(join(__dirname, '../js/balconies.js'), 'utf8');
 const sourceConst = (text, name) => Number(text.match(new RegExp(`^ *const ${name} = (\\d+);`, 'm'))[1]);

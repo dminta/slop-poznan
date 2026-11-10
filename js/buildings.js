@@ -23,7 +23,6 @@ import {
   mx_noise_float
 } from 'three/tsl';
 import {
-  CITY_BOUNDS,
   BLOCKS,
   BRIDGES,
   LANDMARK_SITES,
@@ -177,6 +176,33 @@ class Quadtree {
     this.se.queryRange(cx, cz, radius, found);
     return found;
   }
+}
+
+/**
+ * Quadtree over the centres of `items` ({ id, cx, cz }), bounded by their own extent plus `margin`. CITY_BOUNDS is
+ * not enough: a lot turned to its street frame can reach well past the detail box, and on 2026-11-10 two halls on the
+ * southern edge (Chartowo_4139_2917, Rataje_824_2918, centres 23-24 m past maxZ + 50) were refused by a CITY_BOUNDS
+ * tree and never streamed their skylights and HVAC. Only a non-finite centre can still miss; it is reported, not
+ * dropped silently.
+ */
+function createDetailQuadtree(items, margin = 50) {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const it of items) {
+    if (!Number.isFinite(it.cx) || !Number.isFinite(it.cz)) continue;
+    minX = Math.min(minX, it.cx); maxX = Math.max(maxX, it.cx);
+    minZ = Math.min(minZ, it.cz); maxZ = Math.max(maxZ, it.cz);
+  }
+  if (minX > maxX) minX = maxX = minZ = maxZ = 0;
+  const bounds = { minX: minX - margin, maxX: maxX + margin, minZ: minZ - margin, maxZ: maxZ + margin };
+  const tree = new Quadtree(bounds, 6, 9);
+  const refused = [];
+  for (const it of items) {
+    if (!tree.insert(it)) refused.push(it.id);
+  }
+  if (refused.length) {
+    console.warn(`buildings: ${refused.length} block details outside the quadtree: ${refused.join(', ')}`);
+  }
+  return tree;
 }
 
 // ============================================================================
@@ -476,13 +502,7 @@ function buildCityBlocks(scene) {
     return table[table.length - 1][0];
   }
 
-  // Spatial quadtree over the whole detail box
-  const quadtree = new Quadtree({
-    minX: CITY_BOUNDS.minX - 50,
-    maxX: CITY_BOUNDS.maxX + 50,
-    minZ: CITY_BOUNDS.minZ - 50,
-    maxZ: CITY_BOUNDS.maxZ + 50
-  }, 6, 9);
+  // Every block detail; the streaming quadtree is built over them once they all exist (createDetailQuadtree)
   const allBlocks = [];
 
   // Facade materials, by name (F) into `facades`. Every masonry style is the one pre-war shader with its colours as
@@ -3767,7 +3787,6 @@ function buildCityBlocks(scene) {
       blockDetail.ry = 0; // a world-frame detail still reports its turn (consumers read blk.ry without a fallback)
     }
     blockDetail.yards = blockDetail.yards.filter(yardFitsBlock);
-    quadtree.insert(blockDetail);
     allBlocks.push(blockDetail);
   }
 
@@ -4902,6 +4921,7 @@ function buildCityBlocks(scene) {
   }
 
   // Initial quadtree stream around the spawn point
+  const quadtree = createDetailQuadtree(allBlocks);
   update(SPAWN.x, SPAWN.z, true);
 
   const footprintsByBlock = new Map();
