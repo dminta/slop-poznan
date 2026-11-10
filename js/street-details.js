@@ -1542,9 +1542,30 @@ function buildStreetDetails(scene, opts = {}) {
     const idx = propColliders.indexOf(s.collider);
     if (idx !== -1) propColliders.splice(idx, 1);
   };
-  const osmPlacement = { placed: 0, dropped: 0, street: 0 };
+  // A plaza planter (city-grid.js) is a granite box and collider already built around its tree: a mapped tree within
+  // OSM_TREE_REPLACE_R is taken to be that planter's tree, so it yields instead of replacing it and leaving the box empty
+  // (Wilda's (-399.6, 1068.5) planter had a mapped trunk 3.4 m off). Only planters whose tree passes the wall check below.
+  const planterCells = new Map();
+  for (const s of parkTreeSites || []) {
+    if (!s.planter || !isClearOfWalls(s.x, s.z, s.scale, s.species, 1.0, s.y || 0.41, s.tier || 1)) continue;
+    const key = osmCellKey(s.x, s.z);
+    if (!planterCells.has(key)) planterCells.set(key, []);
+    planterCells.get(key).push(s);
+  }
+  const nearPlanter = (x, z, r = OSM_TREE_REPLACE_R) => {
+    for (let ix = Math.floor((x - r) / OSM_CELL); ix <= Math.floor((x + r) / OSM_CELL); ix++) {
+      for (let iz = Math.floor((z - r) / OSM_CELL); iz <= Math.floor((z + r) / OSM_CELL); iz++) {
+        for (const p of planterCells.get(ix * 100000 + iz) || []) {
+          if ((x - p.x) ** 2 + (z - p.z) ** 2 < r * r) return true;
+        }
+      }
+    }
+    return false;
+  };
+  const osmPlacement = { placed: 0, dropped: 0, street: 0, planter: 0 };
   for (const t of OSM_TREES) {
     const { x, z } = t;
+    if (nearPlanter(x, z)) { osmPlacement.planter++; continue; }
     const b = treeBlockAt(x, z);
     if (!b || b.median || b.underpass || isWater(x, z)) { osmPlacement.dropped++; continue; }
     const plaza = inPlaza(x, z, 1.0);
@@ -1681,7 +1702,8 @@ function buildStreetDetails(scene, opts = {}) {
     });
   }
   console.info(`[streetDetails] ${treePositions.length} trees (${sidewalkTreePositions.length} street trees, ` +
-    `${osmPlacement.placed} OSM mapped, ${osmPlacement.street} OSM street, ${osmPlacement.dropped} mapped dropped)`);
+    `${osmPlacement.placed} OSM mapped, ${osmPlacement.street} OSM street, ${osmPlacement.dropped} mapped dropped, ` +
+    `${osmPlacement.planter} kept as plaza planters)`);
 
   const grateMat = createTreeGrateMaterial();
   const pitCurbMat = new THREE.MeshStandardNodeMaterial({ color: 0x484642, roughness: 0.88 });

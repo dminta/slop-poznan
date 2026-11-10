@@ -632,7 +632,9 @@ non-park cells clear of park rings (`parkFreeCells`), while purely unmapped park
   Individually mapped OSM trees come from `GEO.trees` (38,588 `natural=tree` nodes inside the detail box, after dropping
   180 nodes mapped twice within 0.5 m; 32,526 pass the placement rules in the block-collider fixture). They keep their
   exact surveyed position, take a 0.55–1.3 scale from the OSM `height` tag (or a deterministic hash when untagged), and
-  replace procedural street and park sites within 4 m, so an avenue mapped node by node is not planted twice. A mapped
+  replace procedural street and park sites within 4 m, so an avenue mapped node by node is not planted twice. Plaza
+  planters are the exception: their granite box and collider are already built, so a mapped node within 4 m of one
+  yields to the planter's tree instead of leaving the box empty (`tree-clearance.test.mjs` checks none is). A mapped
   trunk within 6 m of its block edge gets the street row's pit, turn and crown squeeze; one deeper inside a block or in
   a park gets the wide-draw-distance park treatment. The other 6,062 mapped nodes are dropped where a building wall or
   doorway (1.2 m floor), a car lane, a zebra landing, a track or a water/median cell leaves no room; they are never

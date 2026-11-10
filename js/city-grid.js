@@ -1508,7 +1508,7 @@ function buildCityGrid(scene, opts = {}) {
     if (!railClear(x, z, 1.7)) return false; // the 2.4 m planter's corner
     if (!isClearOfWalls(x, z, scale, species, 1.0, PLAZA_Y + 0.55, 1)) return false;
     addPlanter(x, z, 2.4, 2.4);
-    treeSites.push({ x, y: PLAZA_Y + 0.55, z, scale, species });
+    treeSites.push({ x, y: PLAZA_Y + 0.55, z, scale, species, planter: true }); // street-details.js keeps it over OSM
     return true;
   }
   function addBench(x, y, z, rotY) {

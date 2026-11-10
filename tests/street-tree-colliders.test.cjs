@@ -56,8 +56,9 @@ test('street trees carry player colliders, including Rybaki', async () => {
   // Surveyed OSM park trees have no city-grid site of their own, so street-details.js adds their trunk boxes to the
   // same player list as the street rows; count them separately rather than letting them hide a missing street trunk.
   const osmParkTrees = sites.filter((t) => t.source === 'osm' && t.tier === 0).length;
-  // 25,771 before the 2026-11-10 legacy gate (310 surveyed park trees now under its courtyard buildings)
-  assert.equal(osmParkTrees, 25461, 'surveyed OSM park trees');
+  // 25,771 before the 2026-11-10 legacy gate (310 surveyed park trees now under its courtyard buildings); 25,461 before
+  // a mapped tree within 4 m of a plaza planter yielded to the planter's own tree (Wilda, (-396.2, 1068.6))
+  assert.equal(osmParkTrees, 25460, 'surveyed OSM park trees');
 
   const colliders = details.colliders;
   const trunkColliders = colliders.filter((c) => c.isTrunk);

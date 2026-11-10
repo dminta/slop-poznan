@@ -81,8 +81,8 @@ async function runAudit({ worldOnly = false, streetSource = source('street-detai
 
   // Step 1: City Grid
   let gridSrc = source('city-grid');
-  gridSrc = gridSrc.replace('treeSites.push({ x, y: PLAZA_Y + 0.55, z, scale, species });',
-    'treeSites.push({ x, y: PLAZA_Y + 0.55, z, scale, species, source: "plaza planters" });');
+  gridSrc = gridSrc.replace('treeSites.push({ x, y: PLAZA_Y + 0.55, z, scale, species, planter: true });',
+    'treeSites.push({ x, y: PLAZA_Y + 0.55, z, scale, species, planter: true, source: "plaza planters" });');
   gridSrc = gridSrc.replace('treeSites.push({ x: tx, y: BED_Y, z: tz, scale, species: r < 0.55 ? 0 : (r < 0.75 ? 1 : 2) });',
     'treeSites.push({ x: tx, y: BED_Y, z: tz, scale, species: r < 0.55 ? 0 : (r < 0.75 ? 1 : 2), source: "park sites" });');
   gridSrc = gridSrc.replace('treeSites.push({ x: tx, y: SW_TOP, z: tz, scale, species: r < 0.55 ? 0 : (r < 0.75 ? 1 : 2) });',
@@ -108,7 +108,8 @@ async function runAudit({ worldOnly = false, streetSource = source('street-detai
       './landmarks-centrum.js': loadModule(source('landmarks-centrum'), { imports: { ...landmarkRendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
       './landmarks-dworzec.js': loadModule(source('landmarks-dworzec'), { imports: { ...landmarkRendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
       './landmarks-historic.js': loadModule(source('landmarks-historic'), { imports: { ...landmarkRendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
-      './landmarks-towers.js': loadModule(source('landmarks-towers'), { imports: { ...landmarkRendering, './city-config.js': config, './landmark-kit.js': kit }, globals })
+      './landmarks-towers.js': loadModule(source('landmarks-towers'), { imports: { ...landmarkRendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
+      './landmarks-stadium.js': loadModule(source('landmarks-stadium'), { imports: { ...landmarkRendering, './landmark-kit.js': kit }, globals })
     },
     globals
   });
