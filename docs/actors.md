@@ -477,6 +477,16 @@ it must be allowed to clear. This is the 138 → 71 pair change above; seed 1 Je
 longest hold 32 → 36 s with no deadlock or car over 60 s there (Centrum stays at 62 s), and the seed 4242 deadlock is the
 separate pedestrian box jam.
 
+**Follower of a tram whose obstacle drops its proxy.** While the span-test above drops the proxy (the tram's obstacle is
+inside it), the nearest same-direction car wholly behind the tram's mapped body (`protectTramFollower`, `r.dir > 0`, not a
+connector, not the obstacle) gets a private leader: the tram's `_followerProxy` (`{ tram, speed }`, preallocated in
+`setTrams` on `system.pool`), used by `accelerate` through `v._tramFollowGap`/`_tramFollow` (reset in `buildOccupancy`)
+only when its gap is within `v²/(2b) + vT + s0`. It never enters lane occupancy, so the obstacle can still clear and no
+deadlock edge is added; the benchmark follows it through `leader.tram`. Eight seeds × 7 districts: 73 → 37 overlap pairs
+(Jeżyce 47 → 21, Centrum 11 → 1, Kaponiera 8 and Stare Miasto 7 unchanged; car moving 53 → 19, stopped 20 → 18) with no
+benchmark regression (Jeżyce seed 4242 13.3 → 14.1 km/h, stopped 37.1 → 33.6%). See
+`docs/observations/car-tram-jezyce-2026-11-10.md`.
+
 **Car in the box, tram waiting for it.** A lane proxy on a crossing must keep a stopped car's nose outside the tram's
 body too: `pad` is (tram 1.2 + car 0.92 m) times the crossing's sine plus 0.5 m, so a car stopped at the proxy edge
 clears the 1.2 m body. Before that, a car stopped 0.1 m inside it held the line 10 tram at Kaponiera's `-1468, 118`

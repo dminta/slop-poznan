@@ -281,6 +281,7 @@ function createTrafficSystem(
       edge: null, lane: 0, s: 0, speed: 0, acc: 0, gap: Infinity, leaderSpeed: 0,
       move: null, out: 0, outEdge: null, conn: null, cs: 0, trail: null, commit: null, claimed: false, yielding: false, yieldAt: 0,
       wait: 0, pedWait: 0, mergeArrival: Infinity, waitReason: '', held: '', leader: null, laneTimer: Math.random() * 0.5,
+      _tramFollowGap: Infinity, _tramFollow: null,
       dl: 0, dlv: 0, blink: 0, blinkPhase: Math.random() * 0.8,
       x: 0, z: 0, prevX: 0, prevZ: 0, tx: 0, tz: 1, nose: 0, yaw: 0, yawRate: 0, steer: 0,
       pitch: 0, roll: 0, pitchVel: 0, rollVel: 0, vx: 0, vz: 0, yawOffset: 0, yawVel: 0,
@@ -753,7 +754,7 @@ function createTrafficSystem(
       e.touched = false;
     }
     touchedEdges.length = 0;
-    for (const v of vehicles) v.claimed = false;
+    for (const v of vehicles) { v.claimed = false; v._tramFollowGap = Infinity; }
     for (const v of vehicles) {
       const e = v.edge;
       if (!e) continue;
@@ -1496,6 +1497,12 @@ function createTrafficSystem(
     v.leader = null;
     if (!v.conn) {
       worst = follow(v, e.occ[v.lane], v.s);
+      if (v._tramFollowGap < v.gap) {
+        v.gap = v._tramFollowGap;
+        v.leaderSpeed = v._tramFollow.speed;
+        v.leader = v._tramFollow;
+        worst = Math.min(worst, brake(v, v.gap, v.leaderSpeed));
+      }
       const side = straddle(v);
       if (side) worst = Math.min(worst, follow(v, e.occ[v.lane + side], v.s));
       if (worst < 0) why = 'car';
@@ -1918,6 +1925,26 @@ function createTrafficSystem(
   function setTrams(system) {
     trams = system ? system.trams : [];
     tramGraph = system ? system.graph : null;
+    for (const t of (system ? system.pool || trams : trams)) t._followerProxy = { tram: t, speed: 0 };
+  }
+
+  // A tram waiting for a car must release that car's lane, but the nearest follower still needs its rear as a leader.
+  // This private leader never enters occupancy, so it cannot stop the obstacle or reserve an unrelated lane change.
+  function protectTramFollower(t, list, obstacle, rear) {
+    let follower = null;
+    for (const q of list) {
+      if (q.v.tram || q.v === obstacle || q.v.conn || q.s + q.v.half >= rear) continue;
+      if (!follower || q.s > follower.s) follower = q;
+    }
+    if (!follower) return;
+    const v = follower.v;
+    const gap = rear - follower.s - v.half;
+    const reach = v.speed * v.speed / (2 * v.driver.b) + v.speed * v.driver.T + v.driver.s0;
+    if (gap < reach && gap < v._tramFollowGap) {
+      v._tramFollowGap = gap;
+      v._tramFollow = t._followerProxy;
+      v._tramFollow.speed = t.speed;
+    }
   }
 
   function occupyTrams() {
@@ -1993,7 +2020,11 @@ function createTrafficSystem(
             // its path: the vehicle must be allowed to clear, or car and tram deadlock each other. An obstacle farther
             // ahead (the tram waits behind a queue) kept dropping the whole proxy, so following cars rear-ended the
             // stopped tram in its own lane (Jeżyce buses at -2167, -498).
-            if (o.v === t.obstacle) { skip = true; break; }
+            if (o.v === t.obstacle) {
+              if (r.dir > 0 && blo < bhi) protectTramFollower(t, list, o.v, blo);
+              skip = true;
+              break;
+            }
             if (crossing && (o.v.speed < 1 || cLo >= bhi)) {
               skip = true;
               break;
