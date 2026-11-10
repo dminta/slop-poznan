@@ -8,52 +8,68 @@ Implementation details and completed measurements live in the [topic docs](../AG
 
 - **Pedestrian overlap residual:** at `5e6a68e` the eight-district audit (seeds 4242/77, 3 min) has no cluster
   (0 clusters, 5.43 overlapping pairs/s, 105.3 crosswalk entries/min); `564975e` cleared the Pasaż Różowy cluster the
-  `42329c3` layout restore had created (10 clusters, longest 26 s). Open: Most Dworcowy / Głogowska corner-link pairs
-  of 16–19 s (two or three bodies at `(-1558, 575)` on 1.1 m red-light corner links, both seeds), the same 16–20 s
-  stand-off as other short corner links (Św. Marcin, Taczaka, Wilda, Rataje) that the 20 s recovery ends; and Centrum's
-  Pasaż Różowy pocket still freezes walkers routed into it (`--ped-rooms` 22,550 of ~93,700 ped-s, longest 20.1 s;
-  7-district total 40,271 ped-s). Do not revive the length-weighted goal pick (Centrum 22,111 → 24,189 ped-s).
+  `42329c3` layout restore had created (10 clusters, longest 26 s). The traffic fixes since then do not touch
+  pedestrians. Open: Most Dworcowy / Głogowska corner-link pairs of 16–19 s at `(-1558, 575)`, both seeds. Traced at
+  `aecdb54`, the 19 s pair is not a red-light wait but a head-on entrance cycle: two parallel 1.10 m corner links are
+  the same segment with reversed endpoints, and peds 7 / 204 on them and 36 / 295 on the two 4.78 m sidewalks each
+  wait for the other's `entrance` (different `walkKey`s, so neither sees the reversal). Other short corner links
+  (Św. Marcin, Taczaka, Wilda, Rataje) show the same 16–20 s stand-off that the 20 s recovery ends. Centrum's Pasaż
+  Różowy pocket still freezes walkers routed into it (`--ped-rooms` 22,550 of ~93,700 ped-s, longest 20.1 s;
+  7-district total 40,271 ped-s). Do not revive the length-weighted goal pick (Centrum 22,111 → 24,189 ped-s), a
+  one-person minimum capacity on short links (the hold moved, pairs/s 6.2 → 7.6), a world-grid body-clearance check at
+  short-link entrances (new 19 s pairs at Głogowska / Zachodnia), ignoring an oncoming blocker on the same route key
+  (no effect), matching the reversed link by its endpoints (pairs/s up in both seeds, ~19 %) or the same after 5 s
+  stuck (hold persists). [Corner-link record](observations/ped-corner-links-2026-11-10.md),
   [Pasaż record](observations/ped-overlap-pasaz-2026-11-10.md),
   [mechanisms](observations/ped-overlap-remnants-2026-11-08.md).
-- **Merge starvation and short-link left turns:** at `5e6a68e` (8 seeds × 7 districts, 5 min) mean 15.2 km/h,
-  stopped 31.9 %, worst wait 155 s, held > 60 s 208, > 120 s **21**, **5** deadlocks, 8 box-stuck seed-districts —
-  all > 120 s holds and deadlocks in Kaponiera (12.3 km/h, 52.2 % stopped, 167 held > 60 s; the 2026-11-08 figures of
-  3 / 0 predate the `42329c3` network). Kaponiera seed 1 has no hold > 120 s (longest 118 s, 25 > 60 s) but one 89 s
-  cycle: car 62 enters the `(-1503, 224)` box on green, stops behind a tram proxy on its exit lane while tram 6 waits
-  for it (box blocked 92 s); car 43 waits 118 s for successive trams at the `(-1468, 118)` give-way. Seeds 2, 7 and 5
-  carry the > 120 s holds (10 / 6 / 5, longest 169 s). Rejected at `42329c3`: ignoring the waiting tram's proxy for
-  its connector obstacle (the cycle became three vehicles, box still 84 s) and counting the room behind an exit-lane
-  tram proxy (no change). Do not revive the rejected unrestricted sibling lane (cars entered a left-turn lane over the
-  tram tracks and two trams waited 89 s at switches), the version applied to links that do not store for a signal
-  (Jeżyce's `(-2023, -448)` car–tram cycle returned and the audit rose to 13 pairs), the rear-gap rule for every moving
-  queue (it cut the merge's throughput and added a deadlock), or the early-arrival and lane-lead braking relaxations
-  without their regressions. [2026-11-10 traces and re-measurement](observations/kaponiera-traffic-2026-11-10.md),
+- **Kaponiera long holds and the last deadlock:** at `6d70c71` (8 seeds × 7 districts, 5 min) every hold > 120 s and
+  every deadlock is in Kaponiera: 12.6 km/h, 51.3 % stopped, worst wait 145 s, held > 60 s 133, > 120 s **13**,
+  **1** deadlock, 2 box-stuck seeds (from 12.3 km/h, 52.2 %, 155 s, 167 / 21 / 5 / 3 at `3279f75`). `6d70c71` broke
+  the tram → car → (car →) own proxy → tram cycles (seeds 1, 7, 99 and one of seed 5's): the tram's road-car gate now
+  skips a car stopped ≥ `QUEUED_RELEASE_WAIT` 20 s behind that tram's proxy, directly or via one stopped car, whose
+  stopped body is outside the swept envelope. Open: seed 2's 10 holds > 120 s (a queue backed up from a red at
+  `(-1497, 198)`, no wait-for cycle); seed 5's 70 s deadlock, car 66 refused room on the 10 m approach to
+  `(-1468, 118)` by a proxy plus a real stopped car on the exit while tram 13 waits for it; seed 7's one
+  hold > 120 s. Do not revive the entry guard that counts tram proxies as exit occupancy (seed 7 held > 120 s 6 → 19 and a
+  deadlock, Jeżyce seed 1 16.0 → 12.8 km/h), the release only for a direct proxy follower (the seed-1 cycle runs
+  through a car) or without the 20 s wait (audit 73 → 79, trams passing a just-released car at 5–6.5 m/s), ignoring
+  the waiting tram's proxy for its connector obstacle (the cycle became three vehicles, box still 84 s), counting the
+  room behind an exit-lane tram proxy (no change), the rejected unrestricted sibling lane (cars entered a left-turn
+  lane over the tram tracks and two trams waited 89 s at switches), the version applied to links that do not store
+  for a signal (Jeżyce's `(-2023, -448)` car–tram cycle returned and the audit rose to 13 pairs), the rear-gap rule
+  for every moving queue (it cut the merge's throughput and added a deadlock), or the early-arrival and lane-lead
+  braking relaxations without their regressions.
+  [Deadlock traces and the queued-release fix](observations/kaponiera-deadlock-traces-2026-11-10.md),
+  [2026-11-10 traces and re-measurement](observations/kaponiera-traffic-2026-11-10.md),
   [2026-11-08 trace and rejected variants](observations/kaponiera-traffic-2026-11-08.md),
   [Centrum trace](observations/merge-starvation-2026-11-07.md),
   [per-second left-turn/tram trace](observations/left-turn-tram-2026-11-04.md).
-- **Centrum seed-1 long hold and the traffic-flow test margin:** `tests/traffic-flow.test.mjs` requires every car on
-  seed 1 to be held under 120 s. At `42329c3` Centrum failed it (car 21 held 145 s for exit room near `(-1048, 131)`,
-  2 held > 120 s); at `5e6a68e` the reshuffled draws pass it by 8 s: 14.3 km/h, 34.3 % stopped, wait p90/max 26 / 113 s,
-  longest hold 112 s (car 58 stopped for `room` on the west approach `(-1174, 136) → (-1136, 127)`, car 10 109 s
-  behind it). The cause, cars waiting for exit room across the `(-1117, 132)` / `(-1136, 127)` signal pair, is not
-  fixed, so any change to spawns or routing can fail the test again; find the blocker chain and fix it, or pick a
-  bound that is not one hold away from failing. [Centrum trace](observations/kaponiera-traffic-2026-11-10.md#current-centrum-regression).
-- **Car–tram body overlaps:** at `5e6a68e` the default seed-4242 audit has 10 pairs (Jeżyce 5, Centrum 2,
-  Stare Miasto 2, Kaponiera 1) and eight seeds **73** (moving 53, stopped 20; Jeżyce 47, Centrum 11, Kaponiera 8,
-  Stare Miasto 7), against 54 quoted from before the `42329c3` network. Diagnoses at `42329c3`: in Jeżyce seed 2 four
-  stopped articulated buses queue on the 26 m connector out of short edge 2595 under the turning tram's sections (the
-  audit treats an articulated bus as one 18 m rectangle), and the seed-4242 pairs are rear approaches on straight
-  shared edge 4692 where the follower has lost the tram proxy as its leader because the proxy is dropped for the whole
-  mapped stretch. Clipping the proxy behind the tram's obstacle cleared the default Jeżyce pairs but cut Jeżyce to
-  12.9 km/h / 38.1 % stopped (from 13.5 / 35.1) and was reverted. `tools/audit-tram-opposing-lanes.mjs` is unchanged
-  at **40** street-running rows / 38 lanes / 293 m (`--all` 55 / 51 / 498): 37 short stubs (35 lanes, 252 m) with no
-  4.6 m band between the tracks and the curb, and three curved runs (41 m) that sweep a track across the whole
-  carriageway; they need per-station lane geometry. Moving the Rynek Jeżycki stubs still increases overlaps and adds
-  a deadlock. Rejected: the same-direction proxy clip above, the unheld-curve arrival forecast (same 54, pairs moved),
-  a 1.5 m gate standoff (60 pairs, Centrum 4 → 10), projected entry speed (Kaponiera 3, Centrum 1, mean 11.3 km/h,
-  switch waits 40.9 s), the `enter` hard stop, the stand test in every short-link `tramBlocks` call or a
-  long-connector stop, the feeder two-step, the unrestricted sibling lane, the rear-gap rule for every moving queue,
-  and accepting a residual below the audit's 5 m floor (it hides the 1.5 m overlap left at 5523).
+- **Centrum exit-room tails:** `f20646d` lets a straight car on a < 12 m link between signals wait in the box before
+  an exit over 17.5 m (`SHORT_SIGNAL_LINK` / `BOX_WAIT_EXIT`), which gives `tests/traffic-flow.test.mjs` 34 s of
+  margin (seed 1 longest hold 112 → 86 s; Centrum 14.5 km/h, 33.4 % stopped, held > 60 s 13 → 10). Seeds 5 and 11
+  trade throughput for longer tails (58 → 76 s, 65 → 86 s) with more cars through `(-1117, 132)` stopping for the
+  merge; watch them if spawns or routing change. Do not revive projected exit room (Kaponiera seed 4242 hold
+  111 → 156 s, a seed-99 deadlock), the unscoped box wait (Kaponiera seed 7 deadlocks 1 → 2, a 39 s cycle at
+  `(-1503, 224)`) or scoping it by tram conflicts (no effect: every Centrum straight curve there crosses a track).
+  [Exit-room record](observations/centrum-exit-room-2026-11-10.md).
+- **Car–tram body overlaps:** at `6d70c71` the eight-seed audit has **36** pairs (Jeżyce 21, Kaponiera 9,
+  Stare Miasto 5, Centrum 1). `3279f75` gave the nearest same-direction car behind a tram a private leader where the
+  tram's lane proxy is dropped (`protectTramFollower`): 73 → 37 (moving 53 → 19, stopped 20 → 18; Jeżyce 47 → 21,
+  Centrum 11 → 1), with no new hold or deadlock (Jeżyce seed 4242 13.3 → 14.1 km/h); `6d70c71` moved Kaponiera
+  8 → 9 and Stare Miasto 7 → 5. Diagnosed in Jeżyce at `aecdb54`: seed 2 car 19 stopped inside tram 21's turning
+  sweep at `(-2050, -456)`, seed 2 car 47 whose proxy leader arrived after contact on edge 8081, and seed 4242 bus 204
+  at `(-2056, -458)`, where the audit's rigid 18 m rectangle starts the contact a second early but the 10.4 m front
+  section then really overlaps tram sections 0–2. The Kaponiera and Stare Miasto pairs are undiagnosed.
+  `tools/audit-tram-opposing-lanes.mjs` is unchanged at **40** street-running rows / 38 lanes / 293 m (`--all`
+  55 / 51 / 498): 37 short stubs (35 lanes, 252 m) with no 4.6 m band between the tracks and the curb, and three
+  curved runs (41 m) that sweep a track across the whole carriageway; they need per-station lane geometry. Moving the
+  Rynek Jeżycki stubs still increases overlaps and adds a deadlock. Rejected: clipping the shared proxy behind the
+  tram's obstacle (Jeżyce 13.5 → 12.9 km/h), the unheld-curve arrival forecast (same 54, pairs moved), a 1.5 m gate
+  standoff (60 pairs, Centrum 4 → 10), projected entry speed (Kaponiera 3, Centrum 1, mean 11.3 km/h, switch waits
+  40.9 s), the `enter` hard stop, the stand test in every short-link `tramBlocks` call or a long-connector stop, the
+  feeder two-step, the unrestricted sibling lane, the rear-gap rule for every moving queue, and accepting a residual
+  below the audit's 5 m floor (it hides the 1.5 m overlap left at 5523).
+  [Jeżyce traces and the follower fix](observations/car-tram-jezyce-2026-11-10.md),
   [2026-11-10 traces and re-measurement](observations/car-tram-overlaps-2026-11-10.md),
   [moving-gate measurements](observations/car-tram-overlaps-2026-11-09.md),
   [short-link pass and rejected variants](observations/car-tram-overlaps-2026-11-08.md),
