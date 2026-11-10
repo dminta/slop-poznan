@@ -1077,4 +1077,21 @@ test('a tram waits for a car committed to its road conflict, moving or stopped, 
   t.obstacle = null;
   sys.drive(t, 4);
   assert.equal(t.waitReason, 'car', 'a car committed on a connector into the short link holds the tram');
+  // A car stopped behind this tram's own road proxy, outside the swept envelope, closes a wait cycle (Kaponiera
+  // (-1503, 224)): it keeps holding the tram for 20 s, then releases it.
+  Object.assign(car, { edge: approach, conn: {}, move: { to: exit, out: [0] }, out: 0, commit: node, speed: 0,
+    wait: 5, leader: { tram: t }, waitReason: 'car' });
+  t.speed = 0;
+  t.obstacle = null;
+  sys.drive(t, 5);
+  assert.equal(t.waitReason, 'car', 'a car that has stood under 20 s behind the proxy still holds the tram');
+  car.wait = 25;
+  sys.drive(t, 6);
+  assert.notEqual(t.waitReason, 'car', 'a car stopped 20 s behind the tram\'s proxy outside its sweep releases it');
+  car.leader = { speed: 0, leader: { tram: t } };
+  sys.drive(t, 7);
+  assert.notEqual(t.waitReason, 'car', 'also when one stopped car stands between');
+  car.leader = null;
+  sys.drive(t, 8);
+  assert.equal(t.waitReason, 'car', 'a stopped car that does not wait for the tram keeps holding it');
 });

@@ -1,4 +1,4 @@
-# Centrum exit-room hold, 2026-11-11
+# Centrum exit-room hold, 2026-11-10
 
 Baseline: `aecdb54`, `node tools/bench-traffic.mjs --only centrum --seed 1 --trace -1136,127 --trace-min 20 --dump` and the corresponding trace at `-1117,132`. Traces are sampled each simulated second, 15 fps; the occupancy positions are lane coordinates, with negative positions representing vehicles still on a connector. The default five-minute run excludes the first 20 seconds.
 

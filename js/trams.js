@@ -64,6 +64,9 @@ const FOUL = 9;
 const FOUL_MIN = 4;
 const FOUL_GAP = 2.9;
 const ROAD_GATE_REACH = 8; // m of tram path ahead of its front a restarting tram checks for committed road vehicles
+// s a car must stand behind a tram's proxy before that tram's road-car gate ignores it. Releasing at once added 6
+// eight-seed overlap pairs (tram passing a car the release had just exposed).
+const QUEUED_RELEASE_WAIT = 20;
 const DWELL_MIN = 20;
 const DWELL_SPREAD = 10;
 const TRAM_RADIUS = 900; // trams further than this from the camera are respawned near it
@@ -1182,6 +1185,13 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
   }
   let _hold = Infinity;
   let _holdReason = '';
+  // Is stopped car v waiting for tram t, or for one stopped car that waits for t (t itself or its road proxy)?
+  function queuedBehindTram(v, t) {
+    if (v.speed >= 0.3 || v.wait < QUEUED_RELEASE_WAIT) return false;
+    let l = v.leader;
+    if (l && l !== t && l.tram !== t && l.speed < 0.3) l = l.leader;
+    return !!l && (l === t || l.tram === t);
+  }
   function considerGate(dist, why) {
     if (dist >= 0 && dist < _hold) {
       _hold = dist;
@@ -1606,6 +1616,12 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
                 c.e.len < 12 && v.speed > 1 &&
                 v.speed * v.speed > 2 * v.driver.b * (v.conn.len - v.cs + c.e.len - v.half);
               if (!entering && !tail && !unable && !arriving) continue;
+              // A stopped car queued behind this tram's proxy (directly or behind one stopped car) cannot clear
+              // first. Once its own body is outside the swept envelope, gating the tram on it only closes the cycle
+              // (Kaponiera (-1503, 224) 89 s, (-1468, 118) 89 s). Test it as oncoming: a car in a connector facing
+              // the tram otherwise reads as clear before its body is checked (Stare Miasto (288, -244), seed 5).
+              if (queuedBehindTram(v, t) &&
+                obstacleGap(v.x, v.z, v.yaw + v.yawOffset, v.halfWidth, v.half, 0, 0, true, true) === Infinity) continue;
               roadCarGate = true;
               t.clearance = Math.min(t.clearance, entry);
               const before = _acc;

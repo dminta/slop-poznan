@@ -322,7 +322,7 @@ junction box; a moving queue can still be followed in. Measured over the 8 Kapon
 stopped 53.5% → 52.0%, worst wait 195 → 139 s, held > 120 s 25 → 7, deadlocks 2 → 0 and no `(-1490, 170)` box stop.
 [Measurements and rejected variants](observations/kaponiera-traffic-2026-11-08.md).
 
-A straight car on a signal-to-signal link under 12 m whose exit link is over 17.5 m (`mayEnter`'s `first`) pulls into the box to wait short of the exit zebra, like a turner, instead of standing at the downstream line while people cross: the upstream approach then gets its room to the link at the next green (Centrum seed 1 (-1136, 127) -> (-1117, 132): longest hold 112 -> 86 s, 2026-11-11). Not on exits of 17.5 m or less: the same rule on Kaponiera's 10-17 m links parked cars in boxes a tram needs and added deadlock cycles (see docs/observations/centrum-exit-room-2026-11-11.md).
+A straight car on a signal-to-signal link under 12 m whose exit link is over 17.5 m (`mayEnter`'s `first`) pulls into the box to wait short of the exit zebra, like a turner, instead of standing at the downstream line while people cross: the upstream approach then gets its room to the link at the next green (Centrum seed 1 (-1136, 127) -> (-1117, 132): longest hold 112 -> 86 s, 2026-11-10). Not on exits of 17.5 m or less: the same rule on Kaponiera's 10-17 m links parked cars in boxes a tram needs and added deadlock cycles (see docs/observations/centrum-exit-room-2026-11-10.md).
 
 Trams reserve space for their full length plus 2 m beyond switches, track crossings, mapped road/mainline crossings
 and occupied platforms. A tram already inside continues through. A tram held before entry records `waitReason: 'room'`
@@ -458,6 +458,12 @@ current position, so a fast crossing car was detected after the bodies met. A 10
 car–tram wait cycle. Exempting a vehicle whose last leader is a tram proxy was tried (it can be waiting for the very
 tram the gate holds) and measured as a no-op: reverting it left all 16 Jeżyce/Kaponiera runs bit-identical, so the
 exemption is not in the code and the car-in-the-box release comes from the stopped-body sweep below.
+A later release is in the code (2026-11-10, [record](observations/kaponiera-deadlock-traces-2026-11-10.md)): the gate
+skips a car that has stood still `QUEUED_RELEASE_WAIT` 20 s, whose leader is the tram or its proxy (or one stopped car
+whose leader is), and whose stopped body is outside the swept envelope (`queuedBehindTram`), tested as oncoming so a
+car facing the rails in a connector is not read as clear (Stare Miasto (288, -244), seed 5). Without the 20 s term it
+adds 6 eight-seed overlap pairs. Eight seeds at 3279f75: Kaponiera deadlocks 5 -> 1, held over 120 s 21 -> 13,
+overlap audit 37 -> 36 (Kaponiera 8 -> 9, Stare Miasto 7 -> 5).
 `tools/audit-tram-overlaps.mjs` finds 55 car–tram body overlaps over 8 seeds × 7 districts (32 with the car moving
 over 1 m/s), from 62 at the previous HEAD and 52 at 907b555; the [investigation](observations/tram-overlaps-2026-11-04.md)
 records the runs, rejected variants and remaining clusters. The 2026-11-05 opposing-lane pass moves only Głogowska 3015
