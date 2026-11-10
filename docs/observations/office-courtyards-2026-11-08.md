@@ -110,7 +110,8 @@ landmark or lot-coverage ceilings, not empty office cores.
    caps the generated share at 46.5%; the office pass does not change that.
 3. **Already-overbuilt offices.** 593, 786 and 733 stay on their old layout because `cfg.core` is off. A later pass
    that thins them should use the same `srcBuiltArea` budget in reverse (drop frontage lots / rear bars) rather than
-   adding more cores.
+   adding more cores. On 2026-11-10 the user decided not to thin the already-built central blocks (Jeżyce/Łazarz at
+   1.19× / 1.20× their district share stay as built; [decision](central-density-2026-11-08.md#measurements-after-the-change)).
 
 Files changed: `js/buildings.js`, `tests/buildings-density.test.cjs`, `docs/world.md`, `docs/backlog.md` and this
 record.

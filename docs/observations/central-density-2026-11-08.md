@@ -65,8 +65,9 @@ Per district on the same 190-block subset:
 Over whole districts (all buildable blocks, not only the >= 35% subset) the change is smaller: Stare Miasto 27.7 →
 28.6% against 30.0% real, Jeżyce 34.4 → 36.6% against 30.8%, Łazarz 31.4 → 31.9% against 26.5%, Wilda 19.9 → 20.7%
 against 19.9%. Jeżyce and Łazarz were already above their OSM share before this pass; filling their courtyards makes
-that overbuild larger (1.19× / 1.20× over the whole district). The next density pass should thin those blocks rather
-than add more if the satellite comparison shows them too solid.
+that overbuild larger (1.19× / 1.20× over the whole district). **Decision 2026-11-10:** the user chose not to thin the
+already-built central blocks; Jeżyce and Łazarz keep this overbuild, so do not open a thinning pass without a new
+request.
 
 The named blocks:
 
@@ -132,8 +133,9 @@ same layouts: 1243 Wilda 47.4 → 44.4%, 672 Stare Miasto 58.1 → 55.4%, 868 34
    814 26.4 → 32.0%, 769 40.2 → 47.8% and 752 47.7 → 53.1%; 816 is capped by its 37% park and Stary Browar landmark.
 2. **Landmark reserves.** 575 (Collegium Maius) and the landmark-covered parts of 816 and the Old Town are built by
    `landmarks*.js`, not by the generic raster, so their per-block generated share undercounts the scene on purpose.
-3. **Already-overbuilt districts.** Jeżyce and Łazarz now exceed their whole-district OSM share. The next pass should
-   use the block's own real share to thin frontage gaps / cores there instead of densifying every `dense` block.
+3. **Already-overbuilt districts.** Jeżyce and Łazarz now exceed their whole-district OSM share. Kept as built by the
+   user's 2026-11-10 decision not to thin the central blocks; a future densifying pass should still steer by the
+   block's own real share there instead of densifying every `dense` block.
 
 Files changed: `js/buildings.js`, `tests/park-paving.test.cjs`, `tests/tree-distribution.test.cjs`, `docs/world.md`,
 `docs/backlog.md` and this record.
