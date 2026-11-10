@@ -1,6 +1,6 @@
 # Poznań backlog
 
-Updated 2026-11-09. Only remaining work, open decisions and outstanding browser checks are listed below.
+Updated 2026-11-10. Only remaining work, open decisions and outstanding browser checks are listed below.
 Implementation details and completed measurements live in the [topic docs](../AGENTS.md#docs) and
 [observation records](observations/). Original phase references refer to the [archived port plan](archive/poznan-plan.md).
 
@@ -228,6 +228,14 @@ Implementation details and completed measurements live in the [topic docs](../AG
   [short-link pass and rejected variants](observations/car-tram-overlaps-2026-11-08.md),
   [eight-seed results](observations/tram-overlaps-2026-11-04.md),
   [opposing lanes](observations/tram-opposing-lanes-2026-11-08.md).
+- **Mapped objects off the frontage frame:** `GEO.blockObjects` (schools, churches, halls, offices) snap to the
+  nearest frontage frame only within `OBJECT_FRAME_SNAP` 3° (`snappedObjectAngle` in `js/buildings.js`), the OSM
+  min-area-rectangle noise band. In the central framed districts (Stare Miasto, Jeżyce, Wilda, Łazarz) 132 of 5,003
+  block details stay off every frame: 64 at 2–5°, 42 at 5–10° and 26 over 10°, mostly 1–9k m² mapped halls, schools
+  and churches keeping their real OSM turn. A ~5° snap would align about 60 more, but forcing a hall round swings its
+  wall out of the frontage: at a wider snap block 877's church and school lost 34 Strzelecka frontage stations. Keep
+  3°, or try ~5° with a per-object frontage check that rejects the snap when coverage drops; awaiting the user's
+  decision. [Alignment record](observations/street-alignment-2026-11-09.md).
 
 ## Optional features and fidelity
 
@@ -271,6 +279,12 @@ Implementation details and completed measurements live in the [topic docs](../AG
   pergolas. Check the deck underside and beams from below, column bases and collisions, that no post stands on a
   track, and that a tram/car/pedestrian passes under without clipping.
   [Canopy record](observations/platform-canopies-2026-11-08.md).
+- Check the street-aligned fallback lots and courtyard guard (`fb091f6`) and the near balcony pool (`0fa3fdf`) on
+  WebGPU and WebGL2. Along Podgórna, Strzelecka, Plac Wiosny Ludów and around Kupiec Poznański, fallback kamienice
+  should follow the street angle and no courtyard lawn should come within 4.6 m of the roadway (over the pavement) or
+  over a tram track. In Wilda around `−690, 1820`, near balconies should fill the closest facades first, with no
+  missing stacks next to the camera now that the pool holds 384.
+  [Alignment record](observations/street-alignment-2026-11-09.md).
 - Inspect outward-facing x-ridge kit roofs (Ratusz, Katedra, Zamek Cesarski, Teatr Wielki, Dworzec and others)
   from above and street level, including shading, rotated-block ridges and normals.
 - Continue landmark-placement and scenic-camera checks, panel-material shimmer, balcony LOD transitions and
