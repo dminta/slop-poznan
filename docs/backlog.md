@@ -9,17 +9,25 @@ Implementation details and completed measurements live in the [topic docs](../AG
 - **Pedestrian overlap residual:** at `5e6a68e` the eight-district audit (seeds 4242/77, 3 min) has no cluster
   (0 clusters, 5.43 overlapping pairs/s, 105.3 crosswalk entries/min); `564975e` cleared the Pasaż Różowy cluster the
   `42329c3` layout restore had created (10 clusters, longest 26 s). The traffic fixes since then do not touch
-  pedestrians. Open: Most Dworcowy / Głogowska corner-link pairs of 16–19 s at `(-1558, 575)`, both seeds. Traced at
-  `aecdb54`, the 19 s pair is not a red-light wait but a head-on entrance cycle: two parallel 1.10 m corner links are
-  the same segment with reversed endpoints, and peds 7 / 204 on them and 36 / 295 on the two 4.78 m sidewalks each
-  wait for the other's `entrance` (different `walkKey`s, so neither sees the reversal). Other short corner links
-  (Św. Marcin, Taczaka, Wilda, Rataje) show the same 16–20 s stand-off that the 20 s recovery ends. Centrum's Pasaż
-  Różowy pocket still freezes walkers routed into it (`--ped-rooms` 22,550 of ~93,700 ped-s, longest 20.1 s;
-  7-district total 40,271 ped-s). Do not revive the length-weighted goal pick (Centrum 22,111 → 24,189 ped-s), a
-  one-person minimum capacity on short links (the hold moved, pairs/s 6.2 → 7.6), a world-grid body-clearance check at
-  short-link entrances (new 19 s pairs at Głogowska / Zachodnia), ignoring an oncoming blocker on the same route key
-  (no effect), matching the reversed link by its endpoints (pairs/s up in both seeds, ~19 %) or the same after 5 s
-  stuck (hold persists). [Corner-link record](observations/ped-corner-links-2026-11-10.md),
+  pedestrians. Open: Most Dworcowy / Głogowska corner-link pairs of 16–19 s at `(-1558, 575)`, both seeds. The 19 s
+  pair is a head-on entrance cycle, not a red-light wait: an isolated 4.78 m split sidewalk has its two painted lane
+  lines (inset 1.7 / 2.8 m) joined by a 1.1 m U-turn at each end, so the two lines form a closed 4.8 × 1.1 m
+  racetrack and the two directions of one U-turn link meet head-on. A world scan finds 332 such closed twin-lane
+  tracks (249 split, 83 full; 67 under 6 m); Św. Marcin, Taczaka, Wilda and Rataje show the same 16–20 s stand-off
+  that the 20 s recovery ends. Centrum's Pasaż Różowy
+  pocket is a 1.87 m pedestrian way whose four lines form a clique of 1.1–5.6 m links with no through exit; it still
+  freezes walkers routed into it (`--ped-rooms` 22,550 of ~93,700 ped-s, longest 20.1 s; 7-district total 40,271
+  ped-s). The 2026-11-10 twin-lane pass root-caused both and tried route-build traps, dead-end sink guards, spawn
+  filters, one-direction-at-a-time short links, a length-scaled lane ramp and a delayed entrance swap. It killed the
+  named pair and improved the overlap rate (full audit 5.24 pairs/s, 110.0 entries/min) but left one 5 s Pasaż
+  cluster and raised rooms to 43,399 ped-s (Centrum 22,949); every other variant moved a cluster or made the room
+  total worse. All were reverted, so the baseline is unchanged. Do not revive the length-weighted goal pick
+  (Centrum 22,111 → 24,189 ped-s), a one-person minimum capacity on short links (the hold moved, pairs/s 6.2 → 7.6),
+  a world-grid body-clearance check at short-link entrances (new 19 s pairs at Głogowska / Zachodnia), ignoring an
+  oncoming blocker on the same route key (no effect), matching the reversed link by its endpoints (pairs/s up in both
+  seeds, ~19 %), the same after 5 s stuck (hold persists), dropping dead-end twin U-turns (pairs/s 7.1 → 9.1), or a
+  one-direction-at-a-time rule on tracks under 3 m (rooms +1,914 ped-s at Centrum alone). [Corner-link record](observations/ped-corner-links-2026-11-10.md),
+  [twin-lane and Pasaż pass](observations/ped-twin-lane-loops-2026-11-10.md),
   [Pasaż record](observations/ped-overlap-pasaz-2026-11-10.md),
   [mechanisms](observations/ped-overlap-remnants-2026-11-08.md).
 - **Kaponiera long holds and the last deadlock:** at `6d70c71` (8 seeds × 7 districts, 5 min) every hold > 120 s and
