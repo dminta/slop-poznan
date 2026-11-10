@@ -297,8 +297,10 @@ test('park blocks with buildings: no curb or paving under footprints, granite an
   // 2026-11-08; 243,502 m² after the park facility carve-out put Hala Arena, Enea Stadion and the other mapped
   // sports centres back on their OSM lots; 305,226 m² after the park-building pass restored the ordinary mapped
   // buildings of 873, 966, 1164, 1268, 884 and 403 as lots; 337,613 m² with the Etap 1 park block at Marcelin;
-  // 366,371 m² with the two Etap 2 park blocks west of Ławica)
-  assert.ok(footprint > 365000 && footprint < 368000, `footprint union ~366.4k m² (got ${footprint})`);
+  // 366,371 m² with the two Etap 2 park blocks west of Ławica; 363,730 m² after the 2026-11-10 legacy gate, which
+  // builds the park blocks of Wilda/Łazarz/Jeżyce with the 4d14df9 island-share budget and without their mapped
+  // objects and fallback lots, except LEGACY_OBJECTS)
+  assert.ok(footprint > 362500 && footprint < 365000, `footprint union ~363.7k m² (got ${footprint})`);
   const fmt = (k) => JSON.stringify(tot[k]);
   for (const row of perBlock) {
     assert.equal(row.curb.underFp, 0, `block ${row.id} curb under footprints`);
@@ -390,8 +392,10 @@ test('real triangulation: every park surface mesh of the 42 blocks triangulates 
     assert.equal(inHoles, 0, `Block ${id} ${SURFACE_KIND(m)} must have 0 m² of triangles inside holes (got ${inHoles})`);
   }
   // 252 curb, 252 paving, 266 granite and 262 lawn meshes on 2026-11-05; 894 after the park facility carve-out merged
-  // the many small cell lots of block 342's sports centre into one envelope (the remaining blocks keep their meshes)
-  assert.ok(checked > 800, `all park surface meshes checked (got ${checked}, worst error ${worst.toFixed(2)} m²)`);
+  // the many small cell lots of block 342's sports centre into one envelope (the remaining blocks keep their meshes);
+  // 720 after the 2026-11-10 legacy gate: without mapped objects and fallback lots the legacy park blocks have fewer
+  // footprint holes, so fewer curb/paving pieces (the coverage test above still matches every intended region)
+  assert.ok(checked > 700, `all park surface meshes checked (got ${checked}, worst error ${worst.toFixed(2)} m²)`);
 });
 
 test('pond coverage: Park Sołacki ponds have 0 m² park paving coverage', () => {

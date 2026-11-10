@@ -51,11 +51,13 @@ test('street trees carry player colliders, including Rybaki', async () => {
   // positions that stand in a curb row. This fixture omits landmark and bridge walls; the default clearance audit
   // uses the same scope.
   const streetTrees = sites.filter((t) => t.tier === 2 || t.tier === 1 && t.pitRot !== undefined);
-  assert.equal(streetTrees.length, 34503, 'street trees in the headless build');
+  // 34,503 before the 2026-11-10 legacy layout gate: the restored 4d14df9 frontages move a few curb-row sites
+  assert.equal(streetTrees.length, 34493, 'street trees in the headless build');
   // Surveyed OSM park trees have no city-grid site of their own, so street-details.js adds their trunk boxes to the
   // same player list as the street rows; count them separately rather than letting them hide a missing street trunk.
   const osmParkTrees = sites.filter((t) => t.source === 'osm' && t.tier === 0).length;
-  assert.equal(osmParkTrees, 25771, 'surveyed OSM park trees');
+  // 25,771 before the 2026-11-10 legacy gate (310 surveyed park trees now under its courtyard buildings)
+  assert.equal(osmParkTrees, 25461, 'surveyed OSM park trees');
 
   const colliders = details.colliders;
   const trunkColliders = colliders.filter((c) => c.isTrunk);

@@ -83,6 +83,27 @@ const wrapQuarter = (a) => ((((a + Math.PI / 4) % QUARTER_TURN) + QUARTER_TURN) 
 // OSM minimum-area rectangles carry 1-3° of noise from stepped walls and bays; a building whose plan is genuinely
 // 5°+ off every street frame keeps its real turn (swinging a 60-100 m hall round by 10° moves whole frontages).
 const OBJECT_FRAME_SNAP = 3 * Math.PI / 180;
+// The dense perimeter districts keep the 4d14df9 layout (the user's reference: kamienice rows with oficyny and
+// courtyards). The later anchors, mapped objects, fallback lots and programme profiles cut their street walls into
+// fragments: interior angles per quarter 1.71 -> 1.96, the 0-16 m street band 32.3 -> 26.8 % built. Główna keeps the
+// current path (60 % lowrise carpets and rail yards at 4d14df9).
+const LEGACY_LAYOUT_DISTRICTS = new Set(['Stare Miasto', 'Jeżyce', 'Łazarz', 'Wilda', 'Stare Winogrady']);
+// The only GEO.blockObjects built inside the legacy districts, each with its exact oriented reserve
+// (objectReserveBoxes), so it replaces the generic lots under its own plan and nowhere else. Matched by the object
+// centre (within LEGACY_OBJECT_MATCH m), not by block id, so a geodata rebuild that renumbers blocks keeps the list.
+// No heuristic: every other mapped object in these districts is laid out as the 4d14df9 kamienice.
+const LEGACY_OBJECTS = [
+  // Plac Wiosny Ludów 2: the six-storey L-plan model (kupiecBlock), 101 x 63.7 m envelope on block 792
+  { name: 'Kupiec Poznański', x: -128.5, z: 364.2 },
+  // Królowej Jadwigi 43 and 27/39 opposite Karmelicka (9aa2dba): an office block and a sports complex of 112 x 56 and
+  // 111 x 24 m standing on Wilda's park block 939, which has no kamienica frontage there to tear
+  { name: 'Biurowiec Maraton', x: -183.9, z: 1057.1 },
+  { name: 'AWF Królowej Jadwigi', x: -56.5, z: 1068 },
+  // The five-storey corner house at Podgórna/Plac Wiosny Ludów on block 770 (way 365954909, 239 m²): a 4 m reserve
+  // cell in the corner of the Podgórna frontage, which the 4d14df9 lots left as a gap
+  { name: 'Podgórna corner house', x: -151.9, z: 305.4 }
+];
+const LEGACY_OBJECT_MATCH = 2;
 
 /**
  * Spatial 2D quadtree for range queries around the active player/camera position.
@@ -366,8 +387,9 @@ function buildCityBlocks(scene) {
   let srcBlock = null; // the BLOCKS entry being populated (its curb outline gives the lot rects' frontages)
   let srcAnchors = []; // its GEO.blockAnchors kept for this block (world [x0, x1, z0, z1, area, use, levels])
   let srcObjects = []; // its GEO.blockObjects (same layout, including education/sacral/health/civic/office uses)
-  let srcObjectReserves = []; // srcObjects' reserve rects (objectReserveBoxes in Stare Miasto, else the full AABB)
+  let srcObjectReserves = []; // srcObjects' reserve rects (objectReserveBoxes in Stare Miasto/legacy, else the AABB)
   let srcFallbackLots = []; // its GEO.blockFallbackLots (world [x0, x1, z0, z1, area, ang])
+  let srcLegacy = false; // the block is in LEGACY_LAYOUT_DISTRICTS: lots, profile and steering as at 4d14df9
   let srcRects = []; // its lot rects { x0, x1, z0, z1 } in their frames { cs, sn, px, pz } (see frontages)
   let srcLotArea = 0; // the area of the lot pieces it builds on (m², see steerProfile)
   let fullLotArea = 0; // lot area before park carve-out (m², see steerProfile)
@@ -774,6 +796,78 @@ function buildCityBlocks(scene) {
     });
   }
 
+  // The 4d14df9 frontage frames follow the lot raster, not the curb: on a bend a frame corner crosses the kerb, and a
+  // legacy kamienica stood on the Strzelecka carriageway at (122.8, 855.2). Trim the building instead of dropping its
+  // lot: every side whose probes (fallbackPartClear's rule: roadway and pedestrian corridors >= 0 m, tracks >= 0.5 m)
+  // fail moves in by half a metre until all clear, the lot line with it, so the trimmed house keeps its street face
+  // and shopfronts and the frontage stays. False when the building would shrink below 3 m (commit leaves the lot void).
+  function trimOffStreets(b) {
+    const parts = b.parts;
+    const cut = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
+    for (const p of parts) {
+      cut.x0 = Math.min(cut.x0, p.x0);
+      cut.x1 = Math.max(cut.x1, p.x1);
+      cut.z0 = Math.min(cut.z0, p.z0);
+      cut.z1 = Math.max(cut.z1, p.z1);
+    }
+    const full = { ...cut };
+    const clear = (lx, lz) => {
+      const [x, z] = toWorld(lx, lz);
+      return roadClearance(x, z) >= 0 && pedestrianClearance(x, z) >= 0 && railClearance(x, z) >= 0.5;
+    };
+    for (let it = 0; ; it++) {
+      const fails = { x0: 0, x1: 0, z0: 0, z1: 0 };
+      let any = false;
+      for (const p of parts) {
+        const x0 = Math.max(p.x0, cut.x0), x1 = Math.min(p.x1, cut.x1);
+        const z0 = Math.max(p.z0, cut.z0), z1 = Math.min(p.z1, cut.z1);
+        if (x1 - x0 < EPS || z1 - z0 < EPS) continue;
+        const nx = Math.max(1, Math.ceil((x1 - x0) / 2)), nz = Math.max(1, Math.ceil((z1 - z0) / 2));
+        const probes = [[(x0 + x1) * 0.5, (z0 + z1) * 0.5]];
+        for (let i = 0; i <= nx; i++) probes.push([x0 + ((x1 - x0) * i) / nx, z0], [x0 + ((x1 - x0) * i) / nx, z1]);
+        for (let k = 1; k < nz; k++) probes.push([x0, z0 + ((z1 - z0) * k) / nz], [x1, z0 + ((z1 - z0) * k) / nz]);
+        for (const [lx, lz] of probes) {
+          if (clear(lx, lz)) continue;
+          any = true;
+          // charge the failure to the nearest side of the building's current bounds
+          const d = { x0: lx - cut.x0, x1: cut.x1 - lx, z0: lz - cut.z0, z1: cut.z1 - lz };
+          let side = 'x0';
+          for (const k of ['x1', 'z0', 'z1']) if (d[k] < d[side]) side = k;
+          fails[side]++;
+        }
+      }
+      if (!any) break;
+      if (it >= 40) return false;
+      if (fails.x0) cut.x0 += 0.5;
+      if (fails.x1) cut.x1 -= 0.5;
+      if (fails.z0) cut.z0 += 0.5;
+      if (fails.z1) cut.z1 -= 0.5;
+      if (cut.x1 - cut.x0 < 3 || cut.z1 - cut.z0 < 3) return false;
+    }
+    if (cut.x0 === full.x0 && cut.x1 === full.x1 && cut.z0 === full.z0 && cut.z1 === full.z1) return true;
+    const trimmed = [];
+    for (const p of parts) {
+      const q = { ...p, x0: Math.max(p.x0, cut.x0), x1: Math.min(p.x1, cut.x1) };
+      q.z0 = Math.max(p.z0, cut.z0);
+      q.z1 = Math.min(p.z1, cut.z1);
+      // a part the trim narrows below 4 m is dropped rather than left as a sliver (an untrimmed narrow part stays)
+      const w = q.x1 - q.x0, d = q.z1 - q.z0;
+      if (w < EPS || d < EPS) continue;
+      if ((w < 4 && w < p.x1 - p.x0 - EPS) || (d < 4 && d < p.z1 - p.z0 - EPS)) continue;
+      trimmed.push(q);
+    }
+    if (!trimmed.some((p) => p.y0 < EPS)) return false;
+    parts.splice(0, parts.length, ...trimmed);
+    // The lot follows only the sides that moved, so a street face stays on the (new) lot line
+    const lot = { ...b.lot };
+    if (cut.x0 > full.x0) lot.x0 = Math.max(lot.x0, cut.x0);
+    if (cut.x1 < full.x1) lot.x1 = Math.min(lot.x1, cut.x1);
+    if (cut.z0 > full.z0) lot.z0 = Math.max(lot.z0, cut.z0);
+    if (cut.z1 < full.z1) lot.z1 = Math.min(lot.z1, cut.z1);
+    b.lot = lot;
+    return true;
+  }
+
   // Lots left empty under a bridge approach (see commit): the lot-line walls of the buildings next to them look out
   // over the gap, so they get windows like a rear wall
   function openOntoVoidLots(blk) {
@@ -917,6 +1011,10 @@ function buildCityBlocks(scene) {
   function commit(blk, b, o = {}) {
     const parts = b.parts;
     if (!parts.length) return;
+    if (srcLegacy && !trimOffStreets(b)) {
+      blk.voidLots.push(b.lot);
+      return;
+    }
     if (parts.some((p) => hitsBridgeCorridor(p.x0, p.x1, p.z0, p.z1))) {
       blk.voidLots.push(b.lot);
       return;
@@ -2845,6 +2943,63 @@ function buildCityBlocks(scene) {
     }
     return true;
   }
+  // A yard that fails yardFitsBlock is clipped to its largest clear rectangle instead of dropped: the 4d14df9
+  // courtyards of a whole perimeter block often touch the pavement band at one corner only, and dropping them left
+  // grey block ground where the reference has a courtyard (Łazarz -2600..-2300 x 1500..1800 lost two). The turned
+  // rectangle is sampled on a <= YARD_CLIP_STEP grid in its own frame; the largest all-clear sub-rectangle with both
+  // sides >= YARD_MIN_SIDE is re-checked with yardFitsBlock (whose 2 m perimeter probes are the test's) and inset by
+  // half a metre at a time if a probe between the samples still fails.
+  const YARD_CLIP_STEP = 1.25;
+  const YARD_MIN_SIDE = 4;
+  function clipYard(y) {
+    if (yardFitsBlock(y)) return y;
+    const cs = Math.cos(y.ry || 0), sn = Math.sin(y.ry || 0);
+    const cx = (y.x0 + y.x1) * 0.5, cz = (y.z0 + y.z1) * 0.5;
+    const hx = (y.x1 - y.x0) * 0.5, hz = (y.z1 - y.z0) * 0.5;
+    if (2 * hx < YARD_MIN_SIDE || 2 * hz < YARD_MIN_SIDE) return null;
+    const nu = Math.ceil((2 * hx) / YARD_CLIP_STEP), nv = Math.ceil((2 * hz) / YARD_CLIP_STEP);
+    const du = (2 * hx) / nu, dv = (2 * hz) / nv;
+    // heights[i]: clear sample points in column i ending at the current row (histogram of the maximal-rectangle scan)
+    const heights = new Array(nu + 1).fill(0);
+    let best = null, bestArea = 0;
+    for (let j = 0; j <= nv; j++) {
+      const v = -hz + j * dv;
+      for (let i = 0; i <= nu; i++) {
+        const u = -hx + i * du;
+        const x = cx + u * cs + v * sn, z = cz - u * sn + v * cs;
+        const ok = roadClearance(x, z) >= YARD_ROAD_KEEP && pedestrianClearance(x, z) >= 0.5 &&
+          railClearance(x, z) >= 0.5 && insideCurbIsland(x, z);
+        heights[i] = ok ? heights[i] + 1 : 0;
+      }
+      // Every maximal rectangle with its bottom on row j: for each column, the widest run at least as tall
+      const stack = [];
+      for (let i = 0; i <= nu + 1; i++) {
+        const h = i <= nu ? heights[i] : 0;
+        let start = i;
+        while (stack.length && stack[stack.length - 1][1] >= h) {
+          const [s0, sh] = stack.pop();
+          const w = (i - 1 - s0) * du, d = (sh - 1) * dv;
+          if (w >= YARD_MIN_SIDE && d >= YARD_MIN_SIDE && w * d > bestArea) {
+            bestArea = w * d;
+            best = [-hx + s0 * du, -hx + (i - 1) * du, v - d, v];
+          }
+          start = s0;
+        }
+        if (h > 0) stack.push([start, h]);
+      }
+    }
+    if (!best) return null;
+    for (let inset = 0; inset <= 1.5; inset += 0.5) {
+      const [u0, u1, v0, v1] = [best[0] + inset, best[1] - inset, best[2] + inset, best[3] - inset];
+      if (u1 - u0 < YARD_MIN_SIDE || v1 - v0 < YARD_MIN_SIDE) return null;
+      const uc = (u0 + u1) * 0.5, vc = (v0 + v1) * 0.5;
+      const ncx = cx + uc * cs + vc * sn, ncz = cz - uc * sn + vc * cs;
+      const hw = (u1 - u0) * 0.5, hd = (v1 - v0) * 0.5;
+      const clipped = { ...y, x0: ncx - hw, x1: ncx + hw, z0: ncz - hd, z1: ncz + hd };
+      if (yardFitsBlock(clipped)) return clipped;
+    }
+    return null;
+  }
   function fallbackPartClear(x0, x1, z0, z1) {
     const at = (lx, lz) => toWorld(lx, lz);
     const probes = [];
@@ -3133,6 +3288,8 @@ function buildCityBlocks(scene) {
     rows: [['kamienica', 7], ['infill', 1], ['postwarBlock', 0.8], ['low', 0.38]],
     kf: { kamienica: [3, 5], postwarBlock: [4, 5] }
   });
+  const RES_STARE_LEGACY = { ...RES_STARE,
+    rows: [['kamienica', 7], ['infill', 1], ['postwarBlock', 0.8], ['low', 0.38], ['gap', 0.18]] };
   // Stary Rynek: the frontages facing the square are rows of rynekHouses, the back streets Old Town
   // (corner squares of 10-14 m: the medieval lots are narrow on the corners too)
   const RYNEK = { ...RES_STARE, kind: 'rynek', rynekRows: [['rynekHouse', 1]], corner: [10, 14], cornerShops: 1 };
@@ -3345,18 +3502,22 @@ function buildCityBlocks(scene) {
     // perimeter kamienice with q < 0.8, noCore and frontage gaps, which left them 20-40 % below their real share.
     // Stare Winogrady's four-storey blocks (192 among them) keep the denser kamienica layout; Rataje's four-storey
     // blocks are panel estates too, and converting them overfilled 930/961/1122.
-    if (cfg.kind === 'projects' && !cfg.estate && L &&
+    if (srcLegacy) {
+      if (cfg.kind === 'projects' && !cfg.estate && ((L && L < 7) || T > KIND_SHARE.projects * 1.4)) {
+        base = RES_KAMIENICE;
+      }
+    } else if (cfg.kind === 'projects' && !cfg.estate && L &&
       (L < 4 || (L === 4 && b.district === 'Stare Winogrady'))) base = RES_KAMIENICE;
     // Kamienice steer by the real built share of their lots, not of the island (report 2026-11-08, cause 1a): a block
     // whose lots cover 37 % of the island (98) or 41 % (1166) is systematically underbuilt by the old island-share q.
     // Halls, malls and utility plants use the same lot-aware target to set skipP (cause 1b): a block whose lots cover
     // 61 % (1305), 68 % (417) or 63 % (266) otherwise drops q too far and loses whole pieces to Bernoulli thinning.
-    const Tq = RES_KINDS.has(base.kind)
+    const Tq = srcLegacy ? T : RES_KINDS.has(base.kind)
       ? (srcLotArea > 0 && srcLotArea < 0.5 * b.area ? Math.max(T, lotTarget) : T)
       : LOT_TARGET_KINDS.has(base.kind) ? lotTarget : T;
     const q = Tq / KIND_SHARE[base.kind];
     const out = { ...base };
-    if (base.kind === 'projects') out.estateP = Math.max(0, Math.min(1, (lotTarget - 0.15) / 0.2));
+    if (base.kind === 'projects' && !srcLegacy) out.estateP = Math.max(0, Math.min(1, (lotTarget - 0.15) / 0.2));
     if (RES_KINDS.has(base.kind)) {
       // Storeys follow the block's median but drop at most one below the profile's: OSM's area-weighted median
       // counts the oficyny and outbuildings too (3 storeys on the Kaponiera blocks of 4-5-storey kamienice)
@@ -3370,7 +3531,7 @@ function buildCityBlocks(scene) {
       // The historic centre keeps an unbroken street wall: no base frontage gaps, no whole-piece thinning, and war
       // gaps only as the interior thinning leaves them (the user reads a missing kamienica between Strzelecka and
       // Podgórna as a hole in the frontage). Other districts keep the sparse-block gaps below 0.6.
-      const denseCentre = b.district === 'Stare Miasto';
+      const denseCentre = !srcLegacy && b.district === 'Stare Miasto';
       if (denseCentre) out.rows = others;
       if (q >= 1) {
         out.rows = others;
@@ -3448,7 +3609,11 @@ function buildCityBlocks(scene) {
     // A blockStats programme comes before the district switch. Programmes 3-9 are the dominant OSM footprint use
     // (>= 40 % of the block's footprint area), so no extra gate: Posnania, Castorama, ZNTK, the depots, the sports
     // parks and Business Garden's offices build their own morphology instead of the district's kamienice or osiedle.
-    if (srcBlock && srcBlock.program) {
+    if (srcLegacy) {
+      // 4d14df9: large, sparse hospital/university campuses only; programmes 3-12 keep the district profile
+      if (srcBlock && (srcBlock.program === 1 || srcBlock.program === 2) && srcBlock.park <= 0.5 &&
+        srcBlock.area >= 50000 && srcBlock.built <= 0.4) return srcBlock.program === 2 ? UNIVERSITY : HOSPITAL;
+    } else if (srcBlock && srcBlock.program) {
       // Park-heavy blocks (Termy Maltańskie, the Sołacz speedway ground, Wilda's park frontages) keep their green and
       // district layout: their mapped halls already have their own lots through GEO.blockFootprints, and a block-level
       // retail/arena profile over 60 % park would outbuild the park. Programmes 1/2 keep their own park gates below.
@@ -3501,7 +3666,7 @@ function buildCityBlocks(scene) {
     for (const s of SPECIAL_SITES) {
       if (Math.hypot(s.x - wx, s.z - wz) <= s.reach) return { ...s.profile, exact: true };
     }
-    const big = bigBoxKind(srcBlock);
+    const big = srcLegacy ? null : bigBoxKind(srcBlock);
     if (big === 'mall') return MALL;
     if (big === 'retail') return RETAIL_PARK;
     if (big === 'industrial') return INDUSTRIAL_HALL;
@@ -3510,7 +3675,7 @@ function buildCityBlocks(scene) {
     if (blk.rynekSides) return RYNEK;
     switch (district) {
       case 'Stare Miasto':
-        if (inBox(OLD_TOWN_BOX, wx, wz)) return chance(0.08) ? LOFT_BASE : RES_STARE;
+        if (inBox(OLD_TOWN_BOX, wx, wz)) return chance(0.08) ? LOFT_BASE : srcLegacy ? RES_STARE_LEGACY : RES_STARE;
         return chance(0.06) ? LOFT_BASE : RES_CENTRUM;
       case 'Jeżyce':
       case 'Łazarz': return chance(0.06) ? LOFT_BASE : RES_KAMIENICE;
@@ -3755,7 +3920,9 @@ function buildCityBlocks(scene) {
     if (fallback) profile.skipP = 0;
     // The piece's share of the block's real built area still to spend (srcPieceBudget). Small osiedle lots that cannot
     // hold a full slab use it for a garage/pavilion row, so they still contribute their share of the real stock.
-    if (profile.kind === 'projects') profile.pieceFill = Math.max(0, Math.min(0.6, srcPieceBudget / (bw * bd)));
+    if (profile.kind === 'projects' && !srcLegacy) {
+      profile.pieceFill = Math.max(0, Math.min(0.6, srcPieceBudget / (bw * bd)));
+    }
     if (!(profile.skipP && chance(profile.skipP))) LAYOUTS[profile.kind](blockDetail, profile, minX, maxX);
     openOntoVoidLots(blockDetail);
 
@@ -3786,7 +3953,7 @@ function buildCityBlocks(scene) {
     } else {
       blockDetail.ry = 0; // a world-frame detail still reports its turn (consumers read blk.ry without a fallback)
     }
-    blockDetail.yards = blockDetail.yards.filter(yardFitsBlock);
+    blockDetail.yards = blockDetail.yards.map(clipYard).filter(Boolean);
     allBlocks.push(blockDetail);
   }
 
@@ -4064,6 +4231,19 @@ function buildCityBlocks(scene) {
       return !LANDMARK_RESERVE.some((h) => hitR(h, e[0], e[1], e[2], e[3]));
     });
     srcFallbackLots = b.fallbackLots || [];
+    // The dense perimeter districts build as at 4d14df9 (LEGACY_LAYOUT_DISTRICTS): no anchors, fallback lots or
+    // mapped objects beyond LEGACY_OBJECTS, and the old island-share budget. Park facility lots stay (Hala Arena and
+    // the halls on 925/937 are rastered from them). Industrial superblocks (>= 10 ha, programme 4/5/7, mapped halls
+    // averaging >= 600 m²: ZNTK, Cegielski) keep the anchored hall layout; 4d14df9 laid kamienice and lowrise carpets
+    // over them. Block 416's workshops (468 m² average) stay legacy.
+    srcLegacy = LEGACY_LAYOUT_DISTRICTS.has(b.district) && !(b.area >= 100000 && [4, 5, 7].includes(b.program) &&
+      (b.built * b.area) / Math.max(1, b.buildings) >= 600);
+    if (srcLegacy) {
+      srcAnchors = [];
+      srcObjects = srcObjects.filter((o) => LEGACY_OBJECTS.some((e) =>
+        Math.abs(e.x - o[0]) <= LEGACY_OBJECT_MATCH && Math.abs(e.z - o[1]) <= LEGACY_OBJECT_MATCH));
+      srcFallbackLots = [];
+    }
     srcRects = (b.frames || [[0, 0, 0, b.rects]]).flatMap(([th, px, pz, rects]) => rects.map(([x0, x1, z0, z1]) => (
       { cs: Math.cos(th), sn: Math.sin(th), px, pz, x0, x1, z0, z1 })));
     // The block's pieces first: their area is the lot area the villa layouts steer by (srcLotArea)
@@ -4072,7 +4252,7 @@ function buildCityBlocks(scene) {
     fullLotArea = 0;
     for (const [th, px, pz, rects] of b.frames || [[0, 0, 0, b.rects]]) {
       xf = th ? { th, cs: Math.cos(th), sn: Math.sin(th), px, pz } : null;
-      srcObjectReserves = srcObjects.flatMap((o) => b.district === 'Stare Miasto'
+      srcObjectReserves = srcObjects.flatMap((o) => b.district === 'Stare Miasto' || srcLegacy
         ? objectReserveBoxes(o, xf)
         : [inFrameRect(objectBounds(o))]);
       for (const r of rects) {
@@ -4126,7 +4306,9 @@ function buildCityBlocks(scene) {
       // The budget is the real OSM built area, not steerProfile's park-adjusted T (that T rescales the island share to
       // the surviving lots for the q decision; using it here made park blocks spend up to 2.5x their real stock on
       // pavilions). Landmark reserves are outside srcLotArea, so the generator never builds on them.
-      srcTarget = Math.min(srcLotArea, b.built * b.area);
+      srcTarget = srcLegacy
+        ? (b.park > 0.6 && srcLotArea > 0 && fullLotArea > 0 ? (b.built * fullLotArea) / srcLotArea : b.built) * b.area
+        : Math.min(srcLotArea, b.built * b.area);
       srcBuiltArea = 0;
       srcLeftArea = srcLotArea;
     }
@@ -4141,7 +4323,7 @@ function buildCityBlocks(scene) {
     // The object envelopes were removed from the generic lots, so their real area is no longer in srcLotArea. Add it
     // back before budgeting; otherwise a block whose lots were mostly mapped shops or halls loses the target it is
     // supposed to fill. Anchors keep the old budget (their area is already in the block's lot rects).
-    if (srcObjectArea > 0) srcTarget = Math.min(srcLotArea + srcObjectArea, b.built * b.area);
+    if (srcObjectArea > 0 && !srcLegacy) srcTarget = Math.min(srcLotArea + srcObjectArea, b.built * b.area);
     // Fallback lots are real buildings the property-line grid missed; build them before the generic pieces so the
     // block's remaining budget cannot spend their spot on a kamienica elsewhere.
     for (const [frame, x0, x1, z0, z1] of fallbackPieces) {
@@ -4293,6 +4475,7 @@ function buildCityBlocks(scene) {
   srcObjects = [];
   srcObjectReserves = [];
   srcFallbackLots = [];
+  srcLegacy = false;
   srcRects = [];
   srcLotArea = 0;
   fullLotArea = 0;

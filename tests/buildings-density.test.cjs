@@ -338,7 +338,9 @@ test('villa districts, Chartowo and the hospital campuses come out near their re
   }
   // Hospitals use a wider gate (area >= 0.4 ha, built <= 55 %), so the real hospitals that the 5 ha campus gate
   // degraded to kamienice now take HOSPITAL: 828 (Szpital Kliniczny, 50 % built) generates 35.7 % and 991 (Strusia,
-  // 25 %) 25.0 %, against 50 and 25 % real; the old district/campus mix left them at 41.8 and below.
+  // 25 %) 25.0 %, against 50 and 25 % real; the old district/campus mix left them at 41.8 and below. Since the
+  // 2026-11-10 legacy gate 829 is in Stare Miasto and builds kamienice as at 4d14df9 (the user's decision); the floor
+  // still holds and guards its share.
   for (const [id, floor] of [[829, 0.35], [994, 0.24]]) {
     const b = config.BLOCKS[id];
     assert.equal(b.program, 1, `block ${id} is a hospital`);

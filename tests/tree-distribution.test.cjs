@@ -95,17 +95,21 @@ test('seeded species assignment preserves the full built city tree sites and col
   // and the 0.5 m fallback property-line tolerance) moves the pins again. The 2026-11-09 street-alignment pass turns
   // fallback lots into their frontage frame (OSM angle), snaps object plans within 3° and tightens yards to the 4.6 m
   // pavement band, which moves the building colliders and a handful of street/park tree sites one last time.
-  assert.deepEqual(before, [45838, 49663, 22038, 1990]);
-  assert.deepEqual(after, [43963, 47595, 21129, 6842]);
-  assert.equal(siteHash, '2baa3fb79c6ac67b4ea31e8bcdadc6beda96beebbd5d1357210b223d1ed1d603');
-  assert.equal(digest(grid.propColliders), '47a6c14dc68bbc1af16401871a15079f70273d9484ee826f45576f18a102a6c4');
-  assert.equal(digest(details.colliders), 'a3fe35e9d124ae9c8ff6aeb558a9bc89f2878afb278e6833238a8d2583ba6341');
-  assert.equal(meshCount((t) => t.species || 0), 25496);
-  assert.equal(meshCount(treeSpecies), 30383);
+  // The 2026-11-10 legacy layout gate (4d14df9 kamienice in the dense districts, clipped yards, trimmed legacy
+  // buildings) moves the building colliders and therefore the street/park tree sites and their species counts.
+  assert.deepEqual(before, [45706, 49560, 21965, 1985]);
+  assert.deepEqual(after, [43834, 47502, 21059, 6821]);
+  assert.equal(siteHash, 'a1de01e7f61e56582e37d39d5a52d6b31f46768c60840cb232cbdc4e98366dda');
+  assert.equal(digest(grid.propColliders), '6b5a6179b5b5c1e133b4ea91f1073971eaab26be2b6bc7404bdfcea20b0fe440');
+  assert.equal(digest(details.colliders), '03457e9265c5cfaa3bbc3f64c904b12f0c05496a6711932dc213c5bc6697c518');
+  assert.equal(meshCount((t) => t.species || 0), 25477);
+  assert.equal(meshCount(treeSpecies), 30363);
   // Every surveyed node the clearance rules accept reaches the field exactly at its OSM position. The rest are dropped
   // where a wall, lane, track, water or building doorway leaves no room, rather than moved off the surveyed point.
   const osm = sites.filter((t) => t.source === 'osm');
-  assert.equal(osm.length, 33073);
+  // 33,073 before the 2026-11-10 legacy gate: its kamienice and oficyny stand where the mapped objects left room for
+  // 331 surveyed trees (a dropped node is never moved, see above)
+  assert.equal(osm.length, 32742);
   assert.ok(osm.every((t) => t.tier === 0 || (t.pitRot !== undefined && Number.isFinite(t.pitRot))));
   assert.ok(osm.every((t) => Number.isFinite(t.x) && Number.isFinite(t.z) && t.scale >= 0.55 && t.scale <= 1.3));
 });
