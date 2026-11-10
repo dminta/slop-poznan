@@ -222,6 +222,11 @@ per-frame allocation. Method, counts and the before/after tables are in
 [the remnant record](observations/ped-overlap-remnants-2026-11-08.md); earlier phases are in
 [the 2026-11-05 record](observations/ped-overlaps-2026-11-05.md).
 
+**Pedestrian-street spawn weighting (2026-11-10).** `pedestrianStreetTrack()` picks a `nearWalks` track weighted by its
+length; a uniform pick put 24+ bodies into the 1.87 m fragments of Pasaż Różowy. Centrum clusters 10 → 0, longest
+26 → 0 s; ped-rooms total is unchanged within noise (40,056 → 40,271). See
+[the record](observations/ped-overlap-pasaz-2026-11-10.md).
+
 ## Population around the camera (spawn/despawn)
 - Pools have a fixed size, and nothing is created or destroyed. **Only as many vehicles drive as the lanes around the focus carry at `VEHICLE_DENSITY`** (12 per km of lane, both ways counted, at least `MIN_VEHICLES` 30, at most the pool of 212): `refreshNear` sums the lane length within `NEAR_RADIUS` (`nearLanes`) and sets `nearTarget`. A vehicle retired beyond `VEHICLE_RADIUS` is placed again only while fewer than that drive; otherwise it is parked (`park()`: no edge, moved to 1e6 so the radar draws no stale blip; everything that reads `cars` skips `!v.edge` or draws off-map). A camera jump parks the excess at once. Until 2026-10 the whole pool filled whatever the network: the sparse single-lane grids (2.9–5 lane-km within 350 m at Wilda, Łazarz, Jeżyce, Stare Miasto) carried 40–70 vehicles per lane-km, a jam, and 62% of the cars stood even with no pedestrians, trams or signals (`tools/bench-traffic.mjs --no-peds --no-trams`). Now 28–80 vehicles drive within 300 m (37 at Stare Miasto, 61 at Kaponiera, 79 at Rataje). A rotating cursor scans the pool each frame with an **attempt** budget (4 vehicles, 6 pedestrians), so awkward spots can't monopolize a frame.
 - `nearBusTarget` reserves `ceil(nearTarget × 12 / 212)` places for buses (2 at the minimum population), with the

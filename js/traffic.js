@@ -2349,7 +2349,16 @@ function createTrafficSystem(
   // A walking line on a pedestrian-only street, already materialised by refreshNear.
   function pedestrianStreetTrack() {
     if (!nearWalks.length) return false;
-    const route = nearWalks[Math.floor(Math.random() * nearWalks.length)];
+    // Weighted by length: every fragment used to be equally likely, so the 1.87 m pieces of Pasaż Różowy took as
+    // many spawns as a 60 m street and 24 bodies landed in a 6 x 2 m pocket (a 26 s / 6-body cluster at Centrum).
+    let total = 0;
+    for (const w of nearWalks) total += w.len;
+    let pick = Math.random() * total;
+    let route = nearWalks[nearWalks.length - 1];
+    for (const w of nearWalks) {
+      pick -= w.len;
+      if (pick < 0) { route = w; break; }
+    }
     Object.assign(track, route, { route });
     return true;
   }

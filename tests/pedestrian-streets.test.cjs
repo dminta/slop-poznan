@@ -76,3 +76,20 @@ test('refreshNear keeps pedestrian-only tracks around the focus', () => {
   vm.runInNewContext(`(${trafficFunction('refreshNear')})`, context)();
   assert.deepEqual(nearWalks, [way]);
 });
+
+test('pedestrian-street spawns are weighted by track length, not one vote per fragment', () => {
+  const stub = { ax: 0, az: 0, ux: 1, uz: 0, len: 1.87 };
+  const street = { ax: 50, az: 0, ux: 1, uz: 0, len: 60 };
+  const nearWalks = [stub, stub, stub, stub, street];
+  let draw = 0;
+  const context = { nearWalks, track: {}, Math: Object.assign(Object.create(Math), { random: () => draw }) };
+  const source = `(function () {\n${trafficFunction('pedestrianStreetTrack')}\nreturn pedestrianStreetTrack;\n})()`;
+  const pick = vm.runInNewContext(source, context);
+  const counts = { stub: 0, street: 0 };
+  for (draw = 0.005; draw < 1; draw += 0.01) {
+    pick();
+    counts[context.track.route === street ? 'street' : 'stub']++;
+  }
+  // 4 x 1.87 m of 67.5 m is 11%: the old uniform pick gave the four stubs 80% of the spawns
+  assert.ok(counts.stub >= 8 && counts.stub <= 14, `stubs took ${counts.stub} of 100 draws`);
+});
