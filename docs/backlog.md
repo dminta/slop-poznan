@@ -75,7 +75,24 @@ Implementation details and completed measurements live in the [topic docs](../AG
   8 → 9 and Stare Miasto 7 → 5. Diagnosed in Jeżyce at `aecdb54`: seed 2 car 19 stopped inside tram 21's turning
   sweep at `(-2050, -456)`, seed 2 car 47 whose proxy leader arrived after contact on edge 8081, and seed 4242 bus 204
   at `(-2056, -458)`, where the audit's rigid 18 m rectangle starts the contact a second early but the 10.4 m front
-  section then really overlaps tram sections 0–2. The Kaponiera and Stare Miasto pairs are undiagnosed.
+  section then really overlaps tram sections 0–2. **Kaponiera and Stare Miasto are diagnosed at `8c41595`**
+  ([record](observations/car-tram-kaponiera-stare-2026-11-10.md)): 6 of Kaponiera's 9 are the feeder race at the
+  10 m link 7909 (`-1385, -216`; seeds 1, 4242, 7, 5, 11) and link 280 (`-1497, 237`, seed 2) — the car passes the
+  entry guard while it can still stand on the link, accelerates along the 40–45 m feeder past that speed (7.5 → 12.8,
+  4.4 → 13.6 m/s), and the `enter` too-fast fallback then crosses the link line into the tram's curve; the other 3
+  are stopped/slow cars inside a tram's turning sweep at `-1125…-1138, 140…167` (seeds 7, 99, 5). Stare Miasto's 5
+  are 3 side-by-side contacts on the shared street-running lane at `-318, -184` (the 10 m stubs 8503/8504 carry one
+  `+1.80 m` lane the track runs along), and 2 cars whose corner reaches a tram nose that stopped 0.4–3.1 m before the
+  conflict while waiting for that very car (seeds 1 and 4242). Rejected in this pass: **a feeder speed cap** (cap a
+  car on the connector at the speed it can stand from inside the short link while its exit curve is tram-held within
+  20 m or has a standing tram, shared tram lanes excluded, engaged above 1.6× the standable speed). It removed the
+  `-1385` cluster in every tested seed but the eight-seed audit was 34 (Jeżyce 21 → 23, Centrum 1 → 4, Kaponiera
+  9 → 3, Stare 5 → 4) and the default-seed benchmark lost 1.9 km/h at Kaponiera (13.7 → 11.8, stopped 47.1 →
+  52.9 %, maximum wait 112 → 119 s; all districts 14.9 → 14.4 km/h); **a connector stop for a tram standing at the
+  exit curve**, including one waiting for this car, added a 146 s hold and one car held over 120 s at Jeżyce seed
+  4242. Both were reverted; the `tramStandsAt` "tram waits for me" exemption must stay. The turning-sweep and
+  shared-lane families need geometry (stop lines inside the swept envelope, a 10 m stub lane inside the tram's width),
+  not a queue rule.
   `tools/audit-tram-opposing-lanes.mjs` is unchanged at **40** street-running rows / 38 lanes / 293 m (`--all`
   55 / 51 / 498): 37 short stubs (35 lanes, 252 m) with no 4.6 m band between the tracks and the curb, and three
   curved runs (41 m) that sweep a track across the whole carriageway; they need per-station lane geometry. Moving the
@@ -85,6 +102,7 @@ Implementation details and completed measurements live in the [topic docs](../AG
   40.9 s), the `enter` hard stop, the stand test in every short-link `tramBlocks` call or a long-connector stop, the
   feeder two-step, the unrestricted sibling lane, the rear-gap rule for every moving queue, and accepting a residual
   below the audit's 5 m floor (it hides the 1.5 m overlap left at 5523).
+  [Kaponiera and Stare diagnosis](observations/car-tram-kaponiera-stare-2026-11-10.md),
   [Jeżyce traces and the follower fix](observations/car-tram-jezyce-2026-11-10.md),
   [2026-11-10 traces and re-measurement](observations/car-tram-overlaps-2026-11-10.md),
   [moving-gate measurements](observations/car-tram-overlaps-2026-11-09.md),
