@@ -135,83 +135,102 @@ share are not thinned; [central-density record](observations/central-density-202
 
 ## Browser checks still outstanding
 
+The 2026-11-11 headless Chrome pass is recorded in
+[observations/browser-checks-2026-11-11.md](observations/browser-checks-2026-11-11.md). It covered part or all of the
+checks below; each remaining bullet is the part that is still open.
+
+### Defects found in the 2026-11-11 browser checks
+
+- **Teatr Polski is buried behind a generated block:** at `(-701, -5)` its front faces south-west towards
+  `(-717, 53)`, but generated buildings stand on that frontage at z 20–37 (colliders `maxY` 15.2–22.8 m). A camera at
+  the modelled front is inside a brick wall, and a street view from the south-east shows a generic tenement with a
+  `PIZZERIA` sign; from the air the white portico sits in a narrow slot between roofs. Cut the block back to the
+  theatre's forecourt and re-check the front and entrance from ul. 27 Grudnia/Fredry on WebGPU and WebGL2.
+  Note: the real Teatr Polski stands back in a courtyard behind the ul. 27 Grudnia frontage, reached through a gate,
+  so a partly hidden front is correct; check the courtyard footprint against OSM before cutting the block.
+- **The player taxi's left-side stripe mesh is culled:** the left side at the spawn `(-1060.6, 124.3)` shows the
+  body's street-taxi fallback (chequer edges, crest, `1427` above the band) instead of the dedicated stripe: no white
+  field, `TAXI`/`POZNAŃ` or number panel. The right side is correct on WebGPU and WebGL2. `buildCarSidePatch` reverses
+  both the z order and the triangle indices for `side < 0`, so the left patch normal points +x into the car and the
+  `FrontSide` material culls it; use one winding for both sides and add a both-patches-face-outward test.
+- **Re-check the taxi livery at midnight after fixing D2:** the culled left stripe leaves the body fallback nearly black
+  under the midnight streetlight pool. Capture both sides at a lit door after the winding fix; if the right side is also
+  unreadable, add a small emissive lift to the stripe.
+- **Phone touch layout overlaps:** at 390 × 844 the `.touch-look-hint` (top 136 px) is partly covered by the camera
+  switcher (`#hud-bottom-right`, top 78 px), and the current-camera label ellipsizes to "Kamera za grac…" on both the
+  phone and the 1280 × 720 desktop HUD. Move the hint below the camera cluster (or hide it while the cluster is open) and
+  widen/shorten the camera label.
+- **The WebGL2 fallback labels itself WebGPU:** with `?backend=webgl` the HUD subtitle still reads
+  `three.js · WebGPU · TSL` and the loading status says `Inicjalizacja WebGPURenderer…`. Drive both strings from
+  `renderer.backend.isWebGPUBackend` (or drop the backend name from the static HUD).
+- **Fara niches:** the four lower-tier statues on the north front at `(6.5, 229.5)` (niches y ≈ 9.35–13.85) have their
+  crozier/spear/cross in the same sandstone colour as the robes, not gilded, and the niches are unlit at midnight. The
+  aedicules, hoods, silhouettes, the 2.1 m outer-pair rise and the absence of z-fighting are correct.
+
 ### Interface and performance
 
-- Verify the loading screen's Poznań colours (white `#ffffff`, dark blue `#234792`, gradient to `#009cdc`),
-  contrast, independence from OS dark mode before boot, and loader credits layout and link responsiveness on desktop
-  and phone.
-- Check Polish labels in the HUD, toolbar and touch layout, metric readings, map labels and pin clustering on
-  WebGPU and WebGL2.
-- Verify the merged shop-sign atlas at street level on WebGPU and WebGL2: per-instance cell selection, mip bleed at
-  grazing angles, the two text-only chain signs and the dusk spot colours. The atlas replaced 26 sign meshes and
-  textures with one mesh and one texture (25 fewer draw calls); [measurements](observations/shop-signs-atlas-2026-11-08.md).
-- Measure load time and frame rate across the enlarged detail box, roof/dormer coverage and pool limits, estate
-  slabs and transitions to the outskirts; check detailed WebGL2 appearance and performance.
-- Inspect Ławica on WebGPU and WebGL2: the 10/28 runway from the air and from Bukowska, the terminal T1–T3 facades and
-  jet bridges from street level, the runway/taxiway/apron markings and lights at night, z-fighting between the 3.5 cm
-  tarmac layer and the land deck, and the airport's draw-call/shadow cost.
-  [Etap 2 record](observations/detailbox-west-phase2-2026-11-08.md).
+- Confirm the loading-screen credit link hover/focus and external navigation in a real (non-headless) browser; its
+  colours, contrast, dark-mode independence and credit layout at 1280 × 720 and 390 × 844 were checked 2026-11-11.
+- Verify shop-sign atlas mip bleed at grazing angles on WebGPU and WebGL2; per-instance cell selection, the two chain
+  signs and the dusk/night spot colours were checked 2026-11-11 (all 28 cells in the live pool, `ŻABKA`/`BIEDRONKA`
+  legible day, twilight and midnight).
+- Measure draw calls, shadow-pass share and the transitions across roof/dormer coverage, pool limits, estate slabs and
+  the outskirts on both backends; boot time and fps at seven viewpoints were measured 2026-11-11.
+- Measure Ławica's draw-call/shadow cost; the runway from the air and Bukowska, the terminals and jet bridges, the
+  markings and night lights, and the 3.5 cm tarmac/land join were checked 2026-11-11 with no z-fighting.
 
 ### Geometry, materials and collisions
 
 - Inspect the new non-residential silhouettes from a free camera and street level: Posnania (#953, 11–16 m mall with
   rooflights), Castorama (#21, 7.6 m retail park), ZNTK (#846, 11.4 m halls), EC Garbary (#266, utility halls plus the
   fallback 65 m chimney and 55 m cooling tower) and the Główna halls (blocks 36/78/95), on WebGPU and WebGL2, including
-  yard/apron joins, tower colliders and any z-fighting.
+  yard/apron joins, tower colliders and any z-fighting. Aerial views of Posnania, Castorama and the Główna 78/95 halls
+  were checked 2026-11-11; the EC Garbary chimney/cooling tower, the ZNTK halls, street level and WebGL2 remain open.
   [Profiles record](observations/building-profiles-nonres-2026-11-08.md).
-- Inspect all 11 historic landmarks on WebGPU and WebGL2: Biblioteka Raczyńskich, Pałac Działyńskich, Hotel Bazar,
-  Muzeum Narodowe, Teatr Polski, Collegium Maius, Kościół Bernardynów, Kościół Franciszkanów, Kościół NMP in Summo,
-  Kościół św. Wojciecha and Kościół Bożego Ciała. Check silhouette, materials, window rhythm, panes 3.5 cm proud
-  of rustication, gables, domes, helms, lanterns, the theatre inscription and pelican. Check masonry and lit panes
-  beside neighbouring buildings by day and night, plus player collisions around facades and entrances.
+- Continue the landmark checks for the views that were obstructed on 2026-11-11: the Muzeum old front at night, the
+  Ratusz from the east at night, Pałac Działyńskich's full silhouette, Hotel Bazar from Paderewskiego, the Zamek
+  Królewski main block behind the museum, and Kościół Franciszkanów from the street. Fara, Biblioteka Raczyńskich,
+  Bernardynów, Boże Ciało, Collegium Maius, NMP in Summo and św. Wojciech were framed on WebGPU; Fara, Biblioteka,
+  Bernardynów and Boże Ciało were repeated on WebGL2.
   [Landmark measurements](observations/landmarks-2026-11-05.md).
-- Inspect the new open canopies from a train, a tram, a car and on foot on WebGPU and WebGL2: Poznań Główny's long
-  platform roofs, Dworzec Letni and Garbary, the tram-stop canopies, the fuel-station forecourts and a few ordinary
-  pergolas. Check the deck underside and beams from below, column bases and collisions, that no post stands on a
-  track, and that a tram/car/pedestrian passes under without clipping.
+- Check Dworzec Letni and the Garbary canopy from a train/car, and a train or car passing under the Główny platform
+  decks; the Główny platform underside/beams, Kaponiera tram canopy, a fuel forecourt and a pergola were checked
+  2026-11-11, with no post in a track and no clipping seen.
   [Canopy record](observations/platform-canopies-2026-11-08.md).
-- Check the street-aligned fallback lots and courtyard guard (`fb091f6`) and the near balcony pool (`0fa3fdf`) on
-  WebGPU and WebGL2. Along Podgórna, Strzelecka, Plac Wiosny Ludów and around Kupiec Poznański, fallback kamienice
-  should follow the street angle and no courtyard lawn should come within 4.6 m of the roadway (over the pavement) or
-  over a tram track. In Wilda around `−690, 1820`, near balconies should fill the closest facades first, with no
-  missing stacks next to the camera now that the pool holds 384.
+- Check every courtyard along Podgórna, Strzelecka, Plac Wiosny Ludów and around Kupiec Poznański (no lawn within
+  4.6 m of the roadway or over a track); the Podgórna/Strzelecka aerial and the Wilda near-balcony pool
+  (262 instances, five complete storeys, nearest 38 m) were checked 2026-11-11.
   [Alignment record](observations/street-alignment-2026-11-09.md).
 - Inspect outward-facing x-ridge kit roofs (Ratusz, Katedra, Zamek Cesarski, Teatr Wielki, Dworzec and others)
   from above and street level, including shading, rotated-block ridges and normals.
 - Continue landmark-placement and scenic-camera checks, panel-material shimmer, balcony LOD transitions and
   platform/slab flicker where surfaces are only 1 cm apart.
-- Inspect Most Chrobrego from the bank and a tram; check the narrowed Most Świętego Rocha, Most Królowej Jadwigi
-  and Most Mieszka I decks, and the 13 m Most Dworcowy approach.
-- Walk and drive into a street tree on Rybaki; check relocated street trees near landings, zebras, lanes and island
-  edges. Walk the surveyed OSM rows in Stare Miasto and around Park Cytadela, compare a few pits with the OSM points,
-  and measure frame rate and draw calls at street level and from the drone; the 88,479-site scene allocates about
-  21 MB of tree instance buffers. [Tree-placement audit and pins](observations/street-tree-clearance-2026-11-06.md),
+- Check Most Świętego Rocha and Most Królowej Jadwigi from the bank; Most Chrobrego, Most Mieszka I and the 13 m Most
+  Dworcowy approach were checked 2026-11-11.
+- Check relocated street trees near landings, zebras, lanes and island edges; walk the surveyed OSM rows in Stare Miasto
+  and around Park Cytadela, compare a few pits with the OSM points, and measure frame rate and draw calls at street level
+  and from the drone (the 88,479-site scene allocates about 21 MB of tree instance buffers). The Rybaki collision was
+  checked 2026-11-11: the player deflected 0.57 m around a tree with a player collider at `(-285.9, 874.5)`.
+  [Tree-placement audit and pins](observations/street-tree-clearance-2026-11-06.md),
   [OSM tree record](observations/osm-street-trees-2026-11-08.md).
-- Walk and drive around a diagonal tram shelter (Dworzec Zachodni or Żniwna), checking collision against its back
-  glass and ends. [Furniture geometry](world.md#tram-infrastructure).
+- Walk and drive around the named diagonal tram shelters at Dworzec Zachodni and Żniwna, checking collision against
+  their back glass and ends; a shelter at `(-1552.6, 229.7)` stopped the walking player at 3.84 m on 2026-11-11.
+  [Furniture geometry](world.md#tram-infrastructure).
 - Inspect park lamps on Za Cytadelą and lamps moved onto lawns in narrow-walk parks (e.g. block 212 near
   `−953, −1928`); check trees by Avenida and in park blocks with buildings (Park Nad Wartą, Antoninek block 874).
   [Tree/building clearance](observations/tree-building-clearance-2026-11-03.md).
-- Check the corrected heights of Iglica, Delta, Brama Poznania and Zamek Królewski, and the refined Fara front
-  gable/cross and Teatr Wielki portico/Pegasus from street level and above.
-- Inspect the four Fara lower-tier niche statues from Świętosławska on WebGPU and WebGL2: aedicule depth and hood,
-  no z-fighting against the plaster, the figure silhouettes and gilded attributes, and the outer pair standing 2.1 m
-  higher over the tall side windows.
-  [Niche record](observations/landmark-heights-2026-11-03.md#2026-11-08--fara-niche-statues).
-- Check tram rails without a track bed for appearance and shader errors (flush heads on road, grass and curb islands);
-  mainline railway sleepers should remain visible.
-- Inspect P-22 BUS markings on WebGPU and WebGL2. [Placement scope](world.md).
-- Inspect the Poznań city crest on the player's taxi stripe and street taxis from both sides, by day and under street
-  lights, on WebGPU and WebGL2: legibility at door scale, the white number panel and the front-door centring.
-  [Taxi markings](actors.md#vehicle-lights-and-turn-signal-conventions).
+- Check the corrected heights of Iglica, Delta, Brama Poznania and Zamek Królewski, and the refined Teatr Wielki
+  portico/Pegasus from street level and above; the Fara front gable/cross reads from Świętosławska.
+- Check mainline railway sleepers remain visible; the tram rails without a track bed were checked flush on the road at
+  Kaponiera on WebGPU and WebGL2 2026-11-11.
 - Inspect black locust foliage, bark, LOD and wind. [Tree models](world.md).
 
 ### Signals, traffic and audio
 
-- Continue signal and traffic checks at Kaponiera, Most Teatralny and Głogowska/Hetmańska, including visible head
-  orientation/colour correspondence and WebGL2. Extend NPC demand-request coverage beyond node `2422`, test the
-  full rendered Św. Marcin green-wave corridor and crossing ticks against displayed heads.
-  [Previous coverage and limits](observations/signals-2026-10-30.md).
+- Continue signal checks at Most Teatralny and Głogowska/Hetmańska, including visible head orientation/colour
+  correspondence and WebGL2; the Kaponiera heads were checked day/twilight 2026-11-11. Extend NPC demand-request
+  coverage beyond node `2422` and test the full rendered Św. Marcin green-wave corridor and crossing ticks against
+  displayed heads. [Previous coverage and limits](observations/signals-2026-10-30.md).
 - Check Dworzec's connected refuge route, signals and pedestrian/vehicle interactions on WebGL2; record a full
   rendered interaction with a naturally approaching bus, including rear clearance.
   [Dworzec checks](observations/dworzec-2026-10-30.md), [bus population check](observations/bus-population-2026-10-30.md).
@@ -224,7 +243,8 @@ share are not thinned; [central-density record](observations/central-density-202
   −0.82 m). Verify the fallback heads are visible through the whole queue and move them back or add a gantry if they
   are not.
 - Watch a tram pass a car stopped at a crossing and a left-turner complete through the Kaponiera box; check for
-  visible clipping or stopping within the approximately 1 s forecast gap.
+  visible clipping or stopping within the approximately 1 s forecast gap. A six-frame twilight watch on 2026-11-11 saw
+  no clipping, but not the named pair.
 - Watch whole trams clear switches, crossings and occupied stops; observe Zawady/Ogrody loop boarding and return
   destinations and the Starołęka boundary routes.
 - Listen to sirens, bells, tram motors/squeal and the noon show; verify local timing and audible range.
