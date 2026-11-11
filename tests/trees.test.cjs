@@ -46,6 +46,21 @@ function loadTrees(paths) {
   });
 }
 
+test('tree quality profiles map the tier block and fall back to the historical high values', () => {
+  const { treeQualityProfile, TREE_QUALITY_DEFAULT } = loadTrees([]);
+  const plain = (profile) => ({ ...profile, maxDist: [...profile.maxDist] });
+  assert.deepEqual(plain(treeQualityProfile(null)), plain(TREE_QUALITY_DEFAULT));
+  assert.deepEqual(plain(treeQualityProfile({})), plain(TREE_QUALITY_DEFAULT));
+  const low = {
+    lodNear: 95, lodMid: 330, maxDist: [2200, 1500, 850], streetCutoff: 900, lod1Variants: 1, farSpecies: 0
+  };
+  assert.deepEqual(plain(treeQualityProfile(low)), low);
+  // A bad or missing field cannot shorten a tier by accident: it keeps the high value.
+  const broken = treeQualityProfile({ lodNear: 0, lodMid: -5, maxDist: [0, 'x'], streetCutoff: Infinity, lod1Variants: 3, farSpecies: 9 });
+  assert.deepEqual(plain(broken), plain(TREE_QUALITY_DEFAULT));
+  assert.equal(treeQualityProfile({ farSpecies: null }).farSpecies, null);
+});
+
 test('Poznań tree species have distinct leaf atlas tiles', () => {
   const { TREE_SPECIES } = loadTrees([]);
   // spread: the module's arrays come from the vm context, whose Array prototype deepEqual would reject

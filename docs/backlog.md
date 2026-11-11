@@ -125,11 +125,13 @@ share are not thinned; [central-density record](observations/central-density-202
   load-time predicates (boot 18.4 → 11.9 s at 1× on a busy machine,
   [record](observations/perf-boot-predicates-2026-11-11.md)), a low graphics tier (`js/graphics-quality.js`:
   `?quality=` or auto-detected from the GPU identity / WebGL2 / ≤ 4 cores / ≤ 4 GB / touch-first unknown GPU; Rynek
-  renderer CPU 16.3 → 12.0 ms, GPU 34 → 6 ms) and
-  halved mural / tram plate canvases ([record](observations/perf-memory-2026-11-11.md)). Not yet measured on a real
-  phone or integrated GPU.
-  Remaining: draw-call batching (roofs per chunk, street furniture), tree LOD / draw distance, then the other boot
-  hotspots (`outlineRay` 14–17 %). [Ranked opportunities](observations/perf-older-devices-2026-11-11.md).
+  renderer CPU 16.3 → 12.0 ms, GPU 34 → 6 ms), halved mural / tram plate canvases
+  ([record](observations/perf-memory-2026-11-11.md)), and the low-tier tree profile
+  ([record](observations/perf-trees-2026-11-11.md): the Centrum drone drops 488 of 1,879 draws and 72 % of tree
+  triangles; Rynek −85 draws at street level; high is pixel-identical). Not yet measured on a real phone or integrated
+  GPU; `?stats=1` shows a copyable report for that.
+  Remaining: draw-call batching (roofs per chunk, street furniture), then the other boot hotspots (`outlineRay` 14–17 %).
+  [Ranked opportunities](observations/perf-older-devices-2026-11-11.md).
 - Road levels and richer road-priority classification; revisit only with a runtime consumer.
 - Additional height sources (nDSM/LoD1/LoD2) and GEOPOZ machine-readable data: research candidates.
 

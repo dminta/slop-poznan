@@ -17,7 +17,17 @@ const QUALITY_TIERS = {
     // Shadow camera far: start + altitude * perMetre, clamped. High is the historical 300-720 m reach.
     shadowRange: { start: 260, perMetre: 1.6, min: 300, max: 720 },
     shadowCasters: true,
-    population: { pedestrians: 340, vehicleDensity: 12, minVehicles: 30 }
+    population: { pedestrians: 340, vehicleDensity: 12, minVehicles: 30 },
+    // Trees (js/trees.js): the historical LOD and draw distances, both crown variants and a whole-crown geometry per
+    // species. Do not change these without re-checking the high tier's screenshots; high is the reference look.
+    trees: {
+      lodNear: 105,
+      lodMid: 420,
+      maxDist: [3000, 1600, 950],
+      streetCutoff: 1150,
+      lod1Variants: 2,
+      farSpecies: null
+    }
   },
   low: {
     id: 'low',
@@ -28,7 +38,17 @@ const QUALITY_TIERS = {
     shadowMapSize: 1024,
     shadowRange: { start: 120, perMetre: 1.0, min: 150, max: 360 },
     shadowCasters: false,
-    population: { pedestrians: 180, vehicleDensity: 6, minVehicles: 15 }
+    population: { pedestrians: 180, vehicleDensity: 6, minVehicles: 15 },
+    // Shorter tree LOD and draw distances, one LOD-1 crown variant and one shared whole-crown geometry for all species:
+    // fewer meshes draw per visible cell and the far field ends before the silhouettes read at 0.75 pixel ratio.
+    trees: {
+      lodNear: 95,
+      lodMid: 330,
+      maxDist: [2200, 1500, 850],
+      streetCutoff: 900,
+      lod1Variants: 1,
+      farSpecies: 0
+    }
   }
 };
 

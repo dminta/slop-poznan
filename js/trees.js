@@ -948,13 +948,49 @@ function buildTreeGeometries(speciesIndex, variant, tileMeters) {
 // 5. TREE FIELD: per-tree level of detail, with spatial cells culled separately in the view and shadow passes
 // =====================================================================================================================
 const TREE_CELL_SIZE = 200;
-const LOD_NEAR = 105; // full detail within (m)
-const LOD_MID = 420; // coarse cards & branches within; whole-crown cards beyond
 const LOD_HYSTERESIS = 6;
-// Draw distance per tier (0 park & plaza, 1 wide street & leftover slab, 2 narrow street); at street level everything beyond
-// LOW_CUTOFF is behind the buildings anyway
-const MAX_DIST = [3000, 1600, 950];
-const LOW_CUTOFF = 1150;
+
+// The historical (high) profile. Every distance is in metres: full detail within lodNear, coarse cards & branches within
+// lodMid, whole-crown cards to the draw distance, then hidden. Draw distance is per site tier (0 park & plaza, 1 wide
+// street & leftover slab, 2 narrow street); at street level (camera below 40 m) streetCutoff caps it, because everything
+// beyond it is behind the buildings anyway. lod1Variants 2 = both crown variants at LOD 1; 1 = variant 1 trees reuse
+// variant 0 there. farSpecies null = every species keeps its own whole-crown geometry; a species index makes all species
+// share that one geometry for LOD 2 (distant crowns are the far-canopy tile for every species).
+const TREE_QUALITY_DEFAULT = {
+  lodNear: 105,
+  lodMid: 420,
+  maxDist: [3000, 1600, 950],
+  streetCutoff: 1150,
+  lod1Variants: 2,
+  farSpecies: null
+};
+
+// `trees` profile of the active graphics tier. main.js sets it once at boot, before street-details plants the trees:
+// the field copies it when it builds, so the meshes and instance capacities match the profile (docs/rendering.md).
+let treeQuality = TREE_QUALITY_DEFAULT;
+
+function treeQualityProfile(settings = null) {
+  const fallback = TREE_QUALITY_DEFAULT;
+  const positive = (value, other) => (Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : other);
+  if (!settings) return { ...fallback, maxDist: fallback.maxDist.slice() };
+  const maxDist = Array.isArray(settings.maxDist) && settings.maxDist.length === 3
+    ? settings.maxDist.map((value, i) => positive(value, fallback.maxDist[i]))
+    : fallback.maxDist.slice();
+  return {
+    lodNear: positive(settings.lodNear, fallback.lodNear),
+    lodMid: positive(settings.lodMid, fallback.lodMid),
+    maxDist,
+    streetCutoff: positive(settings.streetCutoff, fallback.streetCutoff),
+    lod1Variants: settings.lod1Variants === 1 ? 1 : 2,
+    farSpecies: Number.isInteger(settings.farSpecies) && settings.farSpecies >= 0 && settings.farSpecies < SPECIES.length
+      ? settings.farSpecies
+      : null
+  };
+}
+
+function configureTreeQuality(settings) {
+  treeQuality = treeQualityProfile(settings);
+}
 
 function hashPos(x, y, z) {
   const s = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453;
@@ -972,6 +1008,7 @@ function treeSpecies(t) {
  * { group, material, atlas, update(cameraPosition) }.
  */
 function createTreeField(scene, sites) {
+  const profile = treeQuality;
   const group = new THREE.Group();
   group.name = 'Trees';
   const atlas = createLeafAtlas();
@@ -1002,10 +1039,16 @@ function createTreeField(scene, sites) {
     types.push(type);
     return type;
   };
+  // A low-tier profile may merge the two LOD-1 crown variants and/or make every species draw one whole-crown geometry:
+  // fewer meshes per cell means fewer draw calls for the same trees (the instance buffers stay, see the note below).
+  const sharedFar = profile.farSpecies === null ? null : makeType(
+    geos[profile.farSpecies][0][2], `Trees_${SPECIES[profile.farSpecies].name}_lod2`);
   const meshIndex = SPECIES.map((sp, s) => ({
     l0: [0, 1].map((v) => makeType(geos[s][v][0], `Trees_${sp.name}_v${v}_lod0`)),
-    l1: [0, 1].map((v) => makeType(geos[s][v][1], `Trees_${sp.name}_v${v}_lod1`)),
-    l2: makeType(geos[s][0][2], `Trees_${sp.name}_lod2`)
+    l1: [0, 1].map((v) => (v === 1 && profile.lod1Variants === 1
+      ? null
+      : makeType(geos[s][v][1], `Trees_${sp.name}_v${v}_lod1`))),
+    l2: sharedFar || makeType(geos[s][0][2], `Trees_${sp.name}_lod2`)
   }));
   const cells = new Map();
   const meshes = [];
@@ -1044,7 +1087,7 @@ function createTreeField(scene, sites) {
     cell.trees.push(i);
     cellOf[i] = cell;
     const mi = meshIndex[sp];
-    const treeTypes = [mi.l0[variant], mi.l1[variant], mi.l2];
+    const treeTypes = [mi.l0[variant], mi.l1[variant === 1 && profile.lod1Variants === 1 ? 0 : variant], mi.l2];
     for (let l = 0; l < 3; l++) {
       const type = treeTypes[l];
       let index = cell.meshes.get(type);
@@ -1134,12 +1177,12 @@ function createTreeField(scene, sites) {
       const dy = py[i] - cam.y;
       const dz = pz[i] - cam.z;
       const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      const maxD = low ? Math.min(MAX_DIST[tier[i]], LOW_CUTOFF) : MAX_DIST[tier[i]];
+      const maxD = low ? Math.min(profile.maxDist[tier[i]], profile.streetCutoff) : profile.maxDist[tier[i]];
       // levels 0-2, 3 = hidden; next to a boundary a tree keeps the level it has
       const curL = lod[i] === 255 ? 3 : lod[i];
-      let nextL = d < LOD_NEAR ? 0 : d < LOD_MID ? 1 : d < maxD ? 2 : 3;
+      let nextL = d < profile.lodNear ? 0 : d < profile.lodMid ? 1 : d < maxD ? 2 : 3;
       if (Math.abs(nextL - curL) === 1) {
-        const edge = [LOD_NEAR, LOD_MID, maxD][Math.min(nextL, curL)];
+        const edge = [profile.lodNear, profile.lodMid, maxD][Math.min(nextL, curL)];
         if (Math.abs(d - edge) < LOD_HYSTERESIS) nextL = curL;
       }
       const next = nextL === 3 ? 255 : nextL;
@@ -1192,6 +1235,9 @@ export {
   buildTreeGeometries,
   coverageMips,
   treeSpecies,
+  configureTreeQuality,
+  treeQualityProfile,
+  TREE_QUALITY_DEFAULT,
   SPECIES as TREE_SPECIES,
   SPECIES_CROWN_R
 };

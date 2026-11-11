@@ -27,6 +27,7 @@ import { collectDynamicRoots, freezeStaticMatrices, updateDynamicMatrices } from
 import { CityAudioSystem } from './audio-system.js';
 import { QUALITY_TIERS, resolveQualityDecision, clearStoredQuality } from './graphics-quality.js';
 import { PerfStats } from './perf-stats.js';
+import { configureTreeQuality } from './trees.js';
 
 // js/main.js
 // Main entry point for Poznań in Three.js WebGPURenderer & TSL (three.js dev, see index.html)
@@ -153,6 +154,9 @@ async function initApp() {
   const gpuLabel = gpuIdentity.renderer || gpuIdentity.description || gpuIdentity.architecture || 'unknown';
   console.info(`[quality] ${activeQuality} — ${qualityDecision.reason} (GPU: ${gpuLabel})`);
   const qualitySettings = QUALITY_TIERS[activeQuality];
+  // The tree field builds its meshes and capacities from the tier's LOD/draw-distance profile; set it before
+  // street-details plants the trees below (trees.js, docs/rendering.md "Quality tiers").
+  configureTreeQuality(qualitySettings.trees);
 
   // The brand line shows the tier this page loaded with. Its link is a full reload with the other value: a runtime
   // switch would rebuild the pass layout, which is the multi-second freeze this replaced.

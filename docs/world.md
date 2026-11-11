@@ -623,13 +623,17 @@ non-park cells clear of park rings (`parkFreeCells`), while purely unmapped park
   `tests/tree-distribution.test.cjs`, which passes
   only block colliders (no landmarks or bridges), fixes the site and collider snapshots, the mapped-node count and
   distribution; `tests/trees.test.cjs` checks atlas paths and mipmaps and `tests/osm-trees.test.cjs` pins the compact
-  OSM input. `LOD_NEAR` is 105 m,
-  `LOD_MID` 420 m, then crown cards, with 6 m of hysteresis. Meshes are built per 200 m cell / species / variant /
-  level and regrouped within fixed instance buffers. On these sites the number of allocated meshes is 19,831,
-  23,324 after the locust reassignment; only active cells and levels draw, including in shadow passes. Each species has
-  different geometry: sharing a mesh would require a combined geometry and per-instance vertex selection, trading these
-  mesh counts for extra vertex work and shader complexity. Instance buffers use static usage: DynamicDrawUsage
-  re-uploads in every pass of every frame. Street trees (placed by street-details.js) also carry player trunk colliders:
+  OSM input. The LOD and draw distances come from the tier's `trees` profile (`QUALITY_TIERS` in graphics-quality.js,
+  applied by `configureTreeQuality` before the field is built). High keeps the historical look: full detail to
+  `LOD_NEAR` 105 m, coarse cards and branches to `LOD_MID` 420 m, then whole-crown cards; draw distance is 3000 m for
+  parks and plazas, 1600 m for wide streets and leftover slabs and 950 m for narrow streets, capped at 1150 m below 40 m
+  altitude (behind the buildings anyway), with 6 m of hysteresis. Low uses 95 / 330 m, 2200 / 1500 / 850 m and a 900 m
+  street cap; it also maps LOD-1 variant 1 onto variant 0 and gives every species the lime's LOD-2 whole-crown geometry,
+  so a cell allocates at most 13 tree meshes instead of 20. Meshes are built per 200 m cell / species / variant / level
+  and regrouped within fixed instance buffers; only active cells and levels draw, including in shadow passes. Each
+  species has different geometry: merging species or levels further would need a combined geometry and per-instance
+  vertex selection, trading draw calls for extra vertex work and shader complexity. Instance buffers use static usage:
+  DynamicDrawUsage re-uploads in every pass of every frame. Street trees (placed by street-details.js) also carry player trunk colliders:
   `0.28 × scale` m half-width, top at base + 3.0 m; they add no traffic footprints.
   Individually mapped OSM trees come from `GEO.trees` (38,588 `natural=tree` nodes inside the detail box, after dropping
   180 nodes mapped twice within 0.5 m; 32,526 pass the placement rules in the block-collider fixture). They keep their
@@ -640,9 +644,11 @@ non-park cells clear of park rings (`parkFreeCells`), while purely unmapped park
   trunk within 6 m of its block edge gets the street row's pit, turn and crown squeeze; one deeper inside a block or in
   a park gets the wide-draw-distance park treatment. The other 6,062 mapped nodes are dropped where a building wall or
   doorway (1.2 m floor), a car lane, a zebra landing, a track or a water/median cell leaves no room; they are never
-  moved off the surveyed point. Instance capacity is still allocated per cell / species / variant / level: 88,479 sites
-  need about 21 MB of instance buffers for the three LOD copies (64 B matrix + 16 B tree data per instance), and the
-  200 m cells keep the draw-call count bounded by the same 24 meshes per cell as before.
+  moved off the surveyed point. Instance capacity is still allocated per cell / species / variant / level: the
+  production browser field has 118,894 sites and allocates 356,682 instances for the three LOD copies (64 B matrix + 16 B
+  tree data per instance). The field allocates 30,259 meshes on high and 20,376 on low, with the same 356,682 instances
+  either way (the low profile removes meshes, not the per-tree LOD copies); the 200 m cells bound a cell to 20 meshes on
+  high and 13 on low.
   Street-tree placement now checks that all four trunk corners remain on the same curb island, keeps the trunk box
   outside crosswalk landing and zebra bands, and keeps at least max(1.2 m, 0.9 m car half-width + projected trunk
   half-width) from car-lane centrelines. A build-time furnished-network snapshot supplies actual shifted lanes and

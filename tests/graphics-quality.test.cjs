@@ -198,3 +198,25 @@ test('tier presets carry the low-tier render, shadow and population changes', ()
     'local vehicle density is roughly halved'
   );
 });
+
+test('the low tier shortens tree LOD and draw distances and merges distant draw meshes', () => {
+  const high = QUALITY_TIERS.high.trees;
+  const low = QUALITY_TIERS.low.trees;
+  // The high tree profile is the historical look: trees.js must reproduce it exactly.
+  assert.deepEqual({ ...high, maxDist: [...high.maxDist] }, {
+    lodNear: 105,
+    lodMid: 420,
+    maxDist: [3000, 1600, 950],
+    streetCutoff: 1150,
+    lod1Variants: 2,
+    farSpecies: null
+  });
+  assert.ok(low.lodNear < high.lodNear, 'full detail ends sooner');
+  assert.ok(low.lodMid < high.lodMid, 'whole-crown cards start sooner');
+  assert.ok(low.streetCutoff < high.streetCutoff, 'street-level trees stop sooner');
+  for (let tier = 0; tier < 3; tier++) {
+    assert.ok(low.maxDist[tier] < high.maxDist[tier], `draw distance of site tier ${tier} is shorter`);
+  }
+  assert.equal(low.lod1Variants, 1, 'variant 1 reuses variant 0 geometry at LOD 1');
+  assert.equal(low.farSpecies, 0, 'all species share one whole-crown geometry');
+});

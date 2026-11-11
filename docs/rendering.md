@@ -59,6 +59,14 @@
   construction); high keeps 3072² (2048² on smaller devices) and 300–720 m. Low also turns off shadow casting once at
   boot for trees, street furniture/props, trams and the city grid; the building and landmark shadow proxies from
   `scene-culling.js` keep casting, so large-scale building shade remains. High leaves every caster exactly as built.
+- **Trees:** the tree field reads the tier's `trees` profile once at boot (`configureTreeQuality` in `main.js`, before
+  `buildStreetDetails` plants it). Low keeps full detail to 95 m (high 105), coarse cards to 330 m (420), draws parks and
+  plazas to 2200 m (3000), wide streets to 1500 m (1600) and narrow streets to 850 m (950), and caps street-level trees at
+  900 m (1150). It also merges the two LOD-1 crown variants and gives every species the lime's whole-crown LOD-2 geometry:
+  a cell then builds at most 13 tree meshes instead of 20, so the field allocates 20,376 meshes instead of 30,259. The
+  instance buffers keep their three LOD copies per tree (356,682 instances, ~21.8 MB): every tree can become the nearest
+  tree of some camera, so no capacity is removed. High keeps the historical profile (pixel-identical in the review).
+  Measurements and the visual cost: [perf-trees-2026-11-11](observations/perf-trees-2026-11-11.md).
 - **Resolution:** low renders at internal pixel ratio 0.75 (the canvas is 960 × 540 at a 1280 × 720 window); high stays at 1.0.
 - **Populations:** low targets 180 pedestrians and half the local vehicle density, passed to `createTrafficSystem` at
   boot. The pools keep their full build-time capacity; no runtime tier change re-places actors.
@@ -154,7 +162,7 @@
 - Vertex buffers: WebGPU allows 8 per draw, and the instance-matrix swap keeps `instanceMatrix` out of them. A street car body uses 6–7 (`position`, `normal`, `partId`, maybe `uv`, and the per-instance `paintColor`, `carState`, `plateCode`); pack new per-instance car data into those before adding an attribute (`pedestrians.js` packs its skinning for the same reason). On WebGL2 the matrix takes 4 of the 16 attribute slots.
 - Static per-instance data must live in `InstancedBufferAttribute`s on the geometry (like `box` and `faces` in `createFacadeBoxes`) or in `instanceColor`. Chunking copies only these. Storage buffers indexed by `instanceIndex` would point at the wrong data after chunking.
 - `tram-infra.js` builds its static instanced meshes once (rails, grooves, mainline ballast, rail end walls, contact and span wires, poles, arms, platforms, shelters, signs, machines) under the `TramInfrastructure` culling root. There is no tram track bed mesh: the tram rails lie flush on the asphalt or curb islands. The big ones (rails, wires, mainline beds) are made of ≤ 8 m and ≤ 30 m pieces so chunking can distance-cull them. The mainline railway shares the tram rail, wire and arm meshes and adds only `RailBallast`, `RailEndWalls` (end walls and boundary plinths) and `RailFence` (planes with a `maskNode` mesh pattern and a screen-door fade at distance; no shadows). Current headless layout counts and their measurement limits are in [world.md](world.md#tram-infrastructure). The dated scene measurements below used a different harness and remain historical baselines. Their per-instance data (`tie` on mainline rail ballast, `fence` on the rail fence, `plateCell` on the name plates) are `InstancedBufferAttribute`s, which chunking copies. Wires, rails and plates cast no shadows. The shelter glass is the only transparent part, and it uses `transparentEffectMRT` (exported from tsl-materials.js).
-- Trees run their own cell culling and LOD in `trees.js`: one hidden group per cell, levels set from `scene.onBeforeRender`, and matrices frozen. They are not handled by `scene-culling.js`.
+- Trees run their own cell culling and LOD in `trees.js`: one hidden group per cell, levels set from `scene.onBeforeRender`, and matrices frozen. They are not handled by `scene-culling.js`. The tier's LOD and draw distances come from `QUALITY_TIERS[*].trees` (see Quality tiers); the low profile additionally merges LOD meshes.
 
 ## Procedural texture budgets
 - The large procedural canvases are 1024 × 832 (tram stop name plates), 1024 × 692 (Śródka mural) and 224 × 1248
