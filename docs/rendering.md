@@ -97,6 +97,16 @@
 - `tram-infra.js` builds its static instanced meshes once (rails, grooves, mainline ballast, rail end walls, contact and span wires, poles, arms, platforms, shelters, signs, machines) under the `TramInfrastructure` culling root. There is no tram track bed mesh: the tram rails lie flush on the asphalt or curb islands. The big ones (rails, wires, mainline beds) are made of ≤ 8 m and ≤ 30 m pieces so chunking can distance-cull them. The mainline railway shares the tram rail, wire and arm meshes and adds only `RailBallast`, `RailEndWalls` (end walls and boundary plinths) and `RailFence` (planes with a `maskNode` mesh pattern and a screen-door fade at distance; no shadows). Current headless layout counts and their measurement limits are in [world.md](world.md#tram-infrastructure). The dated scene measurements below used a different harness and remain historical baselines. Their per-instance data (`tie` on mainline rail ballast, `fence` on the rail fence, `plateCell` on the name plates) are `InstancedBufferAttribute`s, which chunking copies. Wires, rails and plates cast no shadows. The shelter glass is the only transparent part, and it uses `transparentEffectMRT` (exported from tsl-materials.js).
 - Trees run their own cell culling and LOD in `trees.js`: one hidden group per cell, levels set from `scene.onBeforeRender`, and matrices frozen. They are not handled by `scene-culling.js`.
 
+## Procedural texture budgets
+- The large procedural canvases are 1024 × 832 (tram stop name plates), 1024 × 692 (Śródka mural) and 224 × 1248
+  (tram cab destinations), down from 2048 × 1664, 2048 × 1383 and 448 × 2496 on 2026-11-11 (GPU 37.4 → 9.4 MB with
+  mipmaps); the plaque and mural cameras showed no visible change at street distance. Keep `generateMipmaps` on: every
+  one of these is minified at distance, and the mip chain is already included in those sizes (×4/3).
+- Keep `texture.image` (the canvas) after upload. three.js WebGPU reads it again when `texture.version` changes or the device is re-created; dropping it logs "Renderer: Texture marked for update but image is undefined" and leaves the texture blank on re-upload. The saving comes from the pixel size, not from releasing the source. The three downscaled canvases retain about 7 MB of CPU-side pixels instead of about 29 MB.
+- The 3612 × 400 shop-sign atlas (512 × 96 px tiles), the 2048 × 1024 tree leaf atlas and the street name-plate atlases
+  (1440 × 1764 / 2048 × 536) are deliberately unchanged: storefront words, leaf silhouettes and plate lettering are
+  read up close, and the halved plates were visibly blurred in a 1.4 m close-up (user decision, 2026-11-11).
+
 ## Culling (`scene-culling.js`): registering new static geometry
 - `setupSceneCulling` walks only the roots that `main.js` lists by group name: `CityGrid`, `Airport`, `CityBlocks`, `StreetDetails`, `Landmarks`, `Outskirts`, `Bridges`, `TramInfrastructure`. Put new static city geometry under one of these groups, or add the new group's name to that list. Moving parts stay outside them: the Ratusz goats live in the unculled `LandmarksDynamic` root.
 - What it does, by threshold:

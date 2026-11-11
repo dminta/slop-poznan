@@ -1180,8 +1180,10 @@ function layoutRailInfrastructure(network) {
 }
 
 // --- Rendering ---------------------------------------------------------------------------------------------------------
-// Name plate atlas: one 256 x 128 cell per stop name (a yellow "TRAMWAJ" band over the name in white on ZTM green)
-const PLATE_CELL = [256, 128];
+// Name plate atlas: one 128 x 64 cell per stop name (a yellow "TRAMWAJ" band over the name in white on ZTM green).
+// A 0.8 x 0.4 m plate at 128 px is 6.25 mm per texel, well under the 1-2 cm the screen resolves from the pavement; the
+// old 256 x 128 cells cost 17.3 MB of GPU texture for a sign most players read at 2-5 m.
+const PLATE_CELL = [128, 64];
 function createPlateAtlas(names) {
   const cols = 8;
   const rows = Math.max(1, Math.ceil(names.length / cols));
@@ -1195,20 +1197,20 @@ function createPlateAtlas(names) {
     ctx.fillStyle = '#0d6b3f';
     ctx.fillRect(x0, y0, PLATE_CELL[0], PLATE_CELL[1]);
     ctx.fillStyle = '#f2c230';
-    ctx.fillRect(x0 + 6, y0 + 6, PLATE_CELL[0] - 12, 34);
+    ctx.fillRect(x0 + 3, y0 + 3, PLATE_CELL[0] - 6, 17);
     ctx.fillStyle = '#0d3b24';
-    ctx.font = '800 24px Inter, Arial, sans-serif';
+    ctx.font = '800 12px Inter, Arial, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('TRAMWAJ', x0 + PLATE_CELL[0] / 2, y0 + 24);
+    ctx.fillText('TRAMWAJ', x0 + PLATE_CELL[0] / 2, y0 + 12);
     ctx.fillStyle = '#ffffff';
-    let size = 34;
+    let size = 17;
     ctx.font = `700 ${size}px Inter, Arial, sans-serif`;
-    while (size > 14 && ctx.measureText(name).width > PLATE_CELL[0] - 20) {
-      size -= 2;
+    while (size > 7 && ctx.measureText(name).width > PLATE_CELL[0] - 10) {
+      size -= 1;
       ctx.font = `700 ${size}px Inter, Arial, sans-serif`;
     }
-    ctx.fillText(name, x0 + PLATE_CELL[0] / 2, y0 + 84);
+    ctx.fillText(name, x0 + PLATE_CELL[0] / 2, y0 + 42);
   });
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;

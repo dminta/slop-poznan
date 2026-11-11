@@ -3551,11 +3551,13 @@ function buildTramBellowsGeometry() {
 
 // Cab destination displays (amber LED, as on the MPK Gamma and Tramino): one row per tram line route, row 0 blank and
 // row i + 1 GEO.tramRoutes[i], the line number in the first 22% of the width and the terminus after it, then a dark grid
-// for the dot-matrix look. 7:1 rows, the shape of the display's text area (1.24 × 0.18 m).
+// for the dot-matrix look. 7:1 rows, the shape of the display's text area (1.24 × 0.18 m). The 224 px row is 5.5 mm per
+// texel and stays legible at the 8-15 m a player sees a cab from; the old 448 px doubled the atlas to 5.7 MB for no
+// visible gain.
 function createTramDestinationTexture(routes) {
   const c = document.createElement('canvas');
-  const rowH = 64;
-  c.width = 448;
+  const rowH = 32;
+  c.width = 224;
   c.height = rowH * (routes.length + 1);
   const ctx = c.getContext('2d');
   ctx.fillStyle = '#07080a';
@@ -3573,11 +3575,11 @@ function createTramDestinationTexture(routes) {
     ctx.restore();
   };
   routes.forEach((r, i) => {
-    const y = (i + 1) * rowH + rowH / 2 + 2;
-    ctx.font = '800 48px Arial, sans-serif';
-    fit(r.ref, 50, y, 88, 'center');
-    ctx.font = '700 36px Arial, sans-serif';
-    fit(r.to, 110, y, 326, 'left');
+    const y = (i + 1) * rowH + rowH / 2 + 1;
+    ctx.font = '800 24px Arial, sans-serif';
+    fit(r.ref, 25, y, 44, 'center');
+    ctx.font = '700 18px Arial, sans-serif';
+    fit(r.to, 55, y, 163, 'left');
   });
   ctx.fillStyle = 'rgba(7, 8, 10, 0.75)';
   for (let x = 0; x < c.width; x += 4) ctx.fillRect(x, 0, 1, c.height);

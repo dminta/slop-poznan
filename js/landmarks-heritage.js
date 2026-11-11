@@ -484,7 +484,10 @@ function buildBrama(group, colliders, M) {
 // planters and a lamp. Heights and the mural's composition are estimates from photographs.
 // -------------------------------------------------------------------------------------------------------------------
 const MURAL_H = 14.4; // eave of the house: four 3.6 m storeys
-const MURAL_PX = 2048; // canvas width; the height follows the wall's proportions
+// Canvas width; the height follows the wall's proportions. The wall is 20.2 m wide, so 1024 px is about 2 cm per texel:
+// the pigeons are still ~20 px and the cat ~45 px, and the browser review at 12 m and 5 m showed no loss against the
+// former 2048 px (≈1 cm per texel, 14.4 MB with mipmaps).
+const MURAL_PX = 1024;
 
 // Deterministic generator for the painting (mulberry32), so every build paints the same mural
 function muralRand(seed) {
@@ -631,6 +634,7 @@ function paintMural(wallW, wallH) {
   const g = canvas.getContext('2d');
   const rand = muralRand(2015);
   const px = W / wallW; // pixels per metre
+  const d = W / 2048; // one design pixel from the 2048-wide painting, so the composition keeps its proportions
   const yOf = (m) => H - m * px; // metres above the ground → canvas y
 
   // Sky over the painted roofline, paler at the horizon, a few clouds
@@ -645,7 +649,7 @@ function paintMural(wallW, wallH) {
     const cy = H * (0.04 + rand() * 0.12);
     for (let j = 0; j < 4; j++) {
       g.beginPath();
-      g.ellipse(cx + (j - 1.5) * 34, cy + (j % 2) * 8, 46, 20, 0, 0, Math.PI * 2);
+      g.ellipse(cx + (j - 1.5) * 34 * d, cy + (j % 2) * 8 * d, 46 * d, 20 * d, 0, 0, Math.PI * 2);
       g.fill();
     }
   }
@@ -659,15 +663,15 @@ function paintMural(wallW, wallH) {
   g.beginPath(); // setts
   g.moveTo(gate0 * px, H);
   g.lineTo(gate1 * px, H);
-  g.lineTo(vx + 10, vy);
-  g.lineTo(vx - 10, vy);
+  g.lineTo(vx + 10 * d, vy);
+  g.lineTo(vx - 10 * d, vy);
   g.fill();
   g.strokeStyle = 'rgba(80, 70, 60, 0.35)';
-  g.lineWidth = 2;
+  g.lineWidth = 2 * d;
   for (let k = 1; k < 9; k++) {
     const t = (k / 9) ** 1.6;
     const y = H + (vy - H) * t;
-    const hw = ((gate1 - gate0) * px * 0.5) * (1 - t) + 10 * t;
+    const hw = ((gate1 - gate0) * px * 0.5) * (1 - t) + 10 * d * t;
     g.beginPath();
     g.moveTo(vx - hw, y);
     g.lineTo(vx + hw, y);
@@ -680,28 +684,28 @@ function paintMural(wallW, wallH) {
     g.beginPath();
     g.moveTo(xNear, H);
     g.lineTo(xNear, yOf(9.5));
-    g.lineTo(vx + side * 18, vy - 120);
-    g.lineTo(vx + side * 18, vy);
+    g.lineTo(vx + side * 18 * d, vy - 120 * d);
+    g.lineTo(vx + side * 18 * d, vy);
     g.fill();
     g.fillStyle = 'rgba(40, 50, 60, 0.55)';
     for (let k = 0; k < 5; k++) {
       const t = 0.12 + k * 0.17;
-      const x = xNear + (vx + side * 18 - xNear) * t;
+      const x = xNear + (vx + side * 18 * d - xNear) * t;
       for (const m of [4.5, 7.2]) {
         const yNear = yOf(m);
-        const y = yNear + (vy - 45 - yNear) * t;
-        g.fillRect(x - 6 * (1 - t) - 2, y, (12 * (1 - t) + 3) * (side < 0 ? 1 : -1), 28 * (1 - t) + 6);
+        const y = yNear + (vy - 45 * d - yNear) * t;
+        g.fillRect(x - (6 * (1 - t) + 2) * d, y, (12 * (1 - t) + 3) * d * (side < 0 ? 1 : -1), (28 * (1 - t) + 6) * d);
       }
     }
   }
   // the church tower at the lane's end (St Margaret's, which stands on Rynek Śródecki)
   g.fillStyle = '#a5473a';
-  g.fillRect(vx - 22, vy - 230, 44, 230);
+  g.fillRect(vx - 22 * d, vy - 230 * d, 44 * d, 230 * d);
   g.fillStyle = '#4f7f6c';
   g.beginPath();
-  g.moveTo(vx - 26, vy - 230);
-  g.lineTo(vx, vy - 330);
-  g.lineTo(vx + 26, vy - 230);
+  g.moveTo(vx - 26 * d, vy - 230 * d);
+  g.lineTo(vx, vy - 330 * d);
+  g.lineTo(vx + 26 * d, vy - 230 * d);
   g.fill();
 
   // The four kamienice, two either side of the gateway
@@ -765,8 +769,8 @@ function paintMural(wallW, wallH) {
     g.fillRect(x0, eave, w, H - eave);
     // cornice and string courses
     g.fillStyle = '#f2ebdd';
-    g.fillRect(x0 - 4, eave - 6, w + 8, 18);
-    for (const m of [3.9, 7.4, 10.9]) g.fillRect(x0, yOf(m), w, 9);
+    g.fillRect(x0 - 4 * d, eave - 6 * d, w + 8 * d, 18 * d);
+    for (const m of [3.9, 7.4, 10.9]) g.fillRect(x0, yOf(m), w, 9 * d);
     // upper storeys: two or three window axes
     const axes = w > 3.6 * px ? 3 : 2;
     const ww = Math.min(0.95 * px, (w / axes) * 0.42);
@@ -784,7 +788,7 @@ function paintMural(wallW, wallH) {
     g.fillRect(x0 + w * 0.66, yOf(2.8), w * 0.2, 2.8 * px);
     for (let k = 0; k < 6; k++) {
       g.fillStyle = k % 2 ? '#f2ebdd' : hs.shutter;
-      g.fillRect(x0 + w * 0.08 + (w * 0.5 * k) / 6, yOf(3.5), (w * 0.5) / 6 + 1, 0.5 * px);
+      g.fillRect(x0 + w * 0.08 + (w * 0.5 * k) / 6, yOf(3.5), (w * 0.5) / 6 + d, 0.5 * px);
     }
   }
   // the gateway's arch over the lane, in the masonry between the middle houses
@@ -807,7 +811,7 @@ function paintMural(wallW, wallH) {
   // weathering over everything: faint blotches and a darker plinth where the rain splashes
   for (let k = 0; k < 900; k++) {
     g.fillStyle = `rgba(${rand() < 0.5 ? '255, 255, 255' : '0, 0, 0'}, ${0.02 + rand() * 0.04})`;
-    g.fillRect(rand() * W, rand() * H, 2 + rand() * 18, 2 + rand() * 18);
+    g.fillRect(rand() * W, rand() * H, (2 + rand() * 18) * d, (2 + rand() * 18) * d);
   }
   const plinth = g.createLinearGradient(0, yOf(0.8), 0, H);
   plinth.addColorStop(0, 'rgba(40, 34, 28, 0)');
