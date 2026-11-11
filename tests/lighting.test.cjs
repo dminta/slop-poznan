@@ -5,6 +5,8 @@ const test = require('node:test');
 const { loadModule } = require('./helpers/module.cjs');
 
 const source = readFileSync(join(__dirname, '../js/lighting.js'), 'utf8');
+const qualitySource = readFileSync(join(__dirname, '../js/graphics-quality.js'), 'utf8');
+const graphicsQuality = loadModule(qualitySource, { filename: 'graphics-quality.js' });
 
 class Vector3 {
   constructor(x = 0, y = 0, z = 0) { this.set(x, y, z); }
@@ -20,7 +22,8 @@ const { TIME_PRESETS, sunPosition, sunVector } = loadModule(source, {
     'three/addons/objects/SkyMesh.js': {},
     'three/addons/lights/SunLight.js': {},
     'three/addons/lights/SunLightNode.js': {},
-    './tsl-materials.js': { cityUniforms: {} }
+    './tsl-materials.js': { cityUniforms: {} },
+    './graphics-quality.js': graphicsQuality
   }
 });
 

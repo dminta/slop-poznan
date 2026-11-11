@@ -98,7 +98,7 @@ Behaviour to know when writing a test:
 
 ## Coupled checks in tests/boot.test.cjs
 
-- **To add a new `js/*.js` module**, also add `<link rel="modulepreload" href="./js/NAME.js" />` to `index.html`. Keep that exact attribute order and the self-closing ` />`, and place it after the import map and before the stylesheet. Then bump the expected preload count in `boot.test.cjs`, which is currently 48, one per file in `js/`.
+- **To add a new `js/*.js` module**, also add `<link rel="modulepreload" href="./js/NAME.js" />` to `index.html`. Keep that exact attribute order and the self-closing ` />`, and place it after the import map and before the stylesheet. Then bump the expected preload count in `boot.test.cjs`, which is currently 49, one per file in `js/`.
 - Relative imports must be `./name.js` paths that resolve to a preloaded URL.
 - `index.html` must contain exactly two `<script>` tags (the import map and `./js/main.js`).
 - `three` and `three/webgpu` must map to the same URL.

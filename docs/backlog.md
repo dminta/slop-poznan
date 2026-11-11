@@ -112,7 +112,10 @@ share are not thinned; [central-density record](observations/central-density-202
   draws; the sun-shadow pass is ~half the draws and 68 % of submitted instances at Rynek are off screen; 903 MB JS
   heap, 412 MB GPU memory. Done: frozen static matrices (`c1f5e66`, renderer CPU −20 to −24 % at Rynek) and indexed
   load-time predicates (boot 18.4 → 11.9 s at 1× on a busy machine,
-  [record](observations/perf-boot-predicates-2026-11-11.md)). In progress: the low-quality tier and a memory diet.
+  [record](observations/perf-boot-predicates-2026-11-11.md)), a low graphics tier (`js/graphics-quality.js`:
+  auto-detected on WebGL2 / ≤ 4 cores / ≤ 4 GB, toolbar toggle; Rynek renderer CPU 16.3 → 12.0 ms, GPU 34 → 6 ms) and
+  halved mural / tram plate canvases ([record](observations/perf-memory-2026-11-11.md)). Not yet measured on a real
+  phone or integrated GPU.
   Remaining: draw-call batching (roofs per chunk, street furniture), tree LOD / draw distance, then the other boot
   hotspots (`outlineRay` 14–17 %). [Ranked opportunities](observations/perf-older-devices-2026-11-11.md).
 - Road levels and richer road-priority classification; revisit only with a runtime consumer.

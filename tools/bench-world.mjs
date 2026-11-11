@@ -223,7 +223,7 @@ function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSe
   let trafficSource = js('traffic.js');
   if (noPeds) {
     // an experiment: no pedestrians at all (none is ever placed)
-    const budget = 'let pedBudget = jump ? NUM_PEDS : 6;';
+    const budget = 'let pedBudget = jump ? pedPopulation : 6;';
     if (!trafficSource.includes(budget)) throw new Error(`--no-peds: traffic.js no longer has "${budget}"`);
     trafficSource = trafficSource.replace(budget, 'let pedBudget = 0;');
   }

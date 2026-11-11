@@ -517,6 +517,11 @@ body.hud-minimized .toolbar > :not(#btn-toggle-hud) {
   background: var(--hover);
 }
 
+/* The graphics button's pressed state is "tryb oszczędny" */
+#btn-quality[aria-pressed='true'] {
+  color: var(--accent);
+}
+
 .tool-btn .icon-sm {
   margin-left: -2px;
   color: var(--text-3);
@@ -1542,8 +1547,11 @@ body.touch-enabled .fullmap-header { top: max(var(--edge), env(safe-area-inset-t
 body.touch-enabled .map-controls .icon-btn { width: 44px; height: 44px; }
 body.touch-enabled .pop-item { min-height: 44px; }
 
-@media (max-width: 360px) {
-  body.touch-enabled .toolbar { width: 194px; height: auto; flex-wrap: wrap; justify-content: center; }
+/* One more toolbar button (Grafika) no longer fits a 390 px phone's single touch row: wrap the toolbar into two rows
+   and move the speed/camera cluster below it. 246 px keeps the four-button time switch on the first row and the five
+   tool buttons on the second. */
+@media (max-width: 430px) {
+  body.touch-enabled .toolbar { width: 246px; height: auto; flex-wrap: wrap; justify-content: center; }
   body.touch-enabled .hud-bottom-right { top: calc(max(var(--edge), env(safe-area-inset-top)) + 114px); }
   .touch-look-hint { top: calc(max(var(--edge), env(safe-area-inset-top)) + 172px); }
 }

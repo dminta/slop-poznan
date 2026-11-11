@@ -133,7 +133,7 @@ function createBusDestinationTexture() {
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 
 function createTrafficSystem(
-  scene, sidewalks, obstacles, network = buildRoadNetwork(sidewalks, obstacles), buildingColliders = null
+  scene, sidewalks, obstacles, network = buildRoadNetwork(sidewalks, obstacles), buildingColliders = null, options = {}
 ) {
   const group = new THREE.Group();
   group.name = 'TrafficAndPedestrians';
@@ -826,10 +826,16 @@ function createTrafficSystem(
   const nearCrossings = [];
   const nearWalks = []; // pedestrian-only tracks: no road edge carries Półwiejska, Wrocławska or the Stary Rynek lanes
   let nearLanes = 0; // metres of lane within NEAR_RADIUS of the focus
-  let nearTarget = 0; // how many vehicles drive there (VEHICLE_DENSITY)
+  let nearTarget = 0; // how many vehicles drive there (vehicleDensity)
   let nearBusTarget = 0; // reserve the pool's bus share so cars cannot consume every local slot
   let nearX = Infinity;
   let nearZ = Infinity;
+  // Low graphics tier: fewer walkers and half the local vehicle density. The pools stay at their full build-time
+  // capacity so raising the tier again needs no rebuild; only the active population changes in update().
+  let vehicleDensity = VEHICLE_DENSITY;
+  let minVehicles = MIN_VEHICLES;
+  let pedPopulation = NUM_PEDS;
+  let pedPopulationDirty = false;
   function refreshNear() {
     if (Math.hypot(focusX - nearX, focusZ - nearZ) < 40) return;
     nearX = focusX;
@@ -849,7 +855,7 @@ function createTrafficSystem(
       const half = Math.sqrt(Math.max(0, NEAR_RADIUS * NEAR_RADIUS - off * off));
       nearLanes += Math.max(0, Math.min(e.len, along + half) - Math.max(0, along - half)) * e.lanes.length;
     }
-    nearTarget = Math.min(vehicles.length, Math.max(MIN_VEHICLES, Math.round((nearLanes / 1000) * VEHICLE_DENSITY)));
+    nearTarget = Math.min(vehicles.length, Math.max(minVehicles, Math.round((nearLanes / 1000) * vehicleDensity)));
     nearBusTarget = nearEdges.some((e) => e.major && e.len >= 2 * buses[0].half + 10)
       ? Math.ceil(nearTarget * buses.length / vehicles.length) : 0;
     for (const n of crossingNodes) {
@@ -3512,6 +3518,25 @@ function createTrafficSystem(
   let vehicleCursor = 0;
   let pedCursor = 0;
 
+  // Runtime quality changes keep both pools at build-time capacity; lowering the pedestrian target parks the extra
+  // walkers (gradually coming back if the target rises). The local vehicle target follows the next refreshNear().
+  function setPopulation(population = {}) {
+    const nextPeds = Number(population.pedestrians);
+    if (Number.isFinite(nextPeds)) {
+      const limit = clamp(Math.round(nextPeds), 0, NUM_PEDS);
+      if (limit !== pedPopulation) {
+        pedPopulation = limit;
+        pedPopulationDirty = true;
+      }
+    }
+    const nextDensity = Number(population.vehicleDensity);
+    if (Number.isFinite(nextDensity)) vehicleDensity = Math.max(0, nextDensity);
+    const nextMinimum = Number(population.minVehicles);
+    if (Number.isFinite(nextMinimum)) minVehicles = Math.max(0, Math.round(nextMinimum));
+    nearX = Infinity; // the density target is recomputed on the next update
+  }
+  if (options.population) setPopulation(options.population);
+
   function update(dt, elapsed, focusPos = null, playerEntity = null, activeMode = 'car', camera = null) {
     clock = elapsed;
     updateSignals(elapsed);
@@ -3669,12 +3694,23 @@ function createTrafficSystem(
     updateTrafficLights();
 
     // 2. Pedestrians
+    if (pedPopulationDirty) {
+      pedPopulationDirty = false;
+      for (let i = pedPopulation; i < NUM_PEDS; i++) {
+        const p = peds[i];
+        if (!p.placed) continue;
+        if (p.conversation) endConversation(p.conversation);
+        p.placed = false;
+        p.rig.placed = false;
+      }
+    }
     for (const n of walkedNodes) n.walkers.length = 0;
     walkedNodes.length = 0;
-    let pedBudget = jump ? NUM_PEDS : 6;
-    for (let scanned = 0; scanned < NUM_PEDS && pedBudget > 0; scanned++) {
+    if (pedCursor >= pedPopulation) pedCursor = 0;
+    let pedBudget = jump ? pedPopulation : 6;
+    for (let scanned = 0; scanned < pedPopulation && pedBudget > 0; scanned++) {
       const p = peds[pedCursor];
-      pedCursor = (pedCursor + 1) % NUM_PEDS;
+      pedCursor = (pedCursor + 1) % pedPopulation;
       const d = p.placed ? Math.hypot(p.x - focusX, p.z - focusZ) : Infinity;
       if (d <= (jump ? NEAR_RADIUS : PED_RADIUS)) continue;
       pedBudget--;
@@ -3684,7 +3720,7 @@ function createTrafficSystem(
     indexRoutePeds();
     meet(dt);
     pedCrowd.begin();
-    for (let i = 0; i < NUM_PEDS; i++) {
+    for (let i = 0; i < pedPopulation; i++) {
       const p = peds[i];
       if (!p.placed) continue;
       walk(p, dt);
@@ -3706,6 +3742,8 @@ function createTrafficSystem(
     update,
     setCollisionListener,
     setTrams,
+    setPopulation,
+    population: () => ({ pedestrians: pedPopulation, vehicleDensity, minVehicles }),
     cars,
     buses,
     peds,

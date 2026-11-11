@@ -71,6 +71,7 @@ test('refreshNear keeps pedestrian-only tracks around the focus', () => {
     focusX: way.ax, focusZ: way.az, nearX: Infinity, nearZ: Infinity,
     NEAR_RADIUS: 350, nearLanes: 0, nearTarget: 0, nearBusTarget: 0,
     vehicles: new Array(212), buses: [{ half: 6 }], MIN_VEHICLES: 30, VEHICLE_DENSITY: 12,
+    minVehicles: 30, vehicleDensity: 12,
     pedRoutes: { waysNear: () => [way] }
   };
   vm.runInNewContext(`(${trafficFunction('refreshNear')})`, context)();

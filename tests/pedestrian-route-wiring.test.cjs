@@ -76,4 +76,15 @@ test('traffic hands the real building colliders to the pedestrian route builder'
   assert.equal(received[0], network, 'the supplied network reaches the routes');
   assert.equal(received[3], buildingColliders, 'the building colliders reach the routes');
   assert.equal(system.pedestrianRoutes.crosswalks.length, 0);
+  assert.deepEqual(
+    { ...system.population() },
+    { pedestrians: 340, vehicleDensity: 12, minVehicles: 30 },
+    'the default tier keeps the high-tier population'
+  );
+  system.setPopulation({ pedestrians: 180, vehicleDensity: 6, minVehicles: 15 });
+  assert.deepEqual({ ...system.population() }, { pedestrians: 180, vehicleDensity: 6, minVehicles: 15 });
+  assert.equal(system.peds.length, 340, 'the pool stays at build-time capacity for a later tier change');
+  system.setPopulation({ pedestrians: 1000 });
+  assert.equal(system.population().pedestrians, 340, 'a population above the pool is clamped');
+  assert.equal(system.population().vehicleDensity, 6, 'omitted fields keep their values');
 });

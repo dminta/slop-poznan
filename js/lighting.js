@@ -21,6 +21,7 @@ import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
 import { SunLight } from 'three/addons/lights/SunLight.js';
 import { SunLightNode } from 'three/addons/lights/SunLightNode.js';
 import { cityUniforms } from './tsl-materials.js';
+import { QUALITY_TIERS } from './graphics-quality.js';
 
 // js/lighting.js
 // Physically-Based Atmospheric Sky (Preetham SkyMesh + Beer-Powder Clouds),
@@ -199,10 +200,12 @@ for (const preset of Object.values(TIME_PRESETS)) {
 }
 
 class LightingSystem {
-  constructor(scene, renderer = null) {
+  constructor(scene, renderer = null, qualityTier = 'high') {
     this.scene = scene;
     this.renderer = renderer;
     this.activePresetId = 'golden';
+    this.qualityTier = 'high';
+    this.shadowRange = QUALITY_TIERS.high.shadowRange;
 
     // Assign SunLight its node implementation for WebGPURenderer (Light.registerNode since r187; r186 used the library)
     if (SunLight.registerNode) {
@@ -266,11 +269,11 @@ class LightingSystem {
     this.sunLight = new SunLight(0xffca92, 5.8);
     this.sunLight.position.copy(TIME_PRESETS.golden.sunDir);
     this.sunLight.castShadow = true;
-    // 3072x3072 per cascade = 6144x3072 2-cascade shadow atlas (an 8192x4096 one cost ~20% fps and caused hitches),
-    // 2048 where the device allows less. The near cascade spans ~0.35-80 m of the view at street level (see update)
+    // High is 3072x3072 per cascade = 6144x3072 2-cascade shadow atlas (an 8192x4096 one cost ~20% fps and caused
+    // hitches), clamped to 2048 where the device allows less. The near cascade spans ~0.35-80 m of the view at street
+    // level (see update); setQualityTier() applies the preset's tile size and switches it at runtime.
     const maxTex = (renderer && renderer.backend && renderer.backend.device && renderer.backend.device.limits.maxTextureDimension2D) || 4096;
-    const tile = maxTex >= 6144 ? 3072 : 2048;
-    this.sunLight.shadow.mapSize.set(tile, tile);
+    this.maxShadowTile = maxTex >= 6144 ? 3072 : 2048;
     this.sunLight.shadow.camera.near = 0.5;
     this.sunLight.shadow.camera.far = 300;
     // Suppress shadow acne along the surface normal in world units
@@ -292,6 +295,20 @@ class LightingSystem {
     this.uFogDensity = uniform(TIME_PRESETS.golden.fogDensity);
     this.uFogHeight = uniform(900.0);
     if (this.envRenderTarget) this.scene.fogNode = this.createAerialFogNode();
+    this.setQualityTier(qualityTier);
+  }
+
+  // Switch the sun's shadow budget without rebuilding the light or its shader graph. The shadow render target is
+  // resized by three.js on the next shadow pass because SunShadowNode calls map.setSize() every frame. Values come
+  // from QUALITY_TIERS so the presets the tests check are the ones used here.
+  setQualityTier(tier) {
+    const low = tier === 'low';
+    const preset = QUALITY_TIERS[low ? 'low' : 'high'];
+    this.qualityTier = low ? 'low' : 'high';
+    this.shadowRange = preset.shadowRange;
+    const size = Math.min(preset.shadowMapSize, this.maxShadowTile);
+    if (this.sunLight.shadow.mapSize.x !== size) this.sunLight.shadow.mapSize.set(size, size);
+    return this.qualityTier;
   }
 
   createAerialFogNode() {
@@ -376,8 +393,10 @@ class LightingSystem {
     // every frame inside SunShadowNode.renderShadow(), splitting [near, far] halfway between a uniform and a
     // logarithmic split (the near cascade ends at ~far / 4). Keep far at 300 m at street level so the near cascade
     // stays sharp, and expand it with altitude (helicopter / Bałtyk terrace) so shadows reach all the way down to street level.
+    // The low tier starts at 150 m and reaches 360 m; setQualityTier() picks the range.
     const altitude = focusPos && Number.isFinite(focusPos.y) ? Math.max(0, focusPos.y) : 0;
-    this.sunLight.shadow.camera.far = Math.max(300, Math.min(720, 260 + altitude * 1.6));
+    const range = this.shadowRange;
+    this.sunLight.shadow.camera.far = Math.max(range.min, Math.min(range.max, range.start + altitude * range.perMetre));
   }
 }
 
