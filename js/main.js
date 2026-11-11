@@ -26,6 +26,7 @@ import { setupSceneCulling, updateSceneCulling } from './scene-culling.js';
 import { collectDynamicRoots, freezeStaticMatrices, updateDynamicMatrices } from './static-matrices.js';
 import { CityAudioSystem } from './audio-system.js';
 import { QUALITY_TIERS, resolveQuality, clearStoredQuality } from './graphics-quality.js';
+import { PerfStats } from './perf-stats.js';
 
 // js/main.js
 // Main entry point for Poznań in Three.js WebGPURenderer & TSL (three.js dev, see index.html)
@@ -51,6 +52,7 @@ async function initApp() {
   // ?backend=webgl forces the WebGL2 fallback for browser reviews without touching the default WebGPU path.
   const query = new URLSearchParams(window.location.search);
   const forceWebGL = query.get('backend') === 'webgl';
+  const statsEnabled = query.get('stats') === '1';
   const renderer = new THREE.WebGPURenderer({
     antialias: true,
     powerPreference: 'high-performance',
@@ -795,6 +797,32 @@ async function initApp() {
   await precompileShaders();
   markInit('compile');
 
+  // Opt-in (?stats=1) performance panel and copyable report. With the switch off, main.js passes null and the loop
+  // only tests the reference: no DOM, no renderer.info reset, no timers. The panel reads the live systems through a
+  // getter that runs once per copy, not per frame.
+  const perfStats = statsEnabled
+    ? new PerfStats({
+      renderer,
+      quality: activeQuality,
+      getContext: () => {
+        const entity = controllerManager.getActiveEntity();
+        const preset = cameraSystem.getActivePreset();
+        return {
+          mode: controllerManager.activeMode,
+          camera: preset.id,
+          cameraName: preset.name,
+          time: lightingSystem.activePresetId,
+          player: { x: entity.position.x, y: entity.position.y, z: entity.position.z },
+          cameraPosition: {
+            x: cameraSystem.currentPos.x,
+            y: cameraSystem.currentPos.y,
+            z: cameraSystem.currentPos.z
+          }
+        };
+      }
+    })
+    : null;
+
   // 6. Animation Loop
   let lastTime = performance.now();
   let elapsed = 0;
@@ -802,10 +830,15 @@ async function initApp() {
   let fpsTimer = 0;
   let nextPlayerSave = 0;
   let warmedUp = false; // see the first frame below
+  let firstFrameAt = 0; // rAF timestamp since navigation start, the panel's boot time
 
   if (elFps) elFps.textContent = '60';
 
   renderer.setAnimationLoop((now) => {
+    if (perfStats) {
+      perfStats.beginFrame(now);
+      if (!firstFrameAt) firstFrameAt = now;
+    }
     const rawDt = (now - lastTime) * 0.001;
     lastTime = now;
     const dt = Math.min(Math.max(rawDt, 0.001), 0.05);
@@ -818,6 +851,7 @@ async function initApp() {
     streetDetails.signalClock.value = elapsed;
     // Trams first: the cars then take this frame's trams into their lanes and the player collides with them where they
     // are drawn (the trams brake for last frame's cars)
+    if (perfStats) perfStats.beginSimulation();
     tramSystem.update(dt, elapsed, cameraSystem.currentPos, cameraSystem.camera, controllerManager.getActiveEntity(), controllerManager.activeMode);
     trafficSystem.update(
       dt,
@@ -827,6 +861,7 @@ async function initApp() {
       controllerManager.activeMode,
       cameraSystem.camera
     );
+    if (perfStats) perfStats.endSimulation();
     if (!document.hidden && now >= nextPlayerSave) {
       savePlayerState();
       nextPlayerSave = now + 5000;
@@ -863,7 +898,12 @@ async function initApp() {
       for (const o of culled) o.frustumCulled = true;
       markInit('warmup');
     }
+    if (perfStats) perfStats.beginRender();
     renderPipeline.render();
+    if (perfStats) {
+      perfStats.endRender();
+      perfStats.endFrame();
+    }
     if (!warmedUp) {
       warmedUp = true;
       markInit('firstFrame');
@@ -872,6 +912,7 @@ async function initApp() {
       const device = renderer.backend.device;
       Promise.resolve(device && device.queue.onSubmittedWorkDone()).catch(() => {}).then(() => {
         markInit('gpu');
+        if (perfStats) perfStats.setBoot({ firstFrameMs: firstFrameAt, readyMs: performance.now(), initTimings });
         console.log(`[init] ${initTimings.join(', ')}`);
         initTimings = null;
         if (loadingOverlay) loadingOverlay.classList.add('hidden');

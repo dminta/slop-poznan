@@ -17,6 +17,33 @@ as ESM without a package.json depends on Node's automatic module-syntax detectio
 
 No test runs a browser, WebGPU, TSL shader compilation or a screenshot comparison. Tests that touch shader or scene code (`facade-projection`, `vehicle-lights`) re-implement or stub the TSL nodes and check only the math. Any change to geometry, materials, TSL nodes, lighting, post-processing or culling has to be checked by hand: serve the app and look in a WebGPU browser. `WebGPURenderer` falls back to WebGL2 when WebGPU is unavailable, and `js/main.js` branches on `renderer.backend.isWebGPUBackend` (for example for instanced attributes). If you touch that kind of code, check the fallback too. Watch the browser console, because shader and node errors show up only there.
 
+## Measuring performance on a real device
+
+Add `?stats=1` to the page URL (`https://slop-poznan.dominikminta.com/?stats=1`, or
+`http://localhost:8000/?stats=1`). The panel appears under the brand line; on a 390 × 844 phone it stays clear of the
+touch stick and action buttons. It refreshes twice a second and shows:
+
+- frame rate and frame time p50/p95/max over the last 5 s;
+- CPU time inside `renderPipeline.render()`, the tram + traffic/pedestrian update, and the whole frame (all in ms,
+  averaged over the panel's half-second display window);
+- draw calls and triangles for every pass (scene, shadow cascades and post-processing) from `renderer.info`;
+- shader program and render-target counts, GPU memory, JS heap, quality tier with its reason (when
+  `body[data-quality-reason]` is set), backend, GPU adapter, devicePixelRatio, drawing-buffer size and window size;
+- boot time from navigation start to the first frame, with the `[init]` phase list in the copied report.
+
+**Kopiuj raport** copies a plain-text report that also includes the URL and its parameters, user agent, platform,
+`hardwareConcurrency`, `deviceMemory`, the current travel mode, camera preset, time preset and both positions. If the
+clipboard is unavailable (for example an insecure origin or a denied permission), the same text appears in a selected
+textarea inside the panel. Paste the report into the issue or observation record, together with the viewport, quality
+tier and backend you used.
+
+The switch is opt-in so a normal visit pays nothing: without `?stats=1` the module is loaded (static import) but builds
+no DOM, does not reset `renderer.info`, and the loop hooks are null checks. With it on, expect the panel itself to cost
+a few tenths of a millisecond per frame: one `renderer.info.reset()`, three `performance.now()` pairs and two `textContent`
+batches a second, with no per-frame allocation. Verify a change with a screenshot on the target device and by comparing
+draw calls/triangles and CPU render with the audit numbers in
+[observations/perf-older-devices-2026-11-11.md](observations/perf-older-devices-2026-11-11.md) at the same view.
+
 ## Three ways tests reach production code
 
 Know which one covers the code you are editing. Two of them are coupled to the exact source text.
@@ -98,7 +125,7 @@ Behaviour to know when writing a test:
 
 ## Coupled checks in tests/boot.test.cjs
 
-- **To add a new `js/*.js` module**, also add `<link rel="modulepreload" href="./js/NAME.js" />` to `index.html`. Keep that exact attribute order and the self-closing ` />`, and place it after the import map and before the stylesheet. Then bump the expected preload count in `boot.test.cjs`, which is currently 49, one per file in `js/`.
+- **To add a new `js/*.js` module**, also add `<link rel="modulepreload" href="./js/NAME.js" />` to `index.html`. Keep that exact attribute order and the self-closing ` />`, and place it after the import map and before the stylesheet. Then bump the expected preload count in `boot.test.cjs`, which is currently 50, one per file in `js/`.
 - Relative imports must be `./name.js` paths that resolve to a preloaded URL.
 - `index.html` must contain exactly two `<script>` tags (the import map and `./js/main.js`).
 - `three` and `three/webgpu` must map to the same URL.

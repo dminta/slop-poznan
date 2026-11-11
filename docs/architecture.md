@@ -53,6 +53,18 @@
   inputs/order aligned when adding furniture. This avoids a second main-thread network build during browser boot.
 - `markInit(label)` logs phase timings once as `[init] ...`. Add a `markInit` call for any new heavy boot phase.
 
+## Review URL parameters
+These switches are for browser checks and real-device measurements; none is persisted:
+- `?quality=low|high` overrides the boot-time tier (see Boot order and [rendering.md](rendering.md#quality-tiers)).
+- `?backend=webgl` forces the WebGL2 fallback on a WebGPU machine.
+- `?stats=1` shows the opt-in performance panel from `js/perf-stats.js`. It updates twice a second with frame-time
+  p50/p95/max over the last 5 s, whole-frame draw calls and triangles from `renderer.info` (auto-reset off, reset once
+  per frame), CPU render/simulation/frame time, programs and GPU memory, JS heap, tier and its reason, backend, GPU
+  adapter, devicePixelRatio and drawing-buffer size, and boot plus `[init]` times. "Kopiuj raport" copies a plain-text
+  report with all of that plus the user agent, `hardwareConcurrency`, `deviceMemory`, URL parameters, and the current
+  mode, camera, time preset and positions. The module is imported statically but constructs nothing unless the switch
+  is on: with it off `main.js` passes null at the loop hooks and `renderer.info` keeps its automatic reset.
+
 ## How modules share state
 - Keep `window` free of app globals. Share state in one of three ways:
   1. **Constructor injection from `main.js`.** `controllerManager` goes to the camera, touch, gamepad, map and audio systems.
@@ -215,7 +227,7 @@ Physics notes:
 
 ## HUD, CSS and cache busting
 - `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently
-  `20261111-quality-boot`). When you change `style.css`, bump that query in `index.html` in the same commit;
+  `20261111-perf-stats`). When you change `style.css`, bump that query in `index.html` in the same commit;
   GitHub Pages caches it.
 - The top-right toolbar carries the time presets, Teleportuj, Mapa (M), sound (N) and the clean-view toggle. Quality is
   fixed at boot and is not a toolbar control: the brand line's `Grafika: … ↻` link (`#quality-link`) reloads the page
