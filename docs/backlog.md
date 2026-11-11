@@ -113,7 +113,8 @@ share are not thinned; [central-density record](observations/central-density-202
   heap, 412 MB GPU memory. Done: frozen static matrices (`c1f5e66`, renderer CPU −20 to −24 % at Rynek) and indexed
   load-time predicates (boot 18.4 → 11.9 s at 1× on a busy machine,
   [record](observations/perf-boot-predicates-2026-11-11.md)), a low graphics tier (`js/graphics-quality.js`:
-  auto-detected on WebGL2 / ≤ 4 cores / ≤ 4 GB, toolbar toggle; Rynek renderer CPU 16.3 → 12.0 ms, GPU 34 → 6 ms) and
+  `?quality=` or auto-detected on touch-first phones / WebGL2 / ≤ 4 cores / ≤ 4 GB; Rynek renderer CPU 16.3 → 12.0 ms,
+  GPU 34 → 6 ms) and
   halved mural / tram plate canvases ([record](observations/perf-memory-2026-11-11.md)). Not yet measured on a real
   phone or integrated GPU.
   Remaining: draw-call batching (roofs per chunk, street furniture), tree LOD / draw distance, then the other boot

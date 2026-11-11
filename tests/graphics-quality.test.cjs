@@ -7,9 +7,18 @@ const { loadModule } = require('./helpers/module.cjs');
 const source = readFileSync(join(__dirname, '../js/graphics-quality.js'), 'utf8');
 const quality = loadModule(source, { filename: 'graphics-quality.js' });
 const {
-  GRAPHICS_QUALITY_KEY, QUALITY_TIERS, WATCHDOG_FRAME_CAP, normaliseQuality, detectQuality,
-  resolveQuality, readStoredQuality, storeQuality, accumulateLowSeconds, shouldAutoDowngrade
+  GRAPHICS_QUALITY_KEY, QUALITY_TIERS, normaliseQuality, isTouchFirstDevice, detectQuality, resolveQuality,
+  clearStoredQuality
 } = quality;
+
+test('a touch-first phone or tablet starts low but a touch laptop with a fine pointer stays high', () => {
+  assert.equal(isTouchFirstDevice({ coarsePointer: true, finePointer: false }), true);
+  assert.equal(isTouchFirstDevice({ coarsePointer: true, finePointer: true }), false, 'a mouse or trackpad keeps high');
+  assert.equal(isTouchFirstDevice({ coarsePointer: false, finePointer: true }), false);
+  assert.equal(isTouchFirstDevice({}), false);
+  assert.equal(detectQuality({ coarsePointer: true, finePointer: false, hardwareConcurrency: 16 }), 'low');
+  assert.equal(detectQuality({ coarsePointer: true, finePointer: true, hardwareConcurrency: 16 }), 'high');
+});
 
 test('auto-detection lowers only known weak inputs and defaults to high', () => {
   assert.equal(detectQuality({}), 'high');
@@ -21,67 +30,21 @@ test('auto-detection lowers only known weak inputs and defaults to high', () => 
   assert.equal(detectQuality({ hardwareConcurrency: 0, deviceMemory: 0 }), 'high', 'unknown values are not weak');
 });
 
-test('a stored or URL choice overrides auto-detection', () => {
-  assert.deepEqual(
-    { ...resolveQuality({ stored: 'high', hardwareConcurrency: 2 }) },
-    { tier: 'high', source: 'stored' }
-  );
-  assert.deepEqual(
-    { ...resolveQuality({ url: 'low', stored: 'high', hardwareConcurrency: 16 }) },
-    { tier: 'low', source: 'url' }
-  );
-  assert.deepEqual(
-    { ...resolveQuality({ stored: 'bogus', hardwareConcurrency: 4 }) },
-    { tier: 'low', source: 'auto' }
-  );
-  assert.deepEqual({ ...resolveQuality({ url: 'bogus' }) }, { tier: 'high', source: 'auto' });
+test('?quality wins over every device default, and an invalid value falls back to it', () => {
+  assert.equal(resolveQuality({ url: 'low', hardwareConcurrency: 16, deviceMemory: 16 }), 'low');
+  assert.equal(resolveQuality({ url: 'high', coarsePointer: true, finePointer: false, webgl: true }), 'high');
+  assert.equal(resolveQuality({ url: 'bogus', hardwareConcurrency: 4 }), 'low');
+  assert.equal(resolveQuality({ url: 'bogus' }), 'high');
+  assert.equal(resolveQuality({ url: null, coarsePointer: true, finePointer: false }), 'low');
 });
 
-test('the graphics-quality key stores only high or low and survives unavailable storage', () => {
-  const values = new Map();
-  const storage = {
-    getItem: (key) => values.get(key) ?? null,
-    setItem: (key, value) => values.set(key, value)
-  };
-  assert.equal(storeQuality('low', storage), true);
-  assert.equal(values.get(GRAPHICS_QUALITY_KEY), 'low');
-  assert.equal(readStoredQuality(storage), 'low');
-  assert.equal(storeQuality('bogus', storage), false);
-  assert.equal(readStoredQuality(storage), 'low');
-  assert.equal(readStoredQuality({ getItem() { throw new Error('blocked'); } }), null);
-  assert.equal(storeQuality('high', { setItem() { throw new Error('quota'); } }), false);
-  assert.equal(readStoredQuality(null), null, 'a missing localStorage is not an error');
-});
-
-test('only an auto-detected high tier can be lowered after two accumulated slow seconds', () => {
-  assert.equal(shouldAutoDowngrade('high', 'auto', 2), true);
-  assert.equal(shouldAutoDowngrade('high', 'auto', 1.9), false);
-  assert.equal(shouldAutoDowngrade('high', 'stored', 30), false);
-  assert.equal(shouldAutoDowngrade('high', 'url', 30), false);
-  assert.equal(shouldAutoDowngrade('low', 'auto', 30), false);
-});
-
-test('the watchdog counts low telemetry windows, not a single long frame or a hidden tab', () => {
-  let seconds = 0;
-  for (let i = 0; i < 8; i++) seconds = accumulateLowSeconds(seconds, 20, 0.25, 0.016, false);
-  assert.equal(seconds, 2);
-  assert.equal(shouldAutoDowngrade('high', 'auto', seconds), true);
-
-  // One 2 s shader-compile hitch (a single long frame) must reset, even after otherwise slow windows.
-  assert.equal(accumulateLowSeconds(0, 0, 2.0, 2.0, false), 0);
-  assert.equal(accumulateLowSeconds(1.9, 0, 2.0, 2.0, false), 0);
-  assert.equal(shouldAutoDowngrade('high', 'auto', 0), false);
-
-  // A backgrounded tab pauses rAF: neither its hidden window nor the first huge frame back counts.
-  assert.equal(accumulateLowSeconds(1.9, 10, 0.25, 0.25, true), 0);
-  assert.equal(accumulateLowSeconds(0, 0, 5.0, 5.0, false), 0);
-
-  // A healthy window and an already-high-fps window reset the count.
-  assert.equal(accumulateLowSeconds(1.9, 30, 0.25, 0.016, false), 0);
-  assert.equal(accumulateLowSeconds(1.9, 60, 0.25, 0.016, false), 0);
-
-  // One huge low window is capped at half a second instead of counting as several.
-  assert.equal(accumulateLowSeconds(0, 20, 10, 0.016, false), WATCHDOG_FRAME_CAP);
+test('the retired graphics-quality key is removed at boot and storage errors never block', () => {
+  const values = new Map([[GRAPHICS_QUALITY_KEY, 'low']]);
+  const storage = { removeItem: (key) => values.delete(key) };
+  assert.equal(clearStoredQuality(storage), true);
+  assert.equal(values.has(GRAPHICS_QUALITY_KEY), false);
+  assert.equal(clearStoredQuality({ removeItem() { throw new Error('blocked'); } }), false);
+  assert.equal(clearStoredQuality(null), true, 'a missing localStorage is not an error');
 });
 
 test('tier presets carry the low-tier render, shadow and population changes', () => {
@@ -92,6 +55,8 @@ test('tier presets carry the low-tier render, shadow and population changes', ()
   assert.equal(QUALITY_TIERS.low.pixelRatio, 0.75);
   assert.equal(QUALITY_TIERS.low.shadowMapSize, 1024);
   assert.deepEqual({ ...QUALITY_TIERS.low.shadowRange }, { start: 120, perMetre: 1.0, min: 150, max: 360 });
+  assert.equal(QUALITY_TIERS.low.shadowCasters, false, 'trees, furniture, trams and the city grid stop casting');
+  assert.equal(QUALITY_TIERS.high.shadowCasters, true);
   assert.ok(QUALITY_TIERS.low.population.pedestrians >= 150 && QUALITY_TIERS.low.population.pedestrians <= 200);
   assert.equal(
     QUALITY_TIERS.low.population.vehicleDensity * 2,

@@ -271,7 +271,7 @@ class LightingSystem {
     this.sunLight.castShadow = true;
     // High is 3072x3072 per cascade = 6144x3072 2-cascade shadow atlas (an 8192x4096 one cost ~20% fps and caused
     // hitches), clamped to 2048 where the device allows less. The near cascade spans ~0.35-80 m of the view at street
-    // level (see update); setQualityTier() applies the preset's tile size and switches it at runtime.
+    // level (see update); setQualityTier() applies the boot tier's tile size and shadow range.
     const maxTex = (renderer && renderer.backend && renderer.backend.device && renderer.backend.device.limits.maxTextureDimension2D) || 4096;
     this.maxShadowTile = maxTex >= 6144 ? 3072 : 2048;
     this.sunLight.shadow.camera.near = 0.5;
@@ -298,9 +298,9 @@ class LightingSystem {
     this.setQualityTier(qualityTier);
   }
 
-  // Switch the sun's shadow budget without rebuilding the light or its shader graph. The shadow render target is
-  // resized by three.js on the next shadow pass because SunShadowNode calls map.setSize() every frame. Values come
-  // from QUALITY_TIERS so the presets the tests check are the ones used here.
+  // Apply the boot tier's sun shadow budget without rebuilding the light or its shader graph. The shadow render target
+  // is resized by three.js on the next shadow pass because SunShadowNode calls map.setSize() every frame. Values come
+  // from QUALITY_TIERS so the presets the tests check are the ones used here. The tier never changes during a page load.
   setQualityTier(tier) {
     const low = tier === 'low';
     const preset = QUALITY_TIERS[low ? 'low' : 'high'];

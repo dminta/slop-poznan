@@ -400,7 +400,8 @@ body.hud-minimized .toolbar > :not(#btn-toggle-hud) {
   line-height: 1.2;
 }
 
-.repo-link {
+.repo-link,
+.quality-link {
   flex: none;
   padding: 3px 0;
   color: var(--text-2);
@@ -410,8 +411,14 @@ body.hud-minimized .toolbar > :not(#btn-toggle-hud) {
   white-space: nowrap;
 }
 
+.quality-link {
+  color: var(--text-3);
+}
+
 .repo-link:hover,
-.repo-link:focus-visible {
+.repo-link:focus-visible,
+.quality-link:hover,
+.quality-link:focus-visible {
   color: var(--text);
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -515,11 +522,6 @@ body.hud-minimized .toolbar > :not(#btn-toggle-hud) {
 .tool-btn:hover,
 .tool-btn.is-open {
   background: var(--hover);
-}
-
-/* The graphics button's pressed state is "tryb oszczędny" */
-#btn-quality[aria-pressed='true'] {
-  color: var(--accent);
 }
 
 .tool-btn .icon-sm {
@@ -1379,6 +1381,7 @@ body.is-boosting #hud-speed-meter {
   .brand-subtitle { display: none; }
   .brand { height: 44px; padding: 0 12px; }
   .repo-link { display: flex; align-items: center; gap: 4px; min-height: 44px; font-size: 12px; }
+  .quality-link { display: flex; align-items: center; min-height: 44px; font-size: 12px; }
   .radar { width: 220px; height: 148px; }
   .cluster { width: 220px; }
   #hud-speed { font-size: 34px; }
@@ -1547,11 +1550,13 @@ body.touch-enabled .fullmap-header { top: max(var(--edge), env(safe-area-inset-t
 body.touch-enabled .map-controls .icon-btn { width: 44px; height: 44px; }
 body.touch-enabled .pop-item { min-height: 44px; }
 
-/* One more toolbar button (Grafika) no longer fits a 390 px phone's single touch row: wrap the toolbar into two rows
-   and move the speed/camera cluster below it. 246 px keeps the four-button time switch on the first row and the five
-   tool buttons on the second. */
 @media (max-width: 430px) {
-  body.touch-enabled .toolbar { width: 246px; height: auto; flex-wrap: wrap; justify-content: center; }
+  /* The compact brand shares the top row with the camera cluster: drop the tier word to clear it. */
+  .quality-link .quality-tier { display: none; }
+}
+
+@media (max-width: 360px) {
+  body.touch-enabled .toolbar { width: 194px; height: auto; flex-wrap: wrap; justify-content: center; }
   body.touch-enabled .hud-bottom-right { top: calc(max(var(--edge), env(safe-area-inset-top)) + 114px); }
   .touch-look-hint { top: calc(max(var(--edge), env(safe-area-inset-top)) + 172px); }
 }

@@ -17,16 +17,19 @@
   instance), `three/tsl` and `three/addons/` to one pinned `mrdoob/three.js` dev-branch commit on jsDelivr
   (bump the SHA after a browser check; dev APIs drift between commits). App modules import each other with relative
   `./x.js` specifiers, never with `?v=` queries.
-- `js/graphics-quality.js` is a pure-data/pure-function module (no three.js import): the `high`/`low` presets, auto-detection,
-  the `graphics-quality` storage read/write and the FPS-watchdog predicate. Tests import it directly.
+- `js/graphics-quality.js` is a pure-data/pure-function module (no three.js import): the `high`/`low` presets, the
+  boot-time selection and the stale `graphics-quality` key cleanup. Tests import it directly.
 - New-module registration (`modulepreload` line plus the count in `tests/boot.test.cjs`), module syntax, import stubs and
   the tests that slice `main.js` by text markers (`teleportTo`) are covered in [`testing.md`](testing.md).
 
 ## Boot order (inside `initApp`)
-1. The quality tier is resolved before the renderer: an explicit `graphics-quality` choice or `?quality=low|high` wins,
-   otherwise the WebGL2 fallback, `navigator.hardwareConcurrency <= 4` or `navigator.deviceMemory <= 4` starts low.
-   `renderer.init()`, the tier's pixel ratio, then `LightingSystem` (which receives the tier for its shadow map). The actual
-   backend is checked after `renderer.init()`, so a browser that silently falls back to WebGL2 is also auto-low.
+1. The quality tier is resolved once, after `renderer.init()`: `?quality=low|high` in the URL wins; otherwise a
+   touch-first device (coarse primary pointer and no fine pointer, so a touch laptop with a mouse stays high), the
+   WebGL2 fallback (forced or a silent fallback after `renderer.init()`), `navigator.hardwareConcurrency <= 4` or
+   `navigator.deviceMemory <= 4` selects low, and everything else keeps high. Only that tier's pixel ratio, lighting,
+   render pipeline, shadow casters and populations are built, and `body[data-quality]` records the choice. The tier is
+   never switched at runtime: the other pass layout would recompile every scene pipeline and freeze for seconds.
+   `clearStoredQuality()` removes the retired `graphics-quality` key.
 2. City builders, in this order: `buildLandmarks`, `buildCityBlocks`, `buildCityGrid` (with injected building footprints
    and colliders), `buildAirport` (the Ławica layer cut out of the block raster), `buildCanopies`, `populateLeftoverSlabs`,
    `buildOutskirts`, `buildBridges`, `buildStreetDetails`,
@@ -205,19 +208,19 @@ Physics notes:
   - If you change the shape, bump `version`. Old data is then ignored.
 - `sound` (`audio-system.js`) stores `'on'` or `'off'`. The old `nyc-sound` key is read as a fallback and removed on the
   next toggle.
-- `graphics-quality` (`graphics-quality.js`) stores the user's explicit `'high'` or `'low'` tier. An absent or invalid
-  value means auto-detect; the explicit choice also disables the sustained-low-FPS auto-downgrade for that visit.
-  `?quality=low|high` overrides both for a review but is never written.
+- `graphics-quality` is retired: the toolbar toggle that wrote it is gone. Boot calls `clearStoredQuality()` once (in a
+  try/catch, like the other legacy keys) to remove any value left by the previous build. `?quality=low|high` is a
+  per-visit URL override and is never written.
 - Wrap every storage access in `try { } catch { /* reason */ }`. Storage may be unavailable, and that must never block play.
 
 ## HUD, CSS and cache busting
 - `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently
-  `20261111-graphics-quality`). When you change `style.css`, bump that query in `index.html` in the same commit;
+  `20261111-quality-boot`). When you change `style.css`, bump that query in `index.html` in the same commit;
   GitHub Pages caches it.
-- The top-right toolbar carries the time presets, Teleportuj, Mapa (M), **Grafika** (the quality toggle), sound (N) and the
-  clean-view toggle. Grafika shows the current tier in its title/`aria-label` and turns accent-blue while the low tier is
-  active. At touch widths the toolbar wraps to two rows at `max-width: 430px` and the speed/camera cluster moves below it;
-  `main.js` sets `body[data-quality]` and the button's `aria-pressed` for styling and tests.
+- The top-right toolbar carries the time presets, Teleportuj, Mapa (M), sound (N) and the clean-view toggle. Quality is
+  fixed at boot and is not a toolbar control: the brand line's `Grafika: … ↻` link (`#quality-link`) reloads the page
+  with the other `?quality=` value, and its title/`aria-label` say so in Polish. `main.js` sets that link and
+  `body[data-quality]`; the toolbar stays on a single touch row at 390 px and only wraps below 360 px.
 - Colours are tokens on `:root`: `--accent`/`--accent-ink` mark whatever is active. The accent is a lighter tint of
   Poznań's brand blue (#234792) so it reads on the dark glass: `--accent` #7ba7f4 (≈ 7.7:1 on the glass) and
   `--accent-ink` #0b1733 (≈ 7.3:1 on the accent). The same blue is the map's GPS route in `city-map.js` (MAP.route);

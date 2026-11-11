@@ -25,14 +25,7 @@ import { CityMapSystem } from './city-map.js';
 import { setupSceneCulling, updateSceneCulling } from './scene-culling.js';
 import { collectDynamicRoots, freezeStaticMatrices, updateDynamicMatrices } from './static-matrices.js';
 import { CityAudioSystem } from './audio-system.js';
-import {
-  QUALITY_TIERS,
-  resolveQuality,
-  readStoredQuality,
-  storeQuality,
-  accumulateLowSeconds,
-  shouldAutoDowngrade
-} from './graphics-quality.js';
+import { QUALITY_TIERS, resolveQuality, clearStoredQuality } from './graphics-quality.js';
 
 // js/main.js
 // Main entry point for Poznań in Three.js WebGPURenderer & TSL (three.js dev, see index.html)
@@ -56,19 +49,8 @@ async function initApp() {
 
   // 1. Initialize Three.js WebGPURenderer with 32-bit float reversedDepthBuffer
   // ?backend=webgl forces the WebGL2 fallback for browser reviews without touching the default WebGPU path.
-  // ?quality=low|high is a review override; unlike the toolbar toggle it is not persisted.
   const query = new URLSearchParams(window.location.search);
   const forceWebGL = query.get('backend') === 'webgl';
-  const qualityResolution = resolveQuality({
-    url: query.get('quality'),
-    stored: readStoredQuality(),
-    webgl: forceWebGL,
-    hardwareConcurrency: navigator.hardwareConcurrency,
-    deviceMemory: navigator.deviceMemory
-  });
-  let qualitySource = qualityResolution.source;
-  let activeQuality = qualityResolution.tier;
-  let lowQualitySeconds = 0; // FPS-watchdog accumulator; reset when the tab is hidden
   const renderer = new THREE.WebGPURenderer({
     antialias: true,
     powerPreference: 'high-performance',
@@ -93,9 +75,39 @@ async function initApp() {
   await renderer.init();
   markInit('renderer');
 
-  // A browser without WebGPU falls back after renderer.init(); auto-detect must see the backend it actually got.
-  if (qualitySource === 'auto' && !renderer.backend.isWebGPUBackend) activeQuality = 'low';
-  renderer.setPixelRatio(QUALITY_TIERS[activeQuality].pixelRatio);
+  // Quality is fixed for this page load: ?quality=low|high wins, otherwise a touch-first phone/tablet, the actual
+  // WebGL2 backend (forced or a silent fallback), <= 4 threads or <= 4 GB starts low. Only this tier is built below;
+  // a runtime switch would recompile every pipeline for the other attachment layout and freeze for seconds.
+  const activeQuality = resolveQuality({
+    url: query.get('quality'),
+    webgl: !renderer.backend.isWebGPUBackend,
+    coarsePointer: window.matchMedia('(pointer: coarse)').matches,
+    finePointer: window.matchMedia('(pointer: fine)').matches,
+    hardwareConcurrency: navigator.hardwareConcurrency,
+    deviceMemory: navigator.deviceMemory
+  });
+  clearStoredQuality(); // the removed toolbar toggle's key; drop a stale choice from the previous build
+  document.body.dataset.quality = activeQuality;
+  const qualitySettings = QUALITY_TIERS[activeQuality];
+
+  // The brand line shows the tier this page loaded with. Its link is a full reload with the other value: a runtime
+  // switch would rebuild the pass layout, which is the multi-second freeze this replaced.
+  const qualityWords = { high: ['wysoka', 'wysoką'], low: ['niska', 'niską'] };
+  const nextQuality = activeQuality === 'low' ? 'high' : 'low';
+  const qualityLabel =
+    `Grafika: ${qualityWords[activeQuality][0]} — przełącz na ${qualityWords[nextQuality][1]} (przeładuje stronę)`;
+  const qualityLink = document.getElementById('quality-link');
+  if (qualityLink) {
+    const target = new URL(window.location.href);
+    target.searchParams.set('quality', nextQuality);
+    qualityLink.href = target.href;
+    const tier = qualityLink.querySelector('.quality-tier');
+    if (tier) tier.textContent = `: ${qualityWords[activeQuality][0]}`;
+    qualityLink.title = qualityLabel;
+    qualityLink.setAttribute('aria-label', qualityLabel);
+  }
+
+  renderer.setPixelRatio(qualitySettings.pixelRatio);
 
   // 2. Build Scene & Physical Atmospheric Sky / PMREM IBL / 4096x4096 Shadow Lighting
   const scene = new THREE.Scene();
@@ -145,7 +157,7 @@ async function initApp() {
     ...streetDetails.footprints,
     ...allColliders.filter((c) => !c.obb && (c.minY ?? 0) < 3.5)
   ], streetDetails.roadNetwork, buildingColliders, {
-    population: QUALITY_TIERS[activeQuality].population
+    population: qualitySettings.population
   });
   const tramLayout = layoutTramInfrastructure(trafficSystem.network);
   const railLayout = layoutRailInfrastructure(trafficSystem.network);
@@ -205,7 +217,6 @@ async function initApp() {
   const cameraSystem = new CameraSystem(renderer.domElement, controllerManager);
   const touchControls = new TouchControls(controllerManager);
   const soundButton = document.getElementById('btn-sound');
-  const qualityButton = document.getElementById('btn-quality');
   const audioSystem = new CityAudioSystem({ controllerManager, trafficSystem, tramSystem, streetDetails }, {
     onStateChange: updateSoundButton
   });
@@ -220,46 +231,12 @@ async function initApp() {
   soundButton?.addEventListener('click', () => audioSystem.setEnabled(!audioSystem.enabled));
   updateSoundButton();
 
-  // Graphics quality toggle: low keeps the same simulation but drops SSR, bloom, shadow reach/resolution and part of
-  // the population. The explicit choice is persisted and disables the automatic FPS downgrade.
-  function updateQualityButton() {
-    if (!qualityButton) return;
-    const low = activeQuality === 'low';
-    qualityButton.setAttribute('aria-pressed', String(low));
-    qualityButton.setAttribute('aria-label', low ? 'Grafika: niska' : 'Grafika: wysoka');
-    qualityButton.title = low
-      ? 'Grafika: niska (tryb oszczędny) — kliknij, aby włączyć wysoką'
-      : 'Grafika: wysoka — kliknij, aby włączyć tryb oszczędny';
-  }
-
-  function setQuality(tier, { persist = false } = {}) {
-    const next = tier === 'low' ? 'low' : 'high';
-    if (next === activeQuality) return;
-    activeQuality = next;
-    const settings = QUALITY_TIERS[next];
-    renderer.setPixelRatio(settings.pixelRatio);
-    lightingSystem.setQualityTier(next);
-    applyShadowQuality(next);
-    applyMRTQuality(next);
-    trafficSystem.setPopulation(settings.population);
-    activateRenderPipeline(next);
-    document.body.dataset.quality = next;
-    updateQualityButton();
-    if (persist) storeQuality(next);
-  }
-  qualityButton?.addEventListener('click', () => {
-    qualitySource = 'stored'; // the user's choice overrides auto-detect and the FPS watchdog
-    setQuality(activeQuality === 'low' ? 'high' : 'low', { persist: true });
-  });
-  document.body.dataset.quality = activeQuality;
-  updateQualityButton();
   // pagehide also covers navigation away on mobile; preserve the context across back-forward cache restores.
   window.addEventListener('pagehide', (event) => {
     savePlayerState();
     if (!event.persisted) audioSystem.dispose();
   });
   document.addEventListener('visibilitychange', () => {
-    lowQualitySeconds = 0; // a backgrounded tab's rAF pause must not count as slow frames
     if (document.hidden) savePlayerState();
   });
   markInit('controllers');
@@ -290,43 +267,32 @@ async function initApp() {
   freezeStaticMatrices(scene, dynamicRoots);
 
   // The low tier keeps the building and landmark shadow proxies baked by scene-culling but turns off tree, street
-  // furniture/prop, tram and city-grid casters. Capture the meshes that high wants once, then toggle castShadow only.
-  const qualityShadowCasters = [];
-  for (const name of ['StreetDetails', 'CityGrid', 'TramInfrastructure', 'Trams']) {
-    scene.getObjectByName(name)?.traverse((object) => {
-      if (object.isMesh && object.castShadow) qualityShadowCasters.push(object);
-    });
-  }
-  function applyShadowQuality(tier) {
-    const cast = tier !== 'low';
-    for (const object of qualityShadowCasters) object.castShadow = cast;
+  // furniture/prop, tram and city-grid casters. Apply that once at boot; high leaves every caster exactly as built.
+  if (!qualitySettings.shadowCasters) {
+    for (const name of ['StreetDetails', 'CityGrid', 'TramInfrastructure', 'Trams']) {
+      scene.getObjectByName(name)?.traverse((object) => {
+        if (object.isMesh) object.castShadow = false;
+      });
+    }
   }
 
   // Materials with an explicit mrtNode (transparent decals/effects) assume the scene pass has the normal and metalRough
-  // attachments. The low tier renders a single colour target, so their MRT graph is removed and restored on the way
-  // back.
-  const qualityMRTMaterials = new Map();
-  scene.traverse((object) => {
-    const materials = Array.isArray(object.material) ? object.material : object.material ? [object.material] : [];
-    for (const material of materials) {
-      if (material.mrtNode) qualityMRTMaterials.set(material, material.mrtNode);
-    }
-  });
-  function applyMRTQuality(tier) {
-    const low = tier === 'low';
-    for (const [material, mrtNode] of qualityMRTMaterials) {
-      const next = low ? null : mrtNode;
-      if (material.mrtNode === next) continue;
-      material.mrtNode = next;
-      material.needsUpdate = true;
-    }
+  // attachments. The low tier renders a single colour target for the whole page load, so clear their MRT graph once;
+  // high keeps every mrtNode.
+  if (!qualitySettings.postProcessing.ssr) {
+    scene.traverse((object) => {
+      const materials = Array.isArray(object.material) ? object.material : object.material ? [object.material] : [];
+      for (const material of materials) {
+        if (!material.mrtNode) continue;
+        material.mrtNode = null;
+        material.needsUpdate = true;
+      }
+    });
   }
 
   // 5. TSL RenderPipeline: half-res screen-space reflections, bloom and filmic toning on the high tier; a plain
-  //    grading pass (no MRT, no SSR, no bloom) on the low tier. Render objects are cached per pass, so each attachment
-  //    layout gets one PassNode created here and reused for every switch; rebuilding a pass on each toggle leaked a
-  //    render object/uniform buffer for every scene object, and switching one pass's MRT in place left its cached
-  //    render objects on the old layout (invalid WebGPU pipelines). Only the SSR/bloom/grading nodes are replaced.
+  //    grading pass (no MRT, no SSR, no bloom) on the low tier. Only the chosen layout is ever built: switching would
+  //    recompile every scene pipeline for the other attachment layout, which is the freeze this replaced.
   function createScenePass(withMRT) {
     const node = pass(scene, cameraSystem.camera);
     // The multisampled colour attachments (output, normal, metalRough) only need resolving, never storing: discarding
@@ -344,72 +310,46 @@ async function initApp() {
     mrtNode.setBlendMode('normal', new THREE.BlendMode(THREE.MaterialBlending));
     mrtNode.setBlendMode('metalRough', new THREE.BlendMode(THREE.MaterialBlending));
     node.setMRT(mrtNode);
-    // Create the extra attachments now, so the render target keeps its layout for every switch.
+    // Create the extra attachments now, so the render target has its final layout before precompileShaders() builds
+    // every scene pipeline against it.
     node.getTextureNode('depth');
     node.getTextureNode('normal');
     node.getTextureNode('metalRough');
     return { node, mrt: mrtNode };
   }
-  const highScenePass = createScenePass(true);
-  const lowScenePass = createScenePass(false);
-  let activePipeline = null;
-  let renderPipeline = null;
 
-  function buildRenderPipeline(tier) {
-    const settings = QUALITY_TIERS[tier];
-    const layout = settings.postProcessing.ssr ? highScenePass : lowScenePass;
-    const scenePassNode = layout.node;
-    const scenePassColor = scenePassNode.getTextureNode('output');
-    let ssrPass = null;
-    let reflections = null;
+  const scenePass = createScenePass(qualitySettings.postProcessing.ssr);
+  const scenePassColor = scenePass.node.getTextureNode('output');
+  let reflections = null;
 
-    // Fade out distant and matte surfaces so SSR spends its rays on visible glossy reflections.
-    if (settings.postProcessing.ssr) {
-      const maxSSRRoughness = 0.75;
-      const scenePassMetalRough = scenePassNode.getTextureNode('metalRough');
-      ssrPass = ssr(scenePassColor, scenePassNode.getTextureNode('depth'), scenePassNode.getTextureNode('normal'), {
-        metalnessNode: scenePassMetalRough.r,
-        roughnessNode: scenePassMetalRough.g,
-        camera: cameraSystem.camera
-      });
-      ssrPass.resolutionScale = 0.5;
-      ssrPass.blurQuality = 1;
-      ssrPass.maxDistance.value = 42;
-      ssrPass.thickness.value = 0.85;
-      // Fewer coarse steps, then refine detected hits to keep reflection edges precise.
-      ssrPass.quality.value = 0.25;
-      ssrPass.binaryRefine = true;
-      ssrPass.intensity.value = 0.50;
-      ssrPass.screenEdgeFadeBlack = true;
-
-      // Roughness mip blur must not spread reflections back onto matte or nonreflective surfaces.
-      const reflectionMask = scenePassMetalRough.r.greaterThan(0).select(smoothstep(maxSSRRoughness, 0.55, scenePassMetalRough.g), 0);
-      reflections = ssrPass.mul(reflectionMask);
-    }
-
-    const colorGrade = createPostProcessing(renderer, scenePassColor, reflections, {
-      bloom: settings.postProcessing.bloom
+  // Fade out distant and matte surfaces so SSR spends its rays on visible glossy reflections.
+  if (qualitySettings.postProcessing.ssr) {
+    const maxSSRRoughness = 0.75;
+    const scenePassMetalRough = scenePass.node.getTextureNode('metalRough');
+    const ssrPass = ssr(scenePassColor, scenePass.node.getTextureNode('depth'), scenePass.node.getTextureNode('normal'), {
+      metalnessNode: scenePassMetalRough.r,
+      roughnessNode: scenePassMetalRough.g,
+      camera: cameraSystem.camera
     });
-    return { tier, scenePass: scenePassNode, sceneMRT: layout.mrt, ssrPass, colorGrade };
+    ssrPass.resolutionScale = 0.5;
+    ssrPass.blurQuality = 1;
+    ssrPass.maxDistance.value = 42;
+    ssrPass.thickness.value = 0.85;
+    // Fewer coarse steps, then refine detected hits to keep reflection edges precise.
+    ssrPass.quality.value = 0.25;
+    ssrPass.binaryRefine = true;
+    ssrPass.intensity.value = 0.50;
+    ssrPass.screenEdgeFadeBlack = true;
+
+    // Roughness mip blur must not spread reflections back onto matte or nonreflective surfaces.
+    const reflectionMask = scenePassMetalRough.r.greaterThan(0).select(smoothstep(maxSSRRoughness, 0.55, scenePassMetalRough.g), 0);
+    reflections = ssrPass.mul(reflectionMask);
   }
 
-  function activateRenderPipeline(tier) {
-    const next = buildRenderPipeline(tier);
-    const previous = activePipeline;
-    activePipeline = next;
-    if (renderPipeline) {
-      renderPipeline.outputNode = next.colorGrade.outputNode;
-      renderPipeline.needsUpdate = true;
-      previous.ssrPass?.dispose();
-      previous.colorGrade.dispose();
-    } else {
-      renderPipeline = new THREE.RenderPipeline(renderer, next.colorGrade.outputNode);
-    }
-  }
-  activateRenderPipeline(activeQuality);
-  applyShadowQuality(activeQuality);
-  applyMRTQuality(activeQuality);
-
+  const colorGrade = createPostProcessing(renderer, scenePassColor, reflections, {
+    bloom: qualitySettings.postProcessing.bloom
+  });
+  const renderPipeline = new THREE.RenderPipeline(renderer, colorGrade.outputNode);
 
   // 6. Wire UI Controls (Strictly using safe DOM APIs: textContent, classList, addEventListener)
   const modeButtons = document.querySelectorAll('[data-mode]');
@@ -514,7 +454,7 @@ async function initApp() {
 
   function selectTime(timeId) {
     lightingSystem.applyPreset(timeId);
-    activePipeline.colorGrade.applyPreset(lightingSystem.activePresetId);
+    colorGrade.applyPreset(lightingSystem.activePresetId);
     timeButtons.forEach((btn) => {
       btn.classList.toggle('active', btn.getAttribute('data-time') === timeId);
     });
@@ -821,8 +761,8 @@ async function initApp() {
       job.push(o);
     });
 
-    renderer.setRenderTarget(activePipeline.scenePass.renderTarget);
-    if (activePipeline.sceneMRT) renderer.setMRT(activePipeline.sceneMRT);
+    renderer.setRenderTarget(scenePass.node.renderTarget);
+    if (scenePass.mrt) renderer.setMRT(scenePass.mrt);
     const compile = async (object) => {
       // Each compile starts in a task of its own: compileAsync() keeps one precompilation state on the renderer,
       // which must not be mid-step for two of them in the same microtask checkpoint
@@ -862,7 +802,6 @@ async function initApp() {
   let fpsTimer = 0;
   let nextPlayerSave = 0;
   let warmedUp = false; // see the first frame below
-  let qualityReadyAt = 0; // after the loading screen clears and a short settling window
 
   if (elFps) elFps.textContent = '60';
 
@@ -938,7 +877,6 @@ async function initApp() {
         if (loadingOverlay) loadingOverlay.classList.add('hidden');
         audioSystem.ready = true;
         setLoadingProgress(1);
-        qualityReadyAt = performance.now();
       });
     }
 
@@ -947,24 +885,9 @@ async function initApp() {
     frameCount++;
     fpsTimer += Math.max(0, rawDt);
     if (fpsTimer >= 0.25) {
-      const fpsWindow = fpsTimer;
       const currentFps = Math.round(frameCount / fpsTimer);
       frameCount = 0;
       fpsTimer = 0;
-
-      // Automatic downgrade only for an auto-detected high tier, after 3 s of settling and 2 s of accumulated slow
-      // telemetry windows. Each window adds its own duration (capped), while a hidden tab or a frame over 0.5 s resets
-      // the count; a single hitch can never switch the tier. A stored/user choice and ?quality= never switch.
-      if (qualityReadyAt && now - qualityReadyAt > 3000) {
-        lowQualitySeconds = accumulateLowSeconds(lowQualitySeconds, currentFps, fpsWindow, rawDt, document.hidden);
-        if (shouldAutoDowngrade(activeQuality, qualitySource, lowQualitySeconds)) {
-          lowQualitySeconds = 0;
-          qualitySource = 'auto-lowered';
-          setQuality('low');
-        }
-      } else {
-        lowQualitySeconds = 0;
-      }
 
       const activeEnt = controllerManager.getActiveEntity();
       const mode = controllerManager.activeMode;

@@ -3518,8 +3518,8 @@ function createTrafficSystem(
   let vehicleCursor = 0;
   let pedCursor = 0;
 
-  // Runtime quality changes keep both pools at build-time capacity; lowering the pedestrian target parks the extra
-  // walkers (gradually coming back if the target rises). The local vehicle target follows the next refreshNear().
+  // The pools keep their build-time capacity; lowering the pedestrian target parks the extra walkers (gradually
+  // coming back if the target rises). The local vehicle target follows the next refreshNear().
   function setPopulation(population = {}) {
     const nextPeds = Number(population.pedestrians);
     if (Number.isFinite(nextPeds)) {

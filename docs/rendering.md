@@ -8,13 +8,26 @@
 - `js/static-matrices.js` freezes the static scene graph after the build and updates only the listed dynamic roots each frame (see Static and dynamic transforms).
 
 ## Quality tiers
-- `js/graphics-quality.js` holds the two presets. `high` is the historical look and the default on capable devices; `low` is for the WebGL2 fallback and old phones/laptops (auto-detection and the persisted toggle are described in [architecture.md](architecture.md#persistence-localstorage)).
-- **Post-processing:** low builds the scene pass without MRT and without the SSR pass or the bloom node; it keeps exposure, white balance, contrast, vibrance, vignette, ACES tone mapping, the sky and fog. Materials with an explicit `mrtNode` (transparent decals, road paint, contact shadows) have it cleared while the single-target pass is active and get it back when high is selected again.
-- **Shadows:** low uses 1024² tiles per cascade and a 150–360 m shadow range (`LightingSystem.setQualityTier`); high keeps 3072² (2048² on smaller devices) and 300–720 m. Low also turns off shadow casting for trees, street furniture/props, trams and the city grid; the building and landmark shadow proxies from `scene-culling.js` keep casting, so large-scale building shade remains.
+- `js/graphics-quality.js` holds the two presets. `high` is the historical look; `low` is for the WebGL2 fallback, old
+  phones/laptops and touch-first mobile devices. The tier is chosen once at boot
+  ([architecture.md](architecture.md#boot-order-inside-initapp)): `?quality=low|high` wins, otherwise the device default.
+  It never changes at runtime, because selecting the other attachment layout recompiles every scene pipeline and freezes
+  for seconds.
+- **Post-processing:** low builds the scene pass without MRT and without the SSR pass or the bloom node; it keeps
+  exposure, white balance, contrast, vibrance, vignette, ACES tone mapping, the sky and fog. Only one scene pass is ever
+  built: there is no pre-created high pass waiting behind a low load.
+- Materials with an explicit `mrtNode` (transparent decals, road paint, contact shadows) need the normal and metalRough
+  attachments. On low, `main.js` clears their `mrtNode` once after the city is built; high leaves them alone. A material
+  created after that boot-time clear would not be cleared, so create such materials during the build.
+- **Shadows:** low uses 1024² tiles per cascade and a 150–360 m shadow range (`LightingSystem` receives the tier at
+  construction); high keeps 3072² (2048² on smaller devices) and 300–720 m. Low also turns off shadow casting once at
+  boot for trees, street furniture/props, trams and the city grid; the building and landmark shadow proxies from
+  `scene-culling.js` keep casting, so large-scale building shade remains. High leaves every caster exactly as built.
 - **Resolution:** low renders at internal pixel ratio 0.75 (the canvas is 960 × 540 at a 1280 × 720 window); high stays at 1.0.
-- **Populations:** low targets 180 pedestrians and half the local vehicle density. The pools stay at full build-time capacity, so raising the tier again parks or re-places actors instead of rebuilding geometry.
-- Switching at runtime selects one of two pre-created scene passes (one per attachment layout, because render objects are cached per pass) and rebuilds the SSR/bloom/grading nodes. The first frame that uses a layout compiles the scene pipelines for it (seconds on weak devices); later switches reuse the cached pass, and only the few materials whose `mrtNode` changed rebuild their shaders. SSR/bloom targets are allocated for high and disposed for low, and shadow size/casters and population targets change in the same call. No reload is needed. The switch adds and moves no scene objects, so it is compatible with the frozen static-matrix graph.
-- `?quality=low|high` forces a tier for a browser review (like `?backend=webgl`) without persisting it.
+- **Populations:** low targets 180 pedestrians and half the local vehicle density, passed to `createTrafficSystem` at
+  boot. The pools keep their full build-time capacity; no runtime tier change re-places actors.
+- `?quality=low|high` overrides the device default for a browser review (like `?backend=webgl`); it is not persisted.
+  The brand line's link reloads the page with the other value; there is no runtime switching path.
 
 ## Renderer and the WebGL2 fallback
 - `WebGPURenderer` is created with `antialias` (MSAA), `reversedDepthBuffer: true`, the tier's pixel ratio (1 high, 0.75 low), shadows on, and `ClusteredLighting`. three.js is `@dev` from jsDelivr, so APIs can drift. `lighting.js` already has to cope with this: `SunLight.registerNode` exists only on newer builds, and older builds go through `renderer.library.addLight`.
@@ -52,7 +65,7 @@
 
 ## Post-processing chain (`main.js` → `post-processing.js`)
 - The high-tier scene pass MRT writes `output`, `normal` (view space) and `metalRough`. The `metalRough.r` channel is metalness, and it is zeroed when roughness is 0.75 or higher or the surface is beyond about 360 m (`ssrFade`), so SSR spends rays only on nearby glossy pixels. Half-resolution SSR is masked again by roughness before it is added to the scene colour. The low tier skips the MRT, the SSR pass and the bloom node altogether; `createPostProcessing(renderer, sceneColor, reflections, { bloom: false })` builds only the grading graph.
-- `normal` and `metalRough` use `MaterialBlending`. **Transparent decals, effects and sprites must set `mat.mrtNode`**, normally to `_transparentEffectMRT` in `tsl-materials.js` (all zeros, alpha 0). That way they leave the G-buffer of the surface underneath intact and SSR keeps reflecting it. `createContactShadowMaterial` shows the other choice: it writes `metalRough` with alpha, to switch SSR off under cars. In the low tier the scene pass has no MRT; `main.js` clears these `mrtNode`s at startup and restores them when high is selected (otherwise their fragment output has no `output` member and WGSL compilation fails). **The capture runs once after the city is built**, so an `mrtNode` material created later would not be cleared; create such materials during the build (or extend the capture) if a future system adds them at runtime.
+- `normal` and `metalRough` use `MaterialBlending`. **Transparent decals, effects and sprites must set `mat.mrtNode`**, normally to `_transparentEffectMRT` in `tsl-materials.js` (all zeros, alpha 0). That way they leave the G-buffer of the surface underneath intact and SSR keeps reflecting it. `createContactShadowMaterial` shows the other choice: it writes `metalRough` with alpha, to switch SSR off under cars. When the page loads low, the scene pass has no MRT; `main.js` clears these `mrtNode`s once after the city is built (otherwise their fragment output has no `output` member and WGSL compilation fails). High keeps them. **The clear runs once**, so an `mrtNode` material created later would not be cleared; create such materials during the build (or extend the clear) if a future system adds them at runtime.
 - `storeMultisampledColorBuffer = false`: the MSAA colour attachments are only resolved. Depth stays stored because SSR reads it.
 - Grading runs in scene-linear HDR, and `RenderPipeline` applies ACES and the colour-space conversion exactly once, after the graph. Exposure is applied before bloom so the bloom threshold tracks exposed brightness. The bloom input is peak-clamped to 8 while preserving hue. Keep `renderer.toneMappingExposure = 1` and put exposure changes in `LOOKS`. History: AgX was tried and reverted to ACES.
 
