@@ -81,6 +81,18 @@ const RAIL_ARM_REACH = 7; // a mast this close to the track takes a cantilever, 
 const RAIL_PORTAL_REACH = 40; // per side
 const RAMP_LEN = 160; // a viaduct's deck ramps up from the ground over this length (max slope < 6%)
 
+// Keep the player's collision reader out of the layout's closure context: capturing its local tileKey also kept
+// ~37 MB of construction grids alive. Only the 1 m raster is needed after buildTramInfrastructure returns.
+function createRailCorridorTest(tiles) {
+  return (x, z) => {
+    const ix = Math.floor(x);
+    const iz = Math.floor(z);
+    const key = ((ix >> 6) + 512) * 1024 + ((iz >> 6) + 512);
+    const tile = tiles.get(key);
+    return !!tile && tile[(ix & 63) + ((iz & 63) << 6)] === 1;
+  };
+}
+
 // --- Track geometry ------------------------------------------------------------------------------------------------
 // Tram tracks of GEO.rail (railIndex = index into GEO.rail), with cumulative arc length per point
 function loadTracks(kind = 'tram') {
@@ -1166,12 +1178,7 @@ function layoutRailInfrastructure(network) {
     cells: corridorCells,
     bands,
     // Is (x, z) inside the railway corridor? (allocation-free; ground players may not enter)
-    has(x, z) {
-      const ix = Math.floor(x);
-      const iz = Math.floor(z);
-      const tile = tiles.get(tileKey(ix >> 6, iz >> 6));
-      return !!tile && tile[(ix & 63) + ((iz & 63) << 6)] === 1;
-    }
+    has: createRailCorridorTest(tiles)
   };
   // --- Grade-separated railway crossings -----------------------------------------------------------------------------
   // All railway-roadway intersections (including Św. Michała, Krańcowa, Bałtycka, Gdyńska, Wrzesińska, Libelta)

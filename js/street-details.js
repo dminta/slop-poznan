@@ -1904,6 +1904,16 @@ function buildStreetDetails(scene, opts = {}) {
   const treeField = createTreeField(scene, treePositions);
   group.add(treeField.group);
 
+  // These private placement indexes have no readers after the tree loops above (including the late signal-head
+  // audit below). Escaping lighting/signal helpers share this scope, retaining ~66 MB of otherwise dead caches.
+  // Keep the actual sites, colliders, lot geometry and furnished network for their runtime consumers.
+  curbEdgeIndexes.clear();
+  placedTreeCells.clear();
+  wallGrid.clear();
+  treeKeepouts.clear();
+  osmCells.clear();
+  lotCache.clear();
+
   // =========================================================================
   // 5. CLUSTERED STREETLIGHTS & STREET FURNITURE LIGHT POOLS
   // =========================================================================

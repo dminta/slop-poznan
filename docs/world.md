@@ -14,6 +14,12 @@ their bbox in the nearest queries, buckets poles in 4 m cells and tests each via
 The same arithmetic answers every query; the headless block build fell from 5.1 to 1.9 s and the headless tram/rail
 layout from 1.8/2.0 s to 0.66/1.34 s, with every build hash unchanged.
 
+Street-details clears its private curb-edge, wall, tree-neighbour, tree-lane, mapped-tree and lot-frame placement
+indexes after tree construction; its later signal-head audit and light updates do not read them. The railway
+collision callback captures only the final raster tiles, outside the layout scope, so it does not retain the lane,
+rail and fence construction grids. Together these ownership fixes save about 104 MiB of retained browser heap;
+the sites, colliders, network and raster stay intact ([heap investigation](observations/perf-heap-2026-11-11.md)).
+
 **Load-time point tests** are indexed ([observation record](observations/perf-boot-predicates-2026-11-11.md)). `blockAt` and buildings.js `insideCurbIsland` share a lazily built 4 m z-slot edge index per block (`createPolygonIndex` / `pointInPolyIndexed` / `pointInBlockPoly`), stored as CSR typed arrays; the ray test visits only edges whose z span can cross the point, with the exact endpoint pairing of `pointInPoly`, so edge and vertex ties stay identical. `pointInPark` buckets the park rings in a 64 m grid and indexes each ring, and the land raster's scanline fill reuses the same edge buckets. `city-grid.js` uses one weak per-polygon index for repeated park/plaza samples, `street-details.js` buckets its plaza rects in 64 m cells before `inPlaza`, and `road-paint.js` buckets crosswalks in 16 m cells before the P-22 4 m keep. On 2026-11-11 this took the boot CPU share of `pointInPoly` from 19-22 % to ~4 %, `pointInPark` from ~5-5.5 % to below 1 %, and boot from 18.4 to 11.9 s at 1× CPU and 109.5 to 70.8 s at 6× CPU (headless Chrome, busy machine; the observation file has the method). The block indexes retain 2.4 MB (CSR, down from 17 MB of small arrays); the park indexes are released after the city-grid build and rebuild lazily if a late caller needs them.
 
 ## Park and road clearance follow-up (2026-11-02)
