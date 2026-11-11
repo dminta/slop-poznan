@@ -23,11 +23,16 @@
   the tests that slice `main.js` by text markers (`teleportTo`) are covered in [`testing.md`](testing.md).
 
 ## Boot order (inside `initApp`)
-1. The quality tier is resolved once, after `renderer.init()`: `?quality=low|high` in the URL wins; otherwise a
-   touch-first device (coarse primary pointer and no fine pointer, so a touch laptop with a mouse stays high), the
-   WebGL2 fallback (forced or a silent fallback after `renderer.init()`), `navigator.hardwareConcurrency <= 4` or
-   `navigator.deviceMemory <= 4` selects low, and everything else keeps high. Only that tier's pixel ratio, lighting,
-   render pipeline, shadow casters and populations are built, and `body[data-quality]` records the choice. The tier is
+1. The quality tier is resolved once, after `renderer.init()`: `?quality=low|high` in the URL wins; otherwise
+   `graphics-quality.js` classifies the GPU from the WebGPU `GPUAdapterInfo` and the WebGL unmasked renderer. Weak or
+   software GPUs (SwiftShader, llvmpipe, Intel HD/UHD/Iris, old Mali/Adreno, PowerVR, Apple A7–A13), the WebGL2 fallback
+   (forced or a silent fallback after `renderer.init()`), `navigator.hardwareConcurrency <= 4` or
+   `navigator.deviceMemory <= 4` select low. Strong GPUs (Apple M-series/A14+, recent discrete NVIDIA/AMD/Intel Arc and
+   flagship mobile Mali/Adreno/Xclipse) select high and can lift a touch-first tablet out of the touch rule; a
+   touch-first device (coarse primary pointer and no fine pointer, so a touch laptop with a mouse stays high) whose GPU
+   is unknown stays low. Only that tier's pixel ratio, lighting, render pipeline, shadow casters and populations are
+   built; `body[data-quality]` records the choice and `body[data-quality-reason]` the reason (`gpu:apple-m5`,
+   `backend:webgl2`, `cpu:4-threads`, `memory:4gb`, `touch:unknown-gpu`, …), which is also logged once. The tier is
    never switched at runtime: the other pass layout would recompile every scene pipeline and freeze for seconds.
    `clearStoredQuality()` removes the retired `graphics-quality` key.
 2. City builders, in this order: `buildLandmarks`, `buildCityBlocks`, `buildCityGrid` (with injected building footprints
@@ -231,8 +236,9 @@ Physics notes:
   GitHub Pages caches it.
 - The top-right toolbar carries the time presets, Teleportuj, Mapa (M), sound (N) and the clean-view toggle. Quality is
   fixed at boot and is not a toolbar control: the brand line's `Grafika: … ↻` link (`#quality-link`) reloads the page
-  with the other `?quality=` value, and its title/`aria-label` say so in Polish. `main.js` sets that link and
-  `body[data-quality]`; the toolbar stays on a single touch row at 390 px and only wraps below 360 px.
+  with the other `?quality=` value, and its title/`aria-label` say so in Polish. `main.js` sets that link,
+  `body[data-quality]` and `body[data-quality-reason]` (the diagnostics overlay can show the applied preset and its
+  reason); the toolbar stays on a single touch row at 390 px and only wraps below 360 px.
 - Colours are tokens on `:root`: `--accent`/`--accent-ink` mark whatever is active. The accent is a lighter tint of
   Poznań's brand blue (#234792) so it reads on the dark glass: `--accent` #7ba7f4 (≈ 7.7:1 on the glass) and
   `--accent-ink` #0b1733 (≈ 7.3:1 on the accent). The same blue is the map's GPS route in `city-map.js` (MAP.route);

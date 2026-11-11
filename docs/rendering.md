@@ -8,11 +8,47 @@
 - `js/static-matrices.js` freezes the static scene graph after the build and updates only the listed dynamic roots each frame (see Static and dynamic transforms).
 
 ## Quality tiers
-- `js/graphics-quality.js` holds the two presets. `high` is the historical look; `low` is for the WebGL2 fallback, old
-  phones/laptops and touch-first mobile devices. The tier is chosen once at boot
-  ([architecture.md](architecture.md#boot-order-inside-initapp)): `?quality=low|high` wins, otherwise the device default.
-  It never changes at runtime, because selecting the other attachment layout recompiles every scene pipeline and freezes
-  for seconds.
+- `js/graphics-quality.js` holds the two presets and the boot-time classifier. `high` is the historical look; `low` is
+  for the WebGL2 fallback, old phones/laptops, weak/integrated GPUs and touch-first devices whose GPU is unknown. The
+  tier is chosen once at boot ([architecture.md](architecture.md#boot-order-inside-initapp)): `?quality=low|high` wins,
+  otherwise the device default. It never changes at runtime, because selecting the other attachment layout recompiles
+  every scene pipeline and freezes for seconds.
+- **Device default, in order:** a weak or software GPU starts low; the WebGL2 backend starts low; ≤ 4 CPU threads starts
+  low; ≤ 4 GB of reported memory starts low; a strong GPU starts high and can lift a touch-first tablet out of the touch
+  rule; a touch-first device with an unknown GPU starts low; everything else stays high. The reason is written once to
+  `body[data-quality-reason]` (`url:low`, `gpu:apple-m5`, `gpu:intel-uhd-630`, `backend:webgl2`, `cpu:4-threads`,
+  `memory:4gb`, `touch:unknown-gpu`, `default:high`) and logged once as
+  `[quality] low — gpu:intel-uhd-630 (GPU: …)`. `deviceMemory` is reported only by Chromium and capped at 8 GB; Safari
+  buckets `hardwareConcurrency` to 4 or 8. The GPU identity carries the decision when those values are absent or capped.
+- **GPU identity:** the classifier reads the WebGPU `GPUAdapterInfo` (`vendor`, `architecture`, `device`,
+  `description`, `isFallbackAdapter`) from `GPUDevice.adapterInfo` and the WebGL unmasked renderer
+  (`WEBGL_debug_renderer_info`). On WebGPU it opens a temporary WebGL1 context for the unmasked string; on the WebGL2
+  fallback it reads `renderer.backend.gl`. WebGL1 carries the same extension and, unlike a second WebGL2 context next to
+  WebGPU, survives in headless Chrome 157. The probe is one context creation, not a render or a timed loop; it costs
+  4–21 ms in the `[init] quality` phase on this Mac (0 ms on WebGL2, which reuses the backend context). Adapter
+  architecture is used for the unambiguous classes (Apple M, Intel gen/xe-lpg, Mali, Adreno, software); NVIDIA
+  turing/ampere and AMD rdna alone also cover entry-level or integrated parts, so those need the WebGL model. The
+  renderer and adapter fields are classified separately: a weak class from either source wins over a strong one from
+  the other, so a hybrid laptop whose WebGL probe lands on the iGPU is conservative (a false low, never a false high).
+  The table is deliberately coarse:
+  - software/fallback: SwiftShader, llvmpipe, softpipe, Microsoft Basic Render Driver, WARP, virgl/virtio/VMware → low.
+  - Apple: M-series and A14+ → high; A7–A13 → low; a masked `Apple GPU` is unknown.
+  - desktop: Intel HD/UHD/Iris/Xe Graphics, AMD Radeon integrated/Vega 3–11/Radeon 5xxM–8xxM, GeForce MX → low; Intel
+    Arc, NVIDIA GTX 16/RTX, AMD RX 5000–9000/Radeon Pro 5000M+ → high.
+  - mobile: older Mali (G31–G78 and G610/G615), Adreno 5xx/6xx and PowerVR → low; Mali-G710+/Immortalis, Adreno
+    7xx/8xx and Xclipse 9xx → high.
+  Sources: [GPUAdapterInfo](https://www.w3.org/TR/webgpu/#gpuadapterinfo),
+  [WEBGL_debug_renderer_info](https://developer.mozilla.org/en-US/docs/Web/API/WEBGL_debug_renderer_info),
+  [renderer string examples](https://deviceandbrowserinfo.com/learning_zone/articles/webgl_renderer_values), and
+  [WebKit bug 278542](https://bugs.webkit.org/show_bug.cgi?id=278542) for the Safari masking. Safari reports `apple`
+  for every adapter field and `Apple GPU` for WebGL, so an iPad Pro cannot be identified from script and stays low on
+  the touch rule; on a non-touch Mac the same masking leaves the default high, so an old Mac needs `?quality=low`.
+  `?quality=` is the escape hatch in both directions.
+- **No micro-benchmark:** a 4e6-iteration integer hash was measured in headless Chrome 157 on the M5 Pro at 3.7–3.9 ms
+  (1×), 15.2–16.1 ms (4× CPU throttle) and 30.5–31.8 ms (8×), with a 2–7 % within-run coefficient of variation and a
+  10–20 % slower first sample before JIT warm-up. It is stable on one machine, but there is no cross-device calibration
+  for JIT, thermal throttling and battery saver; a fixed 100 ms probe would block every unknown-identity boot and could
+  still lower a fast device under load. The GPU table covers the known false positives, so no probe ships.
 - **Post-processing:** low builds the scene pass without MRT and without the SSR pass or the bloom node; it keeps
   exposure, white balance, contrast, vibrance, vignette, ACES tone mapping, the sky and fog. Only one scene pass is ever
   built: there is no pre-created high pass waiting behind a low load.
@@ -27,7 +63,8 @@
 - **Populations:** low targets 180 pedestrians and half the local vehicle density, passed to `createTrafficSystem` at
   boot. The pools keep their full build-time capacity; no runtime tier change re-places actors.
 - `?quality=low|high` overrides the device default for a browser review (like `?backend=webgl`); it is not persisted.
-  The brand line's link reloads the page with the other value; there is no runtime switching path.
+  The brand line's link reloads the page with the other value; there is no runtime switching path. The override also
+  records `url:low|high` in `body[data-quality-reason]` and the boot log.
 
 ## Renderer and the WebGL2 fallback
 - `WebGPURenderer` is created with `antialias` (MSAA), `reversedDepthBuffer: true`, the tier's pixel ratio (1 high, 0.75 low), shadows on, and `ClusteredLighting`. three.js is `@dev` from jsDelivr, so APIs can drift. `lighting.js` already has to cope with this: `SunLight.registerNode` exists only on newer builds, and older builds go through `renderer.library.addLight`.

@@ -25,11 +25,63 @@ import { CityMapSystem } from './city-map.js';
 import { setupSceneCulling, updateSceneCulling } from './scene-culling.js';
 import { collectDynamicRoots, freezeStaticMatrices, updateDynamicMatrices } from './static-matrices.js';
 import { CityAudioSystem } from './audio-system.js';
-import { QUALITY_TIERS, resolveQuality, clearStoredQuality } from './graphics-quality.js';
+import { QUALITY_TIERS, resolveQualityDecision, clearStoredQuality } from './graphics-quality.js';
 import { PerfStats } from './perf-stats.js';
 
 // js/main.js
 // Main entry point for Poznań in Three.js WebGPURenderer & TSL (three.js dev, see index.html)
+
+// The boot-time GPU probe. GPUAdapterInfo is on GPUDevice.adapterInfo in Chrome (Safari returns only "apple" for
+// every field, WebKit bug 278542), so the WebGL unmasked renderer is the model source. A WebGL1 context carries the
+// same WEBGL_debug_renderer_info extension as WebGL2 and, unlike a second WebGL2 context, coexists with WebGPU in
+// headless Chrome 157; the app's own WebGL2 fallback reads renderer.backend.gl instead.
+function readGlIdentity(gl) {
+  if (!gl) return null;
+  try {
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    return {
+      rendererVendor: ext ? gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR),
+      renderer: ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)
+    };
+  } catch {
+    return null;
+  }
+}
+
+function readProbeGlIdentity() {
+  try {
+    const canvas = document.createElement('canvas');
+    // Match the WebGPU renderer's high-performance request so a dual-GPU laptop probes the same adapter it renders on.
+    const gl = canvas.getContext('webgl', { powerPreference: 'high-performance' });
+    if (!gl) return null;
+    const identity = readGlIdentity(gl);
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return identity;
+  } catch {
+    return null;
+  }
+}
+
+function readGpuIdentity(renderer) {
+  const backend = renderer.backend;
+  let gpu = {};
+  try {
+    const info = backend?.device?.adapterInfo || backend?.adapter?.info || null;
+    if (info) {
+      gpu = {
+        vendor: info.vendor || '',
+        architecture: info.architecture || '',
+        device: info.device || '',
+        description: info.description || '',
+        isFallbackAdapter: Boolean(info.isFallbackAdapter ?? backend.adapter?.isFallbackAdapter)
+      };
+    }
+  } catch {
+    // A masked or non-standard adapter info is not a boot error; the WebGL probe below may still identify the GPU.
+  }
+  const glIdentity = backend?.isWebGPUBackend ? readProbeGlIdentity() : readGlIdentity(backend?.gl);
+  return glIdentity ? { ...gpu, ...glIdentity } : gpu;
+}
 
 async function initApp() {
   const container = document.getElementById('canvas-container');
@@ -77,19 +129,29 @@ async function initApp() {
   await renderer.init();
   markInit('renderer');
 
-  // Quality is fixed for this page load: ?quality=low|high wins, otherwise a touch-first phone/tablet, the actual
-  // WebGL2 backend (forced or a silent fallback), <= 4 threads or <= 4 GB starts low. Only this tier is built below;
-  // a runtime switch would recompile every pipeline for the other attachment layout and freeze for seconds.
-  const activeQuality = resolveQuality({
+  // Quality is fixed for this page load: ?quality=low|high wins, otherwise the GPU identity (software, integrated/old
+  // or strong classes), the actual WebGL2 backend (forced or a silent fallback), <= 4 threads, <= 4 GB or an unknown
+  // touch-first GPU decides. Only this tier is built below; a runtime switch would recompile every pipeline for the
+  // other attachment layout and freeze for seconds.
+  const gpuIdentity = readGpuIdentity(renderer);
+  const qualityDecision = resolveQualityDecision({
     url: query.get('quality'),
     webgl: !renderer.backend.isWebGPUBackend,
     coarsePointer: window.matchMedia('(pointer: coarse)').matches,
     finePointer: window.matchMedia('(pointer: fine)').matches,
     hardwareConcurrency: navigator.hardwareConcurrency,
-    deviceMemory: navigator.deviceMemory
+    deviceMemory: navigator.deviceMemory,
+    gpu: gpuIdentity
   });
+  markInit('quality');
   clearStoredQuality(); // the removed toolbar toggle's key; drop a stale choice from the previous build
+  const activeQuality = qualityDecision.quality;
   document.body.dataset.quality = activeQuality;
+  // The reason is url:*, gpu:*, backend:webgl2, cpu:*, memory:* or touch:unknown-gpu. Keep it on the body for the
+  // diagnostics overlay and log it once; there is no runtime tier switch.
+  document.body.dataset.qualityReason = qualityDecision.reason;
+  const gpuLabel = gpuIdentity.renderer || gpuIdentity.description || gpuIdentity.architecture || 'unknown';
+  console.info(`[quality] ${activeQuality} — ${qualityDecision.reason} (GPU: ${gpuLabel})`);
   const qualitySettings = QUALITY_TIERS[activeQuality];
 
   // The brand line shows the tier this page loaded with. Its link is a full reload with the other value: a runtime
