@@ -1549,6 +1549,15 @@ const SIGNAL_CORRIDORS = [
   'Święty Marcin', 'Głogowska', 'Grunwaldzka', 'Jana Henryka Dąbrowskiego', 'Królowej Jadwigi',
   'Garbary', 'Ewarysta Estkowskiego', 'Hetmańska', 'Górecka', 'Bukowska'
 ];
+// Pedestrian clearance normally runs at the accessible 1 m/s design speed. One span is too wide for that: the
+// 37.8 m crossing over Roosevelta's tram corridor at Rondo Kaponiera (site -1496.1, 232.3). At 1 m/s it needs 40 s of
+// the 60 s plan and leaves the 10 m, two-lane give-way link from (-1497, 198) only 10 s; the link passes 2.4 cars/min
+// and its queue backs up over three cycles (seed 2: 10 cars held over 120 s, longest 169 s). A 1.2 m/s design walking
+// speed (within the 1.2-1.4 m/s range used for crossings; the sim's pedestrians walk 1.22-1.78 m/s) clears the span
+// in 32 s + 2 s and gives the link 16 s. Only this site: 1.2 m/s everywhere re-times 173 plans and brought two
+// deadlocks back over the eight seeds.
+const SIGNAL_WALK_SPEEDS = [{ x: -1496.1, z: 232.3, speed: 1.2 }];
+const signalWalkSpeed = (x, z) => (SIGNAL_WALK_SPEEDS.find((s) => Math.hypot(x - s.x, z - s.z) <= 2)?.speed || 1);
 const SIGNAL_PLANS = [];
 const signalJunctions = new Map();
 const signalNodes = new Set(GEO.roadGraph.signals);
@@ -1593,6 +1602,7 @@ for (const site of SIGNAL_SITES) {
   const timing = {
     index: SIGNAL_PLANS.length, alias: null, mainUx: top ? top.ux : 0, mainUz: top ? top.uz : 1, cycle, green0, start1: green0 + 5, green1: cycle - green0 - 10,
     offset: (hash - Math.floor(hash)) * cycle, corridor, compact, pedestrian: arms.length < 3, disabled: false,
+    walkSpeed: signalWalkSpeed(site.x, site.z),
     start: Infinity, duration: 22, lastGreen: 0, time: NaN,
     phase0: 'green', phase1: 'red', walk0: false, walk1: false, displayWalk0: 0, displayWalk1: 0
   };
@@ -1684,14 +1694,16 @@ function resetSignalPlans() {
 }
 
 // Widths are indexed by the parallel traffic's WALK group, after the final walking routes are built. The last
-// entrant at second 7 must finish at 1 m/s before the opposing road's green: green + 5 - 7 >= crossing width.
-// Święty Marcin needs 64 s at its widest crossing; share 65 s along the corridor to keep its green wave coordinated.
+// entrant at second 7 must finish at the plan's design walking speed before the opposing road's green, plus 2 s of
+// clearance: green + 5 - 7 >= crossing width / speed + 2. Święty Marcin needs 64 s at its widest crossing; share
+// 65 s along the corridor to keep its green wave coordinated.
 function configureSignalClearance(widths) {
   for (const t of SIGNAL_PLANS) {
     if (t.alias || t.pedestrian || t.disabled) continue;
     const width = widths.get(t) || [0, 0];
-    const min0 = Math.max(10, Math.ceil(width[0] + 2));
-    const min1 = Math.max(10, Math.ceil(width[1] + 2));
+    const speed = t.walkSpeed || 1;
+    const min0 = Math.max(10, Math.ceil(width[0] / speed + 2));
+    const min1 = Math.max(10, Math.ceil(width[1] / speed + 2));
     t.cycle = Math.max(t.baseCycle, t.corridor === 'Święty Marcin' ? 65 : 0, min0 + min1 + 10);
     t.green0 = Math.max(min0, Math.min(t.cycle - 10 - min1, Math.round((t.cycle - 10) * t.demandRatio)));
     t.start1 = t.green0 + 5;

@@ -1,6 +1,6 @@
 # Poznań backlog
 
-Updated 2026-11-10. Only remaining work, open decisions and outstanding browser checks are listed below.
+Updated 2026-11-11. Only remaining work, open decisions and outstanding browser checks are listed below.
 Implementation details and completed measurements live in the [topic docs](../AGENTS.md#docs) and
 [observation records](observations/). Original phase references refer to the [archived port plan](archive/poznan-plan.md).
 
@@ -40,10 +40,21 @@ Implementation details and completed measurements live in the [topic docs](../AG
   the lane, after any real queue in it, holds the car's rear clear of the pad, so the car goes first while the tram's
   sweep keeps the tram stopped.
   Seed 5: held > 120 s 2 → 0, deadlocks 1 → 0, 11.7 → 11.8 km/h, held > 60 s 31 → 28; the other seven seeds are
-  bit-identical (8-seed held > 120 s 13 → 11, held > 60 s 133 → 130, deadlocks 1 → 0). Open: seed 2's 10 holds
-  > 120 s (demand against the 10 m two-lane exit and the far signal's 10 s g1 green in a 60 s plan whose 40 s group-0
-  green is the 38 m pedestrian crossing; the give-way passes 2.4 cars/min); seed 7's one 139 s hold (a line-20 switch
-  jam holds the crossing proxies, not a car rule). Do not revive the entry guard that counts tram proxies as exit
+  bit-identical (8-seed held > 120 s 13 → 11, held > 60 s 133 → 130, deadlocks 1 → 0). Seed 2's 10 holds over 120 s
+  were then fixed in the signal plan (2026-11-11): the 37.8 m crossing over Roosevelta's tram corridor clears at the
+  1.2 m/s design walking speed (`SIGNAL_WALK_SPEEDS`), so its group-0 stage needs 34 s instead of 40 s and the 10 m
+  two-lane give-way link gets 16 s instead of 10 s (2.4 → 3.8 cars/min). Seed 2 goes 10 → 0 holds over 120 s and
+  169 → 116 s longest; the eight Kaponiera seeds go 11 → 1 hold, 130 → 90 over 60 s, 12.6 → 13.1 km/h, 0 deadlocks.
+  Costs: seed 1's new 175 s queue into Centrum, seed 5's one box stop, Centrum −0.2 km/h and Jeżyce +0.1 km/h (the
+  other four districts are bit-identical); the eight-seed car–tram audit is 37 before and 37 after on this tree (36
+  was measured at 8c41595), Kaponiera 9 → 8 and Jeżyce 21 → 23. Open: seed 7's one 139 s hold (a line-20 switch jam holds
+  the crossing proxies, not a car rule); seed 1's new boundary queue and seed 5's box stop. Rejected in this pass:
+  1.2 m/s for every plan (173 plans re-timed, two Kaponiera deadlocks over eight seeds), green1 12–15 s at this site
+  (audit 38–39, a deadlock, or mean speed lower), keeping the 1 m/s split and moving the offset (seed 2 still had
+  7 holds), and the +6 s phase-preserving offset (Centrum and Jeżyce bit-identical but 8 holds and audit 38). The
+  crossing has no refuge to split (rail clearance falls to 0.1 m mid-span).
+  [Signal-plan record](observations/kaponiera-signal-plan-2026-11-11.md).
+  Do not revive the entry guard that counts tram proxies as exit
   occupancy (seed 7 held > 120 s 6 → 19 and a deadlock, Jeżyce seed 1 16.0 → 12.8 km/h), the release only for a
   direct proxy follower (the seed-1 cycle runs through a car) or without the 20 s wait (audit 73 → 79, trams passing
   a just-released car at 5–6.5 m/s), ignoring the waiting tram's proxy for its connector obstacle (the cycle became

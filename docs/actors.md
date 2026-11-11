@@ -266,10 +266,12 @@ Local signal plans live in `node.signalTiming` (shared with `SIGNAL_SITES[].timi
 `updateSignal(time, node)` caches both vehicle groups and WALK/display states once per plan and time. Traffic updates
 its signal nodes once per frame, and cars read `phaseOf(e)`. Plan splits use inbound lanes and width; minor and compact
 junctions start with 44 s cycles, arterials 60 or 76 s. After walking routes are built, each group's minimum green
-also allows the last WALK entrant to cross the full width at 1 m/s before opposing traffic starts; a cycle grows only
-when both minima cannot fit. Named corridor signals share 60 s cycles (65 s on Św. Marcin) and offsets from road
-distance at 40 km/h; other offsets are deterministic. Each transition has 3 s amber followed by 2 s clearance
-including the next group's red+amber. WALK admits new entrants for 7 s, then displays flashing green for 3 s.
+also allows the last WALK entrant to cross the full width at the plan's design walking speed, 1 m/s (1.2 m/s at the one
+exceptional 37.8 m span over Roosevelta's tram corridor at Kaponiera, `SIGNAL_WALK_SPEEDS`), before opposing traffic
+starts; a cycle grows only when both minima cannot fit. Named corridor signals share 60 s cycles (65 s on Św. Marcin)
+and offsets from road distance at 40 km/h; other offsets are deterministic. Each transition has 3 s amber followed by
+2 s clearance including the next group's red+amber. WALK admits new entrants for 7 s, then displays flashing green for
+3 s.
 Two-arm nodes with crossings stay road-green until a walker requests a phase (2 s request delay, at least 20 s road
 green); their red clearance allows a 1 m/s walker to finish the measured crossing. Two-arm nodes without crossings are disabled.
 The Phase 16 benchmark variant (no grid sidewalks) has 311 regular plans, 22 demand crossings and
