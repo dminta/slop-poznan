@@ -1324,27 +1324,50 @@ const _roofCache = new Map();
  * No emission; dormers & chimneys are separate geometry.
  */
 function createRoofMaterial(opts = {}) {
-  const { kind = 'tile', gableColor = 0xd8ccb0 } = opts;
-  const K = ROOF_KINDS[kind] || ROOF_KINDS.tile;
-  const cacheKey = `${kind}_${gableColor}`;
+  const kinds = (Array.isArray(opts.kinds) ? opts.kinds : [opts.kind || 'tile']).slice();
+  const { gableColor = 0xd8ccb0 } = opts;
+  const cacheKey = `${kinds.join('+')}_${gableColor}`;
   if (_roofCache.has(cacheKey)) {
     return _roofCache.get(cacheKey);
   }
+  const K = kinds.map((kind) => ROOF_KINDS[kind] || ROOF_KINDS.tile);
 
   const mat = new THREE.MeshStandardNodeMaterial({ metalness: 0.0, roughness: 0.7 });
-  const uCell = uniform(new THREE.Vector2(K.cell[0], K.cell[1]));
-  const uStagger = uniform(K.stagger);
-  const uCourse = uniform(K.course);
-  const uJoint = uniform(K.joint);
-  const uSeam = uniform(K.seam);
-  const uBarrel = uniform(K.barrel);
-  const uSpread = uniform(K.spread);
-  const uStreak = uniform(K.streak);
-  const cBase = uniform(new THREE.Color(K.base));
-  const cAlt = uniform(new THREE.Color(K.alt));
+  // The roof family merges the kinds that share this material into one mesh per unit piece, so the kind selection is a
+  // per-instance attribute. One kind stays a plain uniform set, exactly as before the merge.
+  const roofKind = kinds.length > 1 ? attribute('roofKind', 'float') : null;
+  // Values are picked with exact step factors (0/1) from the per-instance kind: two mixes for three kinds. A merged mesh
+  // must render pixel-identically to the per-kind meshes, so keep every kind's uniforms as they were.
+  const byKind = (read) => {
+    const values = K.map(read);
+    if (values.length === 1) return uniform(values[0]);
+    let node = uniform(values[values.length - 1]);
+    for (let i = values.length - 2; i >= 0; i--) node = mix(node, uniform(values[i]), step(roofKind, i + 0.5));
+    return node;
+  };
+  const byKindColor = (read) => {
+    const values = K.map((kind) => new THREE.Color(read(kind)));
+    if (values.length === 1) return uniform(values[0]);
+    let node = uniform(values[values.length - 1]);
+    for (let i = values.length - 2; i >= 0; i--) node = mix(node, uniform(values[i]), step(roofKind, i + 0.5));
+    return node;
+  };
+
+  const uCellX = byKind((kind) => kind.cell[0]);
+  const uCellY = byKind((kind) => kind.cell[1]);
+  const uStagger = byKind((kind) => kind.stagger);
+  const uCourse = byKind((kind) => kind.course);
+  const uJoint = byKind((kind) => kind.joint);
+  const uSeam = byKind((kind) => kind.seam);
+  const uBarrel = byKind((kind) => kind.barrel);
+  const uSpread = byKind((kind) => kind.spread);
+  const uStreak = byKind((kind) => kind.streak);
+  const cBase = byKindColor((kind) => kind.base);
+  const cAlt = byKindColor((kind) => kind.alt);
   const cGable = uniform(new THREE.Color(gableColor));
-  const uRough = uniform(K.rough);
-  const uMetal = uniform(K.metal);
+  const uRough = byKind((kind) => kind.rough);
+  const uMetal = byKind((kind) => kind.metal);
+  mat.userData.roofKinds = kinds;
 
   mat.aoNode = canyonSkyAONode();
 
@@ -1357,9 +1380,9 @@ function createRoofMaterial(opts = {}) {
   const tDir = mix(vec2(n.z, n.x.negate()).div(max(horiz, 0.0001)), vec2(1.0, 0.0), flat);
   const u = dot(positionWorld.xz, tDir);
   const s = mix(positionWorld.y.div(max(horiz, 0.2)), positionWorld.z, flat);
-  const courseV = s.div(uCell.y);
+  const courseV = s.div(uCellY);
   const row = floor(courseV);
-  const cellU = u.div(uCell.x).add(row.mul(uStagger));
+  const cellU = u.div(uCellX).add(row.mul(uStagger));
   const fu = fract(cellU);
   const fv = fract(courseV);
   const fwU = fwidth(cellU);

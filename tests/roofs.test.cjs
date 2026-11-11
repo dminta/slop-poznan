@@ -208,6 +208,34 @@ test('addDormers stands each dormer on its slope, facing down it, with its windo
   }
 });
 
+test('a shared roof material merges the kinds into one mesh per unit piece with a roofKind attribute', () => {
+  const shared = new MeshStandardNodeMaterial();
+  shared.userData = { roofKinds: ['tile', 'slate', 'copper'] };
+  const roofs = createRoofs({ materials: { tile: shared, slate: shared, copper: shared } });
+  assert.equal(roofs.add('gable', 'tile', 0, 0, 0, 10, 6, 2), true);
+  assert.equal(roofs.add('gable', 'slate', 20, 0, 0, 10, 6, 2), true);
+  assert.equal(roofs.add('hip', 'copper', 40, 0, 0, 12, 10, 3), true);
+  const dormerTile = roofs.addDormers('gable', 'tile', 60, 0, 0, 16, 13.6, 5, 0, { rand: mulberry32(3) });
+  const dormerSlate = roofs.addDormers('gable', 'slate', 80, 0, 0, 16, 13.6, 5, 0, { rand: mulberry32(3) });
+  assert.ok(dormerTile > 0 && dormerSlate > 0);
+  roofs.finish();
+  const byName = Object.fromEntries(roofs.meshes.map((m) => [m.name, m]));
+  assert.equal(byName['Roof-prism-tile'], undefined, 'no per-kind meshes with a shared material');
+  const prism = byName['Roof-prism'];
+  assert.equal(prism.count, 3);
+  assert.deepEqual([...prism.geometry.attributes.roofKind.array], [0, 1, 2]);
+  const hipCap = byName['Roof-hipCap'];
+  assert.equal(hipCap.count, 2);
+  assert.deepEqual([...hipCap.geometry.attributes.roofKind.array], [2, 2]);
+  const dormer = byName['Roof-dormer'];
+  assert.equal(dormer.count, dormerTile + dormerSlate);
+  const kinds = [...dormer.geometry.attributes.roofKind.array];
+  assert.deepEqual(kinds, [
+    ...Array(dormerTile).fill(0),
+    ...Array(dormerSlate).fill(1)
+  ]);
+});
+
 test('stepped and volute gable outlines rise clear of the roof behind them and stay inside the unit screen', () => {
   for (const style of GABLE_STYLES) {
     const top = gableOutline(style);

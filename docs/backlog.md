@@ -128,11 +128,13 @@ share are not thinned; [central-density record](observations/central-density-202
   [record](observations/perf-boot-2-2026-11-11.md)), a low graphics tier (`js/graphics-quality.js`:
   `?quality=` or auto-detected from the GPU identity / WebGL2 / ≤ 4 cores / ≤ 4 GB / touch-first unknown GPU; Rynek
   renderer CPU 16.3 → 12.0 ms, GPU 34 → 6 ms), halved mural / tram plate canvases
-  ([record](observations/perf-memory-2026-11-11.md)), and the low-tier tree profile
+  ([record](observations/perf-memory-2026-11-11.md)), the low-tier tree profile
   ([record](observations/perf-trees-2026-11-11.md): the Centrum drone drops 488 of 1,879 draws and 72 % of tree
-  triangles; Rynek −85 draws at street level; high is pixel-identical). Not yet measured on a real phone or integrated
-  GPU; `?stats=1` shows a copyable report for that.
-  Remaining: draw-call batching (roofs per chunk, street furniture), then the boot entries the two index passes left:
+  triangles; Rynek −85 draws at street level; high is pixel-identical), and draw-call batching (roofs merged per
+  piece, lamp mast + housing merged, cheap-prop culling cells, merged prop shadow stand-ins on high only; see
+  [record](observations/perf-draw-calls-2026-11-11.md) for the rebased ablation). Not yet measured on a real phone or
+  integrated GPU; `?stats=1` shows a copyable report for that.
+  Remaining: tree LOD / draw distance beyond the low tier, then the boot entries the two index passes left:
   `city-config.js`'s module import (land raster), `buildRoadNetwork` (`crossingRuns`, the largest-component pass, the
   footprint hash inserts), `city-grid.js` square paving, and the rail keep-out raster.
   [Ranked opportunities](observations/perf-older-devices-2026-11-11.md).

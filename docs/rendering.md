@@ -58,7 +58,9 @@
 - **Shadows:** low uses 1024² tiles per cascade and a 150–360 m shadow range (`LightingSystem` receives the tier at
   construction); high keeps 3072² (2048² on smaller devices) and 300–720 m. Low also turns off shadow casting once at
   boot for trees, street furniture/props, trams and the city grid; the building and landmark shadow proxies from
-  `scene-culling.js` keep casting, so large-scale building shade remains. High leaves every caster exactly as built.
+  `scene-culling.js` keep casting, so large-scale building shade remains. High builds the merged small-prop stand-ins
+  (`userData.propShadowProxy`); low skips building them entirely (`propShadowProxies: false`) because it disables those
+  casters and does not need their ~50 MB of retained geometry.
 - **Trees:** the tree field reads the tier's `trees` profile once at boot (`configureTreeQuality` in `main.js`, before
   `buildStreetDetails` plants it). Low keeps full detail to 95 m (high 105), coarse cards to 330 m (420), draws parks and
   plazas to 2200 m (3000), wide streets to 1500 m (1600) and narrow streets to 850 m (950), and caps street-level trees at
@@ -131,12 +133,13 @@
     stacked loggia columns (`loggiaPeriod`) and the same night interiors. It uses the `facadeCell` contract, so it can be
     a facade material on `createFacadeBoxes` boxes. buildings.js runs it that way (`boxLocal: true`) in five colours, one pipeline;
     keep `floorHeight` at 2.8 in its options, the massing reads storey heights from them.
-  - `createRoofMaterial({ kind: 'tile' | 'slate' | 'metal' | 'copper', gableColor })`: pitched roofs. The kind's look is
-    carried in uniforms (`ROOF_KINDS`), so all four share one pipeline. The covering is laid out in world metres from
+  - `createRoofMaterial({ kinds: ['tile', 'slate', 'copper'], kind: 'tile' | 'slate' | 'metal' | 'copper', gableColor })`: pitched roofs. The kind's look is
+    carried in uniforms (`ROOF_KINDS`), so all kinds share one pipeline; `kinds` adds the per-instance `roofKind` selector that lets one
+    mesh carry several kinds, while a single `kind` keeps the plain uniform set. The covering is laid out in world metres from
     `facadeWorldNormal`, with courses along the eave, so the mesh needs no uvs and instances can be scaled non-uniformly.
     The geometry needs flat per-face normals (non-indexed, or split vertices). Vertical faces render as gable-end
-    render, and faces pitched under about 11° (mansard tops) drop the courses. buildings.js makes the tile, slate and copper ones for roofs.js; their
-    twelve meshes (and the two dormer bodies) are static under `CityBlocks`, so scene culling chunks them.
+    render, and faces pitched under about 11° (mansard tops) drop the courses. buildings.js makes the tile, slate and copper ones for roofs.js; with one shared material their
+    four pieces (and the dormer bodies) are static meshes under `CityBlocks`, so scene culling chunks them.
   - `createDormerWindowMaterial()`: the dormer panes (+1 pipeline), a white casement frame round dark glass from the
     quad's uvs (`filteredPulse`), warm at night on a hash of `instanceIndex` (chunking reshuffles which ones, harmlessly).
   - `createGableScreenMaterial()`: the Rynek's stepped and volute gable screens (+1 pipeline): render tinted by the
@@ -161,6 +164,8 @@
 - Prefer static usage plus update ranges over `DynamicDrawUsage`. three.js re-uploads a dynamic attribute in every render pass: two shadow cascades plus the scene pass, about 7 MB per frame for trees.
 - Vertex buffers: WebGPU allows 8 per draw, and the instance-matrix swap keeps `instanceMatrix` out of them. A street car body uses 6–7 (`position`, `normal`, `partId`, maybe `uv`, and the per-instance `paintColor`, `carState`, `plateCode`); pack new per-instance car data into those before adding an attribute (`pedestrians.js` packs its skinning for the same reason). On WebGL2 the matrix takes 4 of the 16 attribute slots.
 - Static per-instance data must live in `InstancedBufferAttribute`s on the geometry (like `box` and `faces` in `createFacadeBoxes`) or in `instanceColor`. Chunking copies only these. Storage buffers indexed by `instanceIndex` would point at the wrong data after chunking.
+- **Merge pieces that share a transform and material at build time.** A streetlight's LED mast and luminaire housing have the same instance matrices and `poleMetalMat`, so street-details.js merges them into one geometry: the separate housing had 904 culling chunks citywide against the mast's 90. Pitched roofs use one material for tile, slate and copper (`createRoofMaterial({ kinds })`), so each unit piece is one `InstancedMesh` with a per-instance `roofKind` float selecting the kind's uniforms; the family is 17 meshes (12 roof, 2 dormer bodies, window, 2 gable screens) → 8. The merge is exact: the kind's values are mixed with `step(roofKind, i + 0.5)` factors of 0 or 1, and a single-kind material carries no attribute.
+- The pinned three.js has no `BatchedMesh` path in the WebGPU renderer (`isBatchedMesh`/multi-draw exists only in the WebGL2 backend), so `BatchedMesh` is not usable for the primary backend. Merge per material/transform instead.
 - `tram-infra.js` builds its static instanced meshes once (rails, grooves, mainline ballast, rail end walls, contact and span wires, poles, arms, platforms, shelters, signs, machines) under the `TramInfrastructure` culling root. There is no tram track bed mesh: the tram rails lie flush on the asphalt or curb islands. The big ones (rails, wires, mainline beds) are made of ≤ 8 m and ≤ 30 m pieces so chunking can distance-cull them. The mainline railway shares the tram rail, wire and arm meshes and adds only `RailBallast`, `RailEndWalls` (end walls and boundary plinths) and `RailFence` (planes with a `maskNode` mesh pattern and a screen-door fade at distance; no shadows). Current headless layout counts and their measurement limits are in [world.md](world.md#tram-infrastructure). The dated scene measurements below used a different harness and remain historical baselines. Their per-instance data (`tie` on mainline rail ballast, `fence` on the rail fence, `plateCell` on the name plates) are `InstancedBufferAttribute`s, which chunking copies. Wires, rails and plates cast no shadows. The shelter glass is the only transparent part, and it uses `transparentEffectMRT` (exported from tsl-materials.js).
 - Trees run their own cell culling and LOD in `trees.js`: one hidden group per cell, levels set from `scene.onBeforeRender`, and matrices frozen. They are not handled by `scene-culling.js`. The tier's LOD and draw distances come from `QUALITY_TIERS[*].trees` (see Quality tiers); the low profile additionally merges LOD meshes.
 
@@ -177,9 +182,10 @@
 ## Culling (`scene-culling.js`): registering new static geometry
 - `setupSceneCulling` walks only the roots that `main.js` lists by group name: `CityGrid`, `Airport`, `CityBlocks`, `StreetDetails`, `Landmarks`, `Outskirts`, `Bridges`, `TramInfrastructure`. Put new static city geometry under one of these groups, or add the new group's name to that list. Moving parts stay outside them: the Ratusz goats live in the unculled `LandmarksDynamic` root.
 - What it does, by threshold:
-  - Instanced meshes with ≥ 64 instances, ≥ 40k triangles in total and a bounding radius of at least 1.5 km are split into spatial chunks with a distance cull. The distance comes from the 90th-percentile instance size, and `MeshBasicNodeMaterial` glows get 3×.
+  - Instanced meshes with ≥ 64 instances, ≥ 40k triangles in total and a bounding radius of at least 1.5 km are split into spatial chunks with a distance cull. The distance comes from the 90th-percentile instance size, and `MeshBasicNodeMaterial` glows get 3×. Cheap geometry gets a wider cell (`chunkCellScale`: 2× at ≤ 40 triangles per instance, 1.5× at ≤ 120): tree-pit boxes and plates are still sub-pixel at 1–2 km, while hydrants and lamp masts keep the tighter cell.
   - Meshes that would get a cull distance over 2 km are chunked into 1 km cells, frustum culling only.
   - Opaque shadow casters with ≥ 20k triangles and a radius over 600 m get position-only stand-ins on `SHADOW_PROXY_LAYER`, a layer only the cascade cameras render. The originals get `castShadow = false`.
+  - **Cheap street props get merged shadow stand-ins before chunking (high tier only).** Under `StreetDetails`, `TramInfrastructure` and `CityGrid`, casters with 4k–300k triangles and a radius over 300 m (trees excluded; hydrants at 1.37M triangles stay direct) are baked into one position-only mesh per 500 m cell and face side, sharing the same `SHADOW_PROXY_LAYER`. The shadow pass needs depth only, so all prop geometries of a side share one draw per cell instead of one per category per 250 m chunk; the high tier keeps casting exactly the same triangles. Baked positions are 36 bytes/triangle: the current set is 1.42M triangles, about 51 MB if every cell is ever uploaded, but only the cells the cascades actually render are uploaded (`attributes` grew 5.9 MB over eight views). The stand-ins are flagged `userData.propShadowProxy`. `main.js` passes `propShadowProxies: qualitySettings.shadowCasters`, so **low does not build them at all**: it disables those casters anyway, and skipping the bake keeps its heap unchanged. Standalone cost on high: +52 MB retained heap, +5.8 MB GPU at boot, +326 ms in the culling phase. Cell positions are filled in two passes into typed arrays; keeping them in JS number arrays first cost ~300 MB of transient boot heap.
 - **The originals are removed from the scene and replaced.** Any reference a builder holds to such a mesh goes stale. Shadow stand-ins are baked world-space copies and never follow later edits to the original.
 - Anything that changes after the build must stay out of this pass: moving parts, re-filled pools, `count < capacity`. Ways to opt out: set `frustumCulled = false`, keep it outside the roots (traffic and pedestrians live under `TrafficAndPedestrians`), or set `visible = false` on the mesh itself at setup time. Meshes with `count !== instanceMatrix.count` are skipped as well.
 - Chunks and stand-ins set `userData.sharesPipelineWith` to a representative, so `precompileShaders` and the warm-up frame compile one object per pipeline. If you build a family of meshes that share a material, mark them the same way (`trees.js` does). `precompileShaders` skips stand-ins, which compile in the warm-up frame instead.
@@ -200,7 +206,8 @@
 
 ## Static and dynamic transforms
 
-Almost the whole scene is built once and never moves: 41,065 meshes in the 2026-11-11 audit, of which only the player
+Almost the whole scene is built once and never moves: 41,065 meshes in the 2026-11-11 audit (37,826 after the same-day
+draw-call batching), of which only the player
 models, the pooled vehicle lights, the animated Ratusz goats and the light pools change a transform. three.js still
 walked the whole graph and recomputed the same world matrices in every render pass: `updateMatrixWorld` was 18.4% of
 the frame CPU at Rynek. `js/static-matrices.js` freezes that walk after the build (`scene.updateMatrixWorld(true)` once,

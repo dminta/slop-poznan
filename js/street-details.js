@@ -336,7 +336,12 @@ function buildStreetDetails(scene, opts = {}) {
     new THREE.TubeGeometry(bend, 12, 0.055, 8, false)
   ].map((g) => g.toNonIndexed()));
   const LED_REACH = 2.05; // luminaire centre from the pole
-  const ledHousingGeo = new THREE.BoxGeometry(0.8, 0.1, 0.32).translate(LED_REACH, 9.99, 0);
+  // The luminaire housing shares the mast's instance matrix and material, so one instanced mesh carries both: the
+  // separate housing mesh cost one draw per chunk of a much smaller cull radius (904 chunks citywide vs 90).
+  const mastAndHeadGeo = mergeGeometries([
+    bentMastGeo,
+    new THREE.BoxGeometry(0.8, 0.1, 0.32).translate(LED_REACH, 9.99, 0).toNonIndexed()
+  ]);
   const ledLensGeo = new THREE.PlaneGeometry(0.66, 0.22).rotateX(Math.PI / 2).translate(LED_REACH, 9.935, 0);
   // Historic gas lantern (origin at the foot): an octagonal cast-iron base, a fluted shaft with a collar, the
   // lamplighter's ladder bar under the lantern, a four-sided glass lantern wider at the top, a roof and a finial
@@ -1218,8 +1223,7 @@ function buildStreetDetails(scene, opts = {}) {
   addMatrixArrayInstanced(pedHousingGeo, signalHousingMat, pedHeadMatrices);
   addMatrixArrayInstanced(pedPanelGeo, aveWalkMat, pedAveMatrices, false, signalAttrs(pedAveIndices));
   addMatrixArrayInstanced(pedPanelGeo, streetWalkMat, pedStreetMatrices, false, signalAttrs(pedStreetIndices));
-  addMatrixArrayInstanced(bentMastGeo, poleMetalMat, mastMatrices);
-  addMatrixArrayInstanced(ledHousingGeo, poleMetalMat, ledHeadMatrices);
+  addMatrixArrayInstanced(mastAndHeadGeo, poleMetalMat, mastMatrices);
   addMatrixArrayInstanced(ledLensGeo, lampBulbGlow, ledHeadMatrices, false);
   addMatrixArrayInstanced(gasPostGeo, castIronMat, gasPostMatrices);
   addMatrixArrayInstanced(gasGlassGeo, gasGlassGlow, gasPostMatrices, false);

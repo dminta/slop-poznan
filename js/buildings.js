@@ -49,7 +49,7 @@ import {
   createFacadeBoxes,
   WALL_KINDS
 } from './tsl-materials.js';
-import { createRoofs } from './roofs.js';
+import { createRoofs, ROOF_MATERIALS } from './roofs.js';
 import { GEO } from './geodata.js';
 import { pavedPlazaRects, parkTreeSites, railClearance, sidewalkBlocks } from './city-grid.js';
 
@@ -606,13 +606,15 @@ function buildCityBlocks(scene) {
   const buckets = materials.map(() => []);
 
   // Pitched roofs (roofs.js): red tile on the kamienice and the Rynek, slate on the grander houses and public
-  // buildings, copper on turrets, risalits and domes. One shader for all three (createRoofMaterial keeps the kind in
-  // uniforms); the gable ends are render. Staged by commit, written once by finish() below
+  // buildings, copper on turrets, risalits and domes. One shader and one material for all three (the kind is a
+  // per-instance attribute), so each unit piece is one mesh rather than three; the gable ends are render. Staged by
+  // commit, written once by finish() below
+  const roofMaterial = createRoofMaterial({ kinds: ROOF_MATERIALS });
   const roofs = createRoofs({
     materials: {
-      tile: createRoofMaterial({ kind: 'tile' }),
-      slate: createRoofMaterial({ kind: 'slate' }),
-      copper: createRoofMaterial({ kind: 'copper' }),
+      tile: roofMaterial,
+      slate: roofMaterial,
+      copper: roofMaterial,
       window: createDormerWindowMaterial(),
       gable: createGableScreenMaterial()
     },

@@ -314,7 +314,9 @@ async function initApp() {
   const cullingRoots = ['CityGrid', 'Airport', 'CityBlocks', 'Canopies', 'StreetDetails', 'Landmarks', 'Outskirts', 'Bridges', 'TramInfrastructure']
     .map((name) => scene.getObjectByName(name))
     .filter(Boolean);
-  setupSceneCulling(scene, cullingRoots, lightingSystem.sunLight.shadow);
+  setupSceneCulling(scene, cullingRoots, lightingSystem.sunLight.shadow, {
+    propShadowProxies: qualitySettings.shadowCasters
+  });
   markInit('culling');
 
   // On WebGPU, small InstancedMeshes (<= 1000 instances) keep their matrices in uniform buffers that three.js
@@ -341,6 +343,10 @@ async function initApp() {
       scene.getObjectByName(name)?.traverse((object) => {
         if (object.isMesh) object.castShadow = false;
       });
+    }
+    // The merged small-prop stand-ins are scene children, not under the four roots above.
+    for (const object of scene.children) {
+      if (object.userData && object.userData.propShadowProxy) object.castShadow = false;
     }
   }
 

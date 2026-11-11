@@ -29,6 +29,13 @@ const _c = new THREE.Vector3();
 
 const triangleCount = (geo) => (geo.index ? geo.index.count : geo.attributes.position.count) / 3;
 
+// A chunk of a cheap prop may span a wider cell: 12-triangle tree-pit boxes drawn 2 km across cost less than a second
+// draw, while 300-triangle hydrants do not. Large meshes keep STATIC_CELL: roofs are low-poly too, but they are large
+// objects whose chunks should stay tight for the shadow and scene passes.
+function chunkCellScale(trisPerInstance) {
+  return trisPerInstance <= 40 ? 2 : trisPerInstance <= 120 ? 1.5 : 1;
+}
+
 // Typical size of an instance: sqrt(middle x largest of its extents), so thin poles count by their length and flat
 // decals by their area. The 90th percentile, so the larger instances of a mesh set its cull distance.
 function instanceSize(mesh) {
@@ -145,11 +152,23 @@ function replaceWithChunks(mesh, cell) {
 
 /**
  * Sets up the culling of the static city under `roots` (Object3Ds). `shadow` is the SunLightShadow whose cascade
- * cameras render the shadow stand-ins (none are made without it). Per-frame culling runs in updateSceneCulling().
+ * cameras render the shadow stand-ins (none are made without it). `propShadowProxies` controls the merged small-prop
+ * stand-ins, which cost ~50 MB of retained geometry: high builds them, the low tier skips them because it disables
+ * those casters anyway. Per-frame culling runs in updateSceneCulling().
  */
-function setupSceneCulling(scene, roots, shadow = null) {
+function setupSceneCulling(scene, roots, shadow = null, { propShadowProxies = true } = {}) {
   scene.updateMatrixWorld(true);
   const culled = [];
+
+  // The sun shadow's cascade cameras are the only passes that render SHADOW_PROXY_LAYER.
+  const cams = [];
+  if (shadow && typeof shadow.getCamera === 'function') {
+    const count = typeof shadow.getViewportCount === 'function' ? shadow.getViewportCount() : 2;
+    for (let i = 0; i < count; i++) {
+      const cam = shadow.getCamera(i);
+      if (cam && cam.layers) cams.push(cam);
+    }
+  }
 
   // 1. Small props: chunked & distance culled
   const chunkable = [];
@@ -163,6 +182,42 @@ function setupSceneCulling(scene, roots, shadow = null) {
       chunkable.push(o);
     });
   }
+  // 1a. Cheap prop shadow casters become position-only merged stand-ins before chunking. Chunking first would split
+  // them below the big-caster threshold and leave one draw per category per 250 m cell; baking now lets the whole
+  // category share the ~500 m proxy cells. Trees keep their own LOD shadow cells, and heavy props (hydrants at 1.37M
+  // triangles citywide) stay direct casters so the stand-ins do not duplicate a large share of the vertex budget.
+  const PROP_PROXY_ROOTS = new Set(['StreetDetails', 'TramInfrastructure', 'CityGrid']);
+  const PROP_PROXY_MIN_TRIS = 4000;
+  const PROP_PROXY_MAX_TRIS = 300000;
+  const inTreeField = (o) => {
+    for (let p = o; p; p = p.parent) if (p.name === 'Trees') return true;
+    return false;
+  };
+  const propProxySources = [];
+  if (propShadowProxies && cams.length) {
+    for (const root of roots) {
+      if (!PROP_PROXY_ROOTS.has(root.name)) continue;
+      root.traverse((o) => {
+        if (!o.castShadow || !isStaticMesh(o) || !proxyableMaterial(o.material)) return;
+        if (o.isInstancedMesh && o.count !== o.instanceMatrix.count) return;
+        if (inTreeField(o)) return;
+        const tris = triangleCount(o.geometry) * (o.isInstancedMesh ? o.count : 1);
+        if (tris < PROP_PROXY_MIN_TRIS || tris > PROP_PROXY_MAX_TRIS) return;
+        let radius;
+        if (o.isInstancedMesh) {
+          if (!o.boundingSphere) o.computeBoundingSphere();
+          radius = o.boundingSphere.radius;
+        } else {
+          if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+          radius = o.geometry.boundingSphere.radius * o.matrixWorld.getMaxScaleOnAxis();
+        }
+        if (radius < 300) return;
+        o.castShadow = false;
+        propProxySources.push(o);
+      });
+    }
+  }
+
   for (const mesh of chunkable) {
     // unlit (glowing) props, like signal lenses & lamp bulbs, read from much further away at night
     const glow = mesh.material.isMeshBasicNodeMaterial || mesh.material.type === 'MeshBasicNodeMaterial' ? 3 : 1;
@@ -172,24 +227,15 @@ function setupSceneCulling(scene, roots, shadow = null) {
       continue;
     }
     const cell = Math.min(600, Math.max(250, cullDist * 0.5));
-    for (const chunk of replaceWithChunks(mesh, cell)) {
+    for (const chunk of replaceWithChunks(mesh, cell * chunkCellScale(triangleCount(mesh.geometry)))) {
       const sphere = chunk.boundingSphere.clone().applyMatrix4(chunk.matrixWorld);
       culled.push({ mesh: chunk, x: sphere.center.x, y: sphere.center.y, z: sphere.center.z, r: sphere.radius, d: cullDist });
     }
   }
 
   // 2. Shadow stand-ins for the big static casters
-  const cams = [];
-  if (shadow && typeof shadow.getCamera === 'function') {
-    const count = typeof shadow.getViewportCount === 'function' ? shadow.getViewportCount() : 2;
-    for (let i = 0; i < count; i++) {
-      const cam = shadow.getCamera(i);
-      if (cam && cam.layers) cams.push(cam);
-    }
-  }
   if (cams.length) {
     const instancedBySig = new Map(); // geometry signature + face side -> { geometry, material, cells: Map(key -> [matrices]) }
-    const triCells = new Map(); // face side -> Map(key -> number[] world positions)
     const proxyMaterials = new Map();
     const proxyMaterial = (side) => {
       let m = proxyMaterials.get(side);
@@ -210,7 +256,7 @@ function setupSceneCulling(scene, roots, shadow = null) {
     };
     const cellKey = (x, z) => Math.floor(x / PROXY_CELL) + ',' + Math.floor(z / PROXY_CELL);
 
-    const sources = [];
+    const sources = propProxySources.map((o) => ({ o, prop: true }));
     for (const root of roots) {
       root.traverse((o) => {
         if (!o.castShadow || !isStaticMesh(o) || !proxyableMaterial(o.material)) return;
@@ -225,14 +271,59 @@ function setupSceneCulling(scene, roots, shadow = null) {
           if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
           radius = o.geometry.boundingSphere.radius * o.matrixWorld.getMaxScaleOnAxis();
         }
-        if (radius > 600) sources.push(o);
+        if (radius > 600) sources.push({ o, prop: false });
       });
     }
 
-    for (const o of sources) {
-      const side = sideOf(o.material);
+    // Shadow cells are filled in two passes: count triangles per cell, then write them into typed arrays. Keeping the
+    // positions in JS number arrays first costs hundreds of MB of transient heap at boot (1.4M prop triangles x 9
+    // doubles plus array growth); this is one ~51 MB allocation and no garbage.
+    const cellCounts = new Map(); // triKey -> Map(cellKey -> triangle count)
+    const triKeyOf = (side, prop) => (prop ? 'p|' : 'b|') + side.side + ',' + side.shadowSide;
+    const eachTriangle = (o, cb) => {
       const geo = o.geometry;
-      if (o.isInstancedMesh) {
+      const pos = geo.attributes.position;
+      const idx = geo.index;
+      const start = geo.drawRange.start;
+      const end = Math.min(idx ? idx.count : pos.count, start + geo.drawRange.count);
+      const instances = o.isInstancedMesh ? o.count : 1;
+      const matrices = o.isInstancedMesh ? o.instanceMatrix.array : null;
+      for (let inst = 0; inst < instances; inst++) {
+        const xf = matrices ? _wm.multiplyMatrices(o.matrixWorld, _m.fromArray(matrices, inst * 16)) : o.matrixWorld;
+        for (let t = start; t + 2 < end; t += 3) {
+          const i0 = idx ? idx.getX(t) : t;
+          const i1 = idx ? idx.getX(t + 1) : t + 1;
+          const i2 = idx ? idx.getX(t + 2) : t + 2;
+          _a.fromBufferAttribute(pos, i0).applyMatrix4(xf);
+          _b.fromBufferAttribute(pos, i1).applyMatrix4(xf);
+          _c.fromBufferAttribute(pos, i2).applyMatrix4(xf);
+          cb(_a, _b, _c);
+        }
+      }
+    };
+
+    for (const { o, prop } of sources) {
+      if (o.isInstancedMesh && !prop) continue;
+      const key = triKeyOf(sideOf(o.material), prop);
+      let byCell = cellCounts.get(key);
+      if (!byCell) cellCounts.set(key, (byCell = new Map()));
+      eachTriangle(o, (a, b, c) => {
+        const k = cellKey((a.x + b.x + c.x) / 3, (a.z + b.z + c.z) / 3);
+        byCell.set(k, (byCell.get(k) || 0) + 1);
+      });
+    }
+
+    const cellData = new Map(); // triKey -> Map(cellKey -> { array, at })
+    for (const [key, byCell] of cellCounts) {
+      const data = new Map();
+      for (const [k, count] of byCell) data.set(k, { array: new Float32Array(count * 9), at: 0 });
+      cellData.set(key, data);
+    }
+
+    for (const { o, prop } of sources) {
+      const side = sideOf(o.material);
+      if (o.isInstancedMesh && !prop) {
+        const geo = o.geometry;
         const pos = geo.attributes.position;
         if (!geo.boundingBox) geo.computeBoundingBox();
         const bb = geo.boundingBox;
@@ -254,36 +345,31 @@ function setupSceneCulling(scene, roots, shadow = null) {
           list.push(..._wm.elements);
         }
       } else {
-        let bySide = triCells.get(side);
-        if (!bySide) triCells.set(side, (bySide = new Map()));
-        const pos = geo.attributes.position;
-        const idx = geo.index;
-        const start = geo.drawRange.start;
-        const end = Math.min(idx ? idx.count : pos.count, start + geo.drawRange.count);
-        for (let t = start; t + 2 < end; t += 3) {
-          const i0 = idx ? idx.getX(t) : t;
-          const i1 = idx ? idx.getX(t + 1) : t + 1;
-          const i2 = idx ? idx.getX(t + 2) : t + 2;
-          _a.fromBufferAttribute(pos, i0).applyMatrix4(o.matrixWorld);
-          _b.fromBufferAttribute(pos, i1).applyMatrix4(o.matrixWorld);
-          _c.fromBufferAttribute(pos, i2).applyMatrix4(o.matrixWorld);
-          const key = cellKey((_a.x + _b.x + _c.x) / 3, (_a.z + _b.z + _c.z) / 3);
-          let list = bySide.get(key);
-          if (!list) bySide.set(key, (list = []));
-          list.push(_a.x, _a.y, _a.z, _b.x, _b.y, _b.z, _c.x, _c.y, _c.z);
-        }
+        // Position-only merged cells: the shadow pass needs depth alone, so every prop geometry of a side can share one
+        // stand-in per cell (one draw for all furniture categories instead of one per category).
+        const data = cellData.get(triKeyOf(side, prop));
+        eachTriangle(o, (a, b, c) => {
+          const bucket = data.get(cellKey((a.x + b.x + c.x) / 3, (a.z + b.z + c.z) / 3));
+          const arr = bucket.array;
+          let at = bucket.at;
+          arr[at++] = a.x; arr[at++] = a.y; arr[at++] = a.z;
+          arr[at++] = b.x; arr[at++] = b.y; arr[at++] = b.z;
+          arr[at++] = c.x; arr[at++] = c.y; arr[at++] = c.z;
+          bucket.at = at;
+        });
       }
       o.castShadow = false;
     }
 
     const firstProxy = new Map(); // material + kind -> the stand-in that compiles their shared pipeline
-    const addProxy = (mesh) => {
+    const addProxy = (mesh, prop) => {
       mesh.name = 'ShadowProxy';
       mesh.layers.set(SHADOW_PROXY_LAYER);
       mesh.castShadow = true;
       mesh.receiveShadow = false;
       mesh.frustumCulled = true;
       mesh.userData.shadowProxy = true;
+      if (prop) mesh.userData.propShadowProxy = true;
       const kind = mesh.material.uuid + (mesh.isInstancedMesh ? ':i' : ':m');
       if (firstProxy.has(kind)) mesh.userData.sharesPipelineWith = firstProxy.get(kind);
       else firstProxy.set(kind, mesh);
@@ -295,15 +381,17 @@ function setupSceneCulling(scene, roots, shadow = null) {
         const mesh = new THREE.InstancedMesh(entry.geometry, entry.material, n);
         mesh.instanceMatrix.array.set(list);
         mesh.computeBoundingSphere();
-        addProxy(mesh);
+        addProxy(mesh, false);
       }
     }
-    for (const [side, bySide] of triCells) {
-      for (const list of bySide.values()) {
+    for (const [triKey, byCell] of cellData) {
+      const prop = triKey.startsWith('p|');
+      const side = sideKeys.get(triKey.slice(2));
+      for (const bucket of byCell.values()) {
         const g = new THREE.BufferGeometry();
-        g.setAttribute('position', new THREE.Float32BufferAttribute(list, 3));
+        g.setAttribute('position', new THREE.BufferAttribute(bucket.array, 3));
         g.computeBoundingSphere();
-        addProxy(new THREE.Mesh(g, proxyMaterial(side)));
+        addProxy(new THREE.Mesh(g, proxyMaterial(side)), prop);
       }
     }
     for (const cam of cams) cam.layers.enable(SHADOW_PROXY_LAYER);
@@ -331,4 +419,4 @@ function updateSceneCulling(cameraPosition) {
   }
 }
 
-export { setupSceneCulling, updateSceneCulling, SHADOW_PROXY_LAYER };
+export { setupSceneCulling, updateSceneCulling, chunkCellScale, SHADOW_PROXY_LAYER };

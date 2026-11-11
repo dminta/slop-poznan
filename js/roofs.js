@@ -356,7 +356,8 @@ function createRoofs({ materials = {}, max = MAX_ROOF_INSTANCES, parent = null }
   const gableMat = materials.gable || new THREE.MeshStandardNodeMaterial({ color: 0xe8dcc0, roughness: 0.85 });
   const meshes = [];
   const meshIndex = {}; // `${piece}:${material}` (or the piece alone) -> index into meshes
-  function addMesh(key, geo, mat, name) {
+  const meshMeta = []; // per mesh: kindOf(matKey) when one mesh carries several kinds, else null
+  function addMesh(key, geo, mat, name, kindOf = null) {
     // capacity 1 until finish() hands it an exact-size instanceMatrix
     const mesh = new THREE.InstancedMesh(geo, mat, 1);
     mesh.name = name;
@@ -364,13 +365,36 @@ function createRoofs({ materials = {}, max = MAX_ROOF_INSTANCES, parent = null }
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     meshIndex[key] = meshes.length;
+    meshMeta[meshes.length] = { kindOf };
     meshes.push(mesh);
     if (parent) parent.add(mesh);
+    return meshes.length - 1;
   }
-  for (const key of ROOF_MATERIALS) {
-    for (const piece of PIECES) addMesh(`${piece}:${key}`, geos[piece], mats[key], `Roof-${piece}-${key}`);
+  // One material shared by the roof kinds lets one mesh per unit piece carry all of them: the kind is a per-instance
+  // `roofKind` attribute (createRoofMaterial({ kinds })). Without a shared material the family keeps the per-kind
+  // meshes (tests and any caller that wants separate materials). A multi-kind material must be passed under every roof
+  // key, as buildings.js does, or the unmerged meshes would render the material's first kind only.
+  const roofMat = mats.tile;
+  const mergedRoof = mats.tile === mats.slate && mats.slate === mats.copper &&
+    Array.isArray(roofMat.userData?.roofKinds) && ROOF_MATERIALS.every((key) => roofMat.userData.roofKinds.includes(key));
+  const mergedDormer = mergedRoof && mats.tile === mats.slate;
+  const kindOf = (mat) => (matKey) => mat.userData.roofKinds.indexOf(matKey);
+  if (mergedRoof) {
+    for (const piece of PIECES) {
+      const mi = addMesh(piece, geos[piece], roofMat, `Roof-${piece}`, kindOf(roofMat));
+      for (const key of ROOF_MATERIALS) meshIndex[`${piece}:${key}`] = mi;
+    }
+  } else {
+    for (const key of ROOF_MATERIALS) {
+      for (const piece of PIECES) addMesh(`${piece}:${key}`, geos[piece], mats[key], `Roof-${piece}-${key}`);
+    }
   }
-  for (const key of DORMER_MATERIALS) addMesh(`dormer:${key}`, geos.dormer, mats[key], `Roof-dormer-${key}`);
+  if (mergedDormer) {
+    const mi = addMesh('dormer', geos.dormer, mats.tile, 'Roof-dormer', kindOf(mats.tile));
+    for (const key of DORMER_MATERIALS) meshIndex[`dormer:${key}`] = mi;
+  } else {
+    for (const key of DORMER_MATERIALS) addMesh(`dormer:${key}`, geos.dormer, mats[key], `Roof-dormer-${key}`);
+  }
   addMesh('window', geos.window, windowMat, 'Roof-dormerWindow');
   // gable screens carry a per-instance `gableTint` (their house's render colour), so each gets its own geometry
   for (const style of GABLE_STYLES) addMesh(`gable:${style}`, gableGeos[style], gableMat, `Roof-gable-${style}`);
@@ -379,7 +403,7 @@ function createRoofs({ materials = {}, max = MAX_ROOF_INSTANCES, parent = null }
   let n = 0;
   let finished = false;
 
-  function push(mi, x, y, z, sx, sy, sz, ry, tint = 0) {
+  function push(mi, x, y, z, sx, sy, sz, ry, tint = 0, matKey = null) {
     const o = n++ * STRIDE;
     rec[o] = x;
     rec[o + 1] = y;
@@ -389,7 +413,8 @@ function createRoofs({ materials = {}, max = MAX_ROOF_INSTANCES, parent = null }
     rec[o + 5] = sz;
     rec[o + 6] = ry;
     rec[o + 7] = mi;
-    rec[o + 8] = tint; // 24-bit integers are exact in a float32
+    // Merged roof kinds use this slot for the per-instance kind; gable screens use it for their house tint.
+    rec[o + 8] = meshMeta[mi] && meshMeta[mi].kindOf ? meshMeta[mi].kindOf(matKey) : tint; // 24-bit integers are exact in a float32
   }
 
   // Roof of shape ('gable' | 'hip' | 'mansard' | 'gambrel') and material ('tile' | 'slate' | 'copper') on the plan
@@ -400,7 +425,7 @@ function createRoofs({ materials = {}, max = MAX_ROOF_INSTANCES, parent = null }
     if (finished || !(w > 0 && d > 0 && h > 0) || !mats[mat]) return false;
     if (shape === 'gable' || shape === 'gambrel') {
       if (n + 1 > max) return false;
-      push(meshIndex[`${shape === 'gable' ? 'prism' : 'gambrel'}:${mat}`], x, y, z, w, h, d, ry);
+      push(meshIndex[`${shape === 'gable' ? 'prism' : 'gambrel'}:${mat}`], x, y, z, w, h, d, ry, 0, mat);
       return true;
     }
     if (shape !== 'hip' && shape !== 'mansard') return false;
@@ -415,13 +440,13 @@ function createRoofs({ materials = {}, max = MAX_ROOF_INSTANCES, parent = null }
     if (n + pieces > max) return false;
     const mansard = shape === 'mansard';
     const cap = meshIndex[`${mansard ? 'mansardCap' : 'hipCap'}:${mat}`];
-    if (pieces === 3) push(meshIndex[`${mansard ? 'gambrel' : 'prism'}:${mat}`], x, y, z, mid, h, d, ry);
+    if (pieces === 3) push(meshIndex[`${mansard ? 'gambrel' : 'prism'}:${mat}`], x, y, z, mid, h, d, ry, 0, mat);
     // caps at both ends of the ridge, the far one turned half a turn so its x still runs out to the eave
     const c = Math.cos(ry);
     const s = Math.sin(ry);
     const off = mid * 0.5;
-    push(cap, x + c * off, y, z - s * off, d * 0.5, h, d, ry);
-    push(cap, x - c * off, y, z + s * off, d * 0.5, h, d, ry + Math.PI);
+    push(cap, x + c * off, y, z - s * off, d * 0.5, h, d, ry, 0, mat);
+    push(cap, x - c * off, y, z + s * off, d * 0.5, h, d, ry + Math.PI, 0, mat);
     return true;
   }
 
@@ -454,7 +479,7 @@ function createRoofs({ materials = {}, max = MAX_ROOF_INSTANCES, parent = null }
         if (n + 2 > max) return added;
         const px = x + u * c + zf * s;
         const pz = z - u * s + zf * c;
-        push(meshIndex[`dormer:${mat}`], px, yb, pz, plan.dw, plan.dh, plan.depth, yaw);
+        push(meshIndex[`dormer:${mat}`], px, yb, pz, plan.dw, plan.dh, plan.depth, yaw, 0, mat);
         push(meshIndex.window, px + dx * 0.03, yb + plan.dh * 0.14, pz + dz * 0.03, plan.dw * 0.6, plan.dh * 0.7, 1, yaw);
         added++;
       }
@@ -518,19 +543,26 @@ function createRoofs({ materials = {}, max = MAX_ROOF_INSTANCES, parent = null }
       e[m + 14] = rec[o + 2];
       e[m + 15] = 1;
     }
-    // per-instance tints of the gable screens, in the same order as their matrices
+    // per-instance tints of the gable screens and kinds of the merged roof meshes, in instance order
     const tints = {};
+    const kinds = {};
     for (const style of GABLE_STYLES) {
       const k = meshIndex[`gable:${style}`];
       tints[k] = { arr: new Float32Array(Math.max(1, counts[k]) * 3), i: 0 };
     }
+    for (let k = 0; k < meshes.length; k++) {
+      if (meshMeta[k].kindOf) kinds[k] = { arr: new Float32Array(Math.max(1, counts[k])), i: 0 };
+    }
     for (let i = 0; i < n; i++) {
-      const t = tints[rec[i * STRIDE + 7]];
-      if (!t) continue;
-      t.arr.set(linearRGB(rec[i * STRIDE + 8]), t.i++ * 3);
+      const mi = rec[i * STRIDE + 7];
+      const t = tints[mi];
+      if (t) t.arr.set(linearRGB(rec[i * STRIDE + 8]), t.i++ * 3);
+      const kind = kinds[mi];
+      if (kind) kind.arr[kind.i++] = rec[i * STRIDE + 8];
     }
     meshes.forEach((mesh, k) => {
       if (tints[k]) mesh.geometry.setAttribute('gableTint', new THREE.InstancedBufferAttribute(tints[k].arr, 3));
+      if (kinds[k]) mesh.geometry.setAttribute('roofKind', new THREE.InstancedBufferAttribute(kinds[k].arr, 1));
       mesh.instanceMatrix = new THREE.InstancedBufferAttribute(arrays[k], 16);
       mesh.count = counts[k];
       if (!counts[k]) {
