@@ -330,10 +330,13 @@ function buildStreetDetails(scene, opts = {}) {
   const bend = new THREE.CubicBezierCurve3(
     new THREE.Vector3(0, 8.6, 0), new THREE.Vector3(0, 9.7, 0), new THREE.Vector3(0.35, 10.0, 0), new THREE.Vector3(1.65, 10.0, 0)
   );
+  // The shaft and base caps are buried inside the bend tube and the base flange; the 2.8 m bend is 8.6 m up and
+  // 5.5 cm thick, so 6 x 4 segments stay under a pixel at street viewing angles (the old 12 x 8 was 192 of the 284
+  // triangles per mast; 23k masts made that 6.6 M triangles citywide).
   const bentMastGeo = mergeGeometries([
-    new THREE.CylinderGeometry(0.065, 0.1, 8.6, 10).translate(0, 4.3, 0),
+    new THREE.CylinderGeometry(0.065, 0.1, 8.6, 10, 1, true).translate(0, 4.3, 0),
     new THREE.CylinderGeometry(0.14, 0.14, 0.5, 10).translate(0, 0.25, 0),
-    new THREE.TubeGeometry(bend, 12, 0.055, 8, false)
+    new THREE.TubeGeometry(bend, 6, 0.055, 4, false)
   ].map((g) => g.toNonIndexed()));
   const LED_REACH = 2.05; // luminaire centre from the pole
   // The luminaire housing shares the mast's instance matrix and material, so one instanced mesh carries both: the
@@ -345,15 +348,17 @@ function buildStreetDetails(scene, opts = {}) {
   const ledLensGeo = new THREE.PlaneGeometry(0.66, 0.22).rotateX(Math.PI / 2).translate(LED_REACH, 9.935, 0);
   // Historic gas lantern (origin at the foot): an octagonal cast-iron base, a fluted shaft with a collar, the
   // lamplighter's ladder bar under the lantern, a four-sided glass lantern wider at the top, a roof and a finial
+  // The shaft runs between the base and the lantern; its end caps are inside both, and the 4 cm finial is a 6 x 4
+  // dome. The 10-sided shaft and collar become 8-sided at 2.5 m height, below a pixel at street distance.
   const gasPostGeo = mergeGeometries([
     new THREE.CylinderGeometry(0.15, 0.2, 0.7, 8).translate(0, 0.35, 0),
     new THREE.CylinderGeometry(0.11, 0.11, 0.08, 8).translate(0, 0.74, 0),
-    new THREE.CylinderGeometry(0.055, 0.08, 2.55, 10).translate(0, 2.0, 0),
-    new THREE.CylinderGeometry(0.085, 0.085, 0.07, 10).translate(0, 1.2, 0),
+    new THREE.CylinderGeometry(0.055, 0.08, 2.55, 8, 1, true).translate(0, 2.0, 0),
+    new THREE.CylinderGeometry(0.085, 0.085, 0.07, 8, 1, true).translate(0, 1.2, 0),
     new THREE.BoxGeometry(0.66, 0.04, 0.04).translate(0, 3.05, 0),
     new THREE.CylinderGeometry(0.15, 0.05, 0.16, 4).rotateY(Math.PI / 4).translate(0, 3.36, 0),
     new THREE.CylinderGeometry(0.02, 0.3, 0.2, 4).rotateY(Math.PI / 4).translate(0, 4.0, 0),
-    new THREE.SphereGeometry(0.04, 8, 6).translate(0, 4.14, 0)
+    new THREE.SphereGeometry(0.04, 6, 4).translate(0, 4.14, 0)
   ].map((g) => g.toNonIndexed()));
   const gasGlassGeo = new THREE.CylinderGeometry(0.23, 0.15, 0.48, 4).rotateY(Math.PI / 4).translate(0, 3.68, 0);
 
@@ -1295,12 +1300,14 @@ function buildStreetDetails(scene, opts = {}) {
     }
   }
   // Polish above-ground hydrant: a flanged foot, a tall red barrel with a white reflective band, two outlets and a
-  // domed cap with the operating nut
+  // domed cap with the operating nut. The barrel and upper ring are open where they meet the foot, the band and the
+  // dome; the dome keeps the 10-sided silhouette but three height rings (a 26 cm cap, sub-pixel at 2 m). That takes the
+  // 5,144 hydrants from 266 to 186 triangles each (1.37 M to 0.96 M citywide) without touching the outline.
   const hydrantGeo = mergeGeometries([
     new THREE.CylinderGeometry(0.16, 0.16, 0.06, 10).translate(0, 0.03, 0),
-    new THREE.CylinderGeometry(0.1, 0.1, 0.92, 10).translate(0, 0.52, 0),
-    new THREE.CylinderGeometry(0.13, 0.13, 0.16, 10).translate(0, 0.98, 0),
-    new THREE.SphereGeometry(0.13, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 1.06, 0),
+    new THREE.CylinderGeometry(0.1, 0.1, 0.92, 10, 1, true).translate(0, 0.52, 0),
+    new THREE.CylinderGeometry(0.13, 0.13, 0.16, 10, 1, true).translate(0, 0.98, 0),
+    new THREE.SphereGeometry(0.13, 10, 3, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 1.06, 0),
     new THREE.CylinderGeometry(0.03, 0.03, 0.08, 6).translate(0, 1.22, 0),
     new THREE.CylinderGeometry(0.045, 0.045, 0.3, 8).rotateZ(Math.PI / 2).translate(0, 0.78, 0)
   ].map((g) => g.toNonIndexed()));
@@ -1337,10 +1344,12 @@ function buildStreetDetails(scene, opts = {}) {
   addMatrixArrayInstanced(parkingGeo, parkingMat, parkingMatrices);
   addMatrixArrayInstanced(parkingPanelGeo, parkingPanelMat, parkingMatrices, false);
   addMatrixArrayInstanced(parkingScreenGeo, screenMat, parkingMatrices, false);
-  // Bollard: a 0.9 m cast-iron post with a domed top and a white reflective ring
+  // Bollard: a 0.9 m cast-iron post with a domed top and a white reflective ring. The post is open at both ends (the
+  // foot is in the pavement, the top inside the cap) and the cap has 8 x 3 rings, so 1,981 bollards cost 56 rather than
+  // 88 triangles each.
   const bollardGeo = mergeGeometries([
-    new THREE.CylinderGeometry(0.06, 0.07, 0.86, 8).translate(0, 0.43, 0),
-    new THREE.SphereGeometry(0.065, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 0.86, 0)
+    new THREE.CylinderGeometry(0.06, 0.07, 0.86, 8, 1, true).translate(0, 0.43, 0),
+    new THREE.SphereGeometry(0.065, 8, 3, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 0.86, 0)
   ].map((g) => g.toNonIndexed()));
   const bollardRingGeo = new THREE.CylinderGeometry(0.063, 0.063, 0.06, 8, 1, true).translate(0, 0.74, 0);
   addMatrixArrayInstanced(bollardGeo, castIronMat, bollardMatrices);
@@ -1455,11 +1464,13 @@ function buildStreetDetails(scene, opts = {}) {
   addMatrixArrayInstanced(flowerStandGeo, flowerStandMat, flowerMatrices);
   addMatrixArrayInstanced(flowerShelfGeo, flowerMat, flowerMatrices);
   // Advertising column: a green cast-iron plinth, a poster drum 1.1 m across and 2.4 m tall, a cornice and a dome
+  // The 16-sided plinth/cornice and dome go to 14 sides and four rings (a 0.55 m dome seen from 4 m); the poster drum
+  // keeps its 20 sides because its curve is what the eye reads up close.
   const columnFrameGeo = mergeGeometries([
-    new THREE.CylinderGeometry(0.62, 0.66, 0.32, 16).translate(0, 0.16, 0),
-    new THREE.CylinderGeometry(0.66, 0.6, 0.14, 16).translate(0, 2.79, 0),
-    new THREE.SphereGeometry(0.5, 16, 6, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.55, 1).translate(0, 2.86, 0),
-    new THREE.SphereGeometry(0.07, 8, 6).translate(0, 3.17, 0)
+    new THREE.CylinderGeometry(0.62, 0.66, 0.32, 14).translate(0, 0.16, 0),
+    new THREE.CylinderGeometry(0.66, 0.6, 0.14, 14).translate(0, 2.79, 0),
+    new THREE.SphereGeometry(0.5, 14, 4, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.55, 1).translate(0, 2.86, 0),
+    new THREE.SphereGeometry(0.07, 6, 4).translate(0, 3.17, 0)
   ].map((g) => g.toNonIndexed()));
   const columnDrumGeo = new THREE.CylinderGeometry(0.55, 0.55, 2.4, 20, 1, true).translate(0, 1.52, 0);
   const columnFrameMat = new THREE.MeshStandardNodeMaterial({ color: 0x2a4636, roughness: 0.55, metalness: 0.4 });
