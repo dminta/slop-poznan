@@ -182,6 +182,26 @@ test('P-22 keeps out of lanes narrower than 2.8 m', () => {
   assert.equal(layoutBusMarkings(cramped, [], () => 100).length, 0);
 });
 
+test('P-22 keeps 4 m off a zebra, including exactly at the keep distance and across a bucket edge', () => {
+  const { layoutBusMarkings } = loadModule(readFileSync(join(__dirname, '../js/road-paint.js'), 'utf8'), {
+    imports: { 'three/webgpu': { Color: class {} }, './road-network.js': { laneShiftAt: () => 0 }, './tsl-materials.js': {} }
+  });
+  const edges = road({ half: 2.8, lanes: [0], back: null });
+  edges[0].busLanes = [0];
+  const all = layoutBusMarkings(edges, [], () => 100);
+  assert.equal(all.length, 3, 'marks at s = 7, 37 and 67 m');
+  // The first inscription's samples run x = 15..19 m at z = ±0.81 m. A zebra at x = 23 m is exactly 4 m from the
+  // easternmost sample, so it leaves the mark; 1 cm closer removes it. The bucket must include the x = 19 m edge cell.
+  const at = (x) => layoutBusMarkings(edges, [{ ax: x, az: -10, bx: x, bz: 10 }], () => 100);
+  assert.equal(at(23).length, 3);
+  assert.equal(at(22.99).length, 2);
+  assert.ok(at(22.99).every((m) => m.x > 40), 'only the first inscription is removed');
+  // The same keep on the western side of the samples: x = 11 m is exactly 4 m from the x = 15 m sample.
+  assert.equal(at(11).length, 3);
+  assert.equal(at(11.01).length, 2);
+  assert.equal(at(10.99).length, 3);
+});
+
 test('P-22 glyphs read left to right across the lane in the direction of travel', () => {
   class Attribute { constructor(array) { this.array = Array.from(array); } }
   class Geometry { constructor() { this.attributes = {}; } setAttribute(k, v) { this.attributes[k] = v; } }

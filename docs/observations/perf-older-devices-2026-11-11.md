@@ -316,6 +316,9 @@ The expected gains are on the measured views. "Risk" means risk to visuals or be
 | 11 | **Reduce MSAA** | `antialias: false` changed no measured metric (identical draw calls, render targets, texture memory and GPU timestamp) | None proven; possibly memory/fill on other drivers | Low if it works; unknown | Low (needs device test) |
 | 12 | **HUD/map/audio** | `mapSystem.update` + `audioSystem.update` + buildings/landmarks/lighting are inside the 0.23–0.32 ms `scene` bucket; audio is 10 Hz and early-returns when disabled; DOM HUD is throttled to 250 ms | < 1 ms/frame; not a bottleneck | — | — |
 
+Opportunity 8 (the load-time spatial predicates) was implemented on 2026-11-11; the measured before/after boot times
+and equivalence checks are in [perf-boot-predicates-2026-11-11.md](perf-boot-predicates-2026-11-11.md).
+
 ## What the numbers mean for the low-quality tier
 
 A low tier is **worth adding**, but it should be a package, not one switch:

@@ -32,6 +32,7 @@ import {
   ZAMEK_FORECOURT,
   blockAt,
   pointInPark,
+  pointInBlockPoly,
   parkFreeCells,
   splitDeep,
   roadClearance,
@@ -2891,14 +2892,10 @@ function buildCityBlocks(scene) {
   // island and clear of every roadway and pedestrian corridor: populateBlock fills a whole perimeter block (rows,
   // corner houses, oficyny) on it, so a lot that reaches a street would put houses in the street.
   function insideCurbIsland(x, z, tolerance = 0) {
-    const poly = srcBlock && srcBlock.poly;
-    if (!poly || poly.length < 3) return false;
-    let inside = false;
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const a = poly[i], b = poly[j];
-      if ((a.z > z) !== (b.z > z) && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
-    }
+    if (!srcBlock || !srcBlock.poly || srcBlock.poly.length < 3) return false;
+    const inside = pointInBlockPoly(srcBlock, x, z);
     if (inside || tolerance <= 0) return inside;
+    const poly = srcBlock.poly;
     // A fallback envelope can share the property line with the curb polygon, and a 0.03 m corner outside it used to
     // drop a whole mapped building (block 802's Ogrodowa/Długa frontage). Accept points within `tolerance` of the line;
     // roadway and pedestrian clearance are checked separately and stay strict.

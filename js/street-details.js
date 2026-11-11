@@ -389,7 +389,26 @@ function buildStreetDetails(scene, opts = {}) {
   };
 
   const plazaRects = pavedPlazaRects || [];
-  const inPlaza = (x, z, m = 1.0, exact = true) => plazaRects.some((r) => {
+  // A 64 m bucket index over the plaza/park slabs: inPlaza runs for every furniture candidate and the rect list
+  // includes one entry per paved square row and one whole block per park, so scanning all of them was 3.6% of the boot
+  // profile. Rect bounds are grown by the largest call margin (1.5 m) when bucketing, then the exact test below runs
+  // unchanged.
+  const PLAZA_CELL = 64;
+  const PLAZA_PAD = 1.5;
+  const plazaCells = new Map();
+  for (const r of plazaRects) {
+    const ix0 = Math.floor((r.minX - PLAZA_PAD) / PLAZA_CELL), ix1 = Math.floor((r.maxX + PLAZA_PAD) / PLAZA_CELL);
+    const iz0 = Math.floor((r.minZ - PLAZA_PAD) / PLAZA_CELL), iz1 = Math.floor((r.maxZ + PLAZA_PAD) / PLAZA_CELL);
+    for (let ix = ix0; ix <= ix1; ix++) {
+      for (let iz = iz0; iz <= iz1; iz++) {
+        const k = ix * 100000 + iz;
+        const list = plazaCells.get(k);
+        if (list) list.push(r);
+        else plazaCells.set(k, [r]);
+      }
+    }
+  }
+  const inPlazaRect = (r, x, z, m, exact) => {
     if (x <= r.minX - m || x >= r.maxX + m || z <= r.minZ - m || z >= r.maxZ + m) return false;
     if (!exact || !r.ring) return true;
     // A park's bounds can span several streets (the Rataje island covers 0.7 × 1.7 km). Keep its actual outline,
@@ -404,7 +423,15 @@ function buildStreetDetails(scene, opts = {}) {
       if (Math.hypot(x - a.x - t * dx, z - a.z - t * dz) <= m) return true;
     }
     return inside;
-  });
+  };
+  const inPlaza = (x, z, m = 1.0, exact = true) => {
+    // The buckets only pad the bounds by PLAZA_PAD. A future caller with a larger margin must keep reading every rect,
+    // or it would get silent false negatives (NaN also takes this path).
+    if (!(m <= PLAZA_PAD)) return plazaRects.some((r) => inPlazaRect(r, x, z, m, exact));
+    const list = plazaCells.get(Math.floor(x / PLAZA_CELL) * 100000 + Math.floor(z / PLAZA_CELL));
+    if (!list) return false;
+    return list.some((r) => inPlazaRect(r, x, z, m, exact));
+  };
 
   // True only when (x, z) and its surrounding pad-meter footprint sit on a real curb island (never in a road or median)
   const isOnCurbIsland = (x, z, pad = 0.55) => {

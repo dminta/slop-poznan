@@ -60,6 +60,35 @@ function laneWidth(e, i) {
 
 function layoutBusMarkings(edges, crosswalks, railClearance) {
   const marks = [];
+  // Keep the P-22 inscription 4 m off every zebra. A 16 m bucket list of the zebra segments (each bounds grown by the
+  // 4 m keep) replaces the per-sample scan of all ~2,400 crosswalks: layoutBusMarkings was 3.3% of the boot profile.
+  const ZEBRA_CELL = 16;
+  const ZEBRA_KEEP = 4;
+  const zebraCells = new Map();
+  for (const c of crosswalks) {
+    const ix0 = Math.floor((Math.min(c.ax, c.bx) - ZEBRA_KEEP) / ZEBRA_CELL);
+    const ix1 = Math.floor((Math.max(c.ax, c.bx) + ZEBRA_KEEP) / ZEBRA_CELL);
+    const iz0 = Math.floor((Math.min(c.az, c.bz) - ZEBRA_KEEP) / ZEBRA_CELL);
+    const iz1 = Math.floor((Math.max(c.az, c.bz) + ZEBRA_KEEP) / ZEBRA_CELL);
+    for (let ix = ix0; ix <= ix1; ix++) {
+      for (let iz = iz0; iz <= iz1; iz++) {
+        const k = ix * 100000 + iz;
+        const list = zebraCells.get(k);
+        if (list) list.push(c);
+        else zebraCells.set(k, [c]);
+      }
+    }
+  }
+  const nearCrosswalk = (px, pz) => {
+    const list = zebraCells.get(Math.floor(px / ZEBRA_CELL) * 100000 + Math.floor(pz / ZEBRA_CELL));
+    if (!list) return false;
+    for (const c of list) {
+      const vx = c.bx - c.ax, vz = c.bz - c.az, d = vx * vx + vz * vz;
+      const t = d ? Math.max(0, Math.min(1, ((px - c.ax) * vx + (pz - c.az) * vz) / d)) : 0;
+      if (Math.hypot(px - c.ax - t * vx, pz - c.az - t * vz) < ZEBRA_KEEP) return true;
+    }
+    return false;
+  };
   for (const e of edges) for (const i of e.busLanes || []) {
     if (!(i >= 0 && i < e.lanes.length) || laneWidth(e, i) < BUS_LANE_MIN - 1e-6) continue;
     const o = e.lanes[i];
@@ -72,11 +101,7 @@ function layoutBusMarkings(edges, crosswalks, railClearance) {
       for (let a = -2; a <= 2 && clear; a += 0.5) for (let b = -0.81; b <= 0.81 && clear; b += 0.27) {
         const px = x + e.dx * a + e.rx * b, pz = z + e.dz * a + e.rz * b;
         if (railClearance && railClearance(px, pz, 3) < 2.0) clear = false;
-        for (const c of crosswalks) {
-          const vx = c.bx - c.ax, vz = c.bz - c.az, d = vx * vx + vz * vz;
-          const t = d ? Math.max(0, Math.min(1, ((px - c.ax) * vx + (pz - c.az) * vz) / d)) : 0;
-          if (Math.hypot(px - c.ax - t * vx, pz - c.az - t * vz) < 4) clear = false;
-        }
+        if (nearCrosswalk(px, pz)) clear = false;
       }
       if (clear) marks.push({ x, z, dx: e.dx, dz: e.dz, way: e.busWay });
     }

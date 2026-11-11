@@ -28,6 +28,72 @@ function pointInPoly(poly, x, z) {
   return inside;
 }
 
+// Edge buckets for a polygon, by z. The ray test flips inside only for an edge whose endpoints sit on opposite sides
+// of z (min(az, bz) <= z < max(az, bz)), so a query only has to visit the edges whose z span covers its 4 m slot. Block
+// outlines run 13-2,015 edges (p90 53) and blockAt / insideCurbIsland call the ray test millions of times during the
+// boot; this index cut their edge work by roughly an order of magnitude (pointInPoly was 18.8% of the boot profile).
+// The index is built once per polygon, lazily, as CSR typed arrays: slot `s` owns `edges[offsets[s]..offsets[s + 1])`.
+// Filing and querying use the same clamped `polygonSlot`, so a value one ulp below z1 cannot round past the last slot.
+// The test below keeps the exact edge formula and endpoint pairing of pointInPoly, so boundary points on edges and
+// vertices give the same answer.
+const POLY_SLOT = 4;
+function polygonSlot(z0, slots, v) {
+  const s = Math.floor((v - z0) / POLY_SLOT);
+  return s < 0 ? 0 : s >= slots ? slots - 1 : s;
+}
+
+function createPolygonIndex(poly) {
+  if (!poly || poly.length < 2) {
+    return { z0: 0, z1: 0, slots: 0, offsets: new Int32Array(1), edges: new Int32Array(0) };
+  }
+  let z0 = Infinity, z1 = -Infinity;
+  for (const p of poly) {
+    if (p.z < z0) z0 = p.z;
+    if (p.z > z1) z1 = p.z;
+  }
+  const slots = Math.max(1, Math.ceil((z1 - z0) / POLY_SLOT));
+  // First pass counts the edge entries each slot owns, then the prefix sum turns the counts into offsets.
+  const offsets = new Int32Array(slots + 1);
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[i ? i - 1 : poly.length - 1];
+    const lo = Math.min(a.z, b.z), hi = Math.max(a.z, b.z);
+    if (!(lo < hi)) continue; // horizontal edges never cross the ray
+    const s0 = polygonSlot(z0, slots, lo), s1 = polygonSlot(z0, slots, hi);
+    for (let s = s0; s <= s1; s++) offsets[s + 1]++;
+  }
+  for (let s = 0; s < slots; s++) offsets[s + 1] += offsets[s];
+  const edges = new Int32Array(offsets[slots]);
+  const cursor = offsets.slice(0, slots);
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[i ? i - 1 : poly.length - 1];
+    const lo = Math.min(a.z, b.z), hi = Math.max(a.z, b.z);
+    if (!(lo < hi)) continue;
+    const s0 = polygonSlot(z0, slots, lo), s1 = polygonSlot(z0, slots, hi);
+    for (let s = s0; s <= s1; s++) edges[cursor[s]++] = i;
+  }
+  return { z0, z1, slots, offsets, edges };
+}
+
+function pointInPolyIndexed(poly, index, x, z) {
+  if (!(index.slots > 0) || !(z >= index.z0 && z <= index.z1)) return false;
+  const s = polygonSlot(index.z0, index.slots, z);
+  let inside = false;
+  for (let k = index.offsets[s], end = index.offsets[s + 1]; k < end; k++) {
+    const i = index.edges[k];
+    const a = poly[i], b = poly[i ? i - 1 : poly.length - 1];
+    if ((a.z > z) !== (b.z > z) && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+// The block outline test with the block's own cached index (see createPolygonIndex). Callers that hold a BLOCKS entry
+// share one index; a caller with only a point array can keep one next to it.
+function pointInBlockPoly(b, x, z) {
+  const poly = b.poly;
+  if (!poly || poly.length < 3) return false;
+  return pointInPolyIndexed(poly, b._polyIndex || (b._polyIndex = createPolygonIndex(poly)), x, z);
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Land, water, outskirts, rail, plazas & districts, as {x, z} rings
 // ---------------------------------------------------------------------------------------------------------------------
@@ -197,14 +263,20 @@ const LAND_H = Math.ceil((DBZ1 - DBZ0) / LAND_RES);
 const LAND_CODE = new Uint8Array(LAND_W * LAND_H);
 const LAND_DIST = new Uint8Array(LAND_W * LAND_H);
 (() => {
-  // even-odd scanline fill of one ring at the cell centres
+  // even-odd scanline fill of one ring at the cell centres; the ring's z-slab edge index visits only the edges that can
+  // cross a row (the same bucket as pointInPolyIndexed below), instead of every edge of a 4,000-vertex land ring on
+  // each of the 2,839 rows.
   const fill = (ring, v) => {
+    const index = createPolygonIndex(ring);
     const xs = [];
     for (let j = 0; j < LAND_H; j++) {
       const z = DBZ0 + (j + 0.5) * LAND_RES;
+      if (!(index.slots > 0) || !(z >= index.z0 && z <= index.z1)) continue;
+      const s = polygonSlot(index.z0, index.slots, z);
       xs.length = 0;
-      for (let i = 0, k = ring.length - 1; i < ring.length; k = i++) {
-        const a = ring[i], b = ring[k];
+      for (let n = index.offsets[s], end = index.offsets[s + 1]; n < end; n++) {
+        const i = index.edges[n];
+        const a = ring[i], b = ring[i ? i - 1 : ring.length - 1];
         if ((a.z > z) !== (b.z > z)) xs.push(a.x + ((z - a.z) * (b.x - a.x)) / (b.z - a.z));
       }
       if (!xs.length) continue;
@@ -671,26 +743,55 @@ const BLOCKS = GEO.blocks.map(([flat, rects, park, parkName, isRect, frames], id
 // Park outlines (GEO.parks rings, flat [x, z, ...]) with bounding boxes, shared across city-grid and buildings
 const PARK_RINGS = (GEO.parks || []).flatMap((p) => p.rings || []).map((r) => {
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  const pts = [];
   for (let i = 0; i + 1 < r.length; i += 2) {
+    pts.push({ x: r[i], z: r[i + 1] });
     x0 = Math.min(x0, r[i]); x1 = Math.max(x1, r[i]);
     z0 = Math.min(z0, r[i + 1]); z1 = Math.max(z1, r[i + 1]);
   }
-  return { x0, x1, z0, z1, r };
+  return { x0, x1, z0, z1, r, pts };
 });
 
-function inParkRing(r, x, z) {
-  let ins = false;
-  for (let i = 0, j = r.length - 2; i < r.length; j = i, i += 2) {
-    const xi = r[i], zi = r[i + 1], xj = r[j], zj = r[j + 1];
-    if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) ins = !ins;
+// Spatial bucket for the park rings: a point query visits the few rings whose bounds cover its 64 m cell instead of all
+// 579 (pointInPark was 14% of the headless city-grid build, almost all of it from pieceInPark over park blocks). Built
+// lazily on first query; the per-ring edge index then keeps the outline test to the edges crossing the point's z row.
+const PARK_GRID_CELL = 64;
+let parkGrid = null;
+function parkRingsAt(x, z) {
+  if (!parkGrid) {
+    parkGrid = new Map();
+    PARK_RINGS.forEach((p, i) => {
+      const ix0 = Math.floor(p.x0 / PARK_GRID_CELL), ix1 = Math.floor(p.x1 / PARK_GRID_CELL);
+      const iz0 = Math.floor(p.z0 / PARK_GRID_CELL), iz1 = Math.floor(p.z1 / PARK_GRID_CELL);
+      for (let ix = ix0; ix <= ix1; ix++) {
+        for (let iz = iz0; iz <= iz1; iz++) {
+          const k = ix * 100000 + iz;
+          const list = parkGrid.get(k);
+          if (list) list.push(i);
+          else parkGrid.set(k, [i]);
+        }
+      }
+    });
   }
-  return ins;
+  return parkGrid.get(Math.floor(x / PARK_GRID_CELL) * 100000 + Math.floor(z / PARK_GRID_CELL));
 }
 
-const PARK_CELL = 20;
-
 function pointInPark(x, z) {
-  return PARK_RINGS.some((p) => x > p.x0 && x < p.x1 && z > p.z0 && z < p.z1 && inParkRing(p.r, x, z));
+  const list = parkRingsAt(x, z);
+  if (!list) return false;
+  for (let k = 0; k < list.length; k++) {
+    const p = PARK_RINGS[list[k]];
+    if (!(x > p.x0 && x < p.x1 && z > p.z0 && z < p.z1)) continue;
+    if (pointInPolyIndexed(p.pts, p._polyIndex || (p._polyIndex = createPolygonIndex(p.pts)), x, z)) return true;
+  }
+  return false;
+}
+
+// The park indexes and the ring grid are boot-only (buildings.js park probes and city-grid blockLots); releasing them
+// after the city-grid build gives back their heap on older devices. A later pointInPark call rebuilds both lazily.
+function releaseParkIndexes() {
+  parkGrid = null;
+  for (const p of PARK_RINGS) p._polyIndex = null;
 }
 
 function pieceInPark(x0, x1, z0, z1, xf = null) {
@@ -746,6 +847,7 @@ function subtractRect(r, h) {
   return out;
 }
 
+const PARK_CELL = 20;
 function parkFreeCells(x0, x1, z0, z1, xf = null, footprints = null) {
   const out = [];
   const facilityRects = [];
@@ -1223,7 +1325,7 @@ function blockAt(x, z) {
         }
         if (cut) continue;
       }
-      if (b.rect || pointInPoly(b.poly, x, z)) return b;
+      if (b.rect || pointInBlockPoly(b, x, z)) return b;
     }
   }
   return underpassBlockAt(x, z);
@@ -1810,6 +1912,10 @@ export {
   walkSignal,
   PARK_RINGS,
   pointInPark,
+  createPolygonIndex,
+  pointInPolyIndexed,
+  pointInBlockPoly,
+  releaseParkIndexes,
   parkFreeCells,
   splitDeep,
   blockLots,

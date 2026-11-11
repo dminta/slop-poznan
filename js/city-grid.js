@@ -13,7 +13,11 @@ import {
   blockLots,
   distToLots,
   createTreeWallChecker,
-  SPECIES_CROWN_R
+  SPECIES_CROWN_R,
+  createPolygonIndex,
+  pointInPolyIndexed,
+  pointInBlockPoly,
+  releaseParkIndexes
 } from './city-config.js';
 import { GEO } from './geodata.js';
 import {
@@ -268,6 +272,17 @@ function polygonCentroidArea(pts) {
   let a = 0;
   for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) a += pts[j].x * pts[i].z - pts[i].x * pts[j].z;
   return a * 0.5;
+}
+
+// Cached edge index for a polygon sampled at many points (createPolygonIndex / pointInPolyIndexed in city-config.js).
+// The park and plaza loops below test the same curb or park outline every 11-22 m; the index keeps the exact ray test
+// but visits only the edges whose z span covers the sample (pointInPolygonXZ fell from 11.1% to 0.3% of the headless
+// city-grid build).
+const polygonIndexes = new WeakMap();
+function polygonIn(pts, x, z) {
+  let index = polygonIndexes.get(pts);
+  if (!index) polygonIndexes.set(pts, index = createPolygonIndex(pts));
+  return pointInPolyIndexed(pts, index, x, z);
 }
 
 function pointInPolygonXZ(pts, x, z) {
@@ -942,7 +957,7 @@ function unionPolygons(polys) {
   const courtyards = [];
   for (let i = 0; i < rawRings.length; i++) {
     const r = rawRings[i];
-    const depth = rawRings.filter((o, j) => i !== j && r.every((p) => pointInPolygonXZ(o, p.x, p.z))).length;
+    const depth = rawRings.filter((o, j) => i !== j && r.every((p) => polygonIn(o, p.x, p.z))).length;
     const isCourtyard = depth % 2 === 1 && polygonCentroidArea(r) < 0;
     if (isCourtyard) {
       courtyards.push(ensureCCW(r));
@@ -1124,7 +1139,7 @@ function pavedPlazas() {
     for (let k = 0; k < n; k++) {
       const t = (k + 0.5) / n;
       const x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t;
-      if (pointInPolygonXZ(p.ring, x, z) && !p.holes.some((h) => pointInPolygonXZ(h, x, z))) inside += len / n;
+      if (polygonIn(p.ring, x, z) && !p.holes.some((h) => polygonIn(h, x, z))) inside += len / n;
     }
     return inside;
   };
@@ -1166,7 +1181,7 @@ function pavedPlazas() {
     for (let i = 1; i < cuts.length; i++) {
       if (cuts[i] - cuts[i - 1] < 1e-8) continue;
       const t = (cuts[i] + cuts[i - 1]) * 0.5, x = ax + dx * t, z = az + dz * t;
-      if (pointInPolygonXZ(p.ring, x, z) && !p.holes.some((h) => pointInPolygonXZ(h, x, z))) return true;
+      if (polygonIn(p.ring, x, z) && !p.holes.some((h) => polygonIn(h, x, z))) return true;
     }
     return false;
   }
@@ -1548,7 +1563,7 @@ function buildCityGrid(scene, opts = {}) {
     const edge = offsetPolygonInward(pl.ring, 2.0);
     if (!edge) continue;
     const grownHoles = holes.map((h) => offsetPolygon(h, -2.5) || h);
-    const clear = (x, z) => !grownHoles.some((h) => pointInPolygonXZ(h, x, z));
+    const clear = (x, z) => !grownHoles.some((h) => polygonIn(h, x, z));
     // lampposts every ~30 m round the edge, a bench facing in beside every other one
     const s = polygonCentroidArea(edge) > 0 ? 1 : -1;
     let k = 0;
@@ -1560,7 +1575,7 @@ function buildCityGrid(scene, opts = {}) {
       const tx = (c.x - a.x) / len, tz = (c.z - a.z) / len;
       for (let t = 6 + ((len - 12) % 30) * 0.5; t < len - 5; t += 30, k++) {
         let px = a.x + tx * t, pz = a.z + tz * t;
-        if (!clear(px, pz) || !pointInPolygonXZ(pl.ring, px, pz)) continue;
+        if (!clear(px, pz) || !polygonIn(pl.ring, px, pz)) continue;
         // ensure clearance >= 0.5 m (pole radius 0.2 m -> distance to pl.ring >= 0.70 m)
         let minD = 1e9, closeEdge = -1;
         for (let ri = 0; ri < pl.ring.length; ri++) {
@@ -1578,7 +1593,7 @@ function buildCityGrid(scene, opts = {}) {
           for (const sign of [1, -1]) {
             const snx = (-sign * rdz) / rlen, snz = (sign * rdx) / rlen;
             const sx = px + snx * shift, sz = pz + snz * shift;
-            if (pointInPolygonXZ(pl.ring, sx, sz)) {
+            if (polygonIn(pl.ring, sx, sz)) {
               if (ringDist(pl.ring, sx, sz) >= 0.70 && clear(sx, sz)) {
                 px = sx; pz = sz; shifted = true; break;
               }
@@ -1602,7 +1617,7 @@ function buildCityGrid(scene, opts = {}) {
       for (let gx = pl.minX + SP * 0.5; gx < pl.maxX; gx += SP) {
         for (let gz = pl.minZ + SP * 0.5; gz < pl.maxZ; gz += SP) {
           if (prand(gx, gz, 11) < 0.5) continue;
-          if (!pointInPolygonXZ(inner, gx, gz) || !clear(gx, gz) || !clearRoad(gx, gz, 1.7)) continue;
+          if (!polygonIn(inner, gx, gz) || !clear(gx, gz) || !clearRoad(gx, gz, 1.7)) continue;
           addPlanterTree(gx, gz, prand(gz, gx, 12) < 0.6 ? 1 : 0, 0.8 + prand(gx, gz, 13) * 0.2);
         }
       }
@@ -1728,7 +1743,7 @@ function buildCityGrid(scene, opts = {}) {
         const tx = gx + (prand(gx, gz) - 0.5) * SP * 0.7;
         const tz = gz + (prand(gz, gx, 1) - 0.5) * SP * 0.7;
         if (prand(tx, tz, 9) < 0.3) continue; // glades
-        if (!pointInPolygonXZ(inner, tx, tz) || (roadCuts && !lawns.some((p) => pointInPolygonXZ(p, tx, tz))) ||
+        if (!polygonIn(inner, tx, tz) || (roadCuts && !lawns.some((p) => polygonIn(p, tx, tz))) ||
           distToWater(tx, tz) < 4) continue;
         const scale = 0.9 + prand(tx, tz, 3) * 0.4;
         if (bLots.length > 0 && distToLots(tx, tz, bLots) < Math.max(1.2, 6.07 * scale)) continue;
@@ -1751,9 +1766,9 @@ function buildCityGrid(scene, opts = {}) {
       const across = ((z - az) * dx - (x - ax) * dz) / len;
       return along < -half - 0.7 || along > len + half + 0.7 || Math.abs(across) > half + 0.7;
     });
-    const clearOf = (rings, x, z) => rings.every((h) => !pointInPolygonXZ(h, x, z) && ringDist(h, x, z) >= 1);
+    const clearOf = (rings, x, z) => rings.every((h) => !polygonIn(h, x, z) && ringDist(h, x, z) >= 1);
     const onLawn = (x, z) => blockAt(x, z) === b && ringDist(b.poly, x, z) >= 0.95 &&
-      lawns.some((p) => pointInPolygonXZ(p, x, z) && ringDist(p, x, z) >= 0.7) &&
+      lawns.some((p) => polygonIn(p, x, z) && ringDist(p, x, z) >= 0.7) &&
       beds.every((p) => ringDist(p, x, z) >= 1) && clearOf(bedHoles, x, z) && clearOf(ponds, x, z) &&
       distToWater(x, z) >= 2 && cutClear(x, z);
     const clearOfParkTrees = (x, z) => {
@@ -1773,9 +1788,9 @@ function buildCityGrid(scene, opts = {}) {
           let px = a.x + ((c.x - a.x) * t) / len;
           let pz = a.z + ((c.z - a.z) * t) / len;
           let y = PARK_Y;
-          if (beds.some((p) => pointInPolygonXZ(p, px, pz))) {
+          if (beds.some((p) => polygonIn(p, px, pz))) {
             // 1.3 m outward from the 1.05 m line is past the curb, inward it is still in the park
-            if (!pointInPolygonXZ(b.poly, px + nx * 1.3, pz + nz * 1.3)) { nx = -nx; nz = -nz; }
+            if (!pointInBlockPoly(b, px + nx * 1.3, pz + nz * 1.3)) { nx = -nx; nz = -nz; }
             let moved = false;
             for (let d = 0.25; d <= 2.5 && !moved; d += 0.25) {
               const qx = px + nx * d, qz = pz + nz * d;
@@ -1785,15 +1800,15 @@ function buildCityGrid(scene, opts = {}) {
             }
             if (!moved) continue;
           } else if (roadCuts) {
-            if (!slabPieces.some((p) => pointInPolygonXZ(p, px, pz))) continue;
+            if (!slabPieces.some((p) => polygonIn(p, px, pz))) continue;
             if (!cutClear(px, pz)) {
               // Step inward off the cut curb where the walk beside a corridor is narrow; drop the site only if 2.5 m
               // still leaves it on the edge.
-              if (!pointInPolygonXZ(b.poly, px + nx * 1.3, pz + nz * 1.3)) { nx = -nx; nz = -nz; }
+              if (!pointInBlockPoly(b, px + nx * 1.3, pz + nz * 1.3)) { nx = -nx; nz = -nz; }
               let moved = false;
               for (let d = 0.25; d <= 2.5 && !moved; d += 0.25) {
                 const qx = px + nx * d, qz = pz + nz * d;
-                if (cutClear(qx, qz) && slabPieces.some((p) => pointInPolygonXZ(p, qx, qz))) {
+                if (cutClear(qx, qz) && slabPieces.some((p) => polygonIn(p, qx, qz))) {
                   px = qx; pz = qz; moved = true;
                 }
               }
@@ -1825,10 +1840,10 @@ function buildCityGrid(scene, opts = {}) {
       if (!ring.some((p) => p.x > b.minX && p.x < b.maxX && p.z > b.minZ && p.z < b.maxZ)) continue;
       // A ring mostly inside (Park Dąbrowskiego: 37 of 38 vertices) has the stray vertices pulled onto the block's
       // outline 1 m in
-      const inside = ring.filter((p) => pointInPolygonXZ(b.poly, p.x, p.z)).length;
+      const inside = ring.filter((p) => pointInBlockPoly(b, p.x, p.z)).length;
       if (inside >= ring.length * 0.8) {
         const edge = inside < ring.length ? offsetPolygonInward(b.poly, 1) : null;
-        const pts = edge ? ring.map((p) => (pointInPolygonXZ(edge, p.x, p.z) ? p : nearestOnRing(edge, p.x, p.z))) : ring;
+        const pts = edge ? ring.map((p) => (polygonIn(edge, p.x, p.z) ? p : nearestOnRing(edge, p.x, p.z))) : ring;
         // Projecting this narrow mapped strip onto its block pulls one end across Milczańska. Its original
         // ring is simple, so preserve that outline and cut the road corridor from it below.
         const milczanska = b.minX === 1350 && b.maxX === 3048.5 && ring.length === 72 &&
@@ -1867,8 +1882,8 @@ function buildCityGrid(scene, opts = {}) {
           const tx = gx + (prand(gx, gz) - 0.5) * SP * 0.7;
           const tz = gz + (prand(gz, gx, 1) - 0.5) * SP * 0.7;
           if (prand(tx, tz, 9) < 0.3) continue; // glades
-          if (!pointInPolygonXZ(b.poly, tx, tz) || distToWater(tx, tz) < 4) continue;
-          if (![[0, 0], [E, 0], [-E, 0], [0, E], [0, -E]].every(([dx, dz]) => pointInPolygonXZ(ring, tx + dx, tz + dz))) continue;
+          if (!pointInBlockPoly(b, tx, tz) || distToWater(tx, tz) < 4) continue;
+          if (![[0, 0], [E, 0], [-E, 0], [0, E], [0, -E]].every(([dx, dz]) => polygonIn(ring, tx + dx, tz + dz))) continue;
           const scale = 0.9 + prand(tx, tz, 3) * 0.4;
           if (bLots.length > 0 && distToLots(tx, tz, bLots) < Math.max(1.2, 6.07 * scale)) continue;
           const r = prand(tx, tz, 2);
@@ -1966,6 +1981,9 @@ function buildCityGrid(scene, opts = {}) {
   console.info(`[cityGrid] ${benchMatrices.length} benches, ${lampMatrices.length} lampposts, ` +
     `${treeSites.length} park & plaza trees; ${propColliders.length} player colliders; ${offTrack} props kept off the ` +
     `tracks; ${cutPlazas.length} squares paved round tram track`);
+  // pointInPark ran for the last boot consumer above (buildings.js built before this, blockLots during it); the park
+  // indexes and ring grid are boot-only, so give them back. A late call rebuilds both lazily.
+  releaseParkIndexes();
   return { group, sidewalks, footprints, colliders, propColliders, cutPlazas, roadCutPlazas };
 }
 
