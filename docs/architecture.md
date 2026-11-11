@@ -201,8 +201,9 @@ Physics notes:
 - Wrap every storage access in `try { } catch { /* reason */ }`. Storage may be unavailable, and that must never block play.
 
 ## HUD, CSS and cache busting
-- `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently `20261111-compact-street-signs`). When you change
-  `style.css`, bump that query in `index.html` in the same commit; GitHub Pages caches it.
+- `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently
+  `20261111-two-line-street-signs`). When you change `style.css`, bump that query in `index.html` in the same commit;
+  GitHub Pages caches it.
 - Colours are tokens on `:root`: `--accent`/`--accent-ink` mark whatever is active. The accent is a lighter tint of
   Poznań's brand blue (#234792) so it reads on the dark glass: `--accent` #7ba7f4 (≈ 7.7:1 on the glass) and
   `--accent-ink` #0b1733 (≈ 7.3:1 on the accent). The same blue is the map's GPS route in `city-map.js` (MAP.route);
@@ -228,11 +229,13 @@ Physics notes:
   (`city-config.js`) joins the two streets of a crossing with `STREET_JOIN` (" / ", the way Polish addresses write a
   corner) and puts a landmark first with " · "; `renderLocation` splits on the same strings (the map's hover and
   radar text show the label as it is).
-  On phones (`max-width: 620px`) and short windows (`max-height: 500px`) the same markup renders as a compact one-line
-  plate: kind and name share a baseline (8.5 px / 13 px, 3–4 px padding), the district strip is hidden, and the variant
-  classes keep their DOM. Two corner plates stay side by side because the row is capped at `calc(100vw - 2 * var(--edge))`
-  and each name ellipsizes inside its plate; `.location-place` and `.location-near` shrink to 9.5 px and 8.5 px. Touch
-  landscape still hides `.hud-bottom-left` at `max-height: 500px`, where the stick and speed cluster leave no room.
+  On phones (`max-width: 620px`) and short windows (`max-height: 500px`) the same markup renders as a compact two-line
+  plate, 34.7 px tall against 53 px on desktop: the kind sits over the name (8.5 px / 13 px, 3 px vertical padding) as
+  on the wall plate, while the district band loses its text and becomes a 4 px `--sign-blue` border along the plate's
+  foot. That border, unlike the district span, also shows outside every district ring, where `renderLocation` creates no
+  span. Two corner plates stay side by side because the row is capped at `calc(100vw - 2 * var(--edge))` and each name
+  ellipsizes inside its plate; `.location-place` and `.location-near` shrink to 9.5 px and 8.5 px. Touch landscape still
+  hides `.hud-bottom-left` at `max-height: 500px`, where the stick and speed cluster leave no room.
   Not " & ": OSM names contain it ("Kiss & Ride" by the Dworzec, which once read "Kiss & Ride & Zachodnia").
 - Fonts: Inter (UI) and Overpass (plates) from Google Fonts; the css2 API serves their latin-ext subset by `unicode-range`,
   which covers Ą Ć Ę Ł Ń Ó Ś Ź Ż. A replacement family must have latin-ext.

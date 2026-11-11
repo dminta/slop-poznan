@@ -1392,29 +1392,29 @@ body.is-boosting #hud-speed-meter {
   .camera-switch { border-top: 0; }
 }
 
-/* Phones, and short landscape windows: the plates shrink from the two-line wall plate (kind over name over the district
-   strip) to one line, kind and name on one baseline, no district strip. At 390 px this takes the pair from 53 px to
-   ~22 px tall, so the location HUD stays well clear of the touch stick below it. Both corner plates stay on one line:
-   the row shrinks them to the viewport width and each name ellipsizes inside its plate, and a lone plate may use most
-   of the width instead of the desktop 220 px cap. */
+/* Phones, and short landscape windows: the plates keep the wall plate's stacking (kind over name) but at roughly
+   two-thirds size, 8.5 / 13 px with 3 px vertical padding, and the district band becomes a thin blue rule along the
+   plate's foot. The rule is a border on the plate, not the district span: plates outside every district ring have no
+   span in the DOM (main.js only creates it for non-empty text), and they keep the strip too. At 390 px a plate is
+   34.7 px tall against 53 px on desktop, so the location HUD stays well clear of the touch stick below it. Both corner
+   plates stay on one line: the row shrinks them to the viewport width and each name ellipsizes inside its plate, and a
+   lone plate may use most of the width instead of the desktop 220 px cap. */
 @media (max-width: 620px), (max-height: 500px) {
   .location { gap: 4px; max-width: calc(100vw - 2 * var(--edge)); }
   .location-place { max-width: calc(100vw - 2 * var(--edge)); font-size: 9.5px; letter-spacing: 0.08em; }
   .location-near { flex: none; font-size: 8.5px; letter-spacing: 0.04em; white-space: nowrap; }
   .location-signs { max-width: calc(100vw - 2 * var(--edge)); gap: 4px; }
   .street-sign {
-    flex-direction: row;
-    align-items: baseline;
-    gap: 4px;
     min-width: 0;
     max-width: min(82vw, 480px);
-    padding: 3px 7px 4px;
+    padding: 3px 7px 3px;
+    border-bottom: 4px solid var(--sign-blue);
   }
   .street-sign-kind,
   .street-sign-name,
   .street-sign-district { padding: 0; }
-  .street-sign-kind { flex: none; font-size: 8.5px; }
-  .street-sign-name { flex: 1 1 auto; min-width: 0; font-size: 13px; }
+  .street-sign-kind { font-size: 8.5px; }
+  .street-sign-name { min-width: 0; font-size: 13px; }
   .street-sign-district { display: none; }
 }
 
