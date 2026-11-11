@@ -34,6 +34,7 @@
 3. `ThirdPersonControllerManager(scene, allColliders, { keepOut: tramInfra.railCorridor })`. Saved player state is
    restored right after it is constructed.
 4. Then `CameraSystem`, `TouchControls`, `CityAudioSystem`, `setupSceneCulling`, the WebGPU-only instanced-matrix swap, the
+   static-matrix freeze (`js/static-matrices.js`, see [rendering.md](rendering.md#static-and-dynamic-transforms)), the
    SSR/post-processing pipeline, `GamepadControls`, UI wiring and `CityMapSystem`.
 5. `precompileShaders()`, then one warm-up frame. The loading overlay hides and `audioSystem.ready` is set only after
    `onSubmittedWorkDone`.
@@ -73,7 +74,8 @@ The loop runs these in order:
    `cameraSystem.currentPos`; landmark animation receives the active lighting preset)
 9. `mapSystem.update`
 10. `audioSystem.update`
-11. `updateSceneCulling` (skipped on the warm-up frame)
+11. `updateSceneCulling` (skipped on the warm-up frame), then `updateDynamicMatrices` for the moving roots (the rest of
+    the scene graph is frozen; see [rendering.md](rendering.md#static-and-dynamic-transforms))
 12. `renderPipeline.render()`
 
 Why the order matters:

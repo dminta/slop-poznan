@@ -23,6 +23,7 @@ import { CameraSystem, CAMERA_PRESETS } from './cameras.js';
 import { LightingSystem } from './lighting.js';
 import { CityMapSystem } from './city-map.js';
 import { setupSceneCulling, updateSceneCulling } from './scene-culling.js';
+import { collectDynamicRoots, freezeStaticMatrices, updateDynamicMatrices } from './static-matrices.js';
 import { CityAudioSystem } from './audio-system.js';
 
 // js/main.js
@@ -217,6 +218,12 @@ async function initApp() {
       }
     });
   }
+
+  // The city no longer moves after the build. Freeze the scene's world matrices, which three.js would otherwise
+  // recompute for all 41k meshes in every pass (18.4% of frame CPU in the 2026-11-11 audit), and keep only the roots
+  // that really move updated every frame (static-matrices.js, docs/rendering.md).
+  const dynamicRoots = collectDynamicRoots(scene, lightingSystem, controllerManager);
+  freezeStaticMatrices(scene, dynamicRoots);
 
   // 5. TSL RenderPipeline with Half-Res Screen Space Reflections (SSRNode), Bloom & Filmic Toning
   //    Fade out distant and matte surfaces so SSR spends its rays on visible glossy reflections.
@@ -750,6 +757,9 @@ async function initApp() {
     mapSystem.update();
     audioSystem.update(dt, elapsed, cameraSystem.camera, lightingSystem.activePresetId);
     if (warmedUp) updateSceneCulling(cameraSystem.camera.position); // the warm-up frame draws every chunk
+    // The scene graph is frozen (see the freeze above): update the moving roots only, once, for both the shadow and the
+    // scene passes that renderPipeline.render() submits
+    updateDynamicMatrices(dynamicRoots);
 
     // Render frame via TSL RenderPipeline (SSR + Bloom)
     if (!warmedUp) {

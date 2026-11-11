@@ -5,6 +5,7 @@
 - `js/lighting.js` (`LightingSystem`) owns the sky, sun and shadows, the hemisphere light, the IBL bake, the aerial fog and the time-of-day presets. `js/post-processing.js` owns the camera "look" for each preset: exposure, white balance, contrast, saturation, bloom and vignette.
 - `js/tsl-materials.js` holds the shared TSL materials and helpers, plus `cityUniforms`, the live uniforms that the presets drive. Many modules (outskirts, bridges, city-grid, street-details, actor-models, trees, pedestrians) also build their own node materials inline.
 - `js/scene-culling.js` runs once after the city is built and rewrites the static scene graph (see Culling).
+- `js/static-matrices.js` freezes the static scene graph after the build and updates only the listed dynamic roots each frame (see Static and dynamic transforms).
 
 ## Renderer and the WebGL2 fallback
 - `WebGPURenderer` is created with `antialias` (MSAA), `reversedDepthBuffer: true`, pixel ratio fixed at 1, shadows on, and `ClusteredLighting`. three.js is `@dev` from jsDelivr, so APIs can drift. `lighting.js` already has to cope with this: `SunLight.registerNode` exists only on newer builds, and older builds go through `renderer.library.addLight`.
@@ -119,6 +120,52 @@
   proud of the facade on angled frontage frames. The pool is `frustumCulled = false` like the other streamed detail
   meshes, so it stays out of chunking.
   [Measurement record](observations/shop-signs-atlas-2026-11-08.md).
+
+## Static and dynamic transforms
+
+Almost the whole scene is built once and never moves: 41,065 meshes in the 2026-11-11 audit, of which only the player
+models, the pooled vehicle lights, the animated Ratusz goats and the light pools change a transform. three.js still
+walked the whole graph and recomputed the same world matrices in every render pass: `updateMatrixWorld` was 18.4% of
+the frame CPU at Rynek. `js/static-matrices.js` freezes that walk after the build (`scene.updateMatrixWorld(true)` once,
+then `scene.matrixWorldAutoUpdate = false`) and `main.js` calls `updateDynamicMatrices` on an explicit list of roots
+before `renderPipeline.render()`.
+
+The registry is an explicit root list, not a `staticRoot` group. The moving objects are spread over the traffic, tram,
+landmark and controller systems, and several are direct scene children built by their own modules (the player's crowds
+and helmet, the light pools). Re-parenting them into one group would change direct parent references and the space
+matrices existing code uses, for no gain. A missing root freezes in place, so the list is part of the rendering
+contract: `collectDynamicRoots` (same file) names every root, and anything that starts moving at runtime must live under
+one of them.
+
+The roots updated every frame:
+- `sunLight`, `hemiLight` and `sky` (time presets re-pose the sun and re-parent the sky into the PMREM bake scene).
+- `LandmarksDynamic`: the Ratusz goats and their doors (the static `Landmarks` root is frozen). This is the only
+  animated landmark part; clocks, flags and water are shader- or texture-driven.
+- `TrafficAndPedestrians` and `Trams`: their instanced meshes only rewrite `instanceMatrix` (which needs
+  `instanceMatrix.needsUpdate`, not an object matrix update), but the pooled headlights, emergency lights and their
+  targets are re-posed every frame.
+- `StoreClusteredLights` and `StreetClusteredLights`: the store and streetlight spot pools move from a fixed site list
+  (`buildings.js` `updateLights`, `street-details.js` `update`).
+- The player's four entity roots (`PlayerPerson`, `PlayerTaxiCar`, `PlayerCyclist`, `PlayerHelicopter`), the cyclist's
+  separate helmet mesh, and the player's `PersonCrowd` meshes. The skinned crowds animate through vertex attributes, so
+  their object matrices never change, but they are listed because they are scene children that move with the player.
+
+Everything else is frozen: `CityGrid`, `Airport`, `CityBlocks`, `Canopies`, `StreetDetails`, `Landmarks`, `Outskirts`,
+`Bridges`, `TramInfrastructure`, `RoadMarkings`, `BusLaneMarkings`, the shadow stand-ins and the trees (which already
+freeze their own cells). Streamed building detail, trees, traffic and pedestrian instances update per-instance data
+only; visibility (`visible`, chunks, tree cells) is not a matrix update. Frustum culling and the shadow cascades read
+`matrixWorld`, so the one freeze pass must run after `setupSceneCulling` and after the instanced-matrix swap, and any
+object added to the scene after it needs `updateMatrixWorld(true)` (or must sit under a listed root). A bare `scene.add`
+after the freeze never gets a world matrix.
+
+Measured 2026-11-11, 1280 × 720 WebGPU, on this Mac. The renderer's `scene.updateMatrixWorld()` pass costs 1.3–1.7 ms
+per call (43,499 objects) and 13–22 ms at `Emulation.setCPUThrottlingRate 6` across runs; the 531 objects under the 17
+dynamic roots cost 0.02–0.14 ms. In a 5 s Rynek CPU profile `updateMatrixWorld` falls from 16.4% of samples to 0.3% at
+60 Hz and from 10.8% to 0.38% at 6×. Alternating the automatic and frozen update inside one run, Rynek street view
+renderer CPU falls
+13.3/12.6 → 10.0/10.3 ms at 60 Hz and 111.3/105.6 → 85.1/80.8 ms at 6× (frame 129.9/122.7 → 102.2/95.3 ms);
+Centrum drone falls 21.0/21.9 → 18.9/20.4 ms and 145.7/129.5 → 119.1/112.9 ms. The same-frame render is
+pixel-identical with and without the freeze, and the change adds no draw call.
 
 ## Start-up compile and warm-up
 - The order matters. First an empty `renderPipeline.render()` with `scene.visible = false`, which configures the MSAA and depth formats of the scene target. Then `compileAsync` over 16 parallel workers, with the scene pass's render target and MRT bound. Then the first loop frame runs with frustum culling off and `updateSceneCulling` skipped, so the shadow-pass pipelines compile behind the loading screen.
