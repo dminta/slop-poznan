@@ -199,7 +199,7 @@ test('the bridge corridor AABB reject keeps every SAT answer', async () => {
 
 test('the segment grid bbox reject keeps the same nearest segment', () => {
   const source = read('tram-infra.js');
-  const slice = cut(source, 'function segmentGrid(cell = 24) {', '\n// Distance to the nearest car lane');
+  const slice = cut(source, 'function segmentGrid(cell = 24, walk = false) {', '\n// Distance to the nearest car lane');
   const reject = '            const lim = bestD + 1e-9;\n' +
     '            if (x < sg.x0 - lim || x > sg.x1 + lim || z < sg.z0 - lim || z > sg.z1 + lim) continue;\n';
   assert.ok(slice.includes(reject), 'segment-grid reject marker moved');

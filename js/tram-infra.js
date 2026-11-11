@@ -126,10 +126,18 @@ function pointAt(tr, s) {
   return { x: p[2 * lo] + (p[2 * hi] - p[2 * lo]) * t, z: p[2 * lo + 1] + (p[2 * hi + 1] - p[2 * lo + 1]) * t, dx, dz, k: lo };
 }
 
-// Uniform grid of line segments for nearest-segment queries
-function segmentGrid(cell = 24) {
+// Uniform grid of line segments for nearest-segment queries. `walk` files each segment only in the cells it crosses
+// (cheaper for a long diagonal, and exact for nearest queries); the default bbox filing keeps the cell-major
+// insertion order that `crossing` exposes (the dropper arrays of the tram/rail layouts are order-sensitive).
+function segmentGrid(cell = 24, walk = false) {
   const cells = new Map();
   const key = (ix, iz) => ix * 100003 + iz;
+  const put = (ix, iz, sg) => {
+    const k = key(ix, iz);
+    const list = cells.get(k);
+    if (list) list.push(sg);
+    else cells.set(k, [sg]);
+  };
   let stamp = 0; // query counter: a segment spanning several cells is visited once per query (cheaper than a Set)
   return {
     add(ax, az, bx, bz, data) {
@@ -137,12 +145,35 @@ function segmentGrid(cell = 24) {
         ax, az, bx, bz, data, _q: 0,
         x0: Math.min(ax, bx), x1: Math.max(ax, bx), z0: Math.min(az, bz), z1: Math.max(az, bz)
       };
-      for (let ix = Math.floor(Math.min(ax, bx) / cell); ix <= Math.floor(Math.max(ax, bx) / cell); ix++) {
-        for (let iz = Math.floor(Math.min(az, bz) / cell); iz <= Math.floor(Math.max(az, bz) / cell); iz++) {
-          const k = key(ix, iz);
-          if (!cells.has(k)) cells.set(k, []);
-          cells.get(k).push(seg);
+      if (!walk) {
+        for (let ix = Math.floor(seg.x0 / cell); ix <= Math.floor(seg.x1 / cell); ix++) {
+          for (let iz = Math.floor(seg.z0 / cell); iz <= Math.floor(seg.z1 / cell); iz++) put(ix, iz, seg);
         }
+        return;
+      }
+      // File the cells the segment actually passes through, not its whole bounding box: a 300 m diagonal track spans
+      // ~150 bbox cells at 24 m but crosses only ~18. `add` was 310 ms of the 2026-11-11 headless rail layout. A
+      // segment within r of a query point crosses the query box and therefore one of its cells; the 1 µm pad covers
+      // an endpoint on a cell boundary.
+      const gx0 = Math.floor((seg.x0 - 1e-6) / cell), gx1 = Math.floor((seg.x1 + 1e-6) / cell);
+      const gz0 = Math.floor((seg.z0 - 1e-6) / cell), gz1 = Math.floor((seg.z1 + 1e-6) / cell);
+      // A vertical segment has no slope to follow; file its column (or the two columns its boundary splits into).
+      if (bx === ax) {
+        for (let ix = gx0; ix <= gx1; ix++) {
+          for (let iz = gz0; iz <= gz1; iz++) put(ix, iz, seg);
+        }
+        return;
+      }
+      if (gx0 === gx1) {
+        for (let iz = gz0; iz <= gz1; iz++) put(gx0, iz, seg);
+        return;
+      }
+      const slope = (bz - az) / (bx - ax);
+      for (let ix = gx0; ix <= gx1; ix++) {
+        const x0 = Math.max(seg.x0, ix * cell), x1 = Math.min(seg.x1, (ix + 1) * cell);
+        const z0 = az + (x0 - ax) * slope, z1 = az + (x1 - ax) * slope;
+        const lo = Math.min(z0, z1), hi = Math.max(z0, z1);
+        for (let iz = Math.floor((lo - 1e-6) / cell); iz <= Math.floor((hi + 1e-6) / cell); iz++) put(ix, iz, seg);
       }
     },
     // Nearest segment within r of (x, z) passing `accept`: { seg, d, t, qx, qz } or null
@@ -206,7 +237,7 @@ function segmentGrid(cell = 24) {
 // set before its connectivity filter, so streets traffic doesn't use count as roadway too), and the curves traffic
 // turns along through the junctions (8 chords each): poles kept 2 m off the straight lanes alone stood on 15 turns
 function laneDistance(network) {
-  const laneGrid = segmentGrid(32);
+  const laneGrid = segmentGrid(32, true);
   const shiftAt = network && network.laneShiftAt;
   for (const e of (network && (network.paintEdges || network.edges)) || []) {
     const span = e.span ?? e.len;
@@ -305,7 +336,7 @@ function layoutTramInfrastructure(network) {
   const arms = [];
   const rosettes = [];
   const droppers = [];
-  const supported = segmentGrid(32); // short marks across each track where a support already carries its wire
+  const supported = segmentGrid(32, true); // short marks across each track where a support already carries its wire
   // Poles by 4 m cell. poleAt used to scan the whole pole list (4,490 poles in the 2026-11-11 tram layout) for every
   // placement; a 1.2 m match window spans at most two cells per axis, and the lowest index among the hits is the pole
   // the linear scan found first.
@@ -570,7 +601,7 @@ function layoutRailInfrastructure(network) {
   // 128 m cells: underDeck asks with r = 25, so 32 m cells meant 4-9 empty Map lookups for almost every one of the
   // 645 k queries (0.56 s of the 2026-11-11 headless rail layout); a 128 m cell needs one or two, and the deck
   // segments are long, so the few occupied cells cost little.
-  const deckGrid = segmentGrid(128);
+  const deckGrid = segmentGrid(128, true);
   const deckBox = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
   for (const br of BRIDGES) {
     if (br.name === 'Most Teatralny' || br.name === 'Most Uniwersytecki' || br.name === 'Most Dworcowy' || br.name === 'Franklina Roosevelta' || br.name === 'Dworcowa') continue;
@@ -625,7 +656,7 @@ function layoutRailInfrastructure(network) {
     const h = tramGrid.nearest(x, z, r);
     return h ? h.d : r;
   };
-  const levelGrid = segmentGrid(32);
+  const levelGrid = segmentGrid(32, true);
   const lx = GEO.levelCrossings || [];
   for (let k = 0; k + 1 < lx.length; k += 2) levelGrid.add(lx[k], lx[k + 1], lx[k], lx[k + 1] + 0.001, k / 2);
   const segNear = (A, B, r) => {
@@ -956,7 +987,7 @@ function layoutRailInfrastructure(network) {
   // Runs meeting end to end across a switch (another track chain) are joined at the midpoint of their ends
   const runEnds = [];
   for (const r of runs) runEnds.push(r.pts[0], r.pts[r.pts.length - 1]);
-  const endGrid = segmentGrid(16);
+  const endGrid = segmentGrid(16, true);
   runEnds.forEach((p, i) => endGrid.add(p.x, p.z, p.x, p.z, i));
   for (let i = 0; i < runEnds.length; i++) {
     const p = runEnds[i];
@@ -976,7 +1007,7 @@ function layoutRailInfrastructure(network) {
   for (const e of ends) {
     for (const sg of [1, -1]) targets.push({ x: e.x - e.dz * sg * (RAIL_FENCE_O + 0.15), z: e.z + e.dx * sg * (RAIL_FENCE_O + 0.15), run: -1 });
   }
-  const targetGrid = segmentGrid(16);
+  const targetGrid = segmentGrid(16, true);
   targets.forEach((t, i) => targetGrid.add(t.x, t.z, t.x, t.z, i));
   const stubRuns = [];
   const stubbed = new Set();
@@ -1003,7 +1034,7 @@ function layoutRailInfrastructure(network) {
   }
   runs.push(...stubRuns);
 
-  const fenceGrid = segmentGrid(32);
+  const fenceGrid = segmentGrid(32, true);
   for (const r of runs) {
     for (let k = 0; k + 1 < r.pts.length; k++) fenceGrid.add(r.pts[k].x, r.pts[k].z, r.pts[k + 1].x, r.pts[k + 1].z, r);
   }
@@ -1018,7 +1049,7 @@ function layoutRailInfrastructure(network) {
   const arms = [];
   const portals = [];
   const droppers = [];
-  const supported = segmentGrid(32);
+  const supported = segmentGrid(32, true);
   const mastAt = (x, z, h) => {
     for (const q of masts) if (Math.abs(q.x - x) < 1.5 && Math.abs(q.z - z) < 1.5) return q;
     const q = { x, z, h };
@@ -1109,30 +1140,59 @@ function layoutRailInfrastructure(network) {
   const tiles = new Map();
   const tileKey = (tx, tz) => (tx + 512) * 1024 + (tz + 512); // small integers (±32 km): fast Map keys
   let corridorCells = 0;
-  let lastKey = -1;
-  let lastTile = null;
   const fillRect = (ax, az, dx, dz, len, o0, o1) => {
     const nx = -dz;
     const nz = dx;
-    const xs = [ax + nx * o0 - dx * 0.25, ax + nx * o1 - dx * 0.25, ax + nx * o0 + dx * (len + 0.25), ax + nx * o1 + dx * (len + 0.25)];
-    const zs = [az + nz * o0 - dz * 0.25, az + nz * o1 - dz * 0.25, az + nz * o0 + dz * (len + 0.25), az + nz * o1 + dz * (len + 0.25)];
-    for (let iz = Math.floor(Math.min(...zs)); iz <= Math.floor(Math.max(...zs)); iz++) {
-      for (let ix = Math.floor(Math.min(...xs)); ix <= Math.floor(Math.max(...xs)); ix++) {
-        const cx = ix + 0.5 - ax;
-        const cz = iz + 0.5 - az;
-        const u = cx * dx + cz * dz;
-        const o = cx * nx + cz * nz;
-        if (u < -0.25 || u > len + 0.25 || o < o0 || o > o1) continue;
-        const k = tileKey(ix >> 6, iz >> 6);
-        if (k !== lastKey) {
-          lastKey = k;
-          lastTile = tiles.get(k);
-          if (!lastTile) tiles.set(k, (lastTile = new Uint8Array(KEEPOUT_TILE * KEEPOUT_TILE)));
+    // The rotated rectangle's four corners, without the temporary arrays: the scan below only needs their bounds.
+    const x0 = ax + nx * o0 - dx * 0.25, z0 = az + nz * o0 - dz * 0.25;
+    const x1 = ax + nx * o1 - dx * 0.25, z1 = az + nz * o1 - dz * 0.25;
+    const x2 = ax + nx * o0 + dx * (len + 0.25), z2 = az + nz * o0 + dz * (len + 0.25);
+    const x3 = ax + nx * o1 + dx * (len + 0.25), z3 = az + nz * o1 + dz * (len + 0.25);
+    const minX = Math.min(x0, x1, x2, x3), maxX = Math.max(x0, x1, x2, x3);
+    const minZ = Math.min(z0, z1, z2, z3), maxZ = Math.max(z0, z1, z2, z3);
+    const ix0 = Math.floor(minX), ix1 = Math.floor(maxX);
+    const iz0 = Math.floor(minZ), iz1 = Math.floor(maxZ);
+    const cellInside = (ix, iz) => {
+      const cx = ix + 0.5 - ax;
+      const cz = iz + 0.5 - az;
+      const u = cx * dx + cz * dz;
+      const o = cx * nx + cz * nz;
+      return !(u < -0.25 || u > len + 0.25 || o < o0 || o > o1);
+    };
+    const bound = (slope, off, lo, hi, out) => {
+      if (slope > 0) { out[0] = (lo - off) / slope; out[1] = (hi - off) / slope; }
+      else if (slope < 0) { out[0] = (hi - off) / slope; out[1] = (lo - off) / slope; }
+      else if (off < lo || off > hi) return false;
+      else { out[0] = -Infinity; out[1] = Infinity; }
+      return true;
+    };
+    const uB = [0, 0], oB = [0, 0];
+    for (let iz = iz0; iz <= iz1; iz++) {
+      const cz = iz + 0.5 - az;
+      // along = ix*dx + U0 and across = ix*nx + O0 on this row; each is monotone in ix, so the true cells form one run
+      const U0 = (0.5 - ax) * dx + cz * dz;
+      const O0 = (0.5 - ax) * nx + cz * nz;
+      if (!bound(dx, U0, -0.25, len + 0.25, uB) || !bound(nx, O0, o0, o1, oB)) continue;
+      let lo = Math.ceil(Math.max(uB[0], oB[0])) - 2;
+      let hi = Math.floor(Math.min(uB[1], oB[1])) + 2;
+      if (lo < ix0) lo = ix0;
+      if (hi > ix1) hi = ix1;
+      if (lo > hi) continue;
+      while (lo <= hi && !cellInside(lo, iz)) lo++;
+      if (lo > hi) continue;
+      while (hi > lo && !cellInside(hi, iz)) hi--;
+      for (let ix = lo; ix <= hi;) {
+        const tx = ix >> 6;
+        const end = Math.min(hi, (tx + 1) * 64 - 1);
+        const k = tileKey(tx, iz >> 6);
+        let tile = tiles.get(k);
+        if (!tile) tiles.set(k, (tile = new Uint8Array(KEEPOUT_TILE * KEEPOUT_TILE)));
+        const base = (iz & 63) << 6;
+        for (; ix <= end; ix++) {
+          const c = (ix & 63) + base;
+          if (!tile[c]) corridorCells++;
+          tile[c] = 1;
         }
-        const tile = lastTile;
-        const c = (ix & 63) + ((iz & 63) << 6);
-        if (!tile[c]) corridorCells++;
-        tile[c] = 1;
       }
     }
   };

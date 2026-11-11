@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { Fn, float, color, uniform, mod, fract, step, smoothstep, mix, uv, texture, attribute, vec2, floor, sin, positionWorld } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { SIGNAL_SITES, SIGNAL_PLANS, updateSignal, JUNCTIONS, blockAt, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES, createTreeWallChecker, OSM_TREES, isWater } from './city-config.js';
+import { SIGNAL_SITES, SIGNAL_PLANS, updateSignal, JUNCTIONS, blockAt, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES, createTreeWallChecker, OSM_TREES, isWater, createPolygonIndex, pointInPolyIndexed } from './city-config.js';
 import { buildRoadNetwork, CROSSWALK, CROSSWALK_REACH, STOP_SETBACK } from './road-network.js';
 import { cityUniforms, createTreeGrateMaterial } from './tsl-materials.js';
 import { createTreeField, SPECIES_CROWN_R } from './trees.js';
@@ -418,21 +418,72 @@ function buildStreetDetails(scene, opts = {}) {
       }
     }
   }
+  let plazaIndexes = new WeakMap();
+  // Distance-side index for a plaza/park outline: its edges filed in 8 m cells. A point outside the outline only needs
+  // the edges within the call margin (<= PLAZA_PAD 1.5 m); scanning the whole 1,000-2,000 vertex outline for each OSM
+  // tree inside a park block's bbox was still 21% of the 2026-11-11 headless boot after the containment index.
+  const RING_CELL = 8;
+  const ringCell = (v) => Math.floor(v / RING_CELL);
+  let ringGrids = new WeakMap();
+  function ringEdgeGrid(ring) {
+    let grid = ringGrids.get(ring);
+    if (grid) return grid;
+    grid = new Map();
+    const add = (k, i) => {
+      const list = grid.get(k);
+      if (list) list.push(i); else grid.set(k, [i]);
+    };
+    for (let i = 0; i < ring.length; i++) {
+      const b = ring[i], a = ring[i ? i - 1 : ring.length - 1];
+      const minX = Math.min(a.x, b.x), maxX = Math.max(a.x, b.x);
+      const minZ = Math.min(a.z, b.z), maxZ = Math.max(a.z, b.z);
+      const gx0 = ringCell(minX), gx1 = ringCell(maxX);
+      const gz0 = ringCell(minZ), gz1 = ringCell(maxZ);
+      if (gx0 === gx1) {
+        for (let gz = gz0; gz <= gz1; gz++) add(gx0 * 100003 + gz, i);
+        continue;
+      }
+      const slope = (b.z - a.z) / (b.x - a.x);
+      for (let gx = gx0; gx <= gx1; gx++) {
+        const x0 = Math.max(minX, gx * RING_CELL), x1 = Math.min(maxX, (gx + 1) * RING_CELL);
+        const z0 = a.z + (x0 - a.x) * slope, z1 = a.z + (x1 - a.x) * slope;
+        const lo = Math.min(z0, z1), hi = Math.max(z0, z1);
+        for (let gz = ringCell(lo - 1e-6); gz <= ringCell(hi + 1e-6); gz++) add(gx * 100003 + gz, i);
+      }
+    }
+    ringGrids.set(ring, grid);
+    return grid;
+  }
+  function nearRingEdge(ring, x, z, m) {
+    const grid = ringEdgeGrid(ring);
+    const n = ring.length;
+    for (let gx = ringCell(x - m - 1e-6); gx <= ringCell(x + m + 1e-6); gx++) {
+      for (let gz = ringCell(z - m - 1e-6); gz <= ringCell(z + m + 1e-6); gz++) {
+        const list = grid.get(gx * 100003 + gz);
+        if (!list) continue;
+        for (const i of list) {
+          const a = ring[i ? i - 1 : n - 1], b = ring[i];
+          const dx = b.x - a.x, dz = b.z - a.z;
+          const len2 = dx * dx + dz * dz;
+          const t = len2 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / len2)) : 0;
+          if (Math.hypot(x - a.x - t * dx, z - a.z - t * dz) <= m) return true;
+        }
+      }
+    }
+    return false;
+  }
   const inPlazaRect = (r, x, z, m, exact) => {
     if (x <= r.minX - m || x >= r.maxX + m || z <= r.minZ - m || z >= r.maxZ + m) return false;
     if (!exact || !r.ring) return true;
     // A park's bounds can span several streets (the Rataje island covers 0.7 × 1.7 km). Keep its actual outline,
     // including the margin at each edge, rather than suppressing furniture on unrelated sidewalks in that box.
-    let inside = false;
-    for (let i = 0, j = r.ring.length - 1; i < r.ring.length; j = i++) {
-      const a = r.ring[j], b = r.ring[i];
-      if ((a.z > z) !== (b.z > z) && x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x) inside = !inside;
-      const dx = b.x - a.x, dz = b.z - a.z;
-      const len2 = dx * dx + dz * dz;
-      const t = len2 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / len2)) : 0;
-      if (Math.hypot(x - a.x - t * dx, z - a.z - t * dz) <= m) return true;
-    }
-    return inside;
+    // The ray test uses the park block's z-slot index (city-config.js createPolygonIndex): the 61,550 park/plaza
+    // trees ask each large outline dozens of times, and the full edge scan (every edge's distance, rings of up to
+    // ~2,000 vertices) was 25.6% of the 2026-11-11 headless boot.
+    let index = plazaIndexes.get(r);
+    if (!index) plazaIndexes.set(r, index = createPolygonIndex(r.ring));
+    if (pointInPolyIndexed(r.ring, index, x, z)) return true;
+    return nearRingEdge(r.ring, x, z, m);
   };
   const inPlaza = (x, z, m = 1.0, exact = true) => {
     // The buckets only pad the bounds by PLAZA_PAD. A future caller with a larger margin must keep reading every rect,
@@ -2629,6 +2680,9 @@ function buildStreetDetails(scene, opts = {}) {
     return matrices.length;
   }
   scene.add(group);
+  // The plaza/park outline indexes are boot-only; a late inPlaza() (addRuntimeSignalHeads) rebuilds them lazily.
+  plazaIndexes = new WeakMap();
+  ringGrids = new WeakMap();
   const result = { group, footprints, colliders, signalClock, audioSignals, treePlacement, roadNetwork: treeNetwork,
     vehicleHeads: s1Matrices.length, runtimeHeads: [], addRuntimeSignalHeads, auditRuntimeSignalHeads, update };
   return result;

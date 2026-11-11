@@ -16,7 +16,7 @@ import { GEO } from './geodata.js';
 // Conventions: north = -z, east = +x. Every directed edge has a unit direction (dx, dz) and a right normal
 // (rx, rz) = (-dz, dx). Lanes are lateral offsets to the right of the centreline, sorted left to right.
 
-const CELL = 32;
+const CELL = 16;
 const LANE_CLEAR = 1.2; // half width each lane keeps free of obstacles
 const LANE_W = 3.6; // lane spacing
 // Between an intersection box and its stop lines: the crosswalk band right at the box, a P-10 zebra 4 m deep (the
@@ -95,27 +95,31 @@ function laneShiftAt(e, s) {
 const laneOffset = (e, i, s = 0) => e.lanes[i] + laneShiftAt(e, s);
 
 function buildRoadNetwork(sidewalks, obstacles) {
-  // 1. Spatial hash of ground footprints: curbs bound the roads, everything else also blocks pedestrians
+  // 1. Spatial hash of ground footprints: curbs bound the roads, everything else also blocks pedestrians. Curbs and
+  // obstacles live in separate hashes because every query asks for one kind only (the 0.3 m curb probe was scanning
+  // every obstacle filed in the same cell): `query` was 398 ms of the 2026-11-11 headless road-network build.
+  const curbs = new Map();
   const hash = new Map();
-  const cellKey = (ix, iz) => (ix + 512) * 1024 + iz + 512;
+  const cellKey = (ix, iz) => (ix + 1024) * 2048 + iz + 1024; // 16 m cells: x ±570, z ±177 in the detail box
 
-  function insert(r) {
+  function insert(map, r) {
     for (let ix = Math.floor(r.minX / CELL); ix <= Math.floor(r.maxX / CELL); ix++) {
       for (let iz = Math.floor(r.minZ / CELL); iz <= Math.floor(r.maxZ / CELL); iz++) {
         const k = cellKey(ix, iz);
-        if (!hash.has(k)) hash.set(k, []);
-        hash.get(k).push(r);
+        const list = map.get(k);
+        if (list) list.push(r);
+        else map.set(k, [r]);
       }
     }
   }
-  for (const r of sidewalks) insert({ minX: r.minX, maxX: r.maxX, minZ: r.minZ, maxZ: r.maxZ, curb: true });
-  for (const r of obstacles) insert(r);
+  for (const r of sidewalks) insert(curbs, { minX: r.minX, maxX: r.maxX, minZ: r.minZ, maxZ: r.maxZ });
+  for (const r of obstacles) insert(r.curb ? curbs : hash, r);
 
-  // Calls fn(rect) for every footprint overlapping the box until fn returns true
-  function query(minX, maxX, minZ, maxZ, fn) {
+  // Calls fn(rect) for every footprint of `map` overlapping the box until fn returns true
+  function query(map, minX, maxX, minZ, maxZ, fn) {
     for (let ix = Math.floor(minX / CELL); ix <= Math.floor(maxX / CELL); ix++) {
       for (let iz = Math.floor(minZ / CELL); iz <= Math.floor(maxZ / CELL); iz++) {
-        const list = hash.get(cellKey(ix, iz));
+        const list = map.get(cellKey(ix, iz));
         if (!list) continue;
         for (const r of list) {
           if (r.minX < maxX && r.maxX > minX && r.minZ < maxZ && r.maxZ > minZ && fn(r)) return true;
@@ -132,7 +136,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
   }
 
   const walkable = (minX, maxX, minZ, maxZ) => onLand(minX, maxX, minZ, maxZ) &&
-    !query(minX, maxX, minZ, maxZ, (r) => !r.curb && !r.walkable);
+    !query(hash, minX, maxX, minZ, maxZ, (r) => !r.walkable);
   // Lanes follow the real streets: the rectangles standing in for irregular sidewalks may reach a little past their
   // curbs, and the footprints city-grid.js hands over for median islands and park blocks are their bounding boxes,
   // which on a turned block take in the streets around it. So only a curb right at (x, z), medians by their real
@@ -141,6 +145,8 @@ function buildRoadNetwork(sidewalks, obstacles) {
   const OUTLINED = BLOCKS.filter((b) => b.median);
   const boxKey = (r) => [r.minX, r.maxX, r.minZ, r.maxZ].map((v) => Math.round(v * 2)).join(',');
   const outlineBoxes = new Set(BLOCKS.filter((b) => b.median || b.park > 0.6).map(boxKey));
+  const outlinedObstacles = new Set(obstacles.filter((r) => outlineBoxes.has(boxKey(r)))); // park/median boxes
+  const smallObstacle = (r) => r.maxX - r.minX < 50 || r.maxZ - r.minZ < 50;
   const outlineCells = new Map(); // 64 m cells -> the outlined blocks reaching into them
   for (const b of OUTLINED) {
     for (let ix = Math.floor((b.minX - 2) / 64); ix <= Math.floor((b.maxX + 2) / 64); ix++) {
@@ -171,9 +177,9 @@ function buildRoadNetwork(sidewalks, obstacles) {
     return false;
   }
   const blockedOnStreet = (x, z, clear) => !onLand(x - clear, x + clear, z - clear, z + clear) ||
-    query(x - 0.3, x + 0.3, z - 0.3, z + 0.3, (r) => r.curb) ||
+    query(curbs, x - 0.3, x + 0.3, z - 0.3, z + 0.3, () => true) ||
     nearOutline(x, z, clear) ||
-    query(x - clear, x + clear, z - clear, z + clear, (r) => !r.curb && (r.maxX - r.minX < 50 || r.maxZ - r.minZ < 50) && !outlineBoxes.has(boxKey(r)));
+    query(hash, x - clear, x + clear, z - clear, z + clear, (r) => smallObstacle(r) && !outlinedObstacles.has(r));
 
   // 2. Streets from the centreline graph: junctions (graph nodes a few metres apart merged into one) and straight runs
   //    between them, with a shape node at every bend, so every edge stays straight
@@ -912,24 +918,57 @@ function buildRoadNetwork(sidewalks, obstacles) {
     function crossingRuns(e, lanes, ids, all = false) {
       const runs = [];
       const chains = new Set(ids.map((i) => streetTracks[i].chain));
+      // The piece endpoints projected into the edge's along/across frame. A piece's samples all lie between them, so a
+      // piece whose span misses the edge band, or whose across span cannot reach any lane, can be skipped: it can
+      // neither start nor keep a run, and it closes the runs active when it starts. In the 2026-11-11 headless build
+      // the base pass asked every chain piece of a street for every one of its edges and shift candidates; most pieces
+      // run hundreds of metres past the edge (crossingRuns 218 ms self).
+      const ex = e.sx, ez = e.sz, edx = e.dx, edz = e.dz, elen = e.len;
+      const erx = e.rx, erz = e.rz;
+      const C = OPPOSING_CLEAR;
       for (const chain of chains) {
         const pieces = chainTracks.get(chain);
         if (!pieces) continue;
         const active = new Map(); // lane -> its run along the chain
+        const closeActive = () => {
+          for (let i = 0; i < lanes.length; i++) {
+            const r = active.get(i);
+            if (r) {
+              runs.push(r);
+              active.delete(i);
+            }
+          }
+        };
         let s = 0;
         for (const t of pieces) {
-          // A track running with the edge carries traffic the same way; only a crossing or oncoming piece can
-          // leave the lane in an opposing body overlap.
           const oncoming = all || t.ux * e.dx + t.uz * e.dz < 0.5;
+          const bx = t.ax + t.ux * t.len;
+          const bz = t.az + t.uz * t.len;
+          const along0 = (t.ax - ex) * edx + (t.az - ez) * edz;
+          const along1 = (bx - ex) * edx + (bz - ez) * edz;
+          const lat0 = (t.ax - ex) * erx + (t.az - ez) * erz;
+          const lat1 = (bx - ex) * erx + (bz - ez) * erz;
+          const alongMin = Math.min(along0, along1), alongMax = Math.max(along0, along1);
+          const latMin = Math.min(lat0, lat1), latMax = Math.max(lat0, lat1);
+          let nearLane = false;
+          for (let i = 0; i < lanes.length; i++) {
+            if (latMax > lanes[i] - C && latMin < lanes[i] + C) { nearLane = true; break; }
+          }
+          if (!oncoming || alongMax < 0 || alongMin > elen || !nearLane) {
+            // every sample is out of band or outside every lane's clearance: the first sample would close every run
+            if (active.size) closeActive();
+            s += t.len;
+            continue;
+          }
           for (let d = 0; d <= t.len; d += 1) {
             const x = t.ax + t.ux * d;
             const z = t.az + t.uz * d;
-            const along = (x - e.sx) * e.dx + (z - e.sz) * e.dz;
-            const lat = (x - e.sx) * e.rx + (z - e.sz) * e.rz;
+            const along = (x - ex) * edx + (z - ez) * edz;
+            const lat = (x - ex) * erx + (z - ez) * erz;
             // the three sample-wide terms do not vary by lane (crossingRuns is called for every shift candidate)
-            const inBand = oncoming && along >= 0 && along <= e.len;
+            const inBand = along >= 0 && along <= elen;
             for (let i = 0; i < lanes.length; i++) {
-              const close = inBand && Math.abs(lat - lanes[i]) < OPPOSING_CLEAR;
+              const close = inBand && Math.abs(lat - lanes[i]) < C;
               if (close) {
                 let r = active.get(i);
                 if (!r) {
@@ -1751,50 +1790,77 @@ function offsetLine(pts, o) {
   });
 }
 
-// The largest strongly connected set of `list` (a Set), going on from item e to the items next(e)
+// The largest strongly connected set of `list` (a Set), going on from item e to the items next(e). Typed CSR adjacency
+// and stacks: the 2026-11-11 profile still had this pass at 1.5% of the browser boot, mostly the per-edge arrays and
+// the `[node, index]` stack pairs.
 function largestComponent(list, next) {
-  const index = new Map(list.map((e, i) => [e, i]));
-  const succ = list.map((e) => next(e).map((f) => index.get(f)).filter((j) => j !== undefined));
-  const pred = list.map(() => []);
-  succ.forEach((s, i) => {
-    for (const j of s) pred[j].push(i);
-  });
+  const items = [...list];
+  const n = items.length;
+  const index = new Map(items.map((e, i) => [e, i]));
+  const succStart = new Int32Array(n + 1);
+  const succFlat = [];
+  for (let i = 0; i < n; i++) {
+    for (const f of next(items[i])) {
+      const j = index.get(f);
+      if (j !== undefined) succFlat.push(j);
+    }
+    succStart[i + 1] = succFlat.length;
+  }
+  const succ = Int32Array.from(succFlat);
+  const predStart = new Int32Array(n + 1);
+  for (let i = 0; i < succ.length; i++) predStart[succ[i] + 1]++;
+  for (let i = 0; i < n; i++) predStart[i + 1] += predStart[i];
+  const pred = new Int32Array(succ.length);
+  const cursor = predStart.slice(0, n);
+  for (let i = 0; i < n; i++) {
+    for (let k = succStart[i]; k < succStart[i + 1]; k++) pred[cursor[succ[k]]++] = i;
+  }
   // Kosaraju: finishing order going forwards, then components going backwards from the last finished
-  const visited = new Uint8Array(list.length);
-  const order = [];
-  for (let root = 0; root < list.length; root++) {
+  const visited = new Uint8Array(n);
+  const order = new Int32Array(n);
+  let orderLen = 0;
+  const stack = new Int32Array(n);
+  const stackAt = new Int32Array(n);
+  for (let root = 0; root < n; root++) {
     if (visited[root]) continue;
     visited[root] = 1;
-    const stack = [[root, 0]];
-    while (stack.length) {
-      const top = stack[stack.length - 1];
-      if (top[1] < succ[top[0]].length) {
-        const j = succ[top[0]][top[1]++];
+    let sp = 1;
+    stack[0] = root;
+    stackAt[0] = succStart[root];
+    while (sp) {
+      const e = stack[sp - 1];
+      if (stackAt[sp - 1] < succStart[e + 1]) {
+        const j = succ[stackAt[sp - 1]++];
         if (!visited[j]) {
           visited[j] = 1;
-          stack.push([j, 0]);
+          stack[sp] = j;
+          stackAt[sp] = succStart[j];
+          sp++;
         }
       } else {
-        order.push(top[0]);
-        stack.pop();
+        order[orderLen++] = e;
+        sp--;
       }
     }
   }
-  const comp = new Int32Array(list.length).fill(-1);
+  const comp = new Int32Array(n).fill(-1);
   let best = -1;
   let bestSize = 0;
-  for (let k = order.length - 1, c = 0; k >= 0; k--) {
-    if (comp[order[k]] >= 0) continue;
-    const stack = [order[k]];
-    comp[order[k]] = c;
+  for (let k = orderLen - 1, c = 0; k >= 0; k--) {
+    const root = order[k];
+    if (comp[root] >= 0) continue;
+    let sp = 1;
+    stack[0] = root;
+    comp[root] = c;
     let size = 0;
-    while (stack.length) {
-      const i = stack.pop();
+    while (sp) {
+      const i = stack[--sp];
       size++;
-      for (const p of pred[i]) {
+      for (let q = predStart[i]; q < predStart[i + 1]; q++) {
+        const p = pred[q];
         if (comp[p] < 0) {
           comp[p] = c;
-          stack.push(p);
+          stack[sp++] = p;
         }
       }
     }
@@ -1804,7 +1870,9 @@ function largestComponent(list, next) {
     }
     c++;
   }
-  return new Set(list.filter((_, i) => comp[i] === best));
+  const out = new Set();
+  for (let i = 0; i < n; i++) if (comp[i] === best) out.add(items[i]);
+  return out;
 }
 
 // Cubic Bézier from the end of lane i on edge e to the start of lane j on edge f: a quarter-circle-like

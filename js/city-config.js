@@ -254,7 +254,9 @@ const CITY_BOUNDS = { minX: DBX0, maxX: DBX1, minZ: DBZ0, maxZ: DBZ1, sidewalkHe
 // links' corridors, carried 15 m past each end so abutments join the land). DIST is each cell's distance to the nearest
 // water cell in metres (8-neighbour chamfer, capped at 255), with deck cells pinned to 255: the shore margins callers
 // ask for apply along the banks but never narrow a bridge, so the controllers' 8 m shore clamp still lets cars across.
-// Outside the box is neither land nor water. ~1.4 M cells, ~40 ms at boot.
+// Outside the box is neither land nor water. 6,806 × 2,838 = 19.3 M cells after the 2026-11-08 west expansion; the
+// fill is ~20 ms, the bridge capsules ~7 ms and the chamfer ~15 ms with the near-water block skip (the whole section
+// was ~236 ms before; measured 2026-11-12 in Node).
 // ---------------------------------------------------------------------------------------------------------------------
 const LAND_RES = 2;
 const TRAM_WIDTH = 6.5; // one tram corridor (two tracks and their clearance), as tools/poz-roads.mjs TRAM_W
@@ -324,39 +326,86 @@ const LAND_DIST = new Uint8Array(LAND_W * LAND_H);
       }
     }
   }
-  // chamfer distance to water (2 m orthogonal, 2.83 m diagonal steps), in metres
+  // chamfer distance to water (2 m orthogonal, 2.83 m diagonal steps), in metres. Only cells within 127 cells
+  // (Chebyshev) of a water cell can come out under 255 m, so the two passes skip 32-cell blocks farther than that:
+  // 72% of the detail box is over 255 m from water. A skipped cell keeps 1e9 and becomes 255 in the conversion; every
+  // path that can beat 255 lies inside the mask, so the retained values are bit-identical (checked cell for cell).
   const D = new Float32Array(LAND_W * LAND_H);
   for (let k = 0; k < D.length; k++) D[k] = LAND_CODE[k] === 0 ? 0 : 1e9;
-  const o = LAND_RES, d = LAND_RES * Math.SQRT2;
+  const BLOCK = 32;
+  const BW = Math.ceil(LAND_W / BLOCK), BH = Math.ceil(LAND_H / BLOCK);
+  const waterBlocks = new Uint8Array(BW * BH);
   for (let j = 0; j < LAND_H; j++) {
+    const row = (j / BLOCK) | 0;
+    for (let i = 0; i < LAND_W; i++) {
+      if (LAND_CODE[j * LAND_W + i] === 0) waterBlocks[row * BW + ((i / BLOCK) | 0)] = 1;
+    }
+  }
+  const nearBlocks = new Uint8Array(BW * BH);
+  for (let bj = 0; bj < BH; bj++) {
+    for (let bi = 0; bi < BW; bi++) {
+      if (!waterBlocks[bj * BW + bi]) continue;
+      for (let dj = -4; dj <= 4; dj++) {
+        const jj = bj + dj;
+        if (jj < 0 || jj >= BH) continue;
+        for (let di = -4; di <= 4; di++) {
+          const ii = bi + di;
+          if (ii >= 0 && ii < BW) nearBlocks[jj * BW + ii] = 1;
+        }
+      }
+    }
+  }
+  const o = LAND_RES, d = LAND_RES * Math.SQRT2;
+  for (let bj = 0; bj < BH; bj++) {
+    const j0 = bj * BLOCK, j1 = Math.min(LAND_H, j0 + BLOCK);
+    for (let j = j0; j < j1; j++) {
+      for (let bi = 0; bi < BW; bi++) {
+        if (!nearBlocks[bj * BW + bi]) continue;
+        const i0 = bi * BLOCK, i1 = Math.min(LAND_W, i0 + BLOCK);
+        for (let i = i0; i < i1; i++) {
+          const k = j * LAND_W + i;
+          let v = D[k];
+          if (!v) continue;
+          if (i > 0) v = Math.min(v, D[k - 1] + o);
+          if (j > 0) {
+            v = Math.min(v, D[k - LAND_W] + o);
+            if (i > 0) v = Math.min(v, D[k - LAND_W - 1] + d);
+            if (i + 1 < LAND_W) v = Math.min(v, D[k - LAND_W + 1] + d);
+          }
+          D[k] = v;
+        }
+      }
+    }
+  }
+  for (let bj = BH - 1; bj >= 0; bj--) {
+    const j0 = bj * BLOCK, j1 = Math.min(LAND_H, j0 + BLOCK);
+    for (let j = j1 - 1; j >= j0; j--) {
+      for (let bi = BW - 1; bi >= 0; bi--) {
+        if (!nearBlocks[bj * BW + bi]) continue;
+        const i0 = bi * BLOCK, i1 = Math.min(LAND_W, i0 + BLOCK);
+        for (let i = i1 - 1; i >= i0; i--) {
+          const k = j * LAND_W + i;
+          let v = D[k];
+          if (!v) continue;
+          if (i + 1 < LAND_W) v = Math.min(v, D[k + 1] + o);
+          if (j + 1 < LAND_H) {
+            v = Math.min(v, D[k + LAND_W] + o);
+            if (i + 1 < LAND_W) v = Math.min(v, D[k + LAND_W + 1] + d);
+            if (i > 0) v = Math.min(v, D[k + LAND_W - 1] + d);
+          }
+          D[k] = v;
+        }
+      }
+    }
+  }
+  for (let j = 0; j < LAND_H; j++) {
+    const row = (j / BLOCK) | 0;
     for (let i = 0; i < LAND_W; i++) {
       const k = j * LAND_W + i;
-      let v = D[k];
-      if (!v) continue;
-      if (i > 0) v = Math.min(v, D[k - 1] + o);
-      if (j > 0) {
-        v = Math.min(v, D[k - LAND_W] + o);
-        if (i > 0) v = Math.min(v, D[k - LAND_W - 1] + d);
-        if (i + 1 < LAND_W) v = Math.min(v, D[k - LAND_W + 1] + d);
-      }
-      D[k] = v;
+      LAND_DIST[k] = LAND_CODE[k] === 2 || !nearBlocks[row * BW + ((i / BLOCK) | 0)]
+        ? 255 : Math.min(255, Math.round(D[k]));
     }
   }
-  for (let j = LAND_H - 1; j >= 0; j--) {
-    for (let i = LAND_W - 1; i >= 0; i--) {
-      const k = j * LAND_W + i;
-      let v = D[k];
-      if (!v) continue;
-      if (i + 1 < LAND_W) v = Math.min(v, D[k + 1] + o);
-      if (j + 1 < LAND_H) {
-        v = Math.min(v, D[k + LAND_W] + o);
-        if (i + 1 < LAND_W) v = Math.min(v, D[k + LAND_W + 1] + d);
-        if (i > 0) v = Math.min(v, D[k + LAND_W - 1] + d);
-      }
-      D[k] = v;
-    }
-  }
-  for (let k = 0; k < D.length; k++) LAND_DIST[k] = LAND_CODE[k] === 2 ? 255 : Math.min(255, Math.round(D[k]));
 })();
 const landCell = (x, z) => {
   const i = Math.floor((x - DBX0) / LAND_RES), j = Math.floor((z - DBZ0) / LAND_RES);

@@ -125,7 +125,10 @@ share are not thinned; [central-density record](observations/central-density-202
   load-time predicates (boot 18.4 → 11.9 s at 1× on a busy machine,
   [record](observations/perf-boot-predicates-2026-11-11.md)), the block frontage / curb / tram-rail indexes of boot
   part 2 (`outlineRay` and the tram/rail nearest queries; headless build 15.4 → 9.5 s;
-  [record](observations/perf-boot-2-2026-11-11.md)), a low graphics tier (`js/graphics-quality.js`:
+  [record](observations/perf-boot-2-2026-11-11.md)), boot part 3 (land raster near-water block skip, road-network
+  crossing-run rejects / CSR components / split footprint hash, city-grid ring and road-segment buckets, rail
+  keep-out row spans; browser boot 1× −4 % and 6× −21 %, headless build 14.7 → 9.4 s;
+  [record](observations/perf-boot-3-2026-11-11.md)), a low graphics tier (`js/graphics-quality.js`:
   `?quality=` or auto-detected from the GPU identity / WebGL2 / ≤ 4 cores / ≤ 4 GB / touch-first unknown GPU; Rynek
   renderer CPU 16.3 → 12.0 ms, GPU 34 → 6 ms), halved mural / tram plate canvases
   ([record](observations/perf-memory-2026-11-11.md)), the low-tier tree profile
@@ -136,9 +139,10 @@ share are not thinned; [central-density record](observations/central-density-202
   integrated GPU; `?stats=1` shows a copyable report for that.
   Retained JS heap after GC is ~890 MB high / ~820 MB low after releasing two accidentally captured build scopes
   (−104 MB, [record](observations/perf-heap-2026-11-11.md)).
-  Remaining: tree LOD / draw distance beyond the low tier, then the boot entries the two index passes left:
-  `city-config.js`'s module import (land raster), `buildRoadNetwork` (`crossingRuns`, the largest-component pass, the
-  footprint hash inserts), `city-grid.js` square paving, and the rail keep-out raster.
+  Remaining: tree LOD / draw distance beyond the low tier; the 1× browser boot is now dominated by the unchanged
+  `nearestCurbFrame` / `pointInPolyIndexed` / `roadClearance` / `outlineDist` entries and by shader compile/warm-up,
+  not by the four part-3 targets. The land raster's 19.3 M cells are built in ~0.05 s and kept as two `Uint8Array`s;
+  no further boot index is obvious without a new browser profile.
   [Ranked opportunities](observations/perf-older-devices-2026-11-11.md).
 - Road levels and richer road-priority classification; revisit only with a runtime consumer.
 - Additional height sources (nDSM/LoD1/LoD2) and GEOPOZ machine-readable data: research candidates.

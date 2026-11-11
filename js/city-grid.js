@@ -255,15 +255,66 @@ function parkBedInset(b, roadCuts) {
   return roadCuts ? 0.8 : Math.min(5, Math.min(b.maxX - b.minX, b.maxZ - b.minZ) * 0.2);
 }
 
-// Distance from (x, z) to the nearest edge of a closed ring
-function ringDist(ring, x, z) {
-  let best = Infinity;
-  for (let i = 0; i < ring.length; i++) {
-    const a = ring[i];
-    const c = ring[(i + 1) % ring.length];
-    const dx = c.x - a.x, dz = c.z - a.z, l2 = dx * dx + dz * dz;
-    const t = l2 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / l2)) : 0;
-    best = Math.min(best, Math.hypot(x - a.x - t * dx, z - a.z - t * dz));
+// Distance from (x, z) to the nearest edge of a closed ring, or `limit` when every edge is farther (the caller only
+// compares it with a threshold, so a capped value keeps the comparison exact). The first query builds a 16 m edge grid
+// for the ring, then each later query visits only the cells whose lower bound can still beat `best`: the plaza and park
+// lamp loops ask the same 300-2,000 vertex outlines dozens of times (ringDist was 203 ms of the 2026-11-11 headless
+// city-grid build, mostly on the Cytadela's and the big squares' outlines).
+let ringDistIndexes = new WeakMap();
+function ringDist(ring, x, z, limit = Infinity) {
+  if (limit === Infinity) {
+    let best = Infinity;
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i];
+      const c = ring[(i + 1) % ring.length];
+      const dx = c.x - a.x, dz = c.z - a.z, l2 = dx * dx + dz * dz;
+      const t = l2 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / l2)) : 0;
+      best = Math.min(best, Math.hypot(x - a.x - t * dx, z - a.z - t * dz));
+    }
+    return best;
+  }
+  let index = ringDistIndexes.get(ring);
+  if (!index) {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const p of ring) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.z < minZ) minZ = p.z;
+      if (p.z > maxZ) maxZ = p.z;
+    }
+    ringDistIndexes.set(ring, index = { grid: ringEdgeGrid(ring), minX, minZ, maxX, maxZ });
+  }
+  if (x < index.minX - limit || x > index.maxX + limit || z < index.minZ - limit || z > index.maxZ + limit) return limit;
+  const gx = cellOf(x), gz = cellOf(z);
+  const n = ring.length;
+  let best = limit;
+  const visit = (cx, cz) => {
+    const list = index.grid.get(cx * 100000 + cz);
+    if (!list) return;
+    for (const i of list) {
+      const a = ring[i];
+      const c = ring[(i + 1) % n];
+      const dx = c.x - a.x, dz = c.z - a.z, l2 = dx * dx + dz * dz;
+      const t = l2 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / l2)) : 0;
+      const d = Math.hypot(x - a.x - t * dx, z - a.z - t * dz);
+      if (d < best) best = d;
+    }
+  };
+  for (let r = 0; ; r++) {
+    // every cell of ring r+1 (and beyond) is at least r * EDGE_CELL from the query point
+    if (r > 0 && best <= (r - 1) * EDGE_CELL) break;
+    if (r === 0) {
+      visit(gx, gz);
+      continue;
+    }
+    for (let i = gx - r; i <= gx + r; i++) {
+      visit(i, gz - r);
+      visit(i, gz + r);
+    }
+    for (let j = gz - r + 1; j < gz + r; j++) {
+      visit(gx - r, j);
+      visit(gx + r, j);
+    }
   }
   return best;
 }
@@ -651,9 +702,13 @@ function railCells() {
   for (const r of GEO.rail || []) {
     const p = r.pts;
     for (let i = 0; i + 3 < p.length; i += 2) {
-      const seg = { ax: p[i], az: p[i + 1], bx: p[i + 2], bz: p[i + 3] };
-      for (let ix = Math.floor(Math.min(seg.ax, seg.bx) / RAIL_CELL); ix <= Math.floor(Math.max(seg.ax, seg.bx) / RAIL_CELL); ix++) {
-        for (let iz = Math.floor(Math.min(seg.az, seg.bz) / RAIL_CELL); iz <= Math.floor(Math.max(seg.az, seg.bz) / RAIL_CELL); iz++) {
+      const seg = {
+        ax: p[i], az: p[i + 1], bx: p[i + 2], bz: p[i + 3],
+        x0: Math.min(p[i], p[i + 2]), x1: Math.max(p[i], p[i + 2]),
+        z0: Math.min(p[i + 1], p[i + 3]), z1: Math.max(p[i + 1], p[i + 3])
+      };
+      for (let ix = Math.floor(seg.x0 / RAIL_CELL); ix <= Math.floor(seg.x1 / RAIL_CELL); ix++) {
+        for (let iz = Math.floor(seg.z0 / RAIL_CELL); iz <= Math.floor(seg.z1 / RAIL_CELL); iz++) {
           const k = ix * 100003 + iz;
           if (!_railCells.has(k)) _railCells.set(k, []);
           _railCells.get(k).push(seg);
@@ -671,10 +726,14 @@ function railClearance(x, z, r = 8) {
   for (let ix = Math.floor((x - r) / RAIL_CELL); ix <= Math.floor((x + r) / RAIL_CELL); ix++) {
     for (let iz = Math.floor((z - r) / RAIL_CELL); iz <= Math.floor((z + r) / RAIL_CELL); iz++) {
       for (const s of cells.get(ix * 100003 + iz) || []) {
+        // bbox rejected against the best distance found: most segments in a 32 m cell are farther than the cap, and
+        // the park/plaza tree, lamp and bench checks (300 ms of the city-grid build) only ask for a few metres
+        if (x < s.x0 - best || x > s.x1 + best || z < s.z0 - best || z > s.z1 + best) continue;
         const ex = s.bx - s.ax, ez = s.bz - s.az;
         const L2 = ex * ex + ez * ez;
         const t = L2 > 0 ? Math.min(1, Math.max(0, ((x - s.ax) * ex + (z - s.az) * ez) / L2)) : 0;
-        best = Math.min(best, Math.hypot(s.ax + ex * t - x, s.az + ez * t - z));
+        const d = Math.hypot(s.ax + ex * t - x, s.az + ez * t - z);
+        if (d < best) best = d;
       }
     }
   }
@@ -1130,23 +1189,71 @@ function pavedPlazas() {
     list.push({ name: p.name, ring: p.ring, holes: p.holes, ...k });
   }
   const STEP = 2;
+  // A 32 m bucket index over polyline segments, so a square only samples the segments near its box: the full scan was
+  // 22,590 road segments per square (lengthInside 134 ms of the 2026-11-11 headless city-grid build). The bucket list is
+  // emission-ordered, and the ids are sorted back into source order, so p.roadSegs keeps the old order.
+  const SEG_CELL = 32;
+  function segmentBuckets(segments) {
+    const grid = new Map();
+    for (let i = 0; i < segments.length; i++) {
+      const s = segments[i];
+      const ix0 = Math.floor(Math.min(s[0], s[2]) / SEG_CELL), ix1 = Math.floor(Math.max(s[0], s[2]) / SEG_CELL);
+      const iz0 = Math.floor(Math.min(s[1], s[3]) / SEG_CELL), iz1 = Math.floor(Math.max(s[1], s[3]) / SEG_CELL);
+      for (let ix = ix0; ix <= ix1; ix++) {
+        for (let iz = iz0; iz <= iz1; iz++) {
+          const k = ix * 100000 + iz;
+          const list = grid.get(k);
+          if (list) list.push(i); else grid.set(k, [i]);
+        }
+      }
+    }
+    const marks = new Uint32Array(segments.length);
+    let stamp = 0;
+    return (minX, maxX, minZ, maxZ) => {
+      const mark = ++stamp;
+      const out = [];
+      const ix0 = Math.floor(minX / SEG_CELL), ix1 = Math.floor(maxX / SEG_CELL);
+      const iz0 = Math.floor(minZ / SEG_CELL), iz1 = Math.floor(maxZ / SEG_CELL);
+      for (let ix = ix0; ix <= ix1; ix++) {
+        for (let iz = iz0; iz <= iz1; iz++) {
+          for (const i of grid.get(ix * 100000 + iz) || []) {
+            if (marks[i] === mark) continue;
+            marks[i] = mark;
+            out.push(i);
+          }
+        }
+      }
+      out.sort((a, b) => a - b);
+      return out;
+    };
+  }
+  const roadSegs = [];
+  for (const r of ROADS) {
+    for (let i = 0; i + 1 < r.pts.length; i++) {
+      const a = r.pts[i], b = r.pts[i + 1];
+      roadSegs.push([a.x, a.z, b.x, b.z]);
+    }
+  }
+  const nearRoadSegments = segmentBuckets(roadSegs);
   // centreline length of the segments a -> b inside the square (not in a building on it)
-  const lengthInside = (p, a, b) => {
-    if (Math.max(a.x, b.x) < p.minX || Math.min(a.x, b.x) > p.maxX || Math.max(a.z, b.z) < p.minZ || Math.min(a.z, b.z) > p.maxZ) return 0;
-    const len = Math.hypot(b.x - a.x, b.z - a.z);
+  const lengthInsideXY = (p, ax, az, bx, bz) => {
+    if (Math.max(ax, bx) < p.minX || Math.min(ax, bx) > p.maxX || Math.max(az, bz) < p.minZ || Math.min(az, bz) > p.maxZ) return 0;
+    const len = Math.hypot(bx - ax, bz - az);
     const n = Math.max(1, Math.round(len / STEP));
     let inside = 0;
     for (let k = 0; k < n; k++) {
       const t = (k + 0.5) / n;
-      const x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t;
+      const x = ax + (bx - ax) * t, z = az + (bz - az) * t;
       if (polygonIn(p.ring, x, z) && !p.holes.some((h) => polygonIn(h, x, z))) inside += len / n;
     }
     return inside;
   };
+  const lengthInside = (p, a, b) => lengthInsideXY(p, a.x, a.z, b.x, b.z);
   const kept = list.filter((p) => {
     let inside = 0;
-    for (const r of ROADS) {
-      for (let i = 0; i + 1 < r.pts.length; i++) inside += lengthInside(p, r.pts[i], r.pts[i + 1]);
+    for (const i of nearRoadSegments(p.minX, p.maxX, p.minZ, p.maxZ)) {
+      const s = roadSegs[i];
+      inside += lengthInsideXY(p, s[0], s[1], s[2], s[3]);
     }
     return inside <= 30;
   });
@@ -1185,8 +1292,11 @@ function pavedPlazas() {
     }
     return false;
   }
+  const nearGraphSegments = segmentBuckets(roadSegments);
   for (const p of kept) {
-    p.roadSegs = roadSegments.filter((s) => crossesPlaza(p, s));
+    p.roadSegs = nearGraphSegments(p.minX, p.maxX, p.minZ, p.maxZ)
+      .map((i) => roadSegments[i])
+      .filter((s) => crossesPlaza(p, s));
     let inside = 0;
     const segs = [];
     const m = TRAM_CUT * 2;
@@ -1594,7 +1704,7 @@ function buildCityGrid(scene, opts = {}) {
             const snx = (-sign * rdz) / rlen, snz = (sign * rdx) / rlen;
             const sx = px + snx * shift, sz = pz + snz * shift;
             if (polygonIn(pl.ring, sx, sz)) {
-              if (ringDist(pl.ring, sx, sz) >= 0.70 && clear(sx, sz)) {
+              if (ringDist(pl.ring, sx, sz, 0.70) >= 0.70 && clear(sx, sz)) {
                 px = sx; pz = sz; shifted = true; break;
               }
             }
@@ -1742,9 +1852,9 @@ function buildCityGrid(scene, opts = {}) {
       for (let gz = b.minZ + SP * 0.5; gz < b.maxZ; gz += SP) {
         const tx = gx + (prand(gx, gz) - 0.5) * SP * 0.7;
         const tz = gz + (prand(gz, gx, 1) - 0.5) * SP * 0.7;
-        if (prand(tx, tz, 9) < 0.3) continue; // glades
         if (!polygonIn(inner, tx, tz) || (roadCuts && !lawns.some((p) => polygonIn(p, tx, tz))) ||
           distToWater(tx, tz) < 4) continue;
+        if (prand(tx, tz, 9) < 0.3) continue; // glades (pure hash: after the cheap rejects)
         const scale = 0.9 + prand(tx, tz, 3) * 0.4;
         if (bLots.length > 0 && distToLots(tx, tz, bLots) < Math.max(1.2, 6.07 * scale)) continue;
         const r = prand(tx, tz, 2);
@@ -1766,10 +1876,10 @@ function buildCityGrid(scene, opts = {}) {
       const across = ((z - az) * dx - (x - ax) * dz) / len;
       return along < -half - 0.7 || along > len + half + 0.7 || Math.abs(across) > half + 0.7;
     });
-    const clearOf = (rings, x, z) => rings.every((h) => !polygonIn(h, x, z) && ringDist(h, x, z) >= 1);
-    const onLawn = (x, z) => blockAt(x, z) === b && ringDist(b.poly, x, z) >= 0.95 &&
-      lawns.some((p) => polygonIn(p, x, z) && ringDist(p, x, z) >= 0.7) &&
-      beds.every((p) => ringDist(p, x, z) >= 1) && clearOf(bedHoles, x, z) && clearOf(ponds, x, z) &&
+    const clearOf = (rings, x, z) => rings.every((h) => !polygonIn(h, x, z) && ringDist(h, x, z, 1) >= 1);
+    const onLawn = (x, z) => blockAt(x, z) === b && ringDist(b.poly, x, z, 0.95) >= 0.95 &&
+      lawns.some((p) => polygonIn(p, x, z) && ringDist(p, x, z, 0.7) >= 0.7) &&
+      beds.every((p) => ringDist(p, x, z, 1) >= 1) && clearOf(bedHoles, x, z) && clearOf(ponds, x, z) &&
       distToWater(x, z) >= 2 && cutClear(x, z);
     const clearOfParkTrees = (x, z) => {
       for (let k = parkTree0; k < treeSites.length; k++) {
@@ -1817,7 +1927,7 @@ function buildCityGrid(scene, opts = {}) {
           }
           // A narrow or folded park walk can put the 1.05 m inset line within the audit's 0.5 m of the curb: keep the
           // lamp only when its 0.2 m pole is at least 0.7 m inside the block outline.
-          if (ringDist(b.poly, px, pz) < 0.7) continue;
+          if (ringDist(b.poly, px, pz, 0.7) < 0.7) continue;
           addLamp(px, y, pz);
         }
       }
@@ -1881,9 +1991,9 @@ function buildCityGrid(scene, opts = {}) {
         for (let gz = Math.max(z0, b.minZ) + SP * 0.5; gz < Math.min(z1, b.maxZ); gz += SP) {
           const tx = gx + (prand(gx, gz) - 0.5) * SP * 0.7;
           const tz = gz + (prand(gz, gx, 1) - 0.5) * SP * 0.7;
-          if (prand(tx, tz, 9) < 0.3) continue; // glades
           if (!pointInBlockPoly(b, tx, tz) || distToWater(tx, tz) < 4) continue;
           if (![[0, 0], [E, 0], [-E, 0], [0, E], [0, -E]].every(([dx, dz]) => polygonIn(ring, tx + dx, tz + dz))) continue;
+          if (prand(tx, tz, 9) < 0.3) continue; // glades (a pure hash: order does not change the kept sites)
           const scale = 0.9 + prand(tx, tz, 3) * 0.4;
           if (bLots.length > 0 && distToLots(tx, tz, bLots) < Math.max(1.2, 6.07 * scale)) continue;
           const r = prand(tx, tz, 2);
@@ -1968,6 +2078,7 @@ function buildCityGrid(scene, opts = {}) {
   parkLampSites = lampMatrices.map((m) => ({ x: m.elements[12], y: m.elements[13] + 4.17, z: m.elements[14] }));
   pavedPlazaRects = pavedRects;
   sidewalkBlocks = blockSidewalks; // { cx, cz, w, d } raised sidewalk slabs (cross-street tree rows)
+  ringDistIndexes = new WeakMap(); // boot-only: the plaza/park outlines are not measured after this build
 
   // Batch static sub-meshes by material to reduce per-frame WebGPU draw calls
   batchStaticGroupMeshes(group, new Set([waterMat, roadMat, lawnMat]));
