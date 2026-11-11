@@ -107,6 +107,14 @@ share are not thinned; [central-density record](observations/central-density-202
 
 ## Optional features and fidelity
 
+- **Performance on older devices** (users report slowness): measured 2026-11-11 in headless Chrome (WebGPU, Apple
+  silicon, 1280 × 720): Rynek street view 1,553 draws / 7.9 M triangles / 11–13 ms renderer CPU, Centrum drone 2,851
+  draws; the sun-shadow pass is ~half the draws, 68 % of submitted instances at Rynek are off screen, `updateMatrixWorld`
+  is 18 % of frame CPU while the simulation is ~4 %; load 16.5 s (`pointInPoly` 19 % of boot), 903 MB JS heap, 412 MB
+  GPU memory. Awaiting the user's decision: freeze static matrices (no visual change, ~20 % render CPU) and a
+  low-quality tier (no SSR/bloom, 1024² 150 m shadows without tree/prop casters, pixel ratio 0.75, fewer peds/cars);
+  then draw-call batching, tree LOD, memory diet and cached load-time spatial predicates.
+  [Ranked opportunities](observations/perf-older-devices-2026-11-11.md).
 - Road levels and richer road-priority classification; revisit only with a runtime consumer.
 - Additional height sources (nDSM/LoD1/LoD2) and GEOPOZ machine-readable data: research candidates.
 
