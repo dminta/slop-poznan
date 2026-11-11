@@ -926,8 +926,10 @@ function buildRoadNetwork(sidewalks, obstacles) {
             const z = t.az + t.uz * d;
             const along = (x - e.sx) * e.dx + (z - e.sz) * e.dz;
             const lat = (x - e.sx) * e.rx + (z - e.sz) * e.rz;
+            // the three sample-wide terms do not vary by lane (crossingRuns is called for every shift candidate)
+            const inBand = oncoming && along >= 0 && along <= e.len;
             for (let i = 0; i < lanes.length; i++) {
-              const close = oncoming && along >= 0 && along <= e.len && Math.abs(lat - lanes[i]) < OPPOSING_CLEAR;
+              const close = inBand && Math.abs(lat - lanes[i]) < OPPOSING_CLEAR;
               if (close) {
                 let r = active.get(i);
                 if (!r) {

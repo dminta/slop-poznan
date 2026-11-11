@@ -635,13 +635,19 @@ function buildCityBlocks(scene) {
         const c = link.pts[i + 1];
         const L = Math.hypot(c.x - a.x, c.z - a.z);
         if (L < 0.1) continue;
-        bridgeCorridors.push({
-          cx: (a.x + c.x) * 0.5, cz: (a.z + c.z) * 0.5, ux: (c.x - a.x) / L, uz: (c.z - a.z) / L, hl: L * 0.5 + 4, hw: link.width * 0.5 + 3
-        });
+        const ux = (c.x - a.x) / L, uz = (c.z - a.z) / L;
+        const hl = L * 0.5 + 4, hw = link.width * 0.5 + 3;
+        // world AABB of the oriented corridor box (1 µm of grace), for the cheap reject before the exact test
+        const rx = Math.abs(ux) * hl + Math.abs(uz) * hw + 1e-6;
+        const rz = Math.abs(uz) * hl + Math.abs(ux) * hw + 1e-6;
+        const cx = (a.x + c.x) * 0.5, cz = (a.z + c.z) * 0.5;
+        bridgeCorridors.push({ cx, cz, ux, uz, hl, hw, minX: cx - rx, maxX: cx + rx, minZ: cz - rz, maxZ: cz + rz });
       }
     }
   }
-  // Separating-axis test of the rect [x0, x1] x [z0, z1] (of the current frame) against every corridor box
+  // Separating-axis test of the rect [x0, x1] x [z0, z1] (of the current frame) against every corridor box. The rect's
+  // world AABB rejects the far corridors first: 51,899 calls against 85 corridors made 4.4 M full SAT tests in the
+  // 2026-11-11 headless block build, while no lot ever touched one (0 hits in the same build).
   function hitsBridgeCorridor(x0, x1, z0, z1) {
     const hx = (x1 - x0) * 0.5;
     const hz = (z1 - z0) * 0.5;
@@ -649,7 +655,10 @@ function buildCityBlocks(scene) {
     // the rect's axes in the world (R_y(θ) of local x and z)
     const ax = xf ? xf.cs : 1, az = xf ? -xf.sn : 0;
     const bx = xf ? xf.sn : 0, bz = xf ? xf.cs : 1;
+    const rx = Math.abs(ax) * hx + Math.abs(bx) * hz;
+    const rz = Math.abs(az) * hx + Math.abs(bz) * hz;
     for (const o of bridgeCorridors) {
+      if (cx + rx < o.minX || cx - rx > o.maxX || cz + rz < o.minZ || cz - rz > o.maxZ) continue;
       const dx = cx - o.cx;
       const dz = cz - o.cz;
       const vx = -o.uz, vz = o.ux;
@@ -3735,6 +3744,51 @@ function buildCityBlocks(scene) {
   // the outline) the square stays courtyard ('notch')
   // ============================================================================
   const FRONT_REACH = 10;
+  // ============================================================================
+  // The block outline's edge grid, for the frontage rays. The frontage rule asks the same curb outline thousands of
+  // times per block: the 2026-11-11 headless block build made 218 k outlineRay queries over 21,724 lot rects (31 edges
+  // on average, 2,015 at most), but only 6% cross within FRONT_RAY; a full scan spent 34% of the block build on edges
+  // the answer never read. Each edge is filed once per block in every cell its bbox covers (CSR Int32Array offsets and
+  // edge ids, like the polygon index in city-config.js), and the grid goes with the block (outlineIndex is dropped
+  // when srcBlock is). The grid only chooses which edges the exact formula sees: its arithmetic is unchanged, and a
+  // crossing farther than FRONT_RAY is Infinity either way because the caller ignores any value above it.
+  // ============================================================================
+  let outlineIndex = null;
+  function outlineEdgeGrid() {
+    const poly = srcBlock.poly;
+    if (outlineIndex && outlineIndex.poly === poly) return outlineIndex;
+    const n = poly.length;
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const p of poly) {
+      if (p.x < x0) x0 = p.x;
+      if (p.x > x1) x1 = p.x;
+      if (p.z < z0) z0 = p.z;
+      if (p.z > z1) z1 = p.z;
+    }
+    // ~256 cells over the block, so a 100 m block gets 6-7 m cells and an edge stays in one or two of them
+    const cell = Math.max(4, Math.min(16, Math.sqrt(((x1 - x0) * (z1 - z0)) / 256))) || 4;
+    const cols = Math.max(1, Math.ceil((x1 - x0) / cell));
+    const rows = Math.max(1, Math.ceil((z1 - z0) / cell));
+    const col = (x) => Math.max(0, Math.min(cols - 1, Math.floor((x - x0) / cell)));
+    const row = (z) => Math.max(0, Math.min(rows - 1, Math.floor((z - z0) / cell)));
+    const file = (i, at) => {
+      const a = poly[i ? i - 1 : n - 1], b = poly[i];
+      const i0 = col(Math.min(a.x, b.x)), i1 = col(Math.max(a.x, b.x));
+      const j0 = row(Math.min(a.z, b.z)), j1 = row(Math.max(a.z, b.z));
+      for (let ix = i0; ix <= i1; ix++) for (let jz = j0; jz <= j1; jz++) at(jz * cols + ix);
+    };
+    const starts = new Int32Array(cols * rows + 1);
+    for (let i = 0; i < n; i++) file(i, (c) => { starts[c + 1]++; });
+    for (let c = 0; c < cols * rows; c++) starts[c + 1] += starts[c];
+    const edges = new Int32Array(starts[cols * rows]);
+    const fill = starts.slice(0, cols * rows);
+    for (let i = 0; i < n; i++) file(i, (c) => { edges[fill[c]++] = i; });
+    outlineIndex = { poly, x0, z0, x1, z1, cell, cols, rows, starts, edges, stamp: new Int32Array(n), query: 0 };
+    return outlineIndex;
+  }
+  // The nearest distance to the outline. Queries are spread from the curb (4.6 m back) to block interiors over 100 m
+  // away, so a nearest-edge grid search costs more rings than the plain scan (0.47 s against 0.25 s for 441 k queries);
+  // it stays a full scan, and an edge tree is left for a day the distance itself is on the profile.
   function outlineDist(x, z) {
     const poly = srcBlock.poly;
     let best = Infinity;
@@ -3754,21 +3808,39 @@ function buildCityBlocks(scene) {
     return Math.sqrt(best);
   }
   const FRONT_RAY = 18;
-  // Distance along the ray from (x, z) in direction (nx, nz) to where it first crosses the curb outline
+  // Distance along the ray from (x, z) in direction (nx, nz) to where it first crosses the curb outline, for a crossing
+  // no farther than FRONT_RAY (the only range the frontage rule reads; beyond it returns Infinity either way)
   function outlineRay(x, z, nx, nz) {
-    const poly = srcBlock.poly;
+    const idx = outlineEdgeGrid();
+    const poly = idx.poly;
     let best = Infinity;
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const a = poly[j];
-      const ex = poly[i].x - a.x;
-      const ez = poly[i].z - a.z;
-      const den = nx * ez - nz * ex;
-      if (Math.abs(den) < 1e-9) continue;
-      const t = ((a.x - x) * ez - (a.z - z) * ex) / den;
-      const u = ((a.x - x) * nz - (a.z - z) * nx) / den;
-      if (t > 0 && u >= 0 && u <= 1 && t < best) best = t;
+    // the segment's cells: any crossing within FRONT_RAY lies in one of them, so no other edge can be nearer
+    const ex = x + nx * FRONT_RAY, ez = z + nz * FRONT_RAY;
+    const i0 = Math.max(0, Math.min(idx.cols - 1, Math.floor((Math.min(x, ex) - idx.x0) / idx.cell)));
+    const i1 = Math.max(0, Math.min(idx.cols - 1, Math.floor((Math.max(x, ex) - idx.x0) / idx.cell)));
+    const j0 = Math.max(0, Math.min(idx.rows - 1, Math.floor((Math.min(z, ez) - idx.z0) / idx.cell)));
+    const j1 = Math.max(0, Math.min(idx.rows - 1, Math.floor((Math.max(z, ez) - idx.z0) / idx.cell)));
+    const q = ++idx.query;
+    for (let ix = i0; ix <= i1; ix++) {
+      for (let iz = j0; iz <= j1; iz++) {
+        const c = iz * idx.cols + ix;
+        for (let k = idx.starts[c], end = idx.starts[c + 1]; k < end; k++) {
+          const i = idx.edges[k];
+          if (idx.stamp[i] === q) continue;
+          idx.stamp[i] = q;
+          const a = poly[i ? i - 1 : poly.length - 1];
+          const edx = poly[i].x - a.x;
+          const edz = poly[i].z - a.z;
+          const den = nx * edz - nz * edx;
+          if (Math.abs(den) < 1e-9) continue;
+          const t = ((a.x - x) * edz - (a.z - z) * edx) / den;
+          const u = ((a.x - x) * nz - (a.z - z) * nx) / den;
+          if (t > 0 && u >= 0 && u <= 1 && t < best) best = t;
+        }
+      }
     }
-    return best;
+    // a crossing of an edge that merely passes through the segment's cells can still lie past it
+    return best <= FRONT_RAY ? best : Infinity;
   }
   // World point (x, z) inside one of the source block's lot rects (srcRects, each in its own frame; 0.5 m grace)
   function inSrcRect(x, z) {
@@ -4161,12 +4233,17 @@ function buildCityBlocks(scene) {
   // [x0, x1, z0, z1] minus the reserved rects, as up to four slabs per hole (strips across the full depth first). In a
   // frontage frame the reserves are their bounds in the frame. Block anchors are reserves too, so no generic lot or
   // park facility lot is laid over a mapped mall, hall, depot or arena.
-  function minusReserves(r) {
-    // Anchors are world AABBs [x0, x1, z0, z1, ...]; mapped objects are oriented rects [cx, cz, w, d, ang, ...] and
-    // must take their world bounds first. Reading the object's first four values as a box cut most of block 648 (the
-    // Gwarna frontage) out of its own lots, because the reserve spanned from -949 to +84 in the frontage frame. In
-    // Stare Miasto the object reserves are grid rows clipped to its rotated plan (objectReserveBoxes), so a diagonal
-    // envelope does not cut a whole frontage through the corners of its AABB.
+  // Anchors are world AABBs [x0, x1, z0, z1, ...]; mapped objects are oriented rects [cx, cz, w, d, ang, ...] and
+  // must take their world bounds first. Reading the object's first four values as a box cut most of block 648 (the
+  // Gwarna frontage) out of its own lots, because the reserve spanned from -949 to +84 in the frontage frame. In
+  // Stare Miasto the object reserves are grid rows clipped to its rotated plan (objectReserveBoxes), so a diagonal
+  // envelope does not cut a whole frontage through the corners of its AABB. The list is the same for every rect of a
+  // block frame: rebuilding the 38 landmark outlines in the frame for each of the 13,233 calls was 11% of the
+  // 2026-11-11 block build, so it is cached on the block and the arrays that define it.
+  let reserveCache = null;
+  function blockReserves() {
+    if (reserveCache && reserveCache.block === srcBlock && reserveCache.xf === xf &&
+      reserveCache.anchors === srcAnchors && reserveCache.objects === srcObjectReserves) return reserveCache.list;
     const anchors = [
       ...srcAnchors.map((a) => inFrameRect(a)),
       ...srcObjectReserves
@@ -4178,7 +4255,13 @@ function buildCityBlocks(scene) {
         xf.pz + (x - xf.px) * xf.sn + (z - xf.pz) * xf.cs
       ])));
     }
-    reserves = reserves.concat(anchors);
+    reserveCache = {
+      block: srcBlock, xf, anchors: srcAnchors, objects: srcObjectReserves, list: reserves.concat(anchors)
+    };
+    return reserveCache.list;
+  }
+  function minusReserves(r) {
+    const reserves = blockReserves();
     let parts = [r];
     for (const h of reserves) {
       const next = [];
@@ -4468,6 +4551,8 @@ function buildCityBlocks(scene) {
 
   minLot = 15;
   srcBlock = null;
+  outlineIndex = null; // the last block's edge grid is boot-only, like its source poly
+  reserveCache = null;
   srcAnchors = [];
   srcObjects = [];
   srcObjectReserves = [];

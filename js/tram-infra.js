@@ -79,6 +79,7 @@ const RAIL_MAST_ROAD = 2; // ...this far outside every roadway
 const RAIL_MAST_TRAM = 3; // ...and this far from every tram track centreline
 const RAIL_ARM_REACH = 7; // a mast this close to the track takes a cantilever, else a portal spans the yard
 const RAIL_PORTAL_REACH = 40; // per side
+const RAMP_LEN = 160; // a viaduct's deck ramps up from the ground over this length (max slope < 6%)
 
 // --- Track geometry ------------------------------------------------------------------------------------------------
 // Tram tracks of GEO.rail (railIndex = index into GEO.rail), with cumulative arc length per point
@@ -120,7 +121,10 @@ function segmentGrid(cell = 24) {
   let stamp = 0; // query counter: a segment spanning several cells is visited once per query (cheaper than a Set)
   return {
     add(ax, az, bx, bz, data) {
-      const seg = { ax, az, bx, bz, data, _q: 0 };
+      const seg = {
+        ax, az, bx, bz, data, _q: 0,
+        x0: Math.min(ax, bx), x1: Math.max(ax, bx), z0: Math.min(az, bz), z1: Math.max(az, bz)
+      };
       for (let ix = Math.floor(Math.min(ax, bx) / cell); ix <= Math.floor(Math.max(ax, bx) / cell); ix++) {
         for (let iz = Math.floor(Math.min(az, bz) / cell); iz <= Math.floor(Math.max(az, bz) / cell); iz++) {
           const k = key(ix, iz);
@@ -140,6 +144,11 @@ function segmentGrid(cell = 24) {
             if (sg._q === q) continue;
             sg._q = q;
             if (accept && !accept(sg)) continue;
+            // a cell holds every segment whose bbox meets it, most of them farther than the best found so far: the
+            // bbox grown by bestD rejects those without the segment arithmetic (laneGrid: 8.16 M candidates for 215 k
+            // queries in the 2026-11-11 headless tram layout, 38 per query)
+            const lim = bestD + 1e-9;
+            if (x < sg.x0 - lim || x > sg.x1 + lim || z < sg.z0 - lim || z > sg.z1 + lim) continue;
             const ex = sg.bx - sg.ax;
             const ez = sg.bz - sg.az;
             const t = Math.max(0, Math.min(1, ((x - sg.ax) * ex + (z - sg.az) * ez) / (ex * ex + ez * ez || 1)));
@@ -285,10 +294,29 @@ function layoutTramInfrastructure(network) {
   const rosettes = [];
   const droppers = [];
   const supported = segmentGrid(32); // short marks across each track where a support already carries its wire
+  // Poles by 4 m cell. poleAt used to scan the whole pole list (4,490 poles in the 2026-11-11 tram layout) for every
+  // placement; a 1.2 m match window spans at most two cells per axis, and the lowest index among the hits is the pole
+  // the linear scan found first.
+  const poleCells = new Map();
+  const poleCellKey = (ix, iz) => ix * 100003 + iz;
   const poleAt = (x, z, h) => {
-    for (const q of poles) if (Math.abs(q.x - x) < 1.2 && Math.abs(q.z - z) < 1.2) return q;
+    let best = -1;
+    for (let ix = Math.floor((x - 1.2) / 4); ix <= Math.floor((x + 1.2) / 4); ix++) {
+      for (let iz = Math.floor((z - 1.2) / 4); iz <= Math.floor((z + 1.2) / 4); iz++) {
+        for (const i of poleCells.get(poleCellKey(ix, iz)) || []) {
+          if (best >= 0 && i > best) continue;
+          const q = poles[i];
+          if (Math.abs(q.x - x) < 1.2 && Math.abs(q.z - z) < 1.2) best = i;
+        }
+      }
+    }
+    if (best >= 0) return poles[best];
     const q = { x, z, h };
     poles.push(q);
+    const k = poleCellKey(Math.floor(x / 4), Math.floor(z / 4));
+    const list = poleCells.get(k);
+    if (list) list.push(poles.length - 1);
+    else poleCells.set(k, [poles.length - 1]);
     return q;
   };
   // March out from the track (x, z) along (nx, nz) to the first curb a pole can stand on (0.6 m behind the curb edge),
@@ -527,18 +555,39 @@ function layoutRailInfrastructure(network) {
   const tracks = loadTracks('rail');
   const laneDist = laneDistance(network);
   // Road bridge decks: the BRIDGES links' corridors (half width + 1.5 m); a track under one runs beneath the flat deck
-  const deckGrid = segmentGrid(32);
+  // 128 m cells: underDeck asks with r = 25, so 32 m cells meant 4-9 empty Map lookups for almost every one of the
+  // 645 k queries (0.56 s of the 2026-11-11 headless rail layout); a 128 m cell needs one or two, and the deck
+  // segments are long, so the few occupied cells cost little.
+  const deckGrid = segmentGrid(128);
+  const deckBox = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
   for (const br of BRIDGES) {
     if (br.name === 'Most Teatralny' || br.name === 'Most Uniwersytecki' || br.name === 'Most Dworcowy' || br.name === 'Franklina Roosevelta' || br.name === 'Dworcowa') continue;
     for (const l of br.links) {
       for (let k = 0; k + 1 < l.pts.length; k++) {
-        deckGrid.add(l.pts[k].x, l.pts[k].z, l.pts[k + 1].x, l.pts[k + 1].z, Math.max(l.width / 2 + 4.5, 12));
+        const a = l.pts[k], b = l.pts[k + 1];
+        deckGrid.add(a.x, a.z, b.x, b.z, Math.max(l.width / 2 + 4.5, 12));
+        if (Math.min(a.x, b.x) < deckBox.x0) deckBox.x0 = Math.min(a.x, b.x);
+        if (Math.max(a.x, b.x) > deckBox.x1) deckBox.x1 = Math.max(a.x, b.x);
+        if (Math.min(a.z, b.z) < deckBox.z0) deckBox.z0 = Math.min(a.z, b.z);
+        if (Math.max(a.z, b.z) > deckBox.z1) deckBox.z1 = Math.max(a.z, b.z);
       }
     }
   }
+  // Deeper than 25 m outside every deck segment no query can hit: the rail build asks `underDeck` 645 k times for its
+  // 13,609 pieces and the keep-out bands (2026-11-11 headless rail layout), almost all nowhere near a bridge. roadDist
+  // and tramDist ask it again for the same point, so the last answer is kept.
+  let lastDeckX = NaN, lastDeckZ = NaN, lastDeck = false;
   const underDeck = (x, z) => {
+    if (x === lastDeckX && z === lastDeckZ) return lastDeck;
+    lastDeckX = x;
+    lastDeckZ = z;
+    if (x < deckBox.x0 - 25 || x > deckBox.x1 + 25 || z < deckBox.z0 - 25 || z > deckBox.z1 + 25) {
+      lastDeck = false;
+      return false;
+    }
     const h = deckGrid.nearest(x, z, 25);
-    return !!h && h.d <= h.seg.data;
+    lastDeck = !!h && h.d <= h.seg.data;
+    return lastDeck;
   };
   // Distance outside the nearest roadway: the LANE_GUIDE carriageways (junction to junction, so junction boxes too),
   // and the network's lane centrelines less a 1.75 m half lane; RAIL_ROAD_KEEP + 1 where nothing is that near
@@ -720,7 +769,6 @@ function layoutRailInfrastructure(network) {
 
   // --- Approach ramps (railway embankments) before and after viaducts ----------------------------------------------
   // Smoothly elevate tracks to viaduct deck height (deckY) over RAMP_LEN (max slope < 6%), preventing 90-degree cliffs
-  const RAMP_LEN = 160;
   const viaductsByTrack = new Map();
   for (const v of viaducts) {
     if (!viaductsByTrack.has(v.railIndex)) viaductsByTrack.set(v.railIndex, []);
@@ -757,8 +805,12 @@ function layoutRailInfrastructure(network) {
         if (Math.min(dA, dB) < RAMP_LEN) candidates.push({ v, weight: 1.0 });
       }
     }
+    // Only a viaduct whose end box (grown by the ramp) holds the midpoint can have an end within the ramp: the 99
+    // viaducts were tested for all 13,609 pieces, two hypots each.
     for (const v of viaducts) {
       if (myV && myV.includes(v)) continue;
+      if (mx < Math.min(v.ax, v.bx) - RAMP_LEN || mx > Math.max(v.ax, v.bx) + RAMP_LEN ||
+        mz < Math.min(v.az, v.bz) - RAMP_LEN || mz > Math.max(v.az, v.bz) + RAMP_LEN) continue;
       const dA = Math.hypot(mx - v.ax, mz - v.az);
       const dB = Math.hypot(mx - v.bx, mz - v.bz);
       const d = Math.min(dA, dB);

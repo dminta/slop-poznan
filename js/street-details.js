@@ -929,12 +929,81 @@ function buildStreetDetails(scene, opts = {}) {
     const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / len2));
     return Math.hypot(px - (ax + t * dx), pz - (az + t * dz));
   };
-  const blockCurbDist = (px, pz, b) => {
+  // The block's curb edges in a 4 m grid, built once per block for this street-details build. blockCurbDist and
+  // nearestCurbFrame ask one outline again and again (up to 478 times: 32.7 k mapped trees and 24.5 k lamp checks in
+  // the 2026-11-11 build), and the grid narrows both to the edges within a cell or two of the point. The per-edge
+  // arithmetic is unchanged; only the edges that can win are tested.
+  const curbEdgeIndexes = new Map();
+  function curbEdgeIndex(b) {
+    let idx = curbEdgeIndexes.get(b);
+    if (idx) return idx;
+    const poly = b.poly;
+    const n = poly.length;
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const p of poly) {
+      if (p.x < x0) x0 = p.x;
+      if (p.x > x1) x1 = p.x;
+      if (p.z < z0) z0 = p.z;
+      if (p.z > z1) z1 = p.z;
+    }
+    // 8 m of margin so a tree or lamp standing on the sidewalk outside the curb bbox still starts inside the grid
+    // (nearestCurbFrame's ring bound needs the query point in its own cell; farther points take the full scan)
+    const cell = 4;
+    x0 -= 8;
+    z0 -= 8;
+    x1 += 8;
+    z1 += 8;
+    const cols = Math.max(1, Math.ceil((x1 - x0) / cell));
+    const rows = Math.max(1, Math.ceil((z1 - z0) / cell));
+    const col = (x) => Math.max(0, Math.min(cols - 1, Math.floor((x - x0) / cell)));
+    const row = (z) => Math.max(0, Math.min(rows - 1, Math.floor((z - z0) / cell)));
+    const file = (i, at) => {
+      const a = poly[i], c = poly[(i + 1) % n];
+      const i0 = col(Math.min(a.x, c.x)), i1 = col(Math.max(a.x, c.x));
+      const j0 = row(Math.min(a.z, c.z)), j1 = row(Math.max(a.z, c.z));
+      for (let ix = i0; ix <= i1; ix++) for (let jz = j0; jz <= j1; jz++) at(jz * cols + ix);
+    };
+    const starts = new Int32Array(cols * rows + 1);
+    for (let i = 0; i < n; i++) file(i, (c) => { starts[c + 1]++; });
+    for (let c = 0; c < cols * rows; c++) starts[c + 1] += starts[c];
+    const edges = new Int32Array(starts[cols * rows]);
+    const fill = starts.slice(0, cols * rows);
+    for (let i = 0; i < n; i++) file(i, (c) => { edges[fill[c]++] = i; });
+    idx = { poly, x0, z0, x1, z1, cell, cols, rows, starts, edges, stamp: new Int32Array(n), query: 0 };
+    curbEdgeIndexes.set(b, idx);
+    return idx;
+  }
+  // With a reach the answer is only ever compared against it: return the first edge closer than reach, or Infinity.
+  const blockCurbDist = (px, pz, b, reach = 0) => {
     let best = Infinity;
-    for (let i = 0; i < b.poly.length; i++) {
-      const p1 = b.poly[i], p2 = b.poly[(i + 1) % b.poly.length];
-      const d = distPointToSeg(px, pz, p1.x, p1.z, p2.x, p2.z);
-      if (d < best) best = d;
+    if (reach > 0) {
+      const idx = curbEdgeIndex(b);
+      const poly = idx.poly;
+      const i0 = Math.max(0, Math.min(idx.cols - 1, Math.floor((px - reach - idx.x0) / idx.cell)));
+      const i1 = Math.max(0, Math.min(idx.cols - 1, Math.floor((px + reach - idx.x0) / idx.cell)));
+      const j0 = Math.max(0, Math.min(idx.rows - 1, Math.floor((pz - reach - idx.z0) / idx.cell)));
+      const j1 = Math.max(0, Math.min(idx.rows - 1, Math.floor((pz + reach - idx.z0) / idx.cell)));
+      const q = ++idx.query;
+      for (let ix = i0; ix <= i1 && best >= reach; ix++) {
+        for (let iz = j0; iz <= j1 && best >= reach; iz++) {
+          const c = iz * idx.cols + ix;
+          for (let k = idx.starts[c], end = idx.starts[c + 1]; k < end; k++) {
+            const i = idx.edges[k];
+            if (idx.stamp[i] === q) continue;
+            idx.stamp[i] = q;
+            const p1 = poly[i], p2 = poly[(i + 1) % poly.length];
+            const d = distPointToSeg(px, pz, p1.x, p1.z, p2.x, p2.z);
+            if (d < best) best = d;
+            if (best < reach) return best;
+          }
+        }
+      }
+    } else {
+      for (let i = 0; i < b.poly.length; i++) {
+        const p1 = b.poly[i], p2 = b.poly[(i + 1) % b.poly.length];
+        const d = distPointToSeg(px, pz, p1.x, p1.z, p2.x, p2.z);
+        if (d < best) best = d;
+      }
     }
     if (b.tramCut) {
       for (const [ax, az, bx, bz] of b.tramCut.segs) {
@@ -985,21 +1054,21 @@ function buildStreetDetails(scene, opts = {}) {
         const nom = checkCandidate(nomF, 0.9);
         if (!nom) continue;
         let placed = nom;
-        if (blockCurbDist(nom.px, nom.pz, b) < reqDist) {
+        if (blockCurbDist(nom.px, nom.pz, b, reqDist) < reqDist) {
           placed = null;
           for (let s = 0.5; s <= 8.0; s += 0.5) {
             for (const dir of [1, -1]) {
               const f = nomF + (dir * s) / len;
               if (f < 0.05 || f > 0.95) continue;
               const cand = checkCandidate(f, 0.9);
-              if (cand && blockCurbDist(cand.px, cand.pz, b) >= reqDist) { placed = cand; break; }
+              if (cand && blockCurbDist(cand.px, cand.pz, b, reqDist) >= reqDist) { placed = cand; break; }
             }
             if (placed) break;
           }
           if (!placed) {
             for (const delta of [0.05, -0.05, 0.10, -0.10, 0.15, -0.15, 0.20, -0.20]) {
               const cand = checkCandidate(nomF, 0.9 + delta);
-              if (cand && blockCurbDist(cand.px, cand.pz, b) >= reqDist) { placed = cand; break; }
+              if (cand && blockCurbDist(cand.px, cand.pz, b, reqDist) >= reqDist) { placed = cand; break; }
             }
           }
         }
@@ -1053,12 +1122,12 @@ function buildStreetDetails(scene, opts = {}) {
       if (!nom) continue;
 
       let placed = nom;
-      if (blockCurbDist(nom.lx, nom.lz, b) < reqDist) {
+      if (blockCurbDist(nom.lx, nom.lz, b, reqDist) < reqDist) {
         placed = null;
         // 1. Prefer moving pole further onto the sidewalk (or centering on narrow island)
         for (const delta of [0.05, 0.10, 0.15, 0.20, 0.25, -0.05, -0.10, -0.15, -0.20]) {
           const cand = checkCandidate(nomF, 1.08 + delta);
-          if (cand && blockCurbDist(cand.lx, cand.lz, b) >= reqDist) {
+          if (cand && blockCurbDist(cand.lx, cand.lz, b, reqDist) >= reqDist) {
             placed = cand; break;
           }
         }
@@ -1069,7 +1138,7 @@ function buildStreetDetails(scene, opts = {}) {
               const f = nomF + (dir * s) / len;
               if (f < 0.05 || f > 0.95) continue;
               const cand = checkCandidate(f, 1.08);
-              if (cand && blockCurbDist(cand.lx, cand.lz, b) >= reqDist) {
+              if (cand && blockCurbDist(cand.lx, cand.lz, b, reqDist) >= reqDist) {
                 placed = cand; break;
               }
             }
@@ -1084,7 +1153,7 @@ function buildStreetDetails(scene, opts = {}) {
               if (f < 0.05 || f > 0.95) continue;
               for (const delta of [0.10, 0.20, -0.10, 0.30, -0.20]) {
                 const cand = checkCandidate(f, 1.08 + delta);
-                if (cand && blockCurbDist(cand.lx, cand.lz, b) >= reqDist) {
+                if (cand && blockCurbDist(cand.lx, cand.lz, b, reqDist) >= reqDist) {
                   placed = cand; break;
                 }
               }
@@ -1542,27 +1611,63 @@ function buildStreetDetails(scene, opts = {}) {
   // Nearest edge of the block under a mapped tree: its orientation turns the pit and squeezes the crown across the
   // sidewalk, exactly as for the procedural rows.
   const nearestCurbFrame = (b, x, z) => {
+    const fallback = {
+      dist: Infinity, acrossX: true, narrow: false, pitRot: 0, squeeze: 0.82, tier: 1, grate: true, pitS: 1
+    };
+    const idx = curbEdgeIndex(b);
+    const poly = idx.poly;
+    const n = poly.length;
     let best = Infinity;
-    let frame = { dist: Infinity, acrossX: true, narrow: false, pitRot: 0, squeeze: 0.82, tier: 1, grate: true, pitS: 1 };
-    for (let i = 0; i < b.poly.length; i++) {
-      const p0 = b.poly[i];
-      const p1 = b.poly[(i + 1) % b.poly.length];
-      const dx = p1.x - p0.x, dz = p1.z - p0.z;
-      const len = Math.hypot(dx, dz);
-      if (len < 1e-6) continue;
+    let bestI = -1;
+    const test = (i) => {
+      if (idx.stamp[i] === idx.query) return;
+      idx.stamp[i] = idx.query;
+      const p0 = poly[i];
+      const p1 = poly[(i + 1) % n];
+      const len = Math.hypot(p1.x - p0.x, p1.z - p0.z);
+      if (len < 1e-6) return;
       const d = distPointToSeg(x, z, p0.x, p0.z, p1.x, p1.z);
-      if (d >= best) continue;
-      let inx = -dz / len, inz = dx / len;
-      const mx = (p0.x + p1.x) * 0.5, mz = (p0.z + p1.z) * 0.5;
-      if (blockAt(mx + inx * 1.6, mz + inz * 1.6) !== b) { inx = -inx; inz = -inz; }
-      const narrow = !!blockAt(mx - inx * 14, mz - inz * 14);
-      best = d;
-      frame = {
-        dist: d, acrossX: Math.abs(dz) > Math.abs(dx), narrow, pitRot: Math.atan2(dx, dz),
-        squeeze: narrow ? 0.7 : 0.82, tier: narrow ? 2 : 1, grate: !narrow, pitS: narrow ? 0.7 : 1
-      };
+      // the scan kept the first edge of an equal distance
+      if (d < best || (d === best && i < bestI)) {
+        best = d;
+        bestI = i;
+      }
+    };
+    idx.query++;
+    if (x < idx.x0 || x > idx.x1 || z < idx.z0 || z > idx.z1) {
+      for (let i = 0; i < n; i++) test(i);
+    } else {
+      const gx = Math.floor((x - idx.x0) / idx.cell);
+      const gz = Math.floor((z - idx.z0) / idx.cell);
+      const maxRing = Math.max(gx, idx.cols - 1 - gx, gz, idx.rows - 1 - gz);
+      for (let ring = 0; ring <= maxRing; ring++) {
+        // after rings 0..ring-1 every unvisited edge is at least (ring - 1) cells away
+        const bound = (ring - 1) * idx.cell - 1e-9;
+        if (bound > 0 && best < bound) break;
+        for (let ix = gx - ring; ix <= gx + ring; ix++) {
+          if (ix < 0 || ix >= idx.cols) continue;
+          for (let iz = gz - ring; iz <= gz + ring; iz++) {
+            if (iz < 0 || iz >= idx.rows) continue;
+            if (ring > 0 && ix !== gx - ring && ix !== gx + ring && iz !== gz - ring && iz !== gz + ring) continue;
+            const c = iz * idx.cols + ix;
+            for (let k = idx.starts[c], end = idx.starts[c + 1]; k < end; k++) test(idx.edges[k]);
+          }
+        }
+      }
     }
-    return frame;
+    if (bestI < 0) return fallback;
+    const p0 = poly[bestI];
+    const p1 = poly[(bestI + 1) % n];
+    const dx = p1.x - p0.x, dz = p1.z - p0.z;
+    const len = Math.hypot(dx, dz);
+    let inx = -dz / len, inz = dx / len;
+    const mx = (p0.x + p1.x) * 0.5, mz = (p0.z + p1.z) * 0.5;
+    if (blockAt(mx + inx * 1.6, mz + inz * 1.6) !== b) { inx = -inx; inz = -inz; }
+    const narrow = !!blockAt(mx - inx * 14, mz - inz * 14);
+    return {
+      dist: best, acrossX: Math.abs(dz) > Math.abs(dx), narrow, pitRot: Math.atan2(dx, dz),
+      squeeze: narrow ? 0.7 : 0.82, tier: narrow ? 2 : 1, grate: !narrow, pitS: narrow ? 0.7 : 1
+    };
   };
   const parkCollider = (s) => {
     if (!s.collider || !propColliders) return;

@@ -123,14 +123,18 @@ share are not thinned; [central-density record](observations/central-density-202
   draws; the sun-shadow pass is ~half the draws and 68 % of submitted instances at Rynek are off screen; 903 MB JS
   heap, 412 MB GPU memory. Done: frozen static matrices (`c1f5e66`, renderer CPU −20 to −24 % at Rynek) and indexed
   load-time predicates (boot 18.4 → 11.9 s at 1× on a busy machine,
-  [record](observations/perf-boot-predicates-2026-11-11.md)), a low graphics tier (`js/graphics-quality.js`:
+  [record](observations/perf-boot-predicates-2026-11-11.md)), the block frontage / curb / tram-rail indexes of boot
+  part 2 (`outlineRay` and the tram/rail nearest queries; headless build 15.4 → 9.5 s;
+  [record](observations/perf-boot-2-2026-11-11.md)), a low graphics tier (`js/graphics-quality.js`:
   `?quality=` or auto-detected from the GPU identity / WebGL2 / ≤ 4 cores / ≤ 4 GB / touch-first unknown GPU; Rynek
   renderer CPU 16.3 → 12.0 ms, GPU 34 → 6 ms), halved mural / tram plate canvases
   ([record](observations/perf-memory-2026-11-11.md)), and the low-tier tree profile
   ([record](observations/perf-trees-2026-11-11.md): the Centrum drone drops 488 of 1,879 draws and 72 % of tree
   triangles; Rynek −85 draws at street level; high is pixel-identical). Not yet measured on a real phone or integrated
   GPU; `?stats=1` shows a copyable report for that.
-  Remaining: draw-call batching (roofs per chunk, street furniture), then the other boot hotspots (`outlineRay` 14–17 %).
+  Remaining: draw-call batching (roofs per chunk, street furniture), then the boot entries the two index passes left:
+  `city-config.js`'s module import (land raster), `buildRoadNetwork` (`crossingRuns`, the largest-component pass, the
+  footprint hash inserts), `city-grid.js` square paving, and the rail keep-out raster.
   [Ranked opportunities](observations/perf-older-devices-2026-11-11.md).
 - Road levels and richer road-priority classification; revisit only with a runtime consumer.
 - Additional height sources (nDSM/LoD1/LoD2) and GEOPOZ machine-readable data: research candidates.

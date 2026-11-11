@@ -4,6 +4,16 @@ Frame: x = east, z = south (north = −z), y up, 1 unit = 1 m, origin at the Rat
 
 **Land and water** go through the `city-config.js` land raster (2 m cells over the detail box, 11.6 M of them, built at boot in ~160 ms): `isLand(x, z, margin)` counts bridge decks as land (deck cells are pinned 255 m from water, so a shore margin never narrows a bridge), `isWater` (open water; false on a deck), `distToWater`, `waterAt` (the `WATER` entry under a point; use it to tell a deck over the river from one over land), and `clampToLand(x, z, margin)`, which returns the nearest qualifying point in 2-D as `{x, z}` (always a point; callers needing the margin re-check `isLand`). Outside the detail box is neither land nor water. Also `CITY_BOUNDS` (the detail box, `sidewalkHeight` 0.22, `waterLevel` −3), `RAISED_GROUND` (raised rects the controllers stand on; empty until landmarks push theirs), `districtAt` (osiedle name or null) and `SPAWN` (`{x, z, heading}`: the westbound Św. Marcin carriageway by CK Zamek, facing west).
 
+**Load-time block frontages** are indexed as well ([part 2 record](observations/perf-boot-2-2026-11-11.md)).
+`buildings.js` files each block's curb outline edges once in a CSR grid and answers the frontage ray only from the cells
+its 18 m segment touches (218 k queries in the 2026-11-11 boot, 6 % crossing within the reach the rule reads), keeps
+the frame-transformed landmark and object reserve list per block frame instead of rebuilding it for every lot rect, and
+rejects bridge corridors by their world AABB before the separating-axis test. `street-details.js` files each block's
+curb edges in a 4 m grid for the lamp clearance and the mapped-tree curb frame; `tram-infra.js` rejects segments by
+their bbox in the nearest queries, buckets poles in 4 m cells and tests each viaduct's end box before the ramp distance.
+The same arithmetic answers every query; the headless block build fell from 5.1 to 1.9 s and the headless tram/rail
+layout from 1.8/2.0 s to 0.66/1.34 s, with every build hash unchanged.
+
 **Load-time point tests** are indexed ([observation record](observations/perf-boot-predicates-2026-11-11.md)). `blockAt` and buildings.js `insideCurbIsland` share a lazily built 4 m z-slot edge index per block (`createPolygonIndex` / `pointInPolyIndexed` / `pointInBlockPoly`), stored as CSR typed arrays; the ray test visits only edges whose z span can cross the point, with the exact endpoint pairing of `pointInPoly`, so edge and vertex ties stay identical. `pointInPark` buckets the park rings in a 64 m grid and indexes each ring, and the land raster's scanline fill reuses the same edge buckets. `city-grid.js` uses one weak per-polygon index for repeated park/plaza samples, `street-details.js` buckets its plaza rects in 64 m cells before `inPlaza`, and `road-paint.js` buckets crosswalks in 16 m cells before the P-22 4 m keep. On 2026-11-11 this took the boot CPU share of `pointInPoly` from 19-22 % to ~4 %, `pointInPark` from ~5-5.5 % to below 1 %, and boot from 18.4 to 11.9 s at 1× CPU and 109.5 to 70.8 s at 6× CPU (headless Chrome, busy machine; the observation file has the method). The block indexes retain 2.4 MB (CSR, down from 17 MB of small arrays); the park indexes are released after the city-grid build and rebuild lazily if a late caller needs them.
 
 ## Park and road clearance follow-up (2026-11-02)
