@@ -141,6 +141,9 @@ share are not thinned; [central-density record](observations/central-density-202
   (−104 MB, [record](observations/perf-heap-2026-11-11.md)).
   Street furniture geometry trimmed (lamp masts, hydrants, gas lanterns, bollards, columns: −43 % furniture
   triangles, frame −12 to −14 %; [record](observations/perf-heavy-props-2026-11-11.md)).
+  Sun shadow cadence: one depth map per cascade, the far cascade every second frame (shadow draws −31 to −42 %,
+  renderer CPU −15 to −19 %, GPU memory −72 MB on high; [record](observations/perf-shadows-2026-11-11.md)). It relies
+  on `SunShadowNode` internals: recheck shadows on both backends after any three.js SHA bump.
   Next steps, in order:
   1. **Measure real devices** with `?stats=1` (a phone in the default low tier, an integrated-GPU laptop, an iPad in
      Safari where the GPU model is masked) and let those reports pick the next target; extend the GPU table in

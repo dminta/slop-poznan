@@ -14,7 +14,7 @@ class Vector3 {
 }
 
 // Only the preset table and the solar maths run at import time; the renderer classes are never constructed here
-const { TIME_PRESETS, sunPosition, sunVector } = loadModule(source, {
+const { TIME_PRESETS, sunPosition, sunVector, planShadowCascades } = loadModule(source, {
   filename: 'lighting.js',
   imports: {
     'three/webgpu': { Vector3 },
@@ -22,6 +22,7 @@ const { TIME_PRESETS, sunPosition, sunVector } = loadModule(source, {
     'three/addons/objects/SkyMesh.js': {},
     'three/addons/lights/SunLight.js': {},
     'three/addons/lights/SunLightNode.js': {},
+    'three/addons/lights/SunShadowNode.js': { SunShadowNode: class {} },
     './tsl-materials.js': { cityUniforms: {} },
     './graphics-quality.js': graphicsQuality
   }
@@ -105,4 +106,26 @@ test('the in-game clock starts each preset at its stated local time', () => {
     const [, hh, mm] = /T(\d{2}):(\d{2})/.exec(preset.when);
     assert.equal(PRESET_CLOCK[preset.id], Number(hh) * 60 + Number(mm), preset.id);
   }
+});
+
+test('the shadow cascade cadence refreshes the near cascade every frame and the far one on a stride', () => {
+  const updates = (frame, options = {}) => {
+    const mask = planShadowCascades({ frame, ...options });
+    return [Boolean(mask & 1), Boolean(mask & 2)];
+  };
+  // Near (index 0) always updates: traffic, trams, pedestrians and the player cast into it.
+  for (let frame = 1; frame <= 6; frame++) assert.equal(updates(frame)[0], true);
+  // Far (index 1) updates on every second frame with the default stride ...
+  assert.deepEqual([1, 2, 3, 4, 5, 6].map((frame) => updates(frame)[1]),
+    [false, true, false, true, false, true]);
+  // ... on a reset (first frame, time-of-day change, quality change) or a jumped fit (teleport), wherever the
+  // stride slot happens to be ...
+  for (const frame of [1, 2, 3]) assert.equal(updates(frame, { reset: true })[1], true, `reset frame ${frame}`);
+  for (const frame of [1, 2, 3]) assert.equal(updates(frame, { jump: true })[1], true, `jump frame ${frame}`);
+  // ... and a longer stride, or 1, behaves as stated.
+  assert.deepEqual([1, 2, 3, 4, 5, 6, 7, 8].map((frame) => updates(frame, { farStride: 4 })[1]),
+    [false, false, false, true, false, false, false, true]);
+  for (let frame = 1; frame <= 4; frame++) assert.equal(updates(frame, { farStride: 1 })[1], true);
+  // A broken stride cannot stop the far cascade forever.
+  for (let frame = 1; frame <= 4; frame++) assert.equal(updates(frame, { farStride: 0 })[1], true);
 });

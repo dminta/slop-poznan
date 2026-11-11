@@ -9,17 +9,25 @@ import {
   fog,
   pmremTexture,
   positionWorld,
+  positionView,
+  normalWorld,
   cameraPosition,
   length,
   normalize,
   max,
   exp,
   abs,
-  select
+  select,
+  smoothstep,
+  reference,
+  renderGroup,
+  shadowPositionWorld,
+  If
 } from 'three/tsl';
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
 import { SunLight } from 'three/addons/lights/SunLight.js';
 import { SunLightNode } from 'three/addons/lights/SunLightNode.js';
+import { SunShadowNode } from 'three/addons/lights/SunShadowNode.js';
 import { cityUniforms } from './tsl-materials.js';
 import { QUALITY_TIERS } from './graphics-quality.js';
 
@@ -199,6 +207,207 @@ for (const preset of Object.values(TIME_PRESETS)) {
   preset.sunDir = sunVector(sun.azimuth, Math.max(sun.elevation, preset.minElevation ?? -90));
 }
 
+// The sun shadow atlas is split into two independent maps: the near cascade is re-rendered every frame because cars,
+// trams, pedestrians and the player cast into it, while the far cascade is re-rendered every other frame. The far
+// cascade covers 80-300 m at street level (more with altitude), where a one-frame lag of a moving caster is at most a
+// few tenths of a metre; static building shadows are fitted to the same snapped matrix, so they do not swim. A skipped
+// cascade keeps its previous snapped matrix, so the shader samples the stale tile with the projection it was drawn
+// with instead of stretching it onto a newer fit.
+const SHADOW_FAR_STRIDE = 2;
+// A camera preset change or teleport jumps the snapped cascade centre; refresh the far cascade in that frame instead of
+// waiting for the next stride slot, so the first frame at the new place has no stale shadows. Walking (1.4 m/s) and a
+// full-speed helicopter (52 m/s, ~0.9 m/frame) stay far below this.
+const SHADOW_MAX_STEP = 25;
+
+// Pure update decision, unit-tested in tests/lighting.test.cjs. Returns a cascade bitmask (bit i = cascade i):
+// the near cascade always updates; the far cascade updates on a reset (first frame, preset/quality change), a jumped
+// fit, or every `farStride`-th frame. A mask keeps the per-frame call allocation-free.
+const SHADOW_NEAR = 1;
+const SHADOW_FAR = 2;
+function planShadowCascades({ frame, farStride = SHADOW_FAR_STRIDE, reset = false, jump = false }) {
+  const stride = Math.max(1, Math.floor(farStride));
+  return SHADOW_NEAR | (reset || jump || frame % stride === 0 ? SHADOW_FAR : 0);
+}
+
+let _vsmWarned = false;
+
+// SunShadowNode with one render target per cascade instead of the 2 x 1 atlas, so the far cascade can be refreshed on
+// its own. The shader graph mirrors the addon: the same PCF filter, cascade fade bands and texel-snapped matrices, only
+// sampled from two full-size depth textures. Depth storage matches the former atlas; on WebGPU the maps are depth-only,
+// so the atlas's colour attachments are gone (−72 MB high, −8 MB low).
+class CadencedSunShadowNode extends SunShadowNode {
+  constructor(light, shadow = null) {
+    super(light, shadow);
+    const cascadeCount = this.shadow.getViewportCount();
+    this._maps = [];
+    this._savedMatrices = Array.from({ length: cascadeCount }, () => new THREE.Matrix4());
+    this._savedCenters = Array.from({ length: cascadeCount }, () => new THREE.Vector3());
+    this._saved = new Array(cascadeCount).fill(false);
+    this._frame = 0;
+    this._resetPending = true;
+    this.farStride = SHADOW_FAR_STRIDE;
+    // One map per cascade, so shadow matrices and filters work in [0, 1] instead of atlas tile offsets.
+    this.shadow._frameExtents.set(1, 1);
+    // The filter reads its texel size from `mapSize`; with one map per cascade that is the tile size, not the atlas.
+    this._atlasSize.copy(this.shadow.mapSize);
+  }
+
+  // Called from LightingSystem.applyPreset / setQualityTier; refreshes both cascades on the next shadow pass.
+  reset() {
+    this._resetPending = true;
+  }
+
+  dispose() {
+    const maps = this._maps;
+    this._maps = [];
+    // Let the base reset skip its single-map path, then free both maps exactly once.
+    this.shadowMap = null;
+    for (const map of maps) map.dispose();
+    super.dispose();
+  }
+
+  setupRenderTargets(builder) {
+    const { shadow } = this;
+    const width = shadow.mapSize.width;
+    const height = shadow.mapSize.height;
+    const maps = [];
+    for (let i = 0; i < shadow.getViewportCount(); i++) {
+      const depthTexture = new THREE.DepthTexture(width, height);
+      depthTexture.name = `SunShadowDepthTexture${i}`;
+      depthTexture.compareFunction = builder.renderer.reversedDepthBuffer
+        ? THREE.GreaterEqualCompare
+        : THREE.LessEqualCompare;
+      // WebGPU can render a depth-only target; the shadow pass never samples the colour attachment. The WebGL2
+      // fallback keeps a colour attachment because its depth-only framebuffer path is not used by the addon.
+      const depthOnly = builder.renderer.backend.isWebGPUBackend ? { count: 0 } : undefined;
+      const map = builder.createRenderTarget(width, height, depthOnly);
+      if (map.texture) {
+        map.texture.name = `SunShadowMap${i}`;
+        map.texture.type = shadow.mapType;
+      }
+      map.depthTexture = depthTexture;
+      maps.push(map);
+    }
+    return maps;
+  }
+
+  setupShadow(builder) {
+    const { renderer, camera } = builder;
+    const { shadow } = this;
+    let shadowMapType = renderer.shadowMap.type;
+    if (shadowMapType === THREE.VSMShadowMap) {
+      if (!_vsmWarned) {
+        console.warn('THREE.SunShadowNode: VSM is not supported, falling back to PCF.');
+        _vsmWarned = true;
+      }
+      shadowMapType = THREE.PCFShadowMap;
+    }
+    const filterFn = shadow.filterNode || this.getShadowFilterFn(shadowMapType) || null;
+    if (filterFn === null) throw new Error('THREE.SunShadowNode: Shadow map type not supported.');
+
+    const maps = this.setupRenderTargets(builder);
+    const hasTextureCompare = renderer.hasCompatibility(THREE.Compatibility.TEXTURE_COMPARE);
+    for (const map of maps) {
+      const depthTexture = map.depthTexture;
+      if (shadowMapType === THREE.PCFShadowMap && hasTextureCompare) {
+        depthTexture.minFilter = THREE.LinearFilter;
+        depthTexture.magFilter = THREE.LinearFilter;
+      } else {
+        depthTexture.minFilter = THREE.NearestFilter;
+        depthTexture.magFilter = THREE.NearestFilter;
+      }
+    }
+    this._maps = maps;
+    this.shadowMap = maps[0];
+    shadow.map = maps[0];
+    this._atlasSize.copy(shadow.mapSize);
+
+    shadow.camera.coordinateSystem = camera.coordinateSystem;
+    shadow.camera._reversedDepth = renderer.reversedDepthBuffer;
+
+    // Variables and branches must belong to each shader's scope, so the cascade statements are rebuilt per shader.
+    return Fn((shaderBuilder) => this._setupCascades(shaderBuilder, filterFn))().toVar();
+  }
+
+  _setupCascades(builder, filterFn) {
+    const { shadow } = this;
+    const shadowIntensity = reference('intensity', 'float', shadow).setGroup(renderGroup);
+    const normalBias = reference('normalBias', 'float', shadow).setGroup(renderGroup);
+    const shadowPosition = vec4(shadowPositionWorld.add(normalWorld.mul(normalBias)), 1).toVar();
+    const viewDepth = positionView.z.negate().toVar();
+    const shadowValue = float(1).toVar('shadowValue');
+
+    for (let i = shadow.getViewportCount() - 1; i >= 0; i--) {
+      const shadowMatrix = uniform('mat4').setGroup(renderGroup).onRenderUpdate(() => shadow.getMatrix(i));
+      const cascade = uniform('vec4').setGroup(renderGroup).onRenderUpdate(() => shadow._cascadeData[i]);
+      If(viewDepth.greaterThanEqual(cascade.x).and(viewDepth.lessThan(cascade.y)), () => {
+        const shadowCoord = this.setupShadowCoord(builder, shadowMatrix.mul(shadowPosition));
+        const cascadeShadow = this.setupShadowFilter(builder, {
+          filterFn,
+          shadowTexture: this._maps[i].texture,
+          depthTexture: this._maps[i].depthTexture,
+          shadowCoord,
+          shadow: this._filterShadow,
+          depthLayer: this.depthLayer
+        });
+        shadowValue.assign(mix(cascadeShadow, shadowValue, smoothstep(cascade.z, cascade.y, viewDepth)));
+      });
+    }
+
+    return mix(1, shadowValue, shadowIntensity);
+  }
+
+  renderShadow(frame) {
+    const { shadow, light } = this;
+    const { renderer, scene, camera } = frame;
+    shadow.updateMatrices(light, camera);
+    const count = shadow.getViewportCount();
+
+    // One map per cascade, but keep the atlas's texel inset: `updateMatrices` fitted the radius to
+    // `mapSize * (1 - 2 * inset)` and projected into that inset of a tile, and the cached far tile must match the
+    // baseline pixel for pixel. Render and project into the same inset of the separate map.
+    const atlasViewport = shadow._viewports[0];
+    const insetX = atlasViewport.x;
+    const insetY = atlasViewport.y;
+    const insetW = 1 - 2 * insetX;
+    const insetH = 1 - 2 * insetY;
+    for (let i = 0; i < count; i++) {
+      shadow._viewports[i].set(insetX, insetY, insetW, insetH);
+      shadow._updateMatrix(shadow.getCamera(i), shadow.getMatrix(i), shadow.getFrustum(i), shadow._viewports[i]);
+      this._maps[i].viewport.set(
+        insetX * this._maps[i].width,
+        insetY * this._maps[i].height,
+        insetW * this._maps[i].width,
+        insetH * this._maps[i].height
+      );
+    }
+
+    this._frame++;
+    const center = shadow.getCamera(1).position;
+    const jump = !this._saved[1] || center.distanceToSquared(this._savedCenters[1]) > SHADOW_MAX_STEP * SHADOW_MAX_STEP;
+    const plan = planShadowCascades({ frame: this._frame, farStride: this.farStride, reset: this._resetPending, jump });
+    this._resetPending = false;
+
+    const sceneName = scene.name;
+    scene.name = `Shadow Map [ ${light.name || 'ID: ' + light.id} ]`;
+    renderer.autoClear = false;
+    for (let i = 0; i < count; i++) {
+      if ((plan & (1 << i)) === 0) {
+        // Keep the projection the cached tile was rendered with; the shader then samples it in place.
+        shadow.getMatrix(i).copy(this._savedMatrices[i]);
+        continue;
+      }
+      renderer.setRenderTarget(this._maps[i]);
+      renderer.clear();
+      renderer.render(scene, shadow.getCamera(i));
+      this._savedMatrices[i].copy(shadow.getMatrix(i));
+      this._savedCenters[i].copy(shadow.getCamera(i).position);
+      this._saved[i] = true;
+    }
+    scene.name = sceneName;
+  }
+}
+
 class LightingSystem {
   constructor(scene, renderer = null, qualityTier = 'high') {
     this.scene = scene;
@@ -281,6 +490,11 @@ class LightingSystem {
     this.sunLight.shadow.normalBias = 0.05;
     this.scene.add(this.sunLight);
 
+    // The far cascade is re-rendered on a stride; see CadencedSunShadowNode. It replaces the default atlas node; the
+    // shadow object, its cameras and the scene-culling stand-ins keep their existing contract.
+    this._shadowNode = new CadencedSunShadowNode(this.sunLight, this.sunLight.shadow);
+    this.sunLight.shadow.shadowNode = this._shadowNode;
+
     // Subtle Hemisphere Sky + Warm Terracotta/Limestone Ground Bounce Fill
     // (Kept intentionally lower than sunLight so urban canyon shadows remain deep and crisp)
     this.hemiLight = new THREE.HemisphereLight(0x9abbe6, 0xc88a62, 1.05);
@@ -307,7 +521,10 @@ class LightingSystem {
     this.qualityTier = low ? 'low' : 'high';
     this.shadowRange = preset.shadowRange;
     const size = Math.min(preset.shadowMapSize, this.maxShadowTile);
-    if (this.sunLight.shadow.mapSize.x !== size) this.sunLight.shadow.mapSize.set(size, size);
+    if (this.sunLight.shadow.mapSize.x !== size) {
+      this.sunLight.shadow.mapSize.set(size, size);
+      this._shadowNode?.reset();
+    }
     return this.qualityTier;
   }
 
@@ -349,6 +566,8 @@ class LightingSystem {
       return;
     }
     this.activePresetId = p.id;
+    // The sun direction and colour change under a new preset; refresh both cascades on the next shadow pass.
+    this._shadowNode?.reset();
 
     this.sunLight.color.setHex(p.sunColor);
     this.sunLight.intensity = p.sunIntensity;
@@ -400,4 +619,4 @@ class LightingSystem {
   }
 }
 
-export { LightingSystem, TIME_PRESETS, sunPosition, sunVector };
+export { LightingSystem, TIME_PRESETS, sunPosition, sunVector, planShadowCascades, CadencedSunShadowNode };

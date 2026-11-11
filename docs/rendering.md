@@ -55,12 +55,13 @@
 - Materials with an explicit `mrtNode` (transparent decals, road paint, contact shadows) need the normal and metalRough
   attachments. On low, `main.js` clears their `mrtNode` once after the city is built; high leaves them alone. A material
   created after that boot-time clear would not be cleared, so create such materials during the build.
-- **Shadows:** low uses 1024² tiles per cascade and a 150–360 m shadow range (`LightingSystem` receives the tier at
+- **Shadows:** low uses a 1024² shadow map per cascade and a 150–360 m shadow range (`LightingSystem` receives the tier at
   construction); high keeps 3072² (2048² on smaller devices) and 300–720 m. Low also turns off shadow casting once at
   boot for trees, street furniture/props, trams and the city grid; the building and landmark shadow proxies from
   `scene-culling.js` keep casting, so large-scale building shade remains. High builds the merged small-prop stand-ins
   (`userData.propShadowProxy`); low skips building them entirely (`propShadowProxies: false`) because it disables those
-  casters and does not need their ~50 MB of retained geometry.
+  casters and does not need their ~50 MB of retained geometry. Both tiers use the near/far cadence described under
+  "Shadow cadence" below.
 - **Trees:** the tree field reads the tier's `trees` profile once at boot (`configureTreeQuality` in `main.js`, before
   `buildStreetDetails` plants it). Low keeps full detail to 95 m (high 105), coarse cards to 330 m (420), draws parks and
   plazas to 2200 m (3000), wide streets to 1500 m (1600) and narrow streets to 850 m (950), and caps street-level trees at
@@ -78,7 +79,7 @@
 
 ## Renderer and the WebGL2 fallback
 - `WebGPURenderer` is created with `antialias` (MSAA), `reversedDepthBuffer: true`, the tier's pixel ratio (1 high, 0.75 low), shadows on, and `ClusteredLighting`. three.js is `@dev` from jsDelivr, so APIs can drift. `lighting.js` already has to cope with this: `SunLight.registerNode` exists only on newer builds, and older builds go through `renderer.library.addLight`.
-- Use `renderer.backend.isWebGPUBackend` to branch per backend. On the WebGL2 fallback, `renderer.backend.device` is undefined. `lighting.js` then assumes a 4096 texture limit, which gives 2048 shadow tiles.
+- Use `renderer.backend.isWebGPUBackend` to branch per backend. On the WebGL2 fallback, `renderer.backend.device` is undefined. `lighting.js` then assumes a 4096 texture limit, which gives 2048 shadow maps.
 - `?backend=webgl` passes `forceWebGL` to the renderer constructor so a browser review can exercise the fallback on a WebGPU machine. Any other value, or no query string, keeps the default backend. It is a review switch, not a persisted setting.
 - **Instance-matrix swap (WebGPU only):** after `setupSceneCulling`, `main.js` replaces the `instanceMatrix` of every InstancedMesh in the scene with a `StorageInstancedBufferAttribute`. Small instanced meshes otherwise keep their matrices in uniform buffers, and three.js re-uploads those on every draw of every pass. Consequences:
   - Do not swap on WebGL2. Commit "Fix instanced geometry on the WebGL2 fallback" reverted an unconditional swap that broke transforms there.
@@ -107,7 +108,19 @@
 - `applyPreset` pushes sun, hemisphere, fog and sky values, plus `cityUniforms` (sun and sky colours, sun direction, `uInteriorGlow`, `uRoadWetness`, `uCanyonBounce`), and then re-bakes the PMREM environment. The bake reuses one render target, so `scene.environment` and the fog's `pmremTexture` keep the same texture identity. Keep that render-target reuse.
 - **The night signal is `cityUniforms.uInteriorGlow`** (about 0.24 at midday, 1.55 at midnight). `nightFactor` only blends the sky. Shaders derive night with `smoothstep(lo, hi, cityUniforms.uInteriorGlow)`, for example `nightFactorNode` in `outskirts.js` and the lamp glows in `street-details.js`. CPU code reads `.value` with a fallback of 0.48 (`street-details.js`, `traffic.js`, `controllers.js`). When something needs to fade in at dusk, follow the same pattern. When the CPU and a shader must agree, use the same smoothstep range on both sides; a comment in `street-details.js` pairs the two. The audio system keys night off `activePresetId === 'midnight'`.
 - Fog is `scene.fogNode` (`createAerialFogNode`), not `scene.fog`. `scene.fog` is still updated, but the node replaces it once the env map exists. Additive and emissive sprites set `fog: false`, because fog would add its own colour.
-- Shadows: `SunLight` with 2-cascade CSM, 3072² tiles on high (2048² where the device's texture limit is smaller) and 1024² on low. `LightingSystem.update` stretches `shadow.camera.far` from 300 m to 720 m with altitude on high; the low profile starts at 150 m and reaches 360 m. The cull distances in `scene-culling.js` (`CULL_MIN`, `PROXY_CELL`) assume a high-tier reach of about 300 m; the low tier simply draws fewer shadow casters and does not change the culling radii. If you change the cascade far plane, revisit those constants too.
+- Shadows: `SunLight` with 2-cascade CSM, a 3072² map per cascade on high (2048² where the device's texture limit is smaller) and 1024² on low. `LightingSystem.update` stretches `shadow.camera.far` from 300 m to 720 m with altitude on high; the low profile starts at 150 m and reaches 360 m. The cull distances in `scene-culling.js` (`CULL_MIN`, `PROXY_CELL`) assume a high-tier reach of about 300 m; the low tier simply draws fewer shadow casters and does not change the culling radii. If you change the cascade far plane, revisit those constants too.
+- **Shadow cadence:** `CadencedSunShadowNode` in `lighting.js` replaces the addon's 2 × 1 atlas with one depth map per
+  cascade, so each cascade can be refreshed on its own. The near cascade renders every frame (traffic, trams,
+  pedestrians and the player cast into it); the far cascade renders every second frame. A skipped cascade keeps the
+  matrix it was rendered with, and the shader samples its map with that matrix, so the tile and the projection stay
+  consistent: static shadows do not swim when the camera moves. A time-preset or quality change resets both cascades, and
+  a snapped-centre jump over 25 m (a teleport or camera-preset change) refreshes the far cascade on that frame. On
+  WebGPU the maps are depth-only, which drops the old atlas's two colour attachments (−72 MB high, −8 MB low); the
+  WebGL2 fallback keeps a colour attachment. The near/far split and the fade band still come
+  from `SunLightShadow.updateMatrices`; only the render-target layout and the far-cascade cadence differ. The class uses
+  the addon's `SunShadowNode` / `SunLightShadow` internals (`_viewports`, `_matrices`, `_cascadeData`), so recheck it on
+  both backends after a three.js CDN bump. Measured draws, CPU and pixel diffs:
+  [perf-shadows-2026-11-11](observations/perf-shadows-2026-11-11.md).
 - Dynamic lights (streetlights, store spots, police lights, headlights) come from fixed pools created at build time. A pool light is "off" when its intensity is 0 and it is parked at y = -1000. To add a light, add it to a pool and change only its intensity and position at runtime; do not create lights per frame.
 
 ## Post-processing chain (`main.js` → `post-processing.js`)
