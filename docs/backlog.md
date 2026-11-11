@@ -139,10 +139,23 @@ share are not thinned; [central-density record](observations/central-density-202
   integrated GPU; `?stats=1` shows a copyable report for that.
   Retained JS heap after GC is ~890 MB high / ~820 MB low after releasing two accidentally captured build scopes
   (−104 MB, [record](observations/perf-heap-2026-11-11.md)).
-  Remaining: tree LOD / draw distance beyond the low tier; the 1× browser boot is now dominated by the unchanged
-  `nearestCurbFrame` / `pointInPolyIndexed` / `roadClearance` / `outlineDist` entries and by shader compile/warm-up,
-  not by the four part-3 targets. The land raster's 19.3 M cells are built in ~0.05 s and kept as two `Uint8Array`s;
-  no further boot index is obvious without a new browser profile.
+  Street furniture geometry trimmed (lamp masts, hydrants, gas lanterns, bollards, columns: −43 % furniture
+  triangles, frame −12 to −14 %; [record](observations/perf-heavy-props-2026-11-11.md)).
+  Next steps, in order:
+  1. **Measure real devices** with `?stats=1` (a phone in the default low tier, an integrated-GPU laptop, an iPad in
+     Safari where the GPU model is masked) and let those reports pick the next target; extend the GPU table in
+     `graphics-quality.js` from them.
+  2. **Shader compile / warm-up** (~3.9 s per boot; 290 programs high, 269 low): fewer material variants, merged
+     near-identical pipelines, or compiling what is not on screen after the first frame. This now dominates the 1×
+     browser boot.
+  3. **JS heap** (~890 MB high / ~820 MB low retained): another dominator pass on the current snapshot; candidates
+     are a cheaper representation of route/collider/road-graph data and shader NodeData (~39 MB). Post-upload
+     attribute release is not safe in the pinned three.js.
+  4. **Remaining boot entries** after three index passes: `nearestCurbFrame`, `pointInPolyIndexed`, `roadClearance`,
+     `outlineDist`; take a new browser profile first, no further index is obvious.
+  5. **Off-screen instances** (68 % at Rynek in the audit, per-chunk culling): finer culling for the heaviest instanced
+     meshes, measured against the draw-call cost it adds.
+  6. Tree LOD / draw distance for the high tier (low already has its own profile), only if real devices need it.
   [Ranked opportunities](observations/perf-older-devices-2026-11-11.md).
 - Road levels and richer road-priority classification; revisit only with a runtime consumer.
 - Additional height sources (nDSM/LoD1/LoD2) and GEOPOZ machine-readable data: research candidates.
