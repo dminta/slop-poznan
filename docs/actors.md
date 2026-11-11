@@ -333,6 +333,17 @@ after the lane's real queue and its reservations, at `room`'s return. There is n
 this one releases the *car* while the tram's own sweep still guards it.
 [Release record](observations/kaponiera-tram-pad-release-2026-11-10.md).
 
+`shortLinkLane` was extended on 2026-11-10 (Centrum `(-1117, 132)`): when the planned lane's front is still moving, a
+car may take the sibling with the same lane index as its own approach lane, so two approach lanes that merge into one
+link lane store in two link lanes instead of queueing for the merge. A left turn into a full **2-lane** link may also
+take a straight-only sibling and leave the link straight rather than stand through its green for the only entry lane;
+a sibling with a turn of its own stays out, and a 3-lane link keeps the old rule (the detour there moved
+Kaponiera seed 11 from 86 to 110 s without helping Centrum). All other cross-lane switches still wait for the stopped
+storage case. Eight seeds: Centrum mean 14.5 → 14.9 km/h, stopped 33.6 → 31.9%, worst wait / hold 87 / 86 → 72 s, held > 60 s
+9 → 2; every other district is bit-identical, Kaponiera included (measured on `8c41595`, before `e526603`; Kaponiera seeds 5 and 11 re-checked identical on top of it). Seed 99's Centrum mean falls 15.8 → 14.2 km/h and
+one car stands in the `(-986, 161)` box for 28 s, while its tail improves 71 → 58 s.
+[Measurements and rejected variants](observations/centrum-merge-lanes-2026-11-10.md).
+
 A straight car on a signal-to-signal link under 12 m whose exit link is over 17.5 m (`mayEnter`'s `first`) pulls into the box to wait short of the exit zebra, like a turner, instead of standing at the downstream line while people cross: the upstream approach then gets its room to the link at the next green (Centrum seed 1 (-1136, 127) -> (-1117, 132): longest hold 112 -> 86 s, 2026-11-10). Not on exits of 17.5 m or less: the same rule on Kaponiera's 10-17 m links parked cars in boxes a tram needs and added deadlock cycles (see docs/observations/centrum-exit-room-2026-11-10.md).
 
 Trams reserve space for their full length plus 2 m beyond switches, track crossings, mapped road/mainline crossings

@@ -60,14 +60,6 @@ Implementation details and completed measurements live in the [topic docs](../AG
   [2026-11-08 trace and rejected variants](observations/kaponiera-traffic-2026-11-08.md),
   [Centrum trace](observations/merge-starvation-2026-11-07.md),
   [per-second left-turn/tram trace](observations/left-turn-tram-2026-11-04.md).
-- **Centrum exit-room tails:** `f20646d` lets a straight car on a < 12 m link between signals wait in the box before
-  an exit over 17.5 m (`SHORT_SIGNAL_LINK` / `BOX_WAIT_EXIT`), which gives `tests/traffic-flow.test.mjs` 34 s of
-  margin (seed 1 longest hold 112 → 86 s; Centrum 14.5 km/h, 33.4 % stopped, held > 60 s 13 → 10). Seeds 5 and 11
-  trade throughput for longer tails (58 → 76 s, 65 → 86 s) with more cars through `(-1117, 132)` stopping for the
-  merge; watch them if spawns or routing change. Do not revive projected exit room (Kaponiera seed 4242 hold
-  111 → 156 s, a seed-99 deadlock), the unscoped box wait (Kaponiera seed 7 deadlocks 1 → 2, a 39 s cycle at
-  `(-1503, 224)`) or scoping it by tram conflicts (no effect: every Centrum straight curve there crosses a track).
-  [Exit-room record](observations/centrum-exit-room-2026-11-10.md).
 - **Car–tram body overlaps:** at `6d70c71` the eight-seed audit has **36** pairs (Jeżyce 21, Kaponiera 9,
   Stare Miasto 5, Centrum 1). `3279f75` gave the nearest same-direction car behind a tram a private leader where the
   tram's lane proxy is dropped (`protectTramFollower`): 73 → 37 (moving 53 → 19, stopped 20 → 18; Jeżyce 47 → 21,

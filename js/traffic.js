@@ -1462,30 +1462,48 @@ function createTrafficSystem(
     return Math.sqrt(Math.min(speeds[i], speeds[Math.min(i + 1, speeds.length - 1)]));
   }
 
-  // The lane of a short exit to take when the planned one is physically full. A sibling lane that can make the same
-  // turn is free storage the road graph's lane mapping did not use (Kaponiera -1490, 170: two approach lanes feed the
-  // right-turn lane while the straight lane stays empty). Only an uncommitted car may switch; room/alongside still
-  // check the chosen lane, and the car's next move is chosen from it when it leaves.
+  // The lane of a short exit to take when the planned one is physically full. A free sibling is storage the road
+  // graph's lane mapping did not use (Kaponiera -1490, 170: two approach lanes feed the right-turn lane while the
+  // straight lane stays empty). Only an uncommitted car may switch; room/alongside still check the chosen lane, and
+  // the car's next move is chosen from it when it leaves.
   function shortLinkLane(v, e, f, m, j, stoppable) {
     if (j < 0 || room(f, j, v, !stoppable)) return j;
-    // Only the storage case: a car already stopped on the link for its downstream signal. A lane full behind a tram
-    // or a turning car keeps its planned lane, so the switch does not add lateral surprises at tram curves.
     const list = f.occ && f.occ[j];
     const front = list && list.length ? list[list.length - 1].v : null;
-    if (!front || front.speed >= 0.5 || front.held !== 'signal') return j;
+    if (!front) return j;
+    // Stopped storage keeps its original rule: the front waits for the downstream signal. A lane full behind a tram
+    // or a turning car keeps its planned lane, so the switch does not add lateral surprises at tram curves. A lane
+    // whose front is still draining may also offer the spare lane, but only to the lane with the same index as the
+    // car's approach lane: at Centrum's 9.4 m link from the east approach two lanes merge into one, and the second lane adds
+    // storage without the car crossing a sibling's queue.
+    const moving = front.speed >= 0.5;
+    if (!moving && front.held !== 'signal') return j;
     for (let k = 0; k < f.lanes.length; k++) {
       if (k === j) continue;
       let same = false;
       for (const q of f.moves) if (q.turn === m.turn && q.out[k] >= 0) { same = true; break; }
-      if (!same) continue;
+      // A left turn into a full short link stood in the upstream box while the link's only entry lane waited at its
+      // far signal (Centrum (-1117, 132), seed 11's 86 s hold). A straight-only sibling can carry it clear of the box
+      // and out of the link straight. A sibling with a turn of its own stays out (a left one crosses the tram tracks
+      // and held two trams 89 s at Kaponiera's -1438, 115); a 3-lane link already has the spare storage, and the
+      // detour there moved Kaponiera seed 11 without helping Centrum
+      // (docs/observations/centrum-merge-lanes-2026-11-10.md).
+      const detour = m.turn === 'L' && f.lanes.length < 3 && !same &&
+        f.moves.some((q) => q.turn === 'S' && q.out[k] >= 0) &&
+        !f.moves.some((q) => q.out[k] >= 0 && q.turn !== 'S');
+      if (!same && !detour) continue;
+      if (moving && k !== v.lane && !detour) continue;
       // Do not send the car into a lane with movements the planned lane cannot make (a left-turn-only lane that
       // crosses the tram tracks at Kaponiera 230): the car would then choose one of them at the next junction.
-      let subset = true;
-      for (const q of f.moves) {
-        if (q.out[k] < 0) continue;
-        if (!f.moves.some((p) => p.turn === q.turn && p.out[j] >= 0)) { subset = false; break; }
+      if (same) {
+        let subset = true;
+        for (const q of f.moves) {
+          if (q.out[k] < 0) continue;
+          if (!f.moves.some((p) => p.turn === q.turn && p.out[j] >= 0)) { subset = false; break; }
+        }
+        if (!subset) continue;
       }
-      if (!subset || !room(f, k, v, !stoppable)) continue;
+      if (!room(f, k, v, !stoppable)) continue;
       const c = connector(e, v.lane, f, k);
       if (alongside(f, k, v, v.s - e.len - c.len, m.turn !== 'S')) continue;
       return k;

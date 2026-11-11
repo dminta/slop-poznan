@@ -38,6 +38,34 @@ test('a short link takes a free sibling lane only when it keeps the same movemen
     'a sibling that cannot make the current move is not used');
 });
 
+test('a draining short link stores a merge in the same lateral slot, and a left turn may leave it straight', () => {
+  // Centrum (-1117, 132): westbound approach lanes 0 and 1 both feed the 9.4 m exit link's lane 0. While that lane's
+  // front is still moving, lane 1 takes its own slot on the link, so the second approach lane is not starved by the
+  // merge. A car may not cross to a different slot behind a moving front (Kaponiera seed 4242's worst wait
+  // 112 -> 147 s when it could).
+  const exit = { len: 9.4, lanes: [1.2, 4.8], moves: [{ turn: 'S', out: [0, 1] }],
+    occ: [[{ v: { speed: 4, held: '' }, s: 3 }], []] };
+  const edge = { len: 25.1 };
+  const shortLinkLane = trafficFunction('shortLinkLane', {
+    room: (f, j) => j !== 0,
+    connector: () => ({ len: 4 }),
+    alongside: () => false
+  });
+  const straight = { turn: 'S', out: [0, 1] };
+  assert.equal(shortLinkLane({ s: 10, lane: 1 }, edge, exit, straight, 0, true), 1,
+    'the same lateral slot is used while the planned lane drains');
+  assert.equal(shortLinkLane({ s: 10, lane: 0 }, edge, exit, straight, 0, true), 0,
+    'a cross-lane switch behind a moving front is not taken');
+  // The south approach turns left into the same 9.4 m link (seed 11): its lane 0 is full, and lane 1 is straight
+  // only at the far junction. The left turn takes lane 1 and leaves the link straight instead of missing the green.
+  const leftIn = { turn: 'L', out: [0, -1] };
+  assert.equal(shortLinkLane({ s: 10, lane: 0 }, edge, exit, leftIn, 0, true), 1,
+    'a left turn into a full 2-lane link detours through its straight-only sibling');
+  const wide = { ...exit, lanes: [1.2, 4.8, 8.4], occ: [[{ v: { speed: 4, held: '' }, s: 3 }], [], []] };
+  assert.equal(shortLinkLane({ s: 10, lane: 0 }, edge, wide, leftIn, 0, true), 0,
+    'the detour is not used on a 3-lane link (it moved Kaponiera seed 11 without helping Centrum)');
+});
+
 test('a give-way feeder into a short link leaves the upstream junction clear', () => {
   // The 20.7 m approach to Kaponiera's 10 m give-way exit filled to the junction behind it and stood in its box for
   // 51 s (seed 4242). With a stationary rear car and no space behind it, a stoppable car now waits upstream.
