@@ -134,6 +134,8 @@ share are not thinned; [central-density record](observations/central-density-202
   piece, lamp mast + housing merged, cheap-prop culling cells, merged prop shadow stand-ins on high only; see
   [record](observations/perf-draw-calls-2026-11-11.md) for the rebased ablation). Not yet measured on a real phone or
   integrated GPU; `?stats=1` shows a copyable report for that.
+  Retained JS heap after GC is ~890 MB high / ~820 MB low after releasing two accidentally captured build scopes
+  (−104 MB, [record](observations/perf-heap-2026-11-11.md)).
   Remaining: tree LOD / draw distance beyond the low tier, then the boot entries the two index passes left:
   `city-config.js`'s module import (land raster), `buildRoadNetwork` (`crossingRuns`, the largest-component pass, the
   footprint hash inserts), `city-grid.js` square paving, and the rail keep-out raster.
