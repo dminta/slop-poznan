@@ -30,23 +30,31 @@ Implementation details and completed measurements live in the [topic docs](../AG
   [twin-lane and Pasaż pass](observations/ped-twin-lane-loops-2026-11-10.md),
   [Pasaż record](observations/ped-overlap-pasaz-2026-11-10.md),
   [mechanisms](observations/ped-overlap-remnants-2026-11-08.md).
-- **Kaponiera long holds and the last deadlock:** at `6d70c71` (8 seeds × 7 districts, 5 min) every hold > 120 s and
+- **Kaponiera long holds and the last deadlock:** at `8c41595` (8 seeds × 7 districts, 5 min) every hold > 120 s and
   every deadlock is in Kaponiera: 12.6 km/h, 51.3 % stopped, worst wait 145 s, held > 60 s 133, > 120 s **13**,
   **1** deadlock, 2 box-stuck seeds (from 12.3 km/h, 52.2 %, 155 s, 167 / 21 / 5 / 3 at `3279f75`). `6d70c71` broke
   the tram → car → (car →) own proxy → tram cycles (seeds 1, 7, 99 and one of seed 5's): the tram's road-car gate now
   skips a car stopped ≥ `QUEUED_RELEASE_WAIT` 20 s behind that tram's proxy, directly or via one stopped car, whose
-  stopped body is outside the swept envelope. Open: seed 2's 10 holds > 120 s (a queue backed up from a red at
-  `(-1497, 198)`, no wait-for cycle); seed 5's 70 s deadlock, car 66 refused room on the 10 m approach to
-  `(-1468, 118)` by a proxy plus a real stopped car on the exit while tram 13 waits for it; seed 7's one
-  hold > 120 s. Do not revive the entry guard that counts tram proxies as exit occupancy (seed 7 held > 120 s 6 → 19 and a
-  deadlock, Jeżyce seed 1 16.0 → 12.8 km/h), the release only for a direct proxy follower (the seed-1 cycle runs
-  through a car) or without the 20 s wait (audit 73 → 79, trams passing a just-released car at 5–6.5 m/s), ignoring
-  the waiting tram's proxy for its connector obstacle (the cycle became three vehicles, box still 84 s), counting the
-  room behind an exit-lane tram proxy (no change), the rejected unrestricted sibling lane (cars entered a left-turn
-  lane over the tram tracks and two trams waited 89 s at switches), the version applied to links that do not store
-  for a signal (Jeżyce's `(-2023, -448)` car–tram cycle returned and the audit rose to 13 pairs), the rear-gap rule
-  for every moving queue (it cut the merge's throughput and added a deadlock), or the early-arrival and lane-lead
-  braking relaxations without their regressions.
+  stopped body is outside the swept envelope. `proxyYieldsTo` (2026-11-10) breaks seed 5's remaining 70 s cycle: a
+  tram stopped ≥ 20 s for the car yields its own crossing pad in the car's exit lane once the car has waited 20 s and
+  the lane, after any real queue in it, holds the car's rear clear of the pad, so the car goes first while the tram's
+  sweep keeps the tram stopped.
+  Seed 5: held > 120 s 2 → 0, deadlocks 1 → 0, 11.7 → 11.8 km/h, held > 60 s 31 → 28; the other seven seeds are
+  bit-identical (8-seed held > 120 s 13 → 11, held > 60 s 133 → 130, deadlocks 1 → 0). Open: seed 2's 10 holds
+  > 120 s (demand against the 10 m two-lane exit and the far signal's 10 s g1 green in a 60 s plan whose 40 s group-0
+  green is the 38 m pedestrian crossing; the give-way passes 2.4 cars/min); seed 7's one 139 s hold (a line-20 switch
+  jam holds the crossing proxies, not a car rule). Do not revive the entry guard that counts tram proxies as exit
+  occupancy (seed 7 held > 120 s 6 → 19 and a deadlock, Jeżyce seed 1 16.0 → 12.8 km/h), the release only for a
+  direct proxy follower (the seed-1 cycle runs through a car) or without the 20 s wait (audit 73 → 79, trams passing
+  a just-released car at 5–6.5 m/s), ignoring the waiting tram's proxy for its connector obstacle (the cycle became
+  three vehicles, box still 84 s), counting the room behind an exit-lane tram proxy (no change), the rejected
+  unrestricted sibling lane (cars entered a left-turn lane over the tram tracks and two trams waited 89 s at
+  switches), the version applied to links that do not store for a signal (Jeżyce's `(-2023, -448)` car–tram cycle
+  returned and the audit rose to 13 pairs), the rear-gap rule for every moving queue (it cut the merge's throughput
+  and added a deadlock), the early-arrival and lane-lead braking relaxations without their regressions, or the
+  tram-pad release without both 20 s wait terms (a momentary stop released a seed-99 car that had just reached the
+  line and left an unrelated bus in a 124 s red-light hold).
+  [Tram-pad release](observations/kaponiera-tram-pad-release-2026-11-10.md),
   [Deadlock traces and the queued-release fix](observations/kaponiera-deadlock-traces-2026-11-10.md),
   [2026-11-10 traces and re-measurement](observations/kaponiera-traffic-2026-11-10.md),
   [2026-11-08 trace and rejected variants](observations/kaponiera-traffic-2026-11-08.md),

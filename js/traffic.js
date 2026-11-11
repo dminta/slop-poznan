@@ -1113,6 +1113,20 @@ function createTrafficSystem(
     return (group === 0 ? future.phase0 : future.phase1) !== 'green';
   }
 
+  // A tram stopped for this very car will not move until the car's body leaves its swept path, so the car goes
+  // first even when the tram's own crossing pad holds the mouth of the lane it is entering. Kaponiera (-1468, 118),
+  // seed 5: car 66 waited for room behind tram 13's pad at s 0.3 while the tram waited for the car's front corner
+  // 0.5 m from its centreline, inside the tram's 1.2 m body band (70 s cycle). Only the tram that is waiting for v is
+  // skipped, only while it stands for a real cycle, and only when the lane can hold v's rear clear of the pad - also
+  // behind the lane's real queue, which `room` checks at its return - so the car never stops on the track it crossed.
+  // Releasing on any momentary stop changed an unrelated seed-99 trajectory into a 124 s red-light hold.
+  const PROXY_RELEASE_WAIT = 20;
+  function proxyYieldsTo(o, v, f) {
+    const t = o.tram;
+    return !!t && t.obstacle === v && t.speed < 0.1 && t.stuck >= PROXY_RELEASE_WAIT &&
+      v.wait >= PROXY_RELEASE_WAIT && f.len - 2 * v.half >= o.s + o.half + 0.5;
+  }
+
   // Would there be room for v in lane j of edge f if everyone headed there queued bumper to bumper behind its far
   // stop line? (An empty lane always has room, however short.) Rank approaches by their oldest eligible waiting
   // lead, then fronts within that approach. Ranking individual wait across roads and fronts within one road was
@@ -1137,8 +1151,13 @@ function createTrafficSystem(
         }
       }
     }
+    let padEnd = -Infinity; // far edge (+0.5 m) of a yielded crossing pad the car's rear must clear
     for (const o of f.occ[j]) {
       if (o.v === v || o.s - o.v.half >= f.len) continue;
+      if (o.v.tram && proxyYieldsTo(o.v, v, f)) {
+        padEnd = Math.max(padEnd, o.s + o.v.half + 0.5);
+        continue;
+      }
       const rear = o.s - o.v.half;
       if (shortAhead && rear < 2 * v.half + 0.5 && (!shortStopped || o.v.speed < 1)) free = Math.min(free, rear);
       else free -= 2 * o.v.half + o.v.driver.s0;
@@ -1186,7 +1205,11 @@ function createTrafficSystem(
         if (first) free -= 2 * o.v.half + o.v.driver.s0;
       }
     }
-    return free >= Math.min(2 * v.half + 0.5, f.len - 1);
+    // A yielded pad is only clear if the car's estimated rear (the free length behind the real queue and its
+    // reservations, minus the car's own length) stays past it. A 12 m exit with one stopped car gives free 4.8 and
+    // admits v by the first test, but the queue-from-the-line rear is 0.6 m - inside a pad ending at 2.7 m
+    // (3.2 m with the 0.5 m margin).
+    return free >= Math.min(2 * v.half + 0.5, f.len - 1) && free - 2 * v.half >= padEnd;
   }
 
   // Would v, crossing into lane j of f to arrive at position vs, come alongside another vehicle headed there, cut in
@@ -1199,6 +1222,7 @@ function createTrafficSystem(
       for (const o of f.occ[k]) {
         const swing = turn && (v.bus || o.v.bus);
         if (o.v === v || (k !== j && !swing)) continue;
+        if (o.v.tram && proxyYieldsTo(o.v, v, f)) continue;
         let lo = o.s - vs; // how far ahead of v o is
         let hi = lo;
         if (swing && o.v.edge === v.edge) {

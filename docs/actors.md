@@ -322,6 +322,17 @@ junction box; a moving queue can still be followed in. Measured over the 8 Kapon
 stopped 53.5% → 52.0%, worst wait 195 → 139 s, held > 120 s 25 → 7, deadlocks 2 → 0 and no `(-1490, 170)` box stop.
 [Measurements and rejected variants](observations/kaponiera-traffic-2026-11-08.md).
 
+A tram stopped for a car cannot move until that car's body leaves its swept path, so the car now goes first through
+the mouth of the lane it is entering even when the tram's own crossing pad holds it (`proxyYieldsTo` in `room` and
+`alongside`, 2026-11-10). Kaponiera `(-1468, 118)`, seed 5: car 66 waited for room behind tram 13's pad at s 0.3
+while the tram waited for the car's front corner 0.5 m from its centreline; the 70 s cycle is gone (seed 5 held > 120 s
+2 → 0, deadlocks 1 → 0). Only the tram whose `obstacle` is that car is skipped, only after both have stood 20 s,
+and only when the lane holds the car's rear clear of the pad - both on the empty-link test in `proxyYieldsTo` and,
+after the lane's real queue and its reservations, at `room`'s return. There is no
+20 s wait on the tram's side of the ordinary `heldByTram` exemption: that one releases the *tram* into a car's path,
+this one releases the *car* while the tram's own sweep still guards it.
+[Release record](observations/kaponiera-tram-pad-release-2026-11-10.md).
+
 A straight car on a signal-to-signal link under 12 m whose exit link is over 17.5 m (`mayEnter`'s `first`) pulls into the box to wait short of the exit zebra, like a turner, instead of standing at the downstream line while people cross: the upstream approach then gets its room to the link at the next green (Centrum seed 1 (-1136, 127) -> (-1117, 132): longest hold 112 -> 86 s, 2026-11-10). Not on exits of 17.5 m or less: the same rule on Kaponiera's 10-17 m links parked cars in boxes a tram needs and added deadlock cycles (see docs/observations/centrum-exit-room-2026-11-10.md).
 
 Trams reserve space for their full length plus 2 m beyond switches, track crossings, mapped road/mainline crossings

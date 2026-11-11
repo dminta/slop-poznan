@@ -79,3 +79,41 @@ test('a car records the short-link lane it actually takes', () => {
   assert.equal(room(exit, 1, newer), false, 'the lead reserves the lane it actually entered');
   assert.equal(room(exit, 0, newer), true, 'the lane the graph planned but the lead did not take stays free');
 });
+
+test('a tram stopped for a car yields its own crossing pad in the car\'s exit lane', () => {
+  // Kaponiera (-1468, 118), seed 5: car 66 waited for room behind tram 13's crossing pad at s 0.3, while the tram
+  // waited for the car's front corner 0.5 m from its centreline - a 70 s deadlock. The tram cannot move until the car
+  // clears its swept path, so the car goes first once both have waited for a real cycle and the lane holds it clear
+  // of the pad. Releasing on any momentary stop left an unrelated seed-99 car in a 124 s red-light hold.
+  const proxyFor = (obstacle, stuck, speed) => ({ tram: { obstacle, speed, stuck }, half: 2.4, s: 0.3, speed: 0,
+    driver: { s0: 3 } });
+  const v = { half: 2.1, driver: { s0: 2 }, bus: false, wait: 25, speed: 0 };
+  const exit = { len: 10, lanes: [0, 0], occ: [[], []], from: { signal: false, in: [] } };
+  exit.occ[0] = [{ v: proxyFor(v, 30, 0), s: 0.3 }];
+  const context = { proxyYieldsTo: trafficFunction('proxyYieldsTo', { PROXY_RELEASE_WAIT: 20 }) };
+  const room = trafficFunction('room', context);
+  const alongside = trafficFunction('alongside', context);
+  assert.equal(room(exit, 0, v, false), true, 'the car enters the lane its exit queue leaves free');
+  assert.equal(alongside(exit, 0, v, -3.3, false), false, 'the pad no longer reads as a body it would come alongside');
+  v.wait = 10;
+  assert.equal(room(exit, 0, v, false), false, 'a car that has not waited for the cycle keeps the old refusal');
+  v.wait = 25;
+  exit.occ[0][0].v.tram.stuck = 10;
+  assert.equal(room(exit, 0, v, false), false, 'a momentary tram stop does not release the car');
+  exit.occ[0][0].v.tram.stuck = 30;
+  exit.occ[0][0].v.tram.obstacle = { half: 2.1 };
+  assert.equal(room(exit, 0, v, false), false, 'a tram waiting for another car still holds its pad');
+  exit.occ[0][0].v.tram.obstacle = v;
+  exit.occ[0][0].v.tram.speed = 1;
+  assert.equal(room(exit, 0, v, false), false, 'a tram already moving is never released');
+  exit.occ[0][0].v.tram.speed = 0;
+  // A real car queued in the lane pushes the entry slot back. A 12 m exit with one stopped 4.2 m car still passes
+  // the plain free-length test (free 4.8 >= 4.7), but the queue-from-the-line rear is 0.6 m, inside the 3.2 m pad.
+  exit.len = 12;
+  exit.occ[0].push({ v: { half: 2.1, driver: { s0: 2 }, speed: 0 }, s: 8 });
+  assert.equal(room(exit, 0, v, false), false, 'a real car ahead can leave the car\'s rear on the track');
+  exit.occ[0].pop();
+  assert.equal(room(exit, 0, v, false), true, 'with the lane clear again the release returns');
+  exit.len = 7;
+  assert.equal(room(exit, 0, v, false), false, 'a lane too short to hold the car clear of the pad keeps the refusal');
+});
