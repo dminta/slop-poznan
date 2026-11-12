@@ -67,29 +67,53 @@ tools/overpass.sh tools/data/poz_landmarks.json tools/data/q_poz_landmarks.overp
 
 ## Piotrowo campus snapshot (2026-11-12)
 
-`tools/data/poz_piotrowo.json` supplements the frozen landmark snapshot with three Piotrowo buildings:
+All OSM caches are © OpenStreetMap contributors, ODbL. The unchanged `poz_piotrowo.json` contains the expanded
+ways/member geometries for lecture centre relation 9084535, library relation 9084537 and sports hall way 497154325,
+fetched from `https://api.openstreetmap.org/api/0.6/{type}/{id}/full.json` on 2026-11-12. The equivalent query is
+`q_poz_piotrowo.overpassql`. Their generated landmark sites retain courtyard `holes` and `map: false`.
 
-| Runtime landmark | OSM object | Levels | Derived top |
-| --- | --- | --- | --- |
-| Centrum Wykładowe PP | [relation 9084535](https://www.openstreetmap.org/relation/9084535) | 2 | 6.8 m |
-| Biblioteka Techniczna PP | [relation 9084537](https://www.openstreetmap.org/relation/9084537) | 3 | 10.2 m |
-| Hala Sportowa PP | [way 497154325](https://www.openstreetmap.org/way/497154325) | 3 | 10.2 m |
+`poz_piotrowo_campus.json` caches expanded relation 7304499 from the same API/date. Chain its outer members:
+they form **three** separate university areas, not four polygons or one bounding rectangle. `poz-piotrowo.mjs`
+selects buildings by footprint-centre membership from the existing `poz_buildings.json`, excluding relation member
+ways, roofs and the three existing landmarks. It emits 42 additional masses under `GEO.piotrowo`, keeping their
+concave outlines and holes. This does not refresh city-wide snapshots or alter block statistics. It also selects
+fully contained grass/outdoor-pitch ways from `poz_piotrowo_grounds.json`, a subset of the OSM API map response
+`map.json?bbox=16.946,52.4005,16.9548,52.4065` fetched on the same date. No raw node duplication is needed at runtime.
 
-Fetched on 2026-11-12 from `https://api.openstreetmap.org/api/0.6/relation/9084535/full.json`,
-`relation/9084537/full.json` and `way/497154325/full.json` under the same API root. Overpass endpoints returned
-HTTP 406/403, so the OSM API supplied the same source objects. Node coordinates were expanded into the usual
-way/member `geometry` arrays; the cache retains the ways and relations, not separate nodes. Copyright
-© OpenStreetMap contributors, ODbL. `q_poz_piotrowo.overpassql` records the equivalent `out body geom` query.
-`poz-extra.mjs` reads this supplement alongside `poz_landmarks.json`; no existing snapshot is refreshed.
-The resulting geodata differs only in the three added landmark records. The relations retain one/three courtyard
-holes respectively. No fetched object has a measured `height`; the existing levels × 3.4 m rule supplies the tops.
+Height evidence is cached as roof/ground difference statistics in `poz_piotrowo_heights.json` (GUGiK, fetched
+2026-11-12). Sources are the public WCS services
+[DSM](https://mapy.geoportal.gov.pl/wss/service/PZGIK/NMPT/GRID1/WCS/DigitalSurfaceModel) and
+[DTM](https://mapy.geoportal.gov.pl/wss/service/PZGIK/NMT/GRID1/WCS/DigitalTerrainModel).
+Both requests use `SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage&FORMAT=image/x-aaigrid`, coverage IDs
+`DSM_PL-KRON86-NH` / `DTM_PL-KRON86-NH`, `SUBSETTINGCRS=http://www.opengis.net/def/crs/EPSG/0/4326`,
+`SUBSET=y(52.3995,52.4075)&SUBSET=x(16.9465,16.9545)`; DSM adds `SCALEFACTOR=0.25` to complete the transfer.
+The resulting grids are 256×436 (DSM) and 513×874 (DTM); nearest-cell DSM minus DTM is sampled on a 2 m world grid
+inside each footprint, excluding patios. Percentiles describe roof/plant/tree mixtures, not surveyed eaves.
+WCS does not provide acquisition dates; chemistry, A30 and the new rectorate have mostly ground-height samples,
+so this coverage plainly predates them. Do not interpret their near-zero differences as building heights.
 
-Visual reference: [the university's A23 gallery](https://www.put.poznan.pl/node/16955) and
-[A29 gallery](https://www.put.poznan.pl/node/16957), source: Politechnika Poznańska, viewed 2026-11-12.
-The images were inspected as references and are not shipped as assets. The university identifies WIiT A25 as
-[Polanka 3](https://www.put.poznan.pl/sites/default/files/2022-03/Deklaracja%20dost%C4%99pno%C5%9Bci%20architektonicznej_A25.pdf);
-that site is excluded by the Piotrowo-only scope. The three campus landmarks intentionally have no map pins,
-location-label entries or teleport buttons.
+| Building | Model height | Basis and limitation |
+| --- | --- | --- |
+| Lecture centre | main roof 10 m, drum 17.7 m | DSM median 9.52, p90 17.58, p95 17.66 m; rounded architectural masses, about ±1–2 m |
+| Library | 14.8 m | DSM p90 14.77 m; median 13.63; tree/plant maximum rejected; about ±1–2 m |
+| A1 / A3 towers | 35.5 m | DSM p90 35.70 / 35.69 m, rounded to 0.5 m; roof/plant mix, about ±1–2 m |
+| A1a connector | 7.7 m | [PP tender, PDF p.8](https://info.put.poznan.pl/sites/default/files/zamowienia/4079/siwz/Specyfikacja%20Istostnych%20Warunk%C3%B3w%20Zam%C3%B3wienia%20%C5%81%C4%85cznik_Dachy.pdf), from ground-floor finished floor |
+| Chemistry A28 | 17 m estimate | [PP brochure](https://www.put.poznan.pl/sites/default/files/2021-05/folder_cdwtch_2014.pdf), floor levels 0/3.98/7.95/11.93 m plus upper storey/roof plant; ±2 m |
+| Sports hall A29 | 12.5 m estimate | [PP photos](https://www.put.poznan.pl/node/16957), tall hall/upper cladding relative to doors and facade bays; ±2 m |
+| A30 / new rectorate | 10.2 / 13.6 m estimates | 3/4 OSM storeys × 3.4 m; ±2 m; historical raster unsuitable |
+| Other older buildings | cached p90 rounded to 0.5 m | at least 10 interior samples; small/missing modern objects retain OSM height/levels or 6 m placeholder |
+
+The connector document calls the towers nine-storey while OSM records ten above-ground levels. The raster-derived
+roof height avoids choosing a storey conversion to resolve that counting convention. The lecture drum/overhang
+and tower/chemistry facades were also checked against [A23](https://www.put.poznan.pl/node/16955),
+[A1](https://www.put.poznan.pl/node/16956) and [A28](https://www.put.poznan.pl/node/16952) university photos.
+Images are references, not shipped assets. Historical DSM can include trees and plant; small ancillary masses
+are deliberately schematic, and tennis halls use a flat mass at the measured upper roof percentile.
+
+Computing **is present on Piotrowo**: OSM nodes 6669968296 (Instytut Informatyki) and 6952140092 (ECBiG) are inside
+the BT/CW complex, Piotrowo 2. The [PP computing contact page](https://www.cs.put.poznan.pl/ksiek/contact.html)
+corroborates BT/CW offices. A25 at [Polanka 3](https://www.put.poznan.pl/sites/default/files/2022-03/Deklaracja%20dost%C4%99pno%C5%9Bci%20architektonicznej_A25.pdf)
+is outside scope; the library/lecture model also represents the campus computing use, without adding UI entries.
 
 ## Poznań snapshots (tools/data/poz_*.json)
 Inputs for the Poznań pipeline, OSM via Overpass, **ODbL**. The core snapshots were refetched for the larger

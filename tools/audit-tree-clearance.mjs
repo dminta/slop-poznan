@@ -109,7 +109,7 @@ async function runAudit({ worldOnly = false, streetSource = source('street-detai
       './landmarks-dworzec.js': loadModule(source('landmarks-dworzec'), { imports: { ...landmarkRendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
       './landmarks-historic.js': loadModule(source('landmarks-historic'), { imports: { ...landmarkRendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
       './landmarks-towers.js': loadModule(source('landmarks-towers'), { imports: { ...landmarkRendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
-      './landmarks-piotrowo.js': loadModule(source('landmarks-piotrowo'), { imports: { ...landmarkRendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
+      './landmarks-piotrowo.js': loadModule(source('landmarks-piotrowo'), { imports: { ...landmarkRendering, './city-config.js': config, './geodata.js': { GEO }, './landmark-kit.js': kit }, globals }),
       './landmarks-stadium.js': loadModule(source('landmarks-stadium'), { imports: { ...landmarkRendering, './landmark-kit.js': kit }, globals })
     },
     globals

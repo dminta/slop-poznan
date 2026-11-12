@@ -53,7 +53,7 @@ test('distant route candidates skip projection and hypot', () => {
 
 test('partial-park rings reuse one lazy lot layout per block and release it between blocks', () => {
   let source = read('city-grid.js');
-  source = source.slice(source.indexOf('  const PARK_TREE_EDGE = 10;'), source.indexOf('  // One merged lawn mesh'));
+  source = source.slice(source.indexOf('  const PARK_TREE_EDGE = 10;'), source.indexOf('  // Piotrowo\'s mapped lawns'));
   const ring = [1, 1, 19, 1, 19, 19, 1, 19];
   function run(plain) {
     let calls = 0;

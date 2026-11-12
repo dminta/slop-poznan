@@ -2012,6 +2012,33 @@ function buildCityGrid(scene, opts = {}) {
     }
   }
 
+  // Piotrowo's mapped lawns and outdoor turf replace the fictional houses. Leave the existing block paving
+  // between these outlines as paths; never cover an entire campus block with a new slab.
+  const campusCuts = [];
+  for (const road of GEO.roads) {
+    const p = road[5];
+    for (let i = 0; i + 3 < p.length; i += 2) {
+      if (Math.max(p[i], p[i + 2]) < 850 || Math.min(p[i], p[i + 2]) > 1380 ||
+        Math.max(p[i + 1], p[i + 3]) < 120 || Math.min(p[i + 1], p[i + 3]) > 1005) continue;
+      campusCuts.push([p[i], p[i + 1], p[i + 2], p[i + 3], road[1] / 2 + 0.5]);
+    }
+  }
+  for (const rail of GEO.rail) {
+    const p = rail.pts;
+    for (let i = 0; i + 3 < p.length; i += 2) {
+      if (Math.max(p[i], p[i + 2]) < 850 || Math.min(p[i], p[i + 2]) > 1380 ||
+        Math.max(p[i + 1], p[i + 3]) < 120 || Math.min(p[i + 1], p[i + 3]) > 1005) continue;
+      campusCuts.push([p[i], p[i + 1], p[i + 2], p[i + 3], 2.3]);
+    }
+  }
+  for (const surface of GEO.piotrowo?.grounds || []) {
+    const ring = [];
+    for (let i = 0; i < surface.ring.length; i += 2) ring.push({ x: surface.ring[i], z: surface.ring[i + 1] });
+    for (const piece of cutSlab(ring, campusCuts, 0)) {
+      parkLawnGeos.push(createExtrudedPolygonMesh(piece, SW_TOP - 0.02, 0.06, lawnMat).geometry);
+    }
+  }
+
   // One merged lawn mesh for every park
   if (parkLawnGeos.length) {
     const parkLawnMesh = new THREE.Mesh(mergeGeometries(parkLawnGeos, false), lawnMat);

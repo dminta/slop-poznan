@@ -724,34 +724,36 @@ non-park cells clear of park rings (`parkFreeCells`), while purely unmapped park
   [the OSM tree record](observations/osm-street-trees-2026-11-08.md).
 - **Scene culling** is automatic for anything under the seven named roots; thresholds and opt-outs are in [`rendering.md`](rendering.md#culling-scene-cullingjs-registering-new-static-geometry).
 
-## Piotrowo campus landmarks (2026-11-12)
+## Piotrowo campus landmarks (2026-11-12, Round 2)
 
-`landmarks-piotrowo.js` builds Centrum Wykładowe PP (A23), Biblioteka Techniczna PP (A23a) and
-Hala Sportowa PP (A29) on their OSM footprints. The connected lecture centre/library retain the curved entrance
-recess and all four open courtyards. Cream piers frame green curtain walls; the lecture wing has a 3 m recessed
-lower west wall beneath its projecting upper volume, a shallow round lecture-theatre roof drum and rooflights.
-The sports hall has a long flat roof, dark horizontally ribbed upper cladding, concrete bands and lower glazing.
-All materials come from `createLandmarkMaterials`; window glow follows the existing night uniforms, with no new
-light pool or material program. Rooflights stand above the roof rather than sharing its top plane.
+`landmarks-piotrowo.js` extrudes the actual OSM outlines of Centrum Wykładowe PP (A23), Biblioteka Techniczna PP
+(A23a), Hala Sportowa PP (A29), and 42 further campus buildings from `GEO.piotrowo.buildings`. These include the
+35.5 m A1/A3 towers, the H-shaped chemistry centre, civil engineering, mechatronics, the new rectorate, A30,
+laboratory halls, four covered tennis courts and dormitories. Towers have a close concrete/window grid and A1's
+clock; chemistry has cream bands and tall glazing. Other masses have simple university facades. Shared materials
+and night uniforms add no light pool or shader programs. There are no new map pins, location labels or teleports.
 
-Unlike the bounding-box-fitted older landmarks, these models extrude the actual world outline and its courtyard
-holes. Boundary OBBs follow every wall segment; 0.5 m scanline interior collider runs keep restored players and
-vehicles out of the solid interior while leaving the patios open. The west recess has separate lower/upper
-colliders, so ground travel remains possible beneath the overhang. The scanline approximation can overreach a
-sloping wall by a fraction of a metre; it does not replace the oriented boundary colliders.
+The lecture centre has a 10 m main roof and a 17.7 m auditorium/ventilation drum, rather than flattening its two
+large-volume storeys to 6.8 m. Its west ground wall is recessed 5 m beneath the upper volume at 4.8 m. The library
+reaches 14.8 m. The sports hall is a 12.5 m photo estimate. Heights, historical raster coverage limitations and
+modern-building estimates are documented in [`geodata.md`](geodata.md#piotrowo-campus-snapshot-2026-11-12).
 
-The existing `LANDMARK_RESERVE` transforms the three polygon outlines into each frontage frame and applies the
-usual 3 m margin. No broad campus forecourt reserve is added. In the furnished headless audit, generated
-buildings within 300 m of `(1040, 580)` fall from 108 to 102 (112 → 106 parts); building footprints, building/landmark/bridge
-colliders, trees and street props outside that circle retain identical hashes. Distinct buildings are grouped by lot and shared
-building tone; parts retain the renderer footprint count.
-The three sites carry `map: false`: the user explicitly requested buildings only, with no teleport or map/UI entry.
-A25 at Polanka 3 is outside this Piotrowo-only scope; no other PP site is added.
+All four mapped patios remain open. Boundary OBBs and 0.5 m scanline interior collider runs follow the walls,
+with separate lower/upper bands at the west overhang. Scanline boxes can overreach sloping edges by a fraction
+of a metre. Small facade relief is decorative; the A1 clock has its own elevated collider.
 
-Heights are **storey-derived**, not surveyed: the fetched OSM objects have no `height` tag, only 2/3/3 storeys.
-The normal pipeline conversion yields 6.8/10.2/10.2 m; the drum and rooflights remain within those top heights.
-The simplified roof equipment and facade rhythm are not bay-for-bay reproductions. Sources are in
-[`geodata.md`](geodata.md#piotrowo-campus-snapshot-2026-11-12).
+Campus membership uses the three chained outer rings of OSM university relation 7304499, independently of street
+blocks. `buildings.js` runs the original campus house layout, retaining its random draws and built-area budget,
+then rewinds its facade, detail, footprint, collider and roof staging. This avoids changing the non-campus part
+of mixed northern blocks. Existing three-landmark reserves remain unchanged. Within 300 m of `(1040,580)`, generic
+parts fall from 106 to 42; the remaining parts are outside university property. A 600 m audit covers the entire
+campus; outside hashes and all non-campus generic footprints (including inside that radius) stay identical.
+
+Mapped campus grass and outdoor pitch outlines are drawn through city-grid's existing lawn material, cut back
+from roads and rails. The existing paving between them supplies walkable paths; no whole-block slab is added.
+Ground layers follow the usual non-colliding lawn convention. Pitch surfacing/markings and the circular forecourt
+remain schematic. Computing also occupies BT/CW at Piotrowo 2: OSM's Instytut Informatyki and ECBiG nodes and PP
+staff contact pages confirm it. A25 at Polanka 3 is a separate site outside this scope.
 
 ## Batching
 - `batchStaticGroupMeshes(root, excludeMaterials)` merges all non-instanced meshes that share a **material object** into one mesh. It keeps only `position`, `normal` and `uv`, and meshes missing any of those are skipped. The originals are removed, so their names, userData and custom attributes are lost.

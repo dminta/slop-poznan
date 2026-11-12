@@ -302,3 +302,18 @@ test('addGable stands the screen in the wall plane facing out, sized to the roof
   assert.ok(tint[0] > tint[1] && tint[1] > tint[2] - 0.01 && tint[0] < 1, 'rose, in linear RGB');
   assert.equal(roofs.meshes.find((m) => m.name === 'Roof-gable-stepped').visible, false);
 });
+
+test('discarded campus roofs leave neither orphan instances nor consumed pool capacity', () => {
+  const roofs = createRoofs({ max: 4 });
+  roofs.add('gable', 'slate', 10, 5, 20, 8, 6, 2);
+  const mark = roofs.mark();
+  roofs.add('hip', 'tile', 1000, 5, 600, 12, 10, 3);
+  assert.equal(roofs.count(), 4);
+  roofs.rewind(mark);
+  assert.equal(roofs.count(), 1);
+  assert.equal(roofs.add('hip', 'copper', 30, 5, 40, 12, 10, 3), true, 'discarded capacity is reusable');
+  roofs.finish();
+  assert.equal(roofs.meshes.filter(m => m.name.endsWith('-tile')).reduce((n, m) => n + m.count, 0), 0);
+  const vertices = roofs.meshes.flatMap(m => m.count ? worldTris(m).flat() : []);
+  assert.ok(vertices.every(([x]) => x < 100), 'no roof left over the removed campus house');
+});

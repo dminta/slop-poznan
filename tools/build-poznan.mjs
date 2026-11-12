@@ -12,6 +12,7 @@ import { blocks, STRIP, SIDEWALK } from './poz-blocks.mjs';
 import { blockStats, blockFootprints, blockParkBuildings, blockAnchors, blockObjects, blockFallbackLots, industry } from './poz-buildings.mjs';
 import { canopies } from './poz-canopies.mjs';
 import { aeroway } from './poz-aeroway.mjs';
+import { piotrowo } from './poz-piotrowo.mjs';
 import { trees } from './poz-trees.mjs';
 import { buildRoadGraph } from './poz-roadgraph.mjs';
 
@@ -157,7 +158,8 @@ const GEO = {
   trees,
   parks,
   // { name: { x, z, w, d, h, area, ring, ang } }: w and d along the turned axes (ang, radians)
-  landmarks
+  landmarks,
+  piotrowo
 };
 
 const json = JSON.stringify(GEO);

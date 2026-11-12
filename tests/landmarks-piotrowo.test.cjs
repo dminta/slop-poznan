@@ -17,7 +17,7 @@ const kit = loadModule(source('landmark-kit'), {
   } }
 });
 const builder = loadModule(source('landmarks-piotrowo'), {
-  imports: { 'three/webgpu': THREE, './city-config.js': config, './landmark-kit.js': kit }
+  imports: { 'three/webgpu': THREE, './city-config.js': config, './geodata.js': { GEO }, './landmark-kit.js': kit }
 });
 const M = kit.createLandmarkMaterials();
 function build() {
@@ -41,14 +41,14 @@ function contains(c, x, z, y) {
   return Math.abs((x - cx) * cs - (z - cz) * sn) <= hx && Math.abs((x - cx) * sn + (z - cz) * cs) <= hz;
 }
 
-test('Piotrowo models use the three OSM footprints and levels without adding map pins or teleports', () => {
+test('Piotrowo models use the campus OSM footprints and corrected heights without adding map pins or teleports', () => {
   const { group } = build();
-  assert.deepEqual(group.children.map((c) => c.name), names);
-  assert.deepEqual(sites.map((s) => s.h), [6.8, 10.2, 10.2]);
+  assert.deepEqual(group.children.slice(0, 3).map((c) => c.name), names);
+  assert.deepEqual(sites.map((s) => s.h), [17.7, 14.8, 12.5]);
   assert.deepEqual(sites.map((s) => s.holes.length), [1, 3, 0]);
   for (let i = 0; i < sites.length; i++) {
     const s = sites[i], bounds = new THREE.Box3().setFromObject(group.children[i]);
-    assert.ok(Math.abs(bounds.max.y - s.h) < 0.01, `${names[i]} has its OSM-derived top`);
+    assert.ok(Math.abs(bounds.max.y - s.h) < 0.01, `${names[i]} has its documented top`);
     assert.ok(Math.abs(bounds.min.y - 0.24) < 1e-5, 'stands on the sidewalk');
     assert.equal(s.map, false);
     assert.ok(!config.CITY_LANDMARKS.some((p) => p.x === s.x && p.z === s.z));
@@ -62,7 +62,7 @@ test('Piotrowo models use the three OSM footprints and levels without adding map
 test('Piotrowo player and vehicle colliders cover the solid buildings and leave the patios open', () => {
   const { colliders } = build();
   assert.ok(!colliders.some((c) => contains(c, 1037.6, 480.1, 1)), 'ground body can pass under west overhang');
-  assert.ok(colliders.some((c) => contains(c, 1037.6, 480.1, 4)), 'upper overhang blocks elevated bodies');
+  assert.ok(colliders.some((c) => contains(c, 1037.6, 480.1, 6)), 'upper overhang blocks elevated bodies');
   for (const s of sites) {
     let solid = 0;
     const xs = s.ring.filter((_, i) => i % 2 === 0), zs = s.ring.filter((_, i) => i % 2 === 1);
@@ -72,7 +72,7 @@ test('Piotrowo player and vehicle colliders cover the solid buildings and leave 
         const patio = s.holes.some((h) => inside(h, x, z));
         if (!patio) {
           solid++;
-          assert.ok(colliders.some((c) => contains(c, x, z, 4)), `solid at ${x},${z}`);
+          assert.ok(colliders.some((c) => contains(c, x, z, 6)), `solid at ${x},${z}`);
           assert.ok(config.isLand(x, z), 'no water beneath solid geometry');
           assert.ok(config.roadClearance(x, z) > 0, 'no carriageway beneath solid geometry');
         }
@@ -98,8 +98,7 @@ function inert() {
 }
 function buildBlocks(before) {
   const stub = inert();
-  const src = before ? source('buildings').replace(
-    ", 'Centrum Wykładowe PP', 'Biblioteka Techniczna PP', 'Hala Sportowa PP'", '') : source('buildings');
+  const src = before ? source('buildings').replace('const campusRings = (GEO.piotrowo?.boundaries || [])', 'const campusRings = []') : source('buildings');
   return loadModule(src, {
     imports: {
       'three/webgpu': stub, 'three/tsl': stub, 'three/addons/utils/BufferGeometryUtils.js': stub,
@@ -110,26 +109,41 @@ function buildBlocks(before) {
   }).buildCityBlocks(stub);
 }
 
-test('Piotrowo reserves clear mapped footprints while preserving buildings beyond 300 m', () => {
+test('Piotrowo reserves clear mapped footprints while preserving non-campus neighbours', () => {
   const before = buildBlocks(true), after = buildBlocks(false);
   const footprints = (city) => city.allBlocks.flatMap((b) => b.footprints);
   const distance = (f) => Math.hypot((f.x0 + f.x1) / 2 - 1040, (f.z0 + f.z1) / 2 - 580);
   const hash = (a) => createHash('sha256').update(JSON.stringify(a)).digest('hex');
-  assert.equal(hash(footprints(before).filter((f) => distance(f) > 300)),
-    hash(footprints(after).filter((f) => distance(f) > 300)), 'outside footprint geometry and tones are identical');
-  assert.ok(footprints(after).filter((f) => distance(f) < 300).length > 100, 'surrounding campus stays populated');
+  assert.equal(hash(footprints(before).filter((f) => distance(f) > 600)),
+    hash(footprints(after).filter((f) => distance(f) > 600)), 'outside footprint geometry and tones are identical');
+  assert.ok(footprints(after).filter((f) => distance(f) < 300).length < 50, 'fictional campus housing removed');
+  const onCampus = f => GEO.piotrowo.boundaries.some(r => inside(r, (f.x0 + f.x1) / 2, (f.z0 + f.z1) / 2));
+  assert.ok(footprints(before).some(onCampus), 'positive control has campus houses');
+  assert.equal(footprints(after).filter(onCampus).length, 0);
+  assert.equal(hash(footprints(before).filter(f => !onCampus(f))),
+    hash(footprints(after).filter(f => !onCampus(f))), 'neighbours within the audit radius also stay unchanged');
   const containsFootprint = (f, x, z) => f.pts ? inside(f.pts.flatMap((p) => [p.x, p.z]), x, z) :
     x > f.x0 && x < f.x1 && z > f.z0 && z < f.z1;
   const beforeNear = footprints(before).filter((f) => distance(f) < 300);
   const afterNear = footprints(after).filter((f) => distance(f) < 300);
-  let beforeHits = 0;
   for (const s of sites) for (let x = s.x - 70; x < s.x + 70; x += 2) for (let z = s.z - 70; z < s.z + 70; z += 2) {
     if (!inside(s.ring, x, z)) continue;
-    beforeHits += beforeNear.some((f) => containsFootprint(f, x, z));
     assert.ok(!afterNear.some((f) => containsFootprint(f, x, z)),
       `no generic building under ${x},${z}`);
   }
-  assert.ok(beforeHits > 0, 'positive control detects the displaced generated buildings');
+  assert.ok(beforeNear.length > afterNear.length, 'positive control detects the displaced generated buildings');
+  for (const s of GEO.piotrowo.buildings) {
+    const local = footprints(after).filter(f => Math.hypot((f.x0 + f.x1) / 2 - s.ring[0],
+      (f.z0 + f.z1) / 2 - s.ring[1]) < 160);
+    for (let x = Math.min(...s.ring.filter((_, i) => i % 2 === 0)) + 1;
+      x < Math.max(...s.ring.filter((_, i) => i % 2 === 0)); x += 3) {
+      for (let z = Math.min(...s.ring.filter((_, i) => i % 2 === 1)) + 1;
+        z < Math.max(...s.ring.filter((_, i) => i % 2 === 1)); z += 3) {
+        if (!inside(s.ring, x, z) || s.holes.some(h => inside(h, x, z))) continue;
+        assert.ok(!local.some(f => containsFootprint(f, x, z)), s.id + ' has no generic overlap');
+      }
+    }
+  }
 });
 
 test('Piotrowo geometry stays off roads, tram tracks and water, and roofs retain courtyard holes', () => {
@@ -138,8 +152,8 @@ test('Piotrowo geometry stays off roads, tram tracks and water, and roofs retain
   for (const rail of GEO.rail) {
     for (let i = 2; i < rail.pts.length; i += 2) {
       const a = [rail.pts[i - 2], rail.pts[i - 1]], b = [rail.pts[i], rail.pts[i + 1]];
-      if (Math.max(a[0], b[0]) < 850 || Math.min(a[0], b[0]) > 1150 ||
-        Math.max(a[1], b[1]) < 400 || Math.min(a[1], b[1]) > 800) continue;
+      if (Math.max(a[0], b[0]) < 850 || Math.min(a[0], b[0]) > 1380 ||
+        Math.max(a[1], b[1]) < 120 || Math.min(a[1], b[1]) > 1005) continue;
       segments.push([a, b]);
     }
   }
@@ -163,5 +177,32 @@ test('Piotrowo geometry stays off roads, tram tracks and water, and roofs retain
     const slabs = group.children[i].children.filter((m) => m.geometry?.type === 'ExtrudeGeometry');
     assert.ok(slabs.length >= 2, 'walls and a solid roof');
     for (const mesh of slabs) assert.equal(mesh.geometry.parameters.shape.holes.length, sites[i].holes.length);
+  }
+});
+
+
+test('All mapped campus masses have roofs, shared materials and solid-footprint colliders', () => {
+  const { group, colliders } = build();
+  assert.equal(GEO.piotrowo.boundaries.length, 3);
+  assert.equal(GEO.piotrowo.buildings.length, 42);
+  for (const id of ['way/497154322', 'way/497154324', 'way/300946610', 'relation/1514954', 'way/1330185469',
+    'way/497629139', 'way/497629140', 'way/497629141', 'way/497629148']) {
+    assert.ok(GEO.piotrowo.buildings.some(s => s.id === id), id);
+  }
+  for (let i = 0; i < GEO.piotrowo.buildings.length; i++) {
+    const s = GEO.piotrowo.buildings[i], obj = group.children[i + 3];
+    assert.equal(obj.name, s.name);
+    assert.ok(Math.abs(new THREE.Box3().setFromObject(obj).max.y - s.h) < 0.01, s.name);
+    let samples = 0;
+    for (let x = Math.min(...s.ring.filter((_, j) => j % 2 === 0)) + 0.5;
+      x < Math.max(...s.ring.filter((_, j) => j % 2 === 0)); x += 2) {
+      for (let z = Math.min(...s.ring.filter((_, j) => j % 2 === 1)) + 0.5;
+        z < Math.max(...s.ring.filter((_, j) => j % 2 === 1)); z += 2) {
+        if (!inside(s.ring, x, z) || s.holes.some(h => inside(h, x, z))) continue;
+        assert.ok(colliders.some(c => contains(c, x, z, 1)), s.id + ' solid collision');
+        samples++;
+      }
+    }
+    assert.ok(samples > 0, s.id);
   }
 });

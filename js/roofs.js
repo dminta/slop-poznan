@@ -503,6 +503,11 @@ function createRoofs({ materials = {}, max = MAX_ROOF_INSTANCES, parent = null }
     return n;
   }
 
+  // Discard a staged building without changing the random draws its layout consumed.
+  function rewind(from) {
+    n = from;
+  }
+
   // Moves the instances added since `from` out of a frontage frame: positions through toWorld(x, z) → [x, z] (the
   // frame's rigid turn, see buildings.js placeInFrame) and their yaw on by the frame's turn th
   function transform(from, toWorld, th) {
@@ -574,7 +579,7 @@ function createRoofs({ materials = {}, max = MAX_ROOF_INSTANCES, parent = null }
     });
   }
 
-  return { meshes, add, addDormers, addGable, mark, transform, finish, count: () => n };
+  return { meshes, add, addDormers, addGable, mark, rewind, transform, finish, count: () => n };
 }
 
 export {

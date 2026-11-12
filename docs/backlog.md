@@ -6,6 +6,11 @@ Implementation details and completed measurements live in the [topic docs](../AG
 
 ## Known gaps and follow-up investigations
 
+- **Piotrowo detail:** obtain recent height coverage for A28/A30/new rectorate/A29 (the GUGiK DSM predates them).
+  The campus masses and lawns are restored; tennis vault profiles, pitch markings/surface colours and the circular
+  lecture forecourt remain schematic. See [world](world.md#piotrowo-campus-landmarks-2026-11-12-round-2) and
+  [height evidence](geodata.md#piotrowo-campus-snapshot-2026-11-12).
+
 - **Pedestrian overlap residual:** at `5e6a68e` the eight-district audit (seeds 4242/77, 3 min) has no cluster
   (0 clusters, 5.43 overlapping pairs/s, 105.3 crosswalk entries/min); `564975e` cleared the Pasaż Różowy cluster the
   `42329c3` layout restore had created (10 clusters, longest 26 s). The traffic fixes since then do not touch

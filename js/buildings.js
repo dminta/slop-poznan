@@ -1022,7 +1022,33 @@ function buildCityBlocks(scene) {
   const DORMER_P = 0.45;
   const DORMER_STREET_P = 1;
   const DORMER_YARD_P = 0.25;
+  const campusRings = (GEO.piotrowo?.boundaries || []).map(r => {
+    const pts = [];
+    for (let i = 0; i < r.length; i += 2) pts.push({ x: r[i], z: r[i + 1] });
+    return pts;
+  });
+
+  // Consume the original layout's draws and density budget before discarding campus buildings. Cutting lot
+  // rectangles against a campus AABB would change mixed-block neighbours and every later house's random tone.
   function commit(blk, b, o = {}) {
+    const campus = campusRings.some(r => b.parts.some(p => {
+      const [x, z] = toWorld((p.x0 + p.x1) / 2, (p.z0 + p.z1) / 2);
+      return x > 850 && x < 1380 && z > 120 && z < 1005 && inPts(r, x, z);
+    }));
+    if (!campus) return commitBuilding(blk, b, o);
+    const lists = Object.values(blk).filter(Array.isArray);
+    const marks = lists.map(a => a.length);
+    const bucketMarks = buckets.map(a => a.length);
+    const colliderMark = colliders.length, roofMark = roofs.mark(), maxH = blk.maxH;
+    commitBuilding(blk, b, o);
+    lists.forEach((a, i) => { a.length = marks[i]; });
+    buckets.forEach((a, i) => { a.length = bucketMarks[i]; });
+    colliders.length = colliderMark;
+    roofs.rewind(roofMark);
+    blk.maxH = maxH;
+  }
+
+  function commitBuilding(blk, b, o = {}) {
     const parts = b.parts;
     if (!parts.length) return;
     if (srcLegacy && !trimOffStreets(b)) {
