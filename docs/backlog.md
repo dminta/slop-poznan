@@ -175,9 +175,10 @@ share are not thinned; [central-density record](observations/central-density-202
      The [worker boundary study](observations/perf-workers-2026-11-12.md) stopped at Stage 1: production remains
      synchronous and there is no `?workers=0` or worker path. The large phases are mostly pure logic, but a worker
      on the current chain can overlap only the next independent branch. Runtime signal heads (5.56 s) model
-     2.4–3.2 s net at 6×, not clearly above 3 s; blocks/cityGrid/streetDetails return 50–73/52/30+ MiB records that
-     the next stage waits for, and a worker's config + geodata alone retain 85 MiB. The scratch tram/rail worker
-     regressed even with an unthrottled worker; page CPU throttling does not throttle a dedicated worker. Revisit
+     2.4–3.2 s net at 6×, not clearly above 3 s; blocks/cityGrid/streetDetails return 50–73/52/15+ MiB measured
+     records that the next stage waits for, and a worker's config + geodata alone retain 85 MiB. The scratch
+     tram/rail worker regressed even with an unthrottled worker; page CPU throttling does not throttle a dedicated
+     worker. Revisit
      workers only with a compact worker-consumable geodata/config projection or baked layouts, pure layout
      modules returning flat typed-array records, and a multi-stage pipeline measured under worker throttling and a
      process-peak budget. The raw cyclic network is not a cloneable boundary.
