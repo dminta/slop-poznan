@@ -6,7 +6,7 @@ as ESM without a package.json depends on Node's automatic module-syntax detectio
 
 ## Commands (verified)
 
-- Full suite: `node --test tests/`. 432 tests, about 55 s (2026-11-07). Most time is spent in `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`, the five-minute traffic-flow regression, and the signal-head and pedestrian-route audits.
+- Full suite: `node --test tests/`. 577 tests, about 99 s (2026-11-12). Most time is spent in `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`, the five-minute traffic-flow regression, and the signal-head and pedestrian-route audits.
 - Quick loop that skips the geodata rebuild: `node --test tests/*.cjs` (about 9 s, most of it `road-network`, `tram-infra` and `tram-clearance` building the network and the street furniture on the real Poznań graph, and `buildings-density` running `buildCityBlocks` twice).
 - One file: `node --test tests/cameras.test.cjs`. Running `node tests/cameras.test.cjs` directly also works.
 - By test name: `node --test --test-name-pattern="police" tests/`
@@ -170,6 +170,22 @@ Behaviour to know when writing a test:
 ## Pedestrian benchmark
 
 `node tools/benchmark-pedestrians.mjs /abs/path/to/three/build/three.core.js` (or set `THREE_CORE_PATH`). You need a local three.js build, because the repo has none (any npm `three` package's `build/three.core.js` works). Verified run: about 7 s. It prints JSON with the ms per frame for 340 rigs, before and after, plus the reduction percentage. It first asserts that deferring the pose solve for hidden rigs gives bit-identical gait and poses, so it doubles as a correctness check after `PersonRig` changes. It loads `js/pedestrians.js` through `loadModule` with stubs only for `'three/webgpu'`, `'three/tsl'` and `'three/addons/utils/BufferGeometryUtils.js'`. It also builds its baseline by replacing the literal `if (updatePose) this.solve();`. If you add an import to `pedestrians.js`, add a stub here. If you change that line, update the replacement.
+
+## Shelter–roadway audit
+
+`node tools/audit-shelter-roadway.mjs [--before] [--json] [--top N] [--near x,z,r]` builds the furnished headless
+network (street details' own road graph, as `tests/tram-infra.test.cjs` does) and measures every tram stop shelter's
+real 4.6 × 1.6 m roof and advert footprint against three surfaces: the 3.6 m car-lane envelopes and junction turning
+curves, the strip-aware carriageway (the road edge less its 6.5 m tram strip), and the 1.75 m track keep-out. On a
+mixed platform that starts on a sidewalk block and ends in the tram/bus reservation it also requires the shelter to
+stand on the block. `--before` loads `js/tram-infra.js` from commit `de70d64` and runs the same predicate, so the pre-fix
+count is reproducible; `--near` restricts the report to a centre and radius. It prints the count, the worst overlaps
+and their stop names/coordinates, and exits non-zero while any overlap remains. Measured 2026-11-12: **30 before**
+(8 in the carriageway, 13 within the track keep-out, 10 on mixed platforms and 3 curb stops, several overlapping);
+the Rondo Rataje stop at (994.1, 1376.4) led the roadway cases with a 2.47 m roof overlap. The fixed rule moved 20
+shelters onto the platform/sidewalk and dropped 10, leaving 218 shelters; the browser build, with its full
+building/landmark collider set, moved 20 and dropped 8, leaving 220. `tests/shelter-roadway.test.cjs` runs the after audit and checks the
+Rataje shelter was moved, not dropped. The audit uses the headless fixture, not the browser's full collider set.
 
 ## Pedestrian overlap audit
 

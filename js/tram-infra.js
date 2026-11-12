@@ -34,6 +34,10 @@ const STATION = 30; // support spacing along the track
 // LANE_CLEAR 1.2 m of it along both axes, which reaches ~1.7 m on a diagonal street
 const LANE_KEEP = 1.75;
 const TRACK_KEEP = 1.75; // poles & shelters keep this far from a track centreline (2.4 m car body + sway)
+const LANE_HALF = 1.8; // road-network.js LANE_W / 2: the half width of a 3.6 m car lane
+const TRAM_STRIP_HALF = 3.25; // road-network.js TRAM_W / 2
+const SHELTER_HALF_LEN = 2.3; // 4.6 m roof at len 4.4, 0.1 m past the end panels
+const SHELTER_HALF_DEPTH = 0.8; // roof front/back; the frame is 1.24 m deep
 const PLATFORM_EDGE = 1.35; // track centreline to platform edge
 const PLATFORM_W = 2.6;
 const PLATFORM_L = 33; // a 32 m Moderus Gamma or Tramino
@@ -329,6 +333,85 @@ function layoutTramInfrastructure(network) {
     const b = blockAt(x, z);
     return !!(b && !b.median);
   };
+  // Roadways by 24 m cell for the shelter footprint test. road-network.js lays each carriageway as a straight edge;
+  // a strip stops at its tram track and the old rule only measured lane centres, so a shelter on a platform edge
+  // could reach the unlaned strip/bus bay at a roundabout. The index is build-only.
+  const roadCells = new Map();
+  const roadCell = (ix, iz) => ix * 100000 + iz;
+  for (const e of (network && network.edges) || []) {
+    const x1 = e.x0 + e.dx * e.span;
+    const z1 = e.z0 + e.dz * e.span;
+    const ex = Math.abs(e.rx) * e.half;
+    const ez = Math.abs(e.rz) * e.half;
+    const minX = Math.min(e.x0, x1) - ex, maxX = Math.max(e.x0, x1) + ex;
+    const minZ = Math.min(e.z0, z1) - ez, maxZ = Math.max(e.z0, z1) + ez;
+    for (let ix = Math.floor(minX / 24); ix <= Math.floor(maxX / 24); ix++) {
+      for (let iz = Math.floor(minZ / 24); iz <= Math.floor(maxZ / 24); iz++) {
+        const key = roadCell(ix, iz);
+        const list = roadCells.get(key);
+        if (list) list.push(e);
+        else roadCells.set(key, [e]);
+      }
+    }
+  }
+  const onRoad = (x, z, stripAware) => {
+    for (const e of roadCells.get(roadCell(Math.floor(x / 24), Math.floor(z / 24))) || []) {
+      const dx = x - e.x0, dz = z - e.z0;
+      const t = dx * e.dx + dz * e.dz;
+      if (t < 0 || t > e.span) continue;
+      let half = e.half, centre = 0;
+      if (stripAware && e.strip) {
+        half -= TRAM_STRIP_HALF;
+        centre = -e.strip * TRAM_STRIP_HALF;
+      }
+      if (Math.abs(dx * e.rx + dz * e.rz - centre) <= half) return true;
+    }
+    return false;
+  };
+  // The rendered shelter: a 4.6 m roof (2.3 m at len 4.4) and a 1.6 m depth, including the advert panel.
+  const shelterRect = (x, z, yaw, len) => {
+    const cs = Math.cos(yaw), sn = Math.sin(yaw);
+    return { x, z, hx: SHELTER_HALF_LEN * len / 4.4, hz: SHELTER_HALF_DEPTH, ux: cs, uz: -sn, vx: sn, vz: cs };
+  };
+  const shelterSamples = (rect, step = 0.4) => {
+    const pts = [];
+    const nx = Math.max(1, Math.ceil(2 * rect.hx / step));
+    const nz = Math.max(1, Math.ceil(2 * rect.hz / step));
+    for (let i = 0; i <= nx; i++) {
+      for (let j = 0; j <= nz; j++) {
+        const lx = -rect.hx + 2 * rect.hx * i / nx;
+        const lz = -rect.hz + 2 * rect.hz * j / nz;
+        pts.push([rect.x + rect.ux * lx + rect.vx * lz, rect.z + rect.uz * lx + rect.vz * lz]);
+      }
+    }
+    return pts;
+  };
+  const shelterClear = (x, z, yaw, len, kind, needBlock) => {
+    const rect = shelterRect(x, z, yaw, len);
+    for (const [px, pz] of shelterSamples(rect)) {
+      if (laneDist(px, pz, 6) < LANE_HALF - 1e-6) return false;
+      if (trackDist(px, pz, 4) < TRACK_KEEP - 1e-6) return false;
+      if (onRoad(px, pz, kind === 'island')) return false;
+      if (needBlock && !blockAt(px, pz)) return false;
+    }
+    return true;
+  };
+  // A platform that is part sidewalk (block) and part tram reservation: at Rondo Rataje the stop platform ends in
+  // the shared tram/bus strip. Its shelter belongs on the sidewalk part, not the strip.
+  const platformMixed = (tr, platform) => {
+    if (!platform) return false;
+    let blocks = 0, samples = 0;
+    for (let s = platform.s0; s <= platform.s1 + 1e-6; s += 1) {
+      const p = pointAt(tr, s);
+      for (const o of [platform.o0, (platform.o0 + platform.o1) / 2, platform.o1]) {
+        samples++;
+        if (blockAt(p.x - p.dz * o, p.z + p.dx * o)) blocks++;
+      }
+    }
+    return blocks > 0.05 * samples && blocks < 0.95 * samples;
+  };
+  const sheltersMoved = [];
+  const sheltersDropped = [];
 
   // --- Overhead line supports ---------------------------------------------------------------------------------------
   const poles = [];
@@ -521,10 +604,61 @@ function layoutTramInfrastructure(network) {
     const y = stop.kind === 'island' ? PLATFORM_H : SW_TOP;
     const at = (f, r) => ({ x: C.x + fx * f + rx * r, z: C.z + fz * f + rz * r });
     const yaw = Math.atan2(rx, rz); // local +z (the shelter's open front) faces the track: rotate by yaw then flip
-    // A shelter (1.6 m roof) needs 2 m; its back stands 0.2 m in from the island's or sidewalk's far edge
-    stop.shelter = width >= 2.0 ? { ...at(-2, base + width - 0.85), y, yaw: yaw + Math.PI, len: width >= 2.4 ? 4.4 : 3.2 } : null;
-    stop.sign = { ...at(stop.kind === 'island' ? 12 : 9, base + 0.55), y, yaw: Math.atan2(fx, fz) };
     stop.machine = { ...at(2.2, base + width - 0.45), y, yaw: yaw + Math.PI };
+    // A shelter (1.6 m roof) needs 2 m; try the old spot first, then slide it along the platform/sidewalk until its
+    // real footprint (roof, advert, track and lane envelopes) is clear, else leave the stop without a shelter.
+    if (width >= 2.0) {
+      const len = width >= 2.4 ? 4.4 : 3.2;
+      const mixed = stop.kind === 'island' && platformMixed(tr, stop.platform);
+      const current = { ...at(-2, base + width - 0.85), y, yaw: yaw + Math.PI, len };
+      // A mixed platform (sidewalk then tram/bus reservation) keeps its shelter on the sidewalk part; a pure island
+      // in the reservation is allowed when its road and track clearances pass.
+      const needBlock = stop.kind === 'curb' || mixed;
+      if (shelterClear(current.x, current.z, current.yaw, current.len, stop.kind, needBlock)) {
+        stop.shelter = current;
+      } else {
+        const half = SHELTER_HALF_LEN * len / 4.4;
+        let fLo = -6, fHi = 6;
+        if (stop.kind === 'island') {
+          const fA = (stop.platform.s0 + half - stop.sc) / stop.dir;
+          const fB = (stop.platform.s1 - half - stop.sc) / stop.dir;
+          fLo = Math.min(fA, fB);
+          fHi = Math.max(fA, fB);
+        }
+        const search = (useBlock) => {
+          let best = null, bestD = Infinity;
+          for (let f = fLo; f <= fHi + 1e-6; f += 0.5) {
+            for (let r = base + SHELTER_HALF_DEPTH; r <= base + width - SHELTER_HALF_DEPTH + 1e-9; r += 0.05) {
+              const d = (f + 2) * (f + 2) + (r - (base + width - 0.85)) * (r - (base + width - 0.85));
+              if (d >= bestD) continue;
+              const x = C.x + fx * f + rx * r;
+              const z = C.z + fz * f + rz * r;
+              if (!shelterClear(x, z, current.yaw, len, stop.kind, useBlock)) continue;
+              best = { f, r, x, z };
+              bestD = d;
+            }
+          }
+          return best;
+        };
+        let best = search(needBlock);
+        if (best) {
+          stop.shelter = { x: best.x, z: best.z, y, yaw: current.yaw, len };
+          // Move the machine with the shelter, keeping its 4.2 m / 0.4 m offset; the sign marks the stop and stays.
+          if (stop.machine) {
+            const df = best.f + 2, dr = best.r - (base + width - 0.85);
+            stop.machine.x += fx * df + rx * dr;
+            stop.machine.z += fz * df + rz * dr;
+          }
+          sheltersMoved.push({ name: st.name, x: P.x, z: P.z, shelterX: stop.shelter.x, shelterZ: stop.shelter.z });
+        } else {
+          stop.shelter = null;
+          sheltersDropped.push({ name: st.name, x: P.x, z: P.z });
+        }
+      }
+    } else {
+      stop.shelter = null;
+    }
+    stop.sign = { ...at(stop.kind === 'island' ? 12 : 9, base + 0.55), y, yaw: Math.atan2(fx, fz) };
     // Curb stops keep their furniture on the sidewalk and off the tracks
     if (stop.kind === 'curb' && ![stop.shelter, stop.sign, stop.machine].every((p) => !p || onCurb(p.x, p.z))) {
       if (!onCurb(stop.sign.x, stop.sign.z)) {
@@ -572,7 +706,8 @@ function layoutTramInfrastructure(network) {
     }
   }
 
-  return { tracks, pieces, stops, skipped, poles, spans, arms, rosettes, droppers, footprints, laneDist, trackDist };
+  return { tracks, pieces, stops, skipped, poles, spans, arms, rosettes, droppers, footprints, laneDist, trackDist,
+    sheltersMoved, sheltersDropped };
 }
 
 /**
@@ -1394,7 +1529,9 @@ function stopFurnitureColliders(stops) {
  */
 function buildTramInfrastructure(scene, network, layouts = null) {
   const layout = layouts?.tram || layoutTramInfrastructure(network);
-  const { tracks, pieces: tramPieces, stops, poles, spans, arms, rosettes, droppers } = layout;
+  const {
+    tracks, pieces: tramPieces, stops, poles, spans, arms, rosettes, droppers, sheltersMoved, sheltersDropped
+  } = layout;
   const group = new THREE.Group();
   group.name = 'TramInfrastructure';
   const colliders = [];
@@ -2021,7 +2158,8 @@ function buildTramInfrastructure(scene, network, layouts = null) {
   const publicStops = stops.map(({ name, x, z, heading, railIndex, s, dir, side, kind }) => ({ name, x, z, heading, railIndex, s, dir, side, kind }));
   console.info(`[tram-infra] ${tracks.length} tracks, ${poles.length} poles, ${spans.length} span wires, ${arms.length} arms, ` +
     `${rosettes.length} rosettes; ${stops.length} stops (${stops.filter((s) => s.kind === 'island').length} islands) ` +
-    `of ${GEO.tramStops.length} stop nodes; rail: ${rail.tracks.length} tracks, ${railBedM.length} bed pieces, ` +
+    `of ${GEO.tramStops.length} stop nodes; ${sheltersMoved.length} stop shelters moved, ${sheltersDropped.length} dropped; ` +
+    `rail: ${rail.tracks.length} tracks, ${railBedM.length} bed pieces, ` +
     `${rail.ends.length} end walls, ${fenceM.length} boundary segments, ${rail.masts.length} masts, ${rail.arms.length} cantilevers, ${rail.portals.length} portals, ` +
     `${rail.viaducts.length} viaduct spans (${rail.crossings.length} level crossings)`);
   // railCorridor(x, z): the ground players' keep-out (controllers.js), true inside the railway corridor
