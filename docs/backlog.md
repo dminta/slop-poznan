@@ -198,6 +198,11 @@ checks below; each remaining bullet is the part that is still open.
 
 ### Defects found in the 2026-11-11 browser checks
 
+- **Catenary poles stand inside 13 stop shelters:** in the headless tram layout a pole centre lies within the roof
+  footprint (4.6 × 1.6 m plus 0.15 m) of the shelters at Baraniaka, Bonin, Pl. Bernardyński, Wilczak, Rondo Śródka,
+  Św. Michała, Rondo Rataje (two), Rondo Nowaka-Jeziorańskiego (two), Łomżyńska, Rondo Kaponiera and Budziszyńska.
+  It predates the 2026-11-12 shelter fix (14 before, the Sołacz shelter was dropped). Keep poles off shelter
+  footprints or shift the shelter, extend `tools/audit-shelter-roadway.mjs` to count it, and confirm in the browser.
 - **Phone touch layout overlaps:** at 390 × 844 the `.touch-look-hint` (top 136 px) is partly covered by the camera
   switcher (`#hud-bottom-right`, top 78 px), and the current-camera label ellipsizes to "Kamera za grac…" on both the
   phone and the 1280 × 720 desktop HUD. Move the hint below the camera cluster (or hide it while the cluster is open) and
