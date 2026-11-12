@@ -48,7 +48,7 @@ scope.
 | 17 | Fara lower-tier niches, WebGPU + WebGL2 | **defect** (D6) |
 | 18 | Tram rails without a track bed; mainline sleepers | **partial OK** (tram rails OK; sleepers not checked) |
 | 19 | P-22 BUS markings, WebGPU + WebGL2 | **OK** |
-| 20 | Taxi crest and stripe, both sides, day/night, WebGPU + WebGL2 | **defect** (D2, D3) |
+| 20 | Taxi crest and stripe, both sides, day/night, WebGPU + WebGL2 | **fixed 2026-11-12** (D2, D3; see follow-up) |
 | 21 | Black-locust foliage, bark, LOD, wind | **could not check** |
 | 22 | Signals Kaponiera/Most Teatralny/Głogowska, NPC demand, Św. Marcin wave | **partial** (Kaponiera heads only) |
 | 23 | Dworzec refuge route, signals, bus rear clearance, WebGL2 | **could not check** |
@@ -314,6 +314,8 @@ street-taxi marking shows through.
 Screenshots: `objects-webgpu/taxi-crest-right-day.png`, `taxi-crest-left-day.png`,
 `taxi-crest-left-crop.png`, `webgl2/taxi-left-day.png`.
 
+**Fixed 2026-11-12:** see the D2/D3 follow-up below.
+
 ### D3 — Left-side fallback livery is illegible at midnight (medium-low)
 
 Midnight, player taxi at the same spawn: the left door stripe and crest fall to near-black; only a faint `1427` and
@@ -323,6 +325,29 @@ at midnight was not captured (the last run could not boot under the shared machi
 day view are fine.
 
 Screenshot: `objects-webgpu/taxi-crest-left-night.png`.
+
+**Re-checked 2026-11-12:** see the D2/D3 follow-up below.
+
+### D2/D3 follow-up, 2026-11-12 — fixed
+
+`buildCarSidePatch` now uses one triangle winding for both sides. The mirrored z order (u runs front→rear on +x and
+rear→front on −x) supplies the opposite world orientation, so both patch normals point away from the body and the
+`FrontSide` stripe material draws on both sides. The per-side canvases
+(`createTaxiStripeTexture`) already put the lettering in the readable direction; the UVs did not change.
+
+Re-checked in headless Chrome 157.0.8103.79 on this worktree on WebGPU (`gpu:apple-m5`) and with `?backend=webgl`, from both
+sides at the spawn `(-1060.6, 124.3)` at midday, and at midnight with each side turned towards the nearest active LED
+street light (target `(-1087.06, 121.55)`). Both sides show the white field, the yellow/black chequer edges, the crest,
+`TAXI` over `POZNAŃ` and the `1427` panel, readable left to right and unmirrored. The unlit spawn at midnight is dark on
+both sides because the nearest active street light is 26.6 m away with a 25 m spot range, not because of the stripe.
+No emissive lift was needed and the stripe material is unchanged. For the static lamp frames the scratch harness hid the
+NPC traffic group so a passing car could not block the camera; the taxi, street light, buildings and material were
+untouched.
+
+Screenshots are scratch files under `.agent-task/checks/`: `webgpu/minus-midday-close.png`,
+`plus-midday-close.png`, `minus-midnight-lamp-facing-close.png`, `plus-midnight-lamp-facing-close.png`, the same four
+under `webgl/`, plus wide and spawn-night frames and `result.json` beside them. Both runs had no console errors or
+shader warnings.
 
 ### D4 — Phone touch layout overlaps and the camera name is truncated (medium-low)
 

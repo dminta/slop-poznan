@@ -22,15 +22,58 @@ function inert() {
   });
 }
 
+// The only real three.js geometry surface the tests need: buildCarSidePatch's buffer, index and vertex normals
+class TestBufferAttribute {
+  constructor(array, itemSize) {
+    this.array = array;
+    this.itemSize = itemSize;
+  }
+  get count() { return this.array.length / this.itemSize; }
+}
+
+class TestBufferGeometry {
+  constructor() {
+    this.attributes = {};
+    this.index = null;
+  }
+  setAttribute(name, attribute) { this.attributes[name] = attribute; return this; }
+  setIndex(index) { this.index = index; return this; }
+  computeVertexNormals() {
+    const p = this.attributes.position.array;
+    const normals = new Float32Array(p.length);
+    for (let i = 0; i < this.index.length; i += 3) {
+      const a = this.index[i] * 3, b = this.index[i + 1] * 3, c = this.index[i + 2] * 3;
+      const abx = p[b] - p[a], aby = p[b + 1] - p[a + 1], abz = p[b + 2] - p[a + 2];
+      const acx = p[c] - p[a], acy = p[c + 1] - p[a + 1], acz = p[c + 2] - p[a + 2];
+      const nx = aby * acz - abz * acy;
+      const ny = abz * acx - abx * acz;
+      const nz = abx * acy - aby * acx;
+      for (const v of [a, b, c]) {
+        normals[v] += nx; normals[v + 1] += ny; normals[v + 2] += nz;
+      }
+    }
+    for (let i = 0; i < normals.length; i += 3) {
+      const l = Math.hypot(normals[i], normals[i + 1], normals[i + 2]) || 1;
+      normals[i] /= l; normals[i + 1] /= l; normals[i + 2] /= l;
+    }
+    this.attributes.normal = new TestBufferAttribute(normals, 3);
+    return this;
+  }
+}
+
+const THREE = inert();
+THREE.BufferGeometry = TestBufferGeometry;
+THREE.Float32BufferAttribute = TestBufferAttribute;
+
 const {
   BODY_SPECS, BUS_SPEC, BUS_18_SPEC, EMERGENCY_PAINT, LETTERING, LETTERING_ROWS, carDimensions,
   PLATE_FONT_FAMILY, polishRegistration, encodeRegistration, drawPoznanCrest, drawPoliceStar,
-  drawPrmBadge, drawPspBadge, drawPrmTeamBadge
+  drawPrmBadge, drawPspBadge, drawPrmTeamBadge, buildCarSidePatch
 } = loadModule(
   readFileSync(join(__dirname, '../js/actor-models.js'), 'utf8'),
   {
     imports: {
-      'three/webgpu': inert(),
+      'three/webgpu': THREE,
       'three/tsl': inert(),
       'three/addons/utils/BufferGeometryUtils.js': inert(),
       './tsl-materials.js': { cityUniforms: inert() }
@@ -175,6 +218,48 @@ test('body classes have Polish-market proportions and unique material names', ()
   assert.equal(names.size, 7);
   assert.equal(BODY_SPECS.taxi.sign, true);
   assert.equal(BODY_SPECS.taxi.zFront, BODY_SPECS.saloon.zFront);
+});
+
+test('taxi side patches face out on both sides and keep their lettering upright', () => {
+  const spec = BODY_SPECS.taxi;
+  const z0 = spec.doors[2] + 0.06, z1 = spec.doors[0] - 0.05;
+  const nz = 10, ny = 6;
+  for (const side of [-1, 1]) {
+    const g = buildCarSidePatch(spec, side, z0, z1, 0.55, 0.72, 0.003, nz, ny);
+    const p = g.attributes.position.array;
+    const uv = g.attributes.uv.array;
+    const n = g.attributes.normal.array;
+    const index = g.index;
+    assert.ok(index.length > 0, `side ${side} has triangles`);
+    for (let i = 0; i < p.length; i += 3) {
+      assert.equal(Math.sign(p[i]), side, `side ${side} vertex sits on its own side`);
+    }
+    for (let i = 0; i < index.length; i += 3) {
+      const a = index[i] * 3, b = index[i + 1] * 3, c = index[i + 2] * 3;
+      const abx = p[b] - p[a], aby = p[b + 1] - p[a + 1], abz = p[b + 2] - p[a + 2];
+      const acx = p[c] - p[a], acy = p[c + 1] - p[a + 1], acz = p[c + 2] - p[a + 2];
+      const nx = aby * acz - abz * acy;
+      assert.ok(nx * side > 0, `side ${side} triangle ${i / 3} winds outward`);
+    }
+    for (let i = 0; i < n.length; i += 3) {
+      assert.ok(n[i] * side > 0, `side ${side} vertex normal ${i / 3} points outward`);
+    }
+    // From outside the car, +x is viewed with -z to the right and -x with +z to the right (front is +z), so u must
+    // rise as z moves that way for text drawn left to right on a per-side canvas.
+    const cols = nz + 1;
+    for (let j = 0; j <= ny; j++) {
+      for (let i = 0; i < nz; i++) {
+        const a = (j * cols + i) * 2, b = (j * cols + i + 1) * 2;
+        const az = p[(j * cols + i) * 3 + 2], bz = p[(j * cols + i + 1) * 3 + 2];
+        assert.ok(uv[a] < uv[b], 'u rises along the texture');
+        assert.ok((bz - az) * side < 0, `side ${side} u runs to the viewer's right`);
+      }
+    }
+    for (let i = 0; i < cols; i++) {
+      assert.ok(p[i * 3 + 1] < p[(cols + i) * 3 + 1], 'v rises with y');
+      assert.ok(uv[i * 2 + 1] < uv[(cols + i) * 2 + 1], 'v rises with the texture');
+    }
+  }
 });
 
 test('painted plates clear the bumper trims and the lamps', () => {

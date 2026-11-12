@@ -1,6 +1,6 @@
 # Poznań backlog
 
-Updated 2026-11-11. Only remaining work, open decisions and outstanding browser checks are listed below.
+Updated 2026-11-12. Only remaining work, open decisions and outstanding browser checks are listed below.
 Implementation details and completed measurements live in the [topic docs](../AGENTS.md#docs) and
 [observation records](observations/). Original phase references refer to the [archived port plan](archive/poznan-plan.md).
 
@@ -195,14 +195,6 @@ checks below; each remaining bullet is the part that is still open.
   theatre's forecourt and re-check the front and entrance from ul. 27 Grudnia/Fredry on WebGPU and WebGL2.
   Note: the real Teatr Polski stands back in a courtyard behind the ul. 27 Grudnia frontage, reached through a gate,
   so a partly hidden front is correct; check the courtyard footprint against OSM before cutting the block.
-- **The player taxi's left-side stripe mesh is culled:** the left side at the spawn `(-1060.6, 124.3)` shows the
-  body's street-taxi fallback (chequer edges, crest, `1427` above the band) instead of the dedicated stripe: no white
-  field, `TAXI`/`POZNAŃ` or number panel. The right side is correct on WebGPU and WebGL2. `buildCarSidePatch` reverses
-  both the z order and the triangle indices for `side < 0`, so the left patch normal points +x into the car and the
-  `FrontSide` material culls it; use one winding for both sides and add a both-patches-face-outward test.
-- **Re-check the taxi livery at midnight after fixing D2:** the culled left stripe leaves the body fallback nearly black
-  under the midnight streetlight pool. Capture both sides at a lit door after the winding fix; if the right side is also
-  unreadable, add a small emissive lift to the stripe.
 - **Phone touch layout overlaps:** at 390 × 844 the `.touch-look-hint` (top 136 px) is partly covered by the camera
   switcher (`#hud-bottom-right`, top 78 px), and the current-camera label ellipsizes to "Kamera za grac…" on both the
   phone and the 1280 × 720 desktop HUD. Move the hint below the camera cluster (or hide it while the cluster is open) and

@@ -837,8 +837,10 @@ function carBodyHalfWidthAt(spec, z, y) {
 }
 
 /**
- * A thin grid patch lying `offset` m off the body side (side = +1: +x) over z0..z1, y0..y1. UVs read from the
- * front of the car to the back on both sides (u = 0 at the front on the +x side, at the back on the -x side).
+ * A thin grid patch lying `offset` m off the body side (side = +1: +x) over z0..z1, y0..y1. u runs along the car on
+ * both sides, front→rear at u = 0→1 on the +x side and rear→front on the -x side, so each side's texture reads left
+ * to right from outside without mirroring its lettering. The same triangle order faces outward on both sides: the
+ * flipped u direction reverses the world winding, and the material is FrontSide.
  */
 function buildCarSidePatch(spec, side, z0, z1, y0, y1, offset = 0.003, nz = 10, ny = 6) {
   const positions = [];
@@ -857,8 +859,7 @@ function buildCarSidePatch(spec, side, z0, z1, y0, y1, offset = 0.003, nz = 10, 
         const b = a + 1;
         const c = a + nz + 1;
         const d = c + 1;
-        if (side > 0) indices.push(a, b, c, b, d, c);
-        else indices.push(a, c, b, b, c, d);
+        indices.push(a, b, c, b, d, c);
       }
     }
   }
