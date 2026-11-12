@@ -171,21 +171,28 @@ Behaviour to know when writing a test:
 
 `node tools/benchmark-pedestrians.mjs /abs/path/to/three/build/three.core.js` (or set `THREE_CORE_PATH`). You need a local three.js build, because the repo has none (any npm `three` package's `build/three.core.js` works). Verified run: about 7 s. It prints JSON with the ms per frame for 340 rigs, before and after, plus the reduction percentage. It first asserts that deferring the pose solve for hidden rigs gives bit-identical gait and poses, so it doubles as a correctness check after `PersonRig` changes. It loads `js/pedestrians.js` through `loadModule` with stubs only for `'three/webgpu'`, `'three/tsl'` and `'three/addons/utils/BufferGeometryUtils.js'`. It also builds its baseline by replacing the literal `if (updatePose) this.solve();`. If you add an import to `pedestrians.js`, add a stub here. If you change that line, update the replacement.
 
-## Shelter–roadway audit
+## Shelter–raised-ground audit
 
 `node tools/audit-shelter-roadway.mjs [--before] [--json] [--top N] [--near x,z,r]` builds the furnished headless
 network (street details' own road graph, as `tests/tram-infra.test.cjs` does) and measures every tram stop shelter's
-real 4.6 × 1.6 m roof and advert footprint against three surfaces: the 3.6 m car-lane envelopes and junction turning
-curves, the strip-aware carriageway (the road edge less its 6.5 m tram strip), and the 1.75 m track keep-out. On a
-mixed platform that starts on a sidewalk block and ends in the tram/bus reservation it also requires the shelter to
-stand on the block. `--before` loads `js/tram-infra.js` from commit `de70d64` and runs the same predicate, so the pre-fix
-count is reproducible; `--near` restricts the report to a centre and radius. It prints the count, the worst overlaps
-and their stop names/coordinates, and exits non-zero while any overlap remains. Measured 2026-11-12: **30 before**
-(8 in the carriageway, 13 within the track keep-out, 10 on mixed platforms and 3 curb stops, several overlapping);
-the Rondo Rataje stop at (994.1, 1376.4) led the roadway cases with a 2.47 m roof overlap. The fixed rule moved 20
-shelters onto the platform/sidewalk and dropped 10, leaving 218 shelters; the browser build, with its full
-building/landmark collider set, moved 20 and dropped 8, leaving 220. `tests/shelter-roadway.test.cjs` runs the after audit and checks the
-Rataje shelter was moved, not dropped. The audit uses the headless fixture, not the browser's full collider set.
+real 4.6 × 1.6 m roof and advert footprint against the raised ground it stands on: each stop platform's rendered 3 m
+box rectangles (`platformPieceRects`) and the raised sidewalk blocks (`blockAt`, underpass sidewalks included). The
+footprint edge is sampled every 0.05 m and its interior on a 0.8 m grid; on a mixed platform that starts on a sidewalk
+block and ends in the tram/bus reservation it also requires the shelter to stand on the block. It keeps the 3.6 m
+car-lane envelopes and junction turning curves and the 1.75 m track keep-out, and counts catenary pole centres inside
+the roof plus 0.15 m. `--before` loads `js/tram-infra.js` from commit `de70d64` and runs the same **current**
+predicate, so the pre-fix count is reproducible; `--near` restricts the report to a centre and radius. It prints the
+count, the worst overlaps, and the `raisedShelters`/`poleShelters` lists with their stop names/coordinates, and exits
+non-zero while any overlap remains. Measured 2026-11-12: the old roadway predicate found **30 before** (8 in the
+carriageway, 13 within the track keep-out, 10 on mixed platforms and 3 curb stops, several overlapping) and 0 after
+`23c5a05`; the raised-ground predicate found **41** on the `de70d64` layout (7 raised-ground, 14 pole, the rest
+lane/track/mixed) and **17** on the `23c5a05` layout (4 raised-ground, 13 pole). The rule then moved 38 shelters,
+dropped 3 (all already dropped) and restored 7 the old roadway test had dropped, leaving **225** shelters and 0
+overlaps; the browser build matched (38 moved, 3 dropped, 225 shelters). The Rondo Kaponiera north island shelter at
+(−1455.6, 4.1) led the raised-ground cases with a **0.08 m** roof corner past the platform pieces; it moved to
+(−1458.8, 4.3). `tests/shelter-roadway.test.cjs` runs the after audit, checks both Rondo Kaponiera north stops were
+moved, and runs the `--before` audit to check the new predicate still catches the pre-fix 0.08 m overhang and the
+pole shelter. The audit uses the headless fixture, not the browser's full collider set.
 
 ## Pedestrian overlap audit
 

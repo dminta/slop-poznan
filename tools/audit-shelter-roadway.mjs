@@ -1,10 +1,13 @@
-// Headless audit: every tram stop shelter's real roof/advert footprint against the carriageway, the tram tracks and
-// the raised sidewalk it stands on. The Rondo Rataje report (a shelter reaching the carriageway) came from the fixed
-// anchor point at the middle of a platform that runs from a sidewalk into the tram/bus strip.
+// Headless audit: every tram stop shelter's real roof/advert footprint against the raised ground it stands on, the
+// carriageway, the tram tracks and the catenary poles. The Rondo Rataje report (a shelter reaching the carriageway) came
+// from the fixed anchor point at the middle of a platform that runs from a sidewalk into the tram/bus strip; the
+// Rondo Kaponiera report (2026-11-12) came from a roof corner over a platform-piece notch at a bend, which the old
+// "not inside a road rectangle" test could not see.
 //
 //   node tools/audit-shelter-roadway.mjs [--before] [--json] [--top N] [--near x,z,r]
 //
-// --before loads js/tram-infra.js from de70d64 (the pre-fix placement) so the count can be recorded.
+// --before loads js/tram-infra.js from de70d64 (the pre-fix placement) so the count can be recorded. The raised-ground
+// predicate is always the current module's, so the old layout is judged by the current standard.
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -76,10 +79,7 @@ const details = loadModule(source('street-details'), {
 });
 const { footprints } = details.buildStreetDetails(inert());
 const network = road.buildRoadNetwork([], footprints);
-const tramSource = before
-  ? execFileSync('git', ['show', 'de70d64:js/tram-infra.js'], { cwd: root, encoding: 'utf8' })
-  : source('tram-infra');
-const { layoutTramInfrastructure } = loadModule(tramSource, {
+const tramImports = {
   imports: {
     'three/webgpu': inert(), 'three/tsl': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert(),
     './geodata.js': { GEO }, './city-config.js': config, './tsl-materials.js': inert()
@@ -89,13 +89,17 @@ const { layoutTramInfrastructure } = loadModule(tramSource, {
     document: inert(), console: { info() {}, warn() {}, log() {} }
   },
   filename: 'tram-infra.js'
-});
+};
+const tram = loadModule(source('tram-infra'), tramImports);
+const layoutSource = before
+  ? execFileSync('git', ['show', 'de70d64:js/tram-infra.js'], { cwd: root, encoding: 'utf8' })
+  : source('tram-infra');
+const { layoutTramInfrastructure } = before ? loadModule(layoutSource, tramImports) : tram;
 const layout = layoutTramInfrastructure(network);
+const { platformPieceRects, shelterRect, shelterSamples, shelterRaisedAt, poleInShelterRect } = tram;
 const TRACK_KEEP = 1.75;
 const LANE_HALF = 1.8;
 const TRAM_STRIP_HALF = 3.25;
-const SHELTER_HALF_LEN = 2.3;
-const SHELTER_HALF_DEPTH = 0.8;
 
 function pointAt(tr, s) {
   let lo = 0, hi = tr.n - 1;
@@ -127,23 +131,6 @@ function platformMixed(stop) {
   return blocks > 0.05 * samples && blocks < 0.95 * samples;
 }
 
-const shelterRect = (x, z, yaw, len) => {
-  const cs = Math.cos(yaw), sn = Math.sin(yaw);
-  return { x, z, hx: SHELTER_HALF_LEN * len / 4.4, hz: SHELTER_HALF_DEPTH, ux: cs, uz: -sn, vx: sn, vz: cs };
-};
-const samples = (a, step = 0.4) => {
-  const out = [];
-  const nx = Math.max(1, Math.ceil(2 * a.hx / step));
-  const nz = Math.max(1, Math.ceil(2 * a.hz / step));
-  for (let i = 0; i <= nx; i++) {
-    for (let j = 0; j <= nz; j++) {
-      const lx = -a.hx + 2 * a.hx * i / nx;
-      const lz = -a.hz + 2 * a.hz * j / nz;
-      out.push([a.x + a.ux * lx + a.vx * lz, a.z + a.uz * lx + a.vz * lz]);
-    }
-  }
-  return out;
-};
 const overlap = (a, b) => {
   let min = Infinity;
   for (const r of [a, b]) {
@@ -178,8 +165,18 @@ const roadDepth = (a, stripAware) => {
   }
   return best;
 };
+// Distance from a point to the nearest rendered platform piece; a missed sample's overhang depth. When a miss has no
+// platform at all (a curb stop off its sidewalk), the old 0.05 m marker stands in.
+const rectDistance = (r, x, z) => {
+  const dx = x - r.x, dz = z - r.z;
+  const a = Math.abs(dx * r.ux + dz * r.uz) - r.hx;
+  const b = Math.abs(dx * r.vx + dz * r.vz) - r.hz;
+  return a <= 0 && b <= 0 ? Math.max(a, b) : Math.hypot(Math.max(0, a), Math.max(0, b));
+};
 
 const rows = [];
+const poleShelters = [];
+const raisedShelters = [];
 let stopCount = 0, shelterCount = 0;
 for (const stop of layout.stops) {
   if (near && Math.hypot(stop.x - near[0], stop.z - near[1]) > (near[2] || 250)) continue;
@@ -188,32 +185,55 @@ for (const stop of layout.stops) {
   shelterCount++;
   const shelter = stop.shelter;
   const rect = shelterRect(shelter.x, shelter.z, shelter.yaw, shelter.len);
-  const pts = samples(rect);
-  let lane = Infinity, track = Infinity, blockMiss = 0;
+  const pieces = platformPieceRects(layout.tracks.find((t) => t.railIndex === stop.railIndex), stop.platform);
+  const pts = shelterSamples(rect);
+  let lane = Infinity, track = Infinity, blockMiss = 0, raisedMiss = 0;
+  let raisedDepth = 0;
   for (const [x, z] of pts) {
     lane = Math.min(lane, layout.laneDist(x, z, 6));
     track = Math.min(track, layout.trackDist(x, z, 4));
-    if (!config.blockAt(x, z)) blockMiss++;
+    const block = config.blockAt(x, z);
+    if (!block) blockMiss++;
+    if (!shelterRaisedAt(x, z, pieces)) {
+      raisedMiss++;
+      let depth = 0.05;
+      if (pieces.length) {
+        depth = Infinity;
+        for (const piece of pieces) depth = Math.min(depth, rectDistance(piece, x, z));
+      }
+      raisedDepth = Math.max(raisedDepth, depth);
+    }
   }
-  const road = roadDepth(rect, true);
-  const fullRoad = roadDepth(rect, false);
+  const poles = layout.poles.filter((p) => poleInShelterRect(rect, p)).length;
   const mixed = platformMixed(stop);
+  const needBlock = stop.kind === 'curb' || mixed;
   const laneDeficit = Math.max(0, LANE_HALF - lane);
   const trackDeficit = Math.max(0, TRACK_KEEP - track);
   const reasons = [];
   if (laneDeficit > 1e-6) reasons.push('lane');
   if (trackDeficit > 1e-6) reasons.push('track');
-  if (road > 0) reasons.push('roadway');
-  if (stop.kind === 'curb' && blockMiss > 0) reasons.push('curb');
-  if (mixed && blockMiss > 0) reasons.push('mixed-platform');
+  if (raisedMiss > 0) reasons.push('raised-ground');
+  if (poles > 0) reasons.push('pole');
+  if (needBlock && blockMiss > 0) reasons.push(stop.kind === 'curb' ? 'curb' : 'mixed-platform');
+  if (raisedMiss > 0) raisedShelters.push({
+    name: stop.name, x: +stop.x.toFixed(1), z: +stop.z.toFixed(1), kind: stop.kind,
+    shelter: [+shelter.x.toFixed(1), +shelter.z.toFixed(1)], missed: raisedMiss, depth: +raisedDepth.toFixed(2)
+  });
+  if (poles > 0) poleShelters.push({
+    name: stop.name, x: +stop.x.toFixed(1), z: +stop.z.toFixed(1), kind: stop.kind,
+    shelter: [+shelter.x.toFixed(1), +shelter.z.toFixed(1)], poles
+  });
   if (!reasons.length) continue;
-  const depth = Math.max(road, mixed ? fullRoad : 0, laneDeficit, trackDeficit, blockMiss > 0 ? 0.05 : 0);
+  const road = roadDepth(rect, true);
+  const fullRoad = roadDepth(rect, false);
+  const depth = Math.max(road, mixed ? fullRoad : 0, laneDeficit, trackDeficit, raisedDepth, poles > 0 ? 0.15 : 0,
+    blockMiss > 0 ? 0.05 : 0);
   rows.push({
     name: stop.name, x: +stop.x.toFixed(1), z: +stop.z.toFixed(1), kind: stop.kind,
     shelter: [+shelter.x.toFixed(1), +shelter.z.toFixed(1)],
     depth: +depth.toFixed(2), reasons,
     lane: +lane.toFixed(2), track: +track.toFixed(2), roadway: +road.toFixed(2), fullRoadway: +fullRoad.toFixed(2),
-    blockMiss, mixed
+    raisedMiss, raisedDepth: +raisedDepth.toFixed(2), poles, blockMiss, mixed
   });
 }
 rows.sort((a, b) => b.depth - a.depth);
@@ -222,6 +242,8 @@ const summary = {
   stops: stopCount,
   shelters: shelterCount,
   overlaps: rows.length,
+  raisedOverlaps: raisedShelters.length,
+  poleOverlaps: poleShelters.length,
   moved: layout.sheltersMoved?.length ?? null,
   dropped: layout.sheltersDropped?.length ?? null,
   movedShelters: layout.sheltersMoved?.map((s) => ({
@@ -231,18 +253,22 @@ const summary = {
   droppedShelters: layout.sheltersDropped?.map((s) => ({
     name: s.name, x: +s.x.toFixed(1), z: +s.z.toFixed(1)
   })) ?? null,
+  raisedShelters,
+  poleShelters,
   rows: rows.slice(0, top)
 };
 if (jsonMode) {
   console.log(JSON.stringify(summary, null, 2));
 } else {
-  console.log(`=== Tram shelter / carriageway audit (${summary.label}) ===`);
+  console.log(`=== Tram shelter / raised-ground audit (${summary.label}) ===`);
   console.log(`${summary.stops} stops, ${summary.shelters} shelters, ${summary.overlaps} overlapping`);
+  console.log(`${summary.raisedOverlaps} raised-ground, ${summary.poleOverlaps} pole overlaps`);
   if (summary.moved !== null) console.log(`${summary.moved} shelters moved, ${summary.dropped} dropped by the rule`);
   for (const r of summary.rows) {
     console.log(`  ${r.depth.toFixed(2)} m  ${r.name} (${r.x}, ${r.z}) ${r.kind}  ` +
       `shelter ${r.shelter[0]}, ${r.shelter[1]}  [${r.reasons.join(', ')}]  ` +
-      `lane ${r.lane.toFixed(2)}, track ${r.track.toFixed(2)}, road ${r.roadway.toFixed(2)}, block miss ${r.blockMiss}`);
+      `lane ${r.lane.toFixed(2)}, track ${r.track.toFixed(2)}, road ${r.roadway.toFixed(2)}, ` +
+      `raised ${r.raisedMiss}/${r.raisedDepth.toFixed(2)} m, poles ${r.poles}, block miss ${r.blockMiss}`);
   }
 }
 if (rows.length) process.exitCode = 1;

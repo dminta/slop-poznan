@@ -35,9 +35,12 @@ const STATION = 30; // support spacing along the track
 const LANE_KEEP = 1.75;
 const TRACK_KEEP = 1.75; // poles & shelters keep this far from a track centreline (2.4 m car body + sway)
 const LANE_HALF = 1.8; // road-network.js LANE_W / 2: the half width of a 3.6 m car lane
-const TRAM_STRIP_HALF = 3.25; // road-network.js TRAM_W / 2
 const SHELTER_HALF_LEN = 2.3; // 4.6 m roof at len 4.4, 0.1 m past the end panels
 const SHELTER_HALF_DEPTH = 0.8; // roof front/back; the frame is 1.24 m deep
+const SHELTER_EDGE = 0.05; // roof edge samples: the old 0.4 m grid missed a 0.08 m corner
+const SHELTER_GRID = 0.8; // ...and this coarse interior grid
+const SHELTER_EPS = 1e-3; // platform pieces overlap by 0.05 m; a boundary sample is still on the paving
+const POLE_KEEP = 0.15; // a catenary pole centre stays this far outside the shelter roof footprint
 const PLATFORM_EDGE = 1.35; // track centreline to platform edge
 const PLATFORM_W = 2.6;
 const PLATFORM_L = 33; // a 32 m Moderus Gamma or Tramino
@@ -128,6 +131,91 @@ function pointAt(tr, s) {
   const dx = (p[2 * hi] - p[2 * lo]) / L;
   const dz = (p[2 * hi + 1] - p[2 * lo + 1]) / L;
   return { x: p[2 * lo] + (p[2 * hi] - p[2 * lo]) * t, z: p[2 * lo + 1] + (p[2 * hi + 1] - p[2 * lo + 1]) * t, dx, dz, k: lo };
+}
+
+// The rendered stop platform is a chain of straight 3 m boxes (buildTramInfrastructure below): each piece is a box whose
+// long axis is the piece chord and whose width is the platform width. On a bend the pieces' outer edges leave a small
+// notch between them; a roof over it stands on asphalt even when the ideal curved platform band contains it. Shelter
+// placement and the audit both test these exact rectangles (docs/world.md, Shelter clearance).
+function platformPieceRects(tr, platform) {
+  const rects = [];
+  if (!platform) return rects;
+  const { s0, s1, o0, o1 } = platform;
+  const n = Math.max(1, Math.ceil((s1 - s0) / 3));
+  const om = (o0 + o1) / 2;
+  const w = Math.abs(o1 - o0);
+  for (let i = 0; i < n; i++) {
+    const A = pointAt(tr, s0 + ((s1 - s0) * i) / n);
+    const B = pointAt(tr, s0 + ((s1 - s0) * (i + 1)) / n);
+    const len = Math.hypot(B.x - A.x, B.z - A.z);
+    const dx = (B.x - A.x) / len;
+    const dz = (B.z - A.z) / len;
+    const mx = (A.x + B.x) / 2;
+    const mz = (A.z + B.z) / 2;
+    rects.push({
+      x: mx - dz * om, z: mz + dx * om,
+      hx: (len + 0.05) / 2, hz: w / 2, // the rendered box is len + 0.05 long and w across
+      ux: dx, uz: dz, vx: -dz, vz: dx
+    });
+  }
+  return rects;
+}
+
+// A point in an oriented rectangle `{ x, z, hx, hz, ux, uz, vx, vz }` (u along hx, v along hz)
+function pointInRect(rect, x, z, pad = 0) {
+  const dx = x - rect.x;
+  const dz = z - rect.z;
+  return Math.abs(dx * rect.ux + dz * rect.uz) <= rect.hx + pad &&
+    Math.abs(dx * rect.vx + dz * rect.vz) <= rect.hz + pad;
+}
+
+// The rendered shelter: a 4.6 m roof (2.3 m half length at len 4.4) and a 1.6 m depth, including the advert panel.
+function shelterRect(x, z, yaw, len) {
+  const cs = Math.cos(yaw), sn = Math.sin(yaw);
+  return { x, z, hx: SHELTER_HALF_LEN * len / 4.4, hz: SHELTER_HALF_DEPTH, ux: cs, uz: -sn, vx: sn, vz: cs };
+}
+
+// The roof/advert footprint samples: its perimeter every 0.05 m (where a roof can leave a platform) and a coarse
+// interior grid for holes. The old 0.4 m grid and centreline-only road test missed the 2026-11-12 Kaponiera corner.
+function shelterSamples(rect, edge = SHELTER_EDGE, grid = SHELTER_GRID) {
+  const pts = [];
+  const nx = Math.max(1, Math.ceil(2 * rect.hx / edge));
+  const nz = Math.max(1, Math.ceil(2 * rect.hz / edge));
+  for (let i = 0; i <= nx; i++) {
+    const lx = -rect.hx + 2 * rect.hx * i / nx;
+    pts.push([rect.x + rect.ux * lx - rect.vx * rect.hz, rect.z + rect.uz * lx - rect.vz * rect.hz]);
+    pts.push([rect.x + rect.ux * lx + rect.vx * rect.hz, rect.z + rect.uz * lx + rect.vz * rect.hz]);
+  }
+  for (let j = 1; j < nz; j++) {
+    const lz = -rect.hz + 2 * rect.hz * j / nz;
+    pts.push([rect.x - rect.ux * rect.hx + rect.vx * lz, rect.z - rect.uz * rect.hx + rect.vz * lz]);
+    pts.push([rect.x + rect.ux * rect.hx + rect.vx * lz, rect.z + rect.uz * rect.hx + rect.vz * lz]);
+  }
+  const gx = Math.max(1, Math.ceil(2 * rect.hx / grid));
+  const gz = Math.max(1, Math.ceil(2 * rect.hz / grid));
+  for (let i = 1; i < gx; i++) {
+    for (let j = 1; j < gz; j++) {
+      const lx = -rect.hx + 2 * rect.hx * i / gx;
+      const lz = -rect.hz + 2 * rect.hz * j / gz;
+      pts.push([rect.x + rect.ux * lx + rect.vx * lz, rect.z + rect.uz * lx + rect.vz * lz]);
+    }
+  }
+  return pts;
+}
+
+// Raised ground under a shelter sample: a rendered platform piece (islands, including the tram reservation) or a raised
+// sidewalk block (city-grid's curbs). Bridge footways are raised too, but no stop shelter reaches one (docs/world.md).
+function shelterRaisedAt(x, z, pieces) {
+  for (const r of pieces) if (pointInRect(r, x, z, SHELTER_EPS)) return true;
+  return !!blockAt(x, z);
+}
+
+// A catenary pole centre inside the roof footprint plus POLE_KEEP (the backlog's 4.6 × 1.6 m plus 0.15 m)
+function poleInShelterRect(rect, p, pad = POLE_KEEP) {
+  const dx = p.x - rect.x;
+  const dz = p.z - rect.z;
+  return Math.abs(dx * rect.ux + dz * rect.uz) <= rect.hx + pad &&
+    Math.abs(dx * rect.vx + dz * rect.vz) <= rect.hz + pad;
 }
 
 // Uniform grid of line segments for nearest-segment queries. `walk` files each segment only in the cells it crosses
@@ -333,69 +421,6 @@ function layoutTramInfrastructure(network) {
     const b = blockAt(x, z);
     return !!(b && !b.median);
   };
-  // Roadways by 24 m cell for the shelter footprint test. road-network.js lays each carriageway as a straight edge;
-  // a strip stops at its tram track and the old rule only measured lane centres, so a shelter on a platform edge
-  // could reach the unlaned strip/bus bay at a roundabout. The index is build-only.
-  const roadCells = new Map();
-  const roadCell = (ix, iz) => ix * 100000 + iz;
-  for (const e of (network && network.edges) || []) {
-    const x1 = e.x0 + e.dx * e.span;
-    const z1 = e.z0 + e.dz * e.span;
-    const ex = Math.abs(e.rx) * e.half;
-    const ez = Math.abs(e.rz) * e.half;
-    const minX = Math.min(e.x0, x1) - ex, maxX = Math.max(e.x0, x1) + ex;
-    const minZ = Math.min(e.z0, z1) - ez, maxZ = Math.max(e.z0, z1) + ez;
-    for (let ix = Math.floor(minX / 24); ix <= Math.floor(maxX / 24); ix++) {
-      for (let iz = Math.floor(minZ / 24); iz <= Math.floor(maxZ / 24); iz++) {
-        const key = roadCell(ix, iz);
-        const list = roadCells.get(key);
-        if (list) list.push(e);
-        else roadCells.set(key, [e]);
-      }
-    }
-  }
-  const onRoad = (x, z, stripAware) => {
-    for (const e of roadCells.get(roadCell(Math.floor(x / 24), Math.floor(z / 24))) || []) {
-      const dx = x - e.x0, dz = z - e.z0;
-      const t = dx * e.dx + dz * e.dz;
-      if (t < 0 || t > e.span) continue;
-      let half = e.half, centre = 0;
-      if (stripAware && e.strip) {
-        half -= TRAM_STRIP_HALF;
-        centre = -e.strip * TRAM_STRIP_HALF;
-      }
-      if (Math.abs(dx * e.rx + dz * e.rz - centre) <= half) return true;
-    }
-    return false;
-  };
-  // The rendered shelter: a 4.6 m roof (2.3 m at len 4.4) and a 1.6 m depth, including the advert panel.
-  const shelterRect = (x, z, yaw, len) => {
-    const cs = Math.cos(yaw), sn = Math.sin(yaw);
-    return { x, z, hx: SHELTER_HALF_LEN * len / 4.4, hz: SHELTER_HALF_DEPTH, ux: cs, uz: -sn, vx: sn, vz: cs };
-  };
-  const shelterSamples = (rect, step = 0.4) => {
-    const pts = [];
-    const nx = Math.max(1, Math.ceil(2 * rect.hx / step));
-    const nz = Math.max(1, Math.ceil(2 * rect.hz / step));
-    for (let i = 0; i <= nx; i++) {
-      for (let j = 0; j <= nz; j++) {
-        const lx = -rect.hx + 2 * rect.hx * i / nx;
-        const lz = -rect.hz + 2 * rect.hz * j / nz;
-        pts.push([rect.x + rect.ux * lx + rect.vx * lz, rect.z + rect.uz * lx + rect.vz * lz]);
-      }
-    }
-    return pts;
-  };
-  const shelterClear = (x, z, yaw, len, kind, needBlock) => {
-    const rect = shelterRect(x, z, yaw, len);
-    for (const [px, pz] of shelterSamples(rect)) {
-      if (laneDist(px, pz, 6) < LANE_HALF - 1e-6) return false;
-      if (trackDist(px, pz, 4) < TRACK_KEEP - 1e-6) return false;
-      if (onRoad(px, pz, kind === 'island')) return false;
-      if (needBlock && !blockAt(px, pz)) return false;
-    }
-    return true;
-  };
   // A platform that is part sidewalk (block) and part tram reservation: at Rondo Rataje the stop platform ends in
   // the shared tram/bus strip. Its shelter belongs on the sidewalk part, not the strip.
   const platformMixed = (tr, platform) => {
@@ -516,6 +541,38 @@ function layoutTramInfrastructure(network) {
   // --- Tram stops ---------------------------------------------------------------------------------------------------
   const stops = [];
   const skipped = []; // [{ name, x, z, why }] stop nodes left without a stop
+  // A catenary pole centre inside the roof footprint (plus POLE_KEEP) would put the mast through the shelter. Use the
+  // pole cell index so a search candidate only looks at the few poles in its 4 m cells.
+  const poleInShelter = (rect) => {
+    // World AABB of the turned roof rectangle plus the pole keep; using hx/hz alone would miss a pole along the roof's
+    // long diagonal axis (the 2026-11-12 check found three such misses).
+    const ex = Math.abs(rect.ux) * rect.hx + Math.abs(rect.vx) * rect.hz + POLE_KEEP;
+    const ez = Math.abs(rect.uz) * rect.hx + Math.abs(rect.vz) * rect.hz + POLE_KEEP;
+    const minX = rect.x - ex, maxX = rect.x + ex;
+    const minZ = rect.z - ez, maxZ = rect.z + ez;
+    for (let ix = Math.floor(minX / 4); ix <= Math.floor(maxX / 4); ix++) {
+      for (let iz = Math.floor(minZ / 4); iz <= Math.floor(maxZ / 4); iz++) {
+        for (const i of poleCells.get(poleCellKey(ix, iz)) || []) {
+          if (poleInShelterRect(rect, poles[i])) return true;
+        }
+      }
+    }
+    return false;
+  };
+  // The roof/advert footprint must stand entirely on raised ground: one of the stop platform's rendered pieces (islands
+  // in the tram reservation included) or a raised sidewalk block. This replaces the old "not inside a road rectangle"
+  // test, which could not see junction interiors, roundabout rings, bays or the notch between two platform pieces.
+  // `edge` is the perimeter sampling step: the search's cheap pre-check uses 0.4 m, the accepted candidate 0.05 m.
+  const shelterClear = (x, z, yaw, len, needBlock, pieces, edge = SHELTER_EDGE) => {
+    const rect = shelterRect(x, z, yaw, len);
+    for (const [px, pz] of shelterSamples(rect, edge)) {
+      if (laneDist(px, pz, 6) < LANE_HALF - 1e-6) return false;
+      if (trackDist(px, pz, 4) < TRACK_KEEP - 1e-6) return false;
+      if (needBlock && !blockAt(px, pz)) return false;
+      if (!shelterRaisedAt(px, pz, pieces)) return false;
+    }
+    return !poleInShelter(rect);
+  };
   const platformClear = (tr, s0, s1, o0, o1) => {
     for (let s = s0; s <= s1 + 1e-6; s += 1) {
       const P = pointAt(tr, s);
@@ -606,15 +663,17 @@ function layoutTramInfrastructure(network) {
     const yaw = Math.atan2(rx, rz); // local +z (the shelter's open front) faces the track: rotate by yaw then flip
     stop.machine = { ...at(2.2, base + width - 0.45), y, yaw: yaw + Math.PI };
     // A shelter (1.6 m roof) needs 2 m; try the old spot first, then slide it along the platform/sidewalk until its
-    // real footprint (roof, advert, track and lane envelopes) is clear, else leave the stop without a shelter.
+    // real footprint (roof, advert, track and lane envelopes, raised ground, poles) is clear, else leave the stop
+    // without a shelter.
     if (width >= 2.0) {
       const len = width >= 2.4 ? 4.4 : 3.2;
       const mixed = stop.kind === 'island' && platformMixed(tr, stop.platform);
       const current = { ...at(-2, base + width - 0.85), y, yaw: yaw + Math.PI, len };
+      const pieceRects = platformPieceRects(tr, stop.platform);
       // A mixed platform (sidewalk then tram/bus reservation) keeps its shelter on the sidewalk part; a pure island
-      // in the reservation is allowed when its road and track clearances pass.
+      // in the reservation is allowed when its platform, lane, track and pole clearances pass.
       const needBlock = stop.kind === 'curb' || mixed;
-      if (shelterClear(current.x, current.z, current.yaw, current.len, stop.kind, needBlock)) {
+      if (shelterClear(current.x, current.z, current.yaw, current.len, needBlock, pieceRects)) {
         stop.shelter = current;
       } else {
         const half = SHELTER_HALF_LEN * len / 4.4;
@@ -625,22 +684,29 @@ function layoutTramInfrastructure(network) {
           fLo = Math.min(fA, fB);
           fHi = Math.max(fA, fB);
         }
-        const search = (useBlock) => {
-          let best = null, bestD = Infinity;
-          for (let f = fLo; f <= fHi + 1e-6; f += 0.5) {
+        const search = (step) => {
+          // Try candidates in order of distance from the old fixed spot, so the first valid one is the nearest (the old
+          // exhaustive scan kept the same minimum). A 0.4 m pre-check rejects most candidates before the 0.05 m pass.
+          const candidates = [];
+          const r0 = base + width - 0.85;
+          for (let f = fLo; f <= fHi + 1e-6; f += step) {
             for (let r = base + SHELTER_HALF_DEPTH; r <= base + width - SHELTER_HALF_DEPTH + 1e-9; r += 0.05) {
-              const d = (f + 2) * (f + 2) + (r - (base + width - 0.85)) * (r - (base + width - 0.85));
-              if (d >= bestD) continue;
-              const x = C.x + fx * f + rx * r;
-              const z = C.z + fz * f + rz * r;
-              if (!shelterClear(x, z, current.yaw, len, stop.kind, useBlock)) continue;
-              best = { f, r, x, z };
-              bestD = d;
+              candidates.push({ f, r, d: (f + 2) * (f + 2) + (r - r0) * (r - r0) });
             }
           }
-          return best;
+          candidates.sort((a, b) => a.d - b.d);
+          for (const c of candidates) {
+            const x = C.x + fx * c.f + rx * c.r;
+            const z = C.z + fz * c.f + rz * c.r;
+            if (!shelterClear(x, z, current.yaw, len, needBlock, pieceRects, 0.4)) continue;
+            if (!shelterClear(x, z, current.yaw, len, needBlock, pieceRects)) continue;
+            return { f: c.f, r: c.r, x, z };
+          }
+          return null;
         };
-        let best = search(needBlock);
+        // The 0.5 m pass keeps the old results where it can. Only a stop with no spot there pays for the 0.1 m pass, so
+        // a 4 cm platform notch does not cost a shelter that still has a valid position nearby.
+        let best = search(0.5) || search(0.1);
         if (best) {
           stop.shelter = { x: best.x, z: best.z, y, yaw: current.yaw, len };
           // Move the machine with the shelter, keeping its 4.2 m / 0.4 m offset; the sign marks the stop and stays.
@@ -2166,4 +2232,7 @@ function buildTramInfrastructure(scene, network, layouts = null) {
   return { group, colliders, stops: publicStops, railCorridor: rail.corridor.has };
 }
 
-export { layoutTramInfrastructure, layoutRailInfrastructure, buildTramInfrastructure, stopFurnitureColliders };
+export {
+  layoutTramInfrastructure, layoutRailInfrastructure, buildTramInfrastructure, stopFurnitureColliders,
+  platformPieceRects, pointInRect, shelterRect, shelterSamples, shelterRaisedAt, poleInShelterRect
+};
