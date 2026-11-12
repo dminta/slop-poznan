@@ -118,8 +118,11 @@ export function auditStreetTrees({ sites, network, routes, config, clearOfCrossw
     }
     minLane = Math.min(minLane, nearest);
     if (nearest < Math.max(1.2, 0.9 + r * Math.SQRT2)) violations.lane.push(t);
+    // The 1980s plane rows stand on the surveyed 27 Grudnia promenade, a raised strip outside the block raster. Their
+    // `promenade` flag marks the one allowed off-block street row; every other street tree still needs its whole trunk
+    // on one curb island.
     const b = config.blockAt(t.x, t.z);
-    if (!b || [-r, r].some((dx) => [-r, r].some((dz) => config.blockAt(t.x + dx, t.z + dz) !== b))) {
+    if (!t.promenade && (!b || [-r, r].some((dx) => [-r, r].some((dz) => config.blockAt(t.x + dx, t.z + dz) !== b)))) {
       violations.island.push(t);
     }
   }

@@ -124,6 +124,11 @@ function auditCityLamps({ root = join(__dirname, '../..'), before = false } = {}
   });
 
   const raised = (x, z) => {
+    // RAISED_GROUND is the runtime's raised non-block ground (landmarks and the surveyed Teatr Polski promenade); a lamp
+    // standing on it is on a raised walk even though blockAt() returns null there.
+    for (const r of config.RAISED_GROUND || []) {
+      if (x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ) return true;
+    }
     if (blockAt(x, z)) return true;
     for (let i = 0; i < plazas.length; i++) {
       const b = plazaBox[i];

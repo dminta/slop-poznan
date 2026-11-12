@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { Fn, float, color, uniform, mod, fract, step, smoothstep, mix, uv, texture, attribute, vec2, floor, sin, positionWorld } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { SIGNAL_SITES, SIGNAL_PLANS, updateSignal, JUNCTIONS, blockAt, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES, createTreeWallChecker, OSM_TREES, isWater, createPolygonIndex, pointInPolyIndexed } from './city-config.js';
+import { SIGNAL_SITES, SIGNAL_PLANS, updateSignal, JUNCTIONS, blockAt, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES, createTreeWallChecker, OSM_TREES, isWater, createPolygonIndex, pointInPolyIndexed, TEATR_POLSKI_PROMENADE, TEATR_POLSKI_SITE, TEATR_POLSKI_GARDEN_TREES } from './city-config.js';
 import { buildRoadNetwork, CROSSWALK, CROSSWALK_REACH, STOP_SETBACK } from './road-network.js';
 import { cityUniforms, createTreeGrateMaterial } from './tsl-materials.js';
 import { createTreeField, SPECIES_CROWN_R } from './trees.js';
@@ -1762,14 +1762,41 @@ function buildStreetDetails(scene, opts = {}) {
     }
     return false;
   };
+  // The 1980s plane rows along 27 Grudnia stand on the promenade ribbon, outside the block raster, so the mapped-tree
+  // rule below would drop them. Accept only that surveyed ribbon, keep the road, rail, crosswalk and wall checks, and
+  // take the pit's turn from the promenade's own tangent.
+  const promenadeIndex = TEATR_POLSKI_PROMENADE ? createPolygonIndex(TEATR_POLSKI_PROMENADE) : null;
+  const onPromenade = (x, z) => !!promenadeIndex &&
+    pointInPolyIndexed(TEATR_POLSKI_PROMENADE, promenadeIndex, x, z);
+  const promenadeFrame = (x, z) => {
+    const pts = TEATR_POLSKI_SITE.paths[0].pts;
+    let best = Infinity, ax = 1, az = 0;
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz || 1;
+      const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / l2));
+      const d = Math.hypot(a.x + t * dx - x, a.z + t * dz - z);
+      if (d < best) { best = d; ax = dx; az = dz; }
+    }
+    return {
+      acrossX: Math.abs(az) > Math.abs(ax), pitRot: Math.atan2(ax, az), squeeze: 0.82, tier: 1, grate: true, pitS: 1
+    };
+  };
   const osmPlacement = { placed: 0, dropped: 0, street: 0, planter: 0 };
-  for (const t of OSM_TREES) {
+  // The nine site crowns go through the mapped path too; `site` keeps them out of the OSM-trees regression, which still
+  // pairs GEO.trees one-to-one with OSM_TREES.
+  const mappedTrees = TEATR_POLSKI_GARDEN_TREES.length ? OSM_TREES.concat(TEATR_POLSKI_GARDEN_TREES) : OSM_TREES;
+  for (const t of mappedTrees) {
     const { x, z } = t;
     if (nearPlanter(x, z)) { osmPlacement.planter++; continue; }
     const b = treeBlockAt(x, z);
-    if (!b || b.median || b.underpass || isWater(x, z)) { osmPlacement.dropped++; continue; }
-    const plaza = inPlaza(x, z, 1.0);
-    const street = !(b.park > 0.6) && !plaza;
+    const promenade = !b && onPromenade(x, z);
+    if ((!b && !promenade) || (b && (b.median || b.underpass)) || isWater(x, z)) {
+      osmPlacement.dropped++;
+      continue;
+    }
+    const plaza = b ? inPlaza(x, z, 1.0) : false;
+    const street = promenade || (!(b.park > 0.6) && !plaza);
     let scale;
     if (t.height > 0) scale = Math.min(1.25, Math.max(0.55, t.height / 13));
     else {
@@ -1777,14 +1804,18 @@ function buildStreetDetails(scene, opts = {}) {
       scale = street ? 0.6 + r * 0.25 : 0.9 + r * 0.4;
     }
     const species = t.species >= 0 ? t.species : mixSpecies(hashPos(z, 2.9, x), 0.4, 0.35);
-    const y = street ? SIDEWALK_Y : (b.park > 0.6 ? 0.41 : (plaza ? 0.24 : SIDEWALK_Y));
-    if (!clearStreetTree(x, z, scale) || !clearOfRails(x, z, 0.4 * scale) ||
+    const y = promenade ? 0.238 : street ? SIDEWALK_Y : (b.park > 0.6 ? 0.41 : (plaza ? 0.24 : SIDEWALK_Y));
+    if (promenade) {
+      if (!clearOfRails(x, z, 0.4 * scale) || !isClearOfWalls(x, z, scale, species, 0.3, y, 1) ||
+          roadClearance(x, z) < 0.5 + 0.28 * scale ||
+          !clearOfCrosswalks(x, z, 0.28 * scale * Math.SQRT2)) { osmPlacement.dropped++; continue; }
+    } else if (!clearStreetTree(x, z, scale) || !clearOfRails(x, z, 0.4 * scale) ||
         !isClearOfWalls(x, z, scale, species, 0.3, y, 1)) { osmPlacement.dropped++; continue; }
-    const site = { x, y, z, scale, species, source: 'osm' };
+    const site = { x, y, z, scale, species, source: t.site ? 'site' : 'osm', ...(promenade ? { promenade: true } : {}) };
     // A mapped courtyard or back-garden tree keeps its exact point but gets park treatment: no street pit and the wide
     // draw distance. Only trunks within 6 m of the block edge stand in the curb row.
-    const frame = street ? nearestCurbFrame(b, x, z) : null;
-    if (frame && frame.dist <= 6.0) {
+    const frame = promenade ? promenadeFrame(x, z) : (street ? nearestCurbFrame(b, x, z) : null);
+    if (frame && (promenade || frame.dist <= 6.0)) {
       const q = Math.floor(hashPos(x, 8.8, z) * 3.999);
       Object.assign(site, {
         tier: frame.tier, pitRot: frame.pitRot, grate: frame.grate, pitS: frame.pitS, squeeze: frame.squeeze

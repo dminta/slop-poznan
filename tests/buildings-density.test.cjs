@@ -1109,10 +1109,10 @@ test('the Teatr Polski forecourt stays open from ul. 27 Grudnia to the portico',
   const site = config.LANDMARK_SITES['Teatr Polski'];
   assert.ok(site, 'Teatr Polski is a landmark site');
   const forecourt = config.TEATR_POLSKI_FORECOURT;
-  assert.ok(Array.isArray(forecourt) && forecourt.length >= 1, 'city-config reserves the theatre forecourt');
-  // The real square between the theatre's south front and the north curb of ul. 27 Grudnia, aligned with the portico
+  assert.equal(forecourt.length, 3, 'city-config reserves the three open parts of the theatre site');
+  // The real ground between the theatre's south front and the north curb of ul. 27 Grudnia, aligned with the portico
   // (site centre x -700.9, front at site z +20.05). The 1892 front tenement was demolished: the checked-in OSM has no
-  // building here, and the two mapped lawns (way/427596769 and way/427596771) still are the square's garden.
+  // building here, and the three mapped lawns (way/427596769–71) still are the square's garden.
   const zone = { x0: -720, x1: -688, z0: 16, z1: 40 };
   const union = {
     x0: Math.min(...forecourt.map((r) => r[0])),
@@ -1168,13 +1168,25 @@ test('the Teatr Polski forecourt stays open from ul. 27 Grudnia to the portico',
   }
   assert.ok(blocks.every((b) => b && b.id === 631), `the walk stays on block 631: ${blocks.map((b) => b && b.id)}`);
   assert.deepEqual(walls, [], `the passage from ul. 27 Grudnia to the portico is blocked: ${walls.join('; ')}`);
-  // The two real lawns remain in the drawn park layer, so the reserved square reads as a garden, not a bare slab.
-  const lawns = (GEO.parks || []).filter((p) => p.cat === 'grass' && p.rings.some((r) => {
-    const pts = [];
-    for (let i = 0; i + 1 < r.length; i += 2) pts.push({ x: r[i], z: r[i + 1] });
-    return pointInPoly(pts, -730, 30) || pointInPoly(pts, -660, 35);
-  }));
-  assert.ok(lawns.length >= 2, `the theatre forecourt keeps its two OSM lawns: ${lawns.length}`);
+  // The three real lawns remain in the drawn park layer, so the reserved square reads as a garden, not a bare slab.
+  const lawns = (GEO.parks || []).filter((p) => p.teatr);
+  assert.equal(lawns.length, 3, 'the theatre site keeps its three OSM lawns');
+  assert.equal(lawns.reduce((sum, p) => sum + p.area_m2, 0), 2288, 'the three mapped lawn areas');
+  for (const p of lawns) assert.equal(p.cat, 'grass', 'the theatre lawns are mapped grass');
+  // No generic footprint may stand on any of the three lawns: they are the garden the reserve protects.
+  for (const [name, x, z] of [['west', -730, 30], ['long', -660, 35], ['east', -620, 12]]) {
+    const under = city.allBlocks.flatMap((blk) => blk.footprints).filter((f) => {
+      if (!f.pts) return x >= f.x0 && x <= f.x1 && z >= f.z0 && z <= f.z1;
+      return pointInPoly(f.pts, x, z);
+    });
+    assert.equal(under.length, 0, `${name} lawn carries a generated building at ${x}, ${z}`);
+  }
+  // The frame guard on the reserve (buildings.js) returns the deep Mielżyńskiego / 3 Maja frontages to block 631: 32
+  // deep footprints (4,497 m²) in the 2026-11-12 headless build, plus one deep west building. Before the guard the
+  // 42° frame's AABB removed 20 of them; before the 2026-11-12 forecourt fix there were 60, 28 of them on the real car
+  // parks and lawns.
+  const generated = city.allBlocks.filter((b) => b.srcBlockId === 631).reduce((n, b) => n + b.footprints.length, 0);
+  assert.ok(generated >= 30, `block 631 keeps its deep frontage: ${generated} footprints`);
 });
 
 // Distance from (x, z) to the centreline of the named streets

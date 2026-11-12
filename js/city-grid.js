@@ -13,6 +13,9 @@ import {
   blockLots,
   distToLots,
   createTreeWallChecker,
+  TEATR_POLSKI_SITE,
+  TEATR_POLSKI_LAWNS,
+  OSM_TREES,
   SPECIES_CROWN_R,
   createPolygonIndex,
   pointInPolyIndexed,
@@ -1939,17 +1942,21 @@ function buildCityGrid(scene, opts = {}) {
   // inside its block; one crossing the curb keeps the paving) and trees kept PARK_TREE_EDGE inside the ring, clear of
   // the 20 m building cells that only clip it
   const PARK_TREE_EDGE = 10;
-  const partParkRings = (GEO.parks || []).flatMap((p) => p.rings || []).map((r) => {
+  const partParkRings = (GEO.parks || []).flatMap((p) => (p.rings || []).map((r) => {
     const pts = [];
     for (let i = 0; i + 1 < r.length; i += 2) pts.push({ x: r[i], z: r[i + 1] });
-    return pts;
-  });
+    // The three Teatr Polski lawns are drawn with their full mapped outlines by the site pass below, including the
+    // long one that reaches the 27 Grudnia kerb; the generic 80 % vertex rule would drop it or leave slivers.
+    return { pts, teatr: !!p.teatr };
+  }));
   for (const b of BLOCKS) {
     if (!(b.park > 0) || isParkBlock(b) || b.median) continue;
     // A block can touch dozens of mapped park rings. Its lot layout is unchanged between them; defer it until
     // the first tree candidate ring and reuse it only for this block (no lot cache escapes construction).
     let bLots = null;
-    for (const ring of partParkRings) {
+    for (const rec of partParkRings) {
+      if (rec.teatr) continue;
+      const ring = rec.pts;
       if (!ring.some((p) => p.x > b.minX && p.x < b.maxX && p.z > b.minZ && p.z < b.maxZ)) continue;
       // A ring mostly inside (Park Dąbrowskiego: 37 of 38 vertices) has the stray vertices pulled onto the block's
       // outline 1 m in
@@ -2012,6 +2019,170 @@ function buildCityGrid(scene, opts = {}) {
     parkLawnMesh.receiveShadow = true;
     group.add(parkLawnMesh);
   }
+
+  // =========================================================================
+  // 6b. TEATR POLSKI SITE (city-config.js TEATR_POLSKI_SITE): the surveyed car parks, the three full mapped lawns, the
+  //     27 Grudnia promenade and the portico walk, with bay markings, benches and lamps. The block frontage
+  //     stays open; everything here is the real ground between Okrąglak and Ratajczaka.
+  // =========================================================================
+  const siteLawnRings = [];
+  for (const park of TEATR_POLSKI_LAWNS) {
+    for (const flat of park.rings || []) {
+      const ring = [];
+      for (let i = 0; i + 1 < flat.length; i += 2) ring.push({ x: flat[i], z: flat[i + 1] });
+      if (ring.length >= 3) siteLawnRings.push(ring);
+    }
+  }
+  // The path corridors are cut from the lawns first, then drawn as their own paving on top; the cut is 0.25 m wider
+  // than the visible path so no uncut grass edge hangs over the paving.
+  const sitePathSegs = [];
+  for (const path of TEATR_POLSKI_SITE.paths) {
+    for (let i = 0; i + 1 < path.pts.length; i++) {
+      const a = path.pts[i], b = path.pts[i + 1];
+      sitePathSegs.push([a.x, a.z, b.x, b.z, path.half + 0.25]);
+    }
+  }
+  const siteLawnGeos = [];
+  for (const ring of siteLawnRings) {
+    let block = null;
+    for (const p of ring) {
+      block = blockAt(p.x, p.z);
+      if (block) break;
+    }
+    let pieces;
+    if (block && !ring.every((p) => pointInBlockPoly(block, p.x, p.z))) {
+      // The long lawn's south-east corner reaches the 27 Grudnia pavement; clip its full outline to the block's curb
+      // instead of dropping the whole ring (the generic 80 % vertex rule left the square without its largest lawn).
+      const core = offsetPolygonInward(ring, 0.35) || ring;
+      const border = offsetPolygonInward(block.poly, 0.35) || block.poly;
+      pieces = intersectSimpleRings(core, border);
+    } else {
+      const core = offsetPolygonInward(ring, 0.35);
+      pieces = core ? [core] : splitIntoSimpleRings(ring);
+    }
+    if (sitePathSegs.length) pieces = pieces.flatMap((piece) => cutSlab(piece, sitePathSegs, 0));
+    for (const piece of pieces) {
+      if (piece.length >= 3 && Math.abs(polygonCentroidArea(piece)) > 0.1) {
+        siteLawnGeos.push(createExtrudedPolygonMesh(piece, SW_TOP - 0.02, 0.06, lawnMat).geometry);
+      }
+    }
+  }
+  if (siteLawnGeos.length) {
+    const siteLawnMesh = new THREE.Mesh(mergeGeometries(siteLawnGeos, false), lawnMat);
+    siteLawnMesh.receiveShadow = true;
+    group.add(siteLawnMesh);
+  }
+
+  // Paths: the promenade, portico walk and driveway are granite-sett paving (style 1), a little above the sidewalk.
+  const sitePathGeos = [];
+  for (let i = 0; i < TEATR_POLSKI_SITE.paths.length; i++) {
+    const path = TEATR_POLSKI_SITE.paths[i];
+    const mesh = createFlatPolygonMesh(path.ring, 0.238 + i * 0.0004, pavingMat);
+    // ShapeGeometry carries the uv attribute the paving material reads in the browser; the headless three stub used by
+    // park-paving.test.cjs has no attributes, so only tag it when present.
+    if (mesh.geometry.attributes?.uv) setPavingStyle(mesh.geometry, 1);
+    sitePathGeos.push(mesh.geometry);
+  }
+  if (sitePathGeos.length) {
+    const pathMesh = new THREE.Mesh(mergeGeometries(sitePathGeos, false), pavingMat);
+    pathMesh.receiveShadow = true;
+    group.add(pathMesh);
+  }
+
+  // Car-park surfaces: the real parking polygons, asphalt 12 mm above the block paving, so they read as a different
+  // surface and never z-fight with the sidewalk.
+  for (const ring of TEATR_POLSKI_SITE.parking) {
+    group.add(createFlatPolygonMesh(ring, 0.232, roadMat));
+  }
+
+  // Parking bays: rows 5 m deep, 2.5 m wide, with a 6 m drive aisle between them, clipped to the parking polygon, the
+  // lawns, the paths and the buildings. Pale bay lines are merged into one mesh; the bays stay empty (the user
+  // rejected static parked cars, 2026-11-12).
+  const PARK_BAY_W = 2.5, PARK_BAY_D = 5.0, PARK_AISLE = 6.0, PARK_MARGIN = 1.0;
+  const parkingLineGeos = [];
+  const pointInSitePath = (x, z) => TEATR_POLSKI_SITE.paths.some((p) => pointInPolygonXZ(p.ring, x, z));
+  const pointInSiteLawn = (x, z) => siteLawnRings.some((r) => pointInPolygonXZ(r, x, z));
+  const siteTrees = OSM_TREES.filter((t) => t.x > -820 && t.x < -600 && t.z > -30 && t.z < 60);
+  const nearSiteTree = (x, z) => siteTrees.some((t) => (t.x - x) ** 2 + (t.z - z) ** 2 < 2.6 ** 2);
+  // Only the walls that can reach a site bay; scanning the city's 51 k colliders for every bay is needless boot work.
+  const siteBuildings = buildingColliders.filter((c) => c.maxX > -790 && c.minX < -600 && c.maxZ > -30 && c.minZ < 60);
+  const bayClear = (cx, cz, corners) => {
+    if (corners.some((p) => pointInSiteLawn(p.x, p.z)) || pointInSiteLawn(cx, cz)) return false;
+    if (corners.some((p) => pointInSitePath(p.x, p.z)) || pointInSitePath(cx, cz)) return false;
+    if (nearSiteTree(cx, cz)) return false;
+    // A bay, with the mirrors of a car standing in it, must not reach a building wall or the theatre.
+    return siteBuildings.every((c) => (c.maxY !== undefined && c.maxY < 0.4) ||
+      cx + 1.15 <= c.minX || cx - 1.15 >= c.maxX || cz + 2.55 <= c.minZ || cz - 2.55 >= c.maxZ);
+  };
+  const addBayLine = (ax, az, bx, bz) => {
+    const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
+    if (len < 0.2) return;
+    const nx = (-dz / len) * 0.055, nz = (dx / len) * 0.055;
+    const quad = [
+      { x: ax + nx, z: az + nz }, { x: bx + nx, z: bz + nz },
+      { x: bx - nx, z: bz - nz }, { x: ax - nx, z: az - nz }
+    ];
+    parkingLineGeos.push(createFlatPolygonMesh(quad, 0.247, null).geometry);
+  };
+  for (const ring of TEATR_POLSKI_SITE.parking) {
+    // The longest edge is the lot's drive direction; bays sit across it.
+    let angle = 0, longest = 0;
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i], b = ring[(i + 1) % ring.length];
+      const len = Math.hypot(b.x - a.x, b.z - a.z);
+      if (len > longest) { longest = len; angle = Math.atan2(b.z - a.z, b.x - a.x); }
+    }
+    const cs = Math.cos(angle), sn = Math.sin(angle);
+    const toWorld = (u, v) => ({ x: u * cs - v * sn, z: u * sn + v * cs });
+    const toLocal = (p) => ({ u: p.x * cs + p.z * sn, v: -p.x * sn + p.z * cs });
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+    for (const p of ring) {
+      const q = toLocal(p);
+      u0 = Math.min(u0, q.u); u1 = Math.max(u1, q.u);
+      v0 = Math.min(v0, q.v); v1 = Math.max(v1, q.v);
+    }
+    let v = v0 + PARK_MARGIN, row = 0;
+    while (v + PARK_BAY_D <= v1 - PARK_MARGIN) {
+      const kept = [];
+      for (let u = u0 + PARK_MARGIN; u + PARK_BAY_W <= u1 - PARK_MARGIN; u += PARK_BAY_W) {
+        const corners = [toWorld(u, v), toWorld(u + PARK_BAY_W, v),
+          toWorld(u + PARK_BAY_W, v + PARK_BAY_D), toWorld(u, v + PARK_BAY_D)];
+        if (!corners.every((p) => pointInPolygonXZ(ring, p.x, p.z))) continue;
+        const centre = toWorld(u + PARK_BAY_W * 0.5, v + PARK_BAY_D * 0.5);
+        if (!bayClear(centre.x, centre.z, corners)) continue;
+        kept.push({ u, x: centre.x, z: centre.z });
+      }
+      if (kept.length) {
+        const ua = kept[0].u, ub = kept[kept.length - 1].u + PARK_BAY_W;
+        for (const vv of [v, v + PARK_BAY_D]) {
+          const a = toWorld(ua, vv), b = toWorld(ub, vv);
+          addBayLine(a.x, a.z, b.x, b.z);
+        }
+        for (const k of kept) {
+          const a = toWorld(k.u, v), b = toWorld(k.u, v + PARK_BAY_D);
+          addBayLine(a.x, a.z, b.x, b.z);
+        }
+        const lastU = kept[kept.length - 1].u + PARK_BAY_W;
+        const last = toWorld(lastU, v);
+        const lastTop = toWorld(lastU, v + PARK_BAY_D);
+        addBayLine(last.x, last.z, lastTop.x, lastTop.z);
+      }
+      v += row % 2 === 0 ? PARK_BAY_D : PARK_AISLE;
+      row++;
+    }
+  }
+  if (parkingLineGeos.length) {
+    const paintMat = new THREE.MeshStandardNodeMaterial({ color: 0xcfcbbf, roughness: 0.8 });
+    const paintMesh = new THREE.Mesh(mergeGeometries(parkingLineGeos, false), paintMat);
+    paintMesh.receiveShadow = true;
+    group.add(paintMesh);
+  }
+  // Benches and lamps from the OSM survey, and two granite planters flanking the portico walk, so the forecourt is not
+  // a featureless 30 × 25 m slab. All of it uses the square/park instanced families created below.
+  for (const b of TEATR_POLSKI_SITE.benches) addBench(b.x, 0.238, b.z, b.rot || 0);
+  for (const l of TEATR_POLSKI_SITE.lamps) addLamp(l.x, 0.238, l.z);
+  addPlanterTree(-709.0, 30.0, 1, 0.72);
+  addPlanterTree(-692.0, 30.0, 2, 0.72);
 
   // Instanced plaza & park furniture: slatted benches (seat facing +z) & cast-iron lampposts with globes
   if (benchMatrices.length) {

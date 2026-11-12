@@ -472,19 +472,19 @@ test('critical gap locations covered by exactly one real triangle', () => {
   }
 });
 
-test('plaza planters: 140 planters emitted and 0 empty planters across the city', () => {
+test('plaza planters: 142 planters emitted and 0 empty planters across the city', () => {
   const { grid, helpers, emittedPlanterBoxes, emittedPlanterHedges } = getWorld();
 
   const planterColliders = grid.propColliders.filter(
     (c) => !c.obb && Math.abs(c.maxX - c.minX - 2.4) < 1e-4 && Math.abs(c.maxZ - c.minZ - 2.4) < 1e-4
   );
 
-  // Check emitted meshes/instances: exactly 140 granite boxes and 140 hedges
-  assert.equal(emittedPlanterBoxes.length, 140, 'exactly 140 granite planter boxes emitted');
-  assert.equal(emittedPlanterHedges.length, 140, 'exactly 140 planter hedges emitted');
+  // Check emitted meshes/instances: 140 city planters plus the two at the Teatr Polski portico walk (2026-11-12).
+  assert.equal(emittedPlanterBoxes.length, 142, 'exactly 142 granite planter boxes emitted');
+  assert.equal(emittedPlanterHedges.length, 142, 'exactly 142 planter hedges emitted');
 
-  // Check emitted colliders: exactly 140 colliders
-  assert.equal(planterColliders.length, 140, 'exactly 140 plaza planters emitted');
+  // Check emitted colliders: exactly 142 colliders
+  assert.equal(planterColliders.length, 142, 'exactly 142 plaza planters emitted');
 
   // Verify that every remaining planter box has an active tree site inside it (0 empty planters)
   const parkTreeSites = helpers.getParkTreeSites();

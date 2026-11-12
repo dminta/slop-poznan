@@ -100,11 +100,15 @@ test('seeded species assignment preserves the full built city tree sites and col
   // The same day a mapped tree 3.4 m off a Wilda plaza planter yields to the planter's tree instead of emptying it.
   // The Teatr Polski forecourt reserve (2026-11-12) frees one surveyed lawn tree at (-617.3, 20.6) that a generic
   // frontage building had rejected; it adds one site (species 3) and moves the site/collider pins.
-  assert.deepEqual(before, [45707, 49560, 21965, 1985]);
-  assert.deepEqual(after, [43834, 47502, 21059, 6822]);
-  assert.equal(siteHash, '777151d9619d0e73edb6ca196989c1f4054a14c2b0aa45334a903164dc402614');
-  assert.equal(digest(grid.propColliders), 'b8e7bc624e624fc37e20965597f1d6ef22cfda6115bbe111e695a8d1f5ded04d');
-  assert.equal(digest(details.colliders), '4127f80031c972063dc17f424729a77cc489d61f033fe9a80ef33529bab7f699');
+  // The Teatr Polski site (2026-11-12) adds nine surveyed garden crowns (source 'site') and lifts the block-raster
+  // exclusion on the 27 Grudnia promenade: 13 of the 14 mapped plane-row candidates plant on that surveyed ribbon, and
+  // three site crowns join the curb row. That moves the species, site and collider pins below; the tree-field mesh pins
+  // do not depend on the site count. The site's bays stay empty (no parked-car boxes in the prop colliders).
+  assert.deepEqual(before, [45715, 49569, 21971, 1985]);
+  assert.deepEqual(after, [43842, 47511, 21065, 6822]);
+  assert.equal(siteHash, '0be1c44246c4905575e91041956d630690ea686a981326750d7ffc20cb0897d9');
+  assert.equal(digest(grid.propColliders), 'e29b9231383732cb5e33586ba5b77c3173a1f83d998a354417e442548f88fcad');
+  assert.equal(digest(details.colliders), '439fffecddf6084358c6dc48bdbf994ca737094e3d1bddb1b2c2b0724d766348');
   assert.equal(meshCount((t) => t.species || 0), 25477);
   assert.equal(meshCount(treeSpecies), 30366);
   // Every surveyed node the clearance rules accept reaches the field exactly at its OSM position. The rest are dropped
@@ -112,8 +116,17 @@ test('seeded species assignment preserves the full built city tree sites and col
   // stands for them, rather than moved off the surveyed point.
   const osm = sites.filter((t) => t.source === 'osm');
   // 33,073 before the 2026-11-10 legacy gate: its kamienice and oficyny stand where the mapped objects left room for
-  // 331 surveyed trees (a dropped node is never moved, see above)
-  assert.equal(osm.length, 32742);
+  // 331 surveyed trees (a dropped node is never moved, see above). The promenade acceptance adds 14 row trees, one of
+  // which the wall/lane checks still reject; the nine garden crowns are source 'site' and stay out of this count:
+  // 32,742 -> 32,755.
+  assert.equal(osm.length, 32755);
+  // The garden, car-park and promenade sites the task restored are planted, not merely configured.
+  const westLawnTrees = sites.filter((t) => t.source === 'site' && t.x > -740 && t.x < -711 && t.z > 12 && t.z < 42);
+  assert.ok(westLawnTrees.length >= 6, `the west lawn keeps its surveyed trees: ${westLawnTrees.length}`);
+  const promenadeTrees = sites.filter((t) => t.promenade);
+  assert.ok(promenadeTrees.length >= 12, `the 27 Grudnia plane rows are planted: ${promenadeTrees.length}`);
+  const carParkTree = sites.find((t) => t.source === 'osm' && Math.hypot(t.x + 617.3, t.z - 20.6) < 0.6);
+  assert.ok(carParkTree, 'the surveyed tree in the east car park is planted');
   assert.ok(osm.every((t) => t.tier === 0 || (t.pitRot !== undefined && Number.isFinite(t.pitRot))));
   assert.ok(osm.every((t) => Number.isFinite(t.x) && Number.isFinite(t.z) && t.scale >= 0.55 && t.scale <= 1.3));
 });

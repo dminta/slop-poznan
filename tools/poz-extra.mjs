@@ -169,7 +169,11 @@ for (const p of parkRings) {
     : p.area_m2 >= 50000 && p.name && ['park', 'cemetery'].includes(p.cat);
   if (!keep) continue;
   const rings = p.outer.filter((r) => Math.abs(ringArea(r)) > 300).map((r) => flat(cleanRing(r, inside ? 1 : 3))).filter((r) => r.length >= 6);
-  if (rings.length) parks.push({ name: p.name, cat: p.cat, area_m2: p.area_m2, rings });
+  // The three Teatr Polski lawns carry the flag so city-grid can draw their full mapped outlines, including the one
+  // whose south-east corner reaches the 27 Grudnia kerb, instead of the generic part-park 80 % vertex rule.
+  if (rings.length) {
+    parks.push({ name: p.name, cat: p.cat, area_m2: p.area_m2, rings, ...(KEEP_SMALL_PARKS.has(p.id) ? { teatr: true } : {}) });
+  }
 }
 {
   const byCat = {};

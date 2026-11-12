@@ -31,6 +31,7 @@ import {
   SRODKA_MURAL,
   ZAMEK_FORECOURT,
   TEATR_POLSKI_FORECOURT,
+  TEATR_POLSKI_RESERVE_FRAME,
   blockAt,
   pointInPark,
   pointInBlockPoly,
@@ -4257,11 +4258,16 @@ function buildCityBlocks(scene) {
   for (const [x0, x1, z0, z1] of ZAMEK_FORECOURT) {
     LANDMARK_RESERVE.push(outlineBounds([[x0, z0], [x1, z0], [x1, z1], [x0, z1]]));
   }
-  // Teatr Polski's forecourt (city-config.js TEATR_POLSKI_FORECOURT): the mapped square in front of the theatre. The
-  // world reserve takes no RESERVE_MARGIN, because its west edge already stops at Okrąglak's mapped object; the
-  // block's frontage frames give it their usual 3 m when they cut their own lots.
+  // Teatr Polski's site (city-config.js TEATR_POLSKI_FORECOURT): the real car parks, lawns and promenade in front of the
+  // theatre. The world reserve takes no RESERVE_MARGIN, because its west edge already stops at Okrąglak's mapped
+  // object; the block's frontage frames give it their usual 3 m when they cut their own lots. `maxFrameTurn` keeps the
+  // long world-axis rect out of the block's 29° and 42° Mielżyńskiego / 3 Maja frames, where its frame AABB would cover
+  // the whole deep block: on 2026-11-12 that stripped 20 of block 631's 32 deep footprints (2,341 m²). The 27 Grudnia
+  // frame turns -3.5°, well inside the limit.
   for (const [x0, x1, z0, z1] of TEATR_POLSKI_FORECOURT) {
-    LANDMARK_RESERVE.push({ pts: [[x0, z0], [x1, z0], [x1, z1], [x0, z1]], x0, x1, z0, z1 });
+    LANDMARK_RESERVE.push({
+      pts: [[x0, z0], [x1, z0], [x1, z1], [x0, z1]], x0, x1, z0, z1, maxFrameTurn: TEATR_POLSKI_RESERVE_FRAME
+    });
   }
   function outlineBounds(pts) {
     const m = RESERVE_MARGIN;
@@ -4307,9 +4313,14 @@ function buildCityBlocks(scene) {
       ...srcAnchors.map((a) => inFrameRect(a)),
       ...srcObjectReserves
     ].map((b) => ({ x0: b[0], x1: b[1], z0: b[2], z1: b[3] }));
-    let reserves = LANDMARK_RESERVE;
+    // A world-axis reserve whose frame AABB would over-cover the block (TEATR_POLSKI_FORECOURT) carries maxFrameTurn;
+    // it applies in the world frame and in frontage frames within that turn of it, not in the steep frames.
+    const active = xf
+      ? LANDMARK_RESERVE.filter((h) => h.maxFrameTurn === undefined || Math.abs(xf.th) <= h.maxFrameTurn)
+      : LANDMARK_RESERVE;
+    let reserves = active;
     if (xf) {
-      reserves = LANDMARK_RESERVE.map((h) => outlineBounds(h.pts.map(([x, z]) => [
+      reserves = active.map((h) => outlineBounds(h.pts.map(([x, z]) => [
         xf.px + (x - xf.px) * xf.cs - (z - xf.pz) * xf.sn,
         xf.pz + (x - xf.px) * xf.sn + (z - xf.pz) * xf.cs
       ])));

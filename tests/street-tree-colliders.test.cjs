@@ -51,21 +51,25 @@ test('street trees carry player colliders, including Rybaki', async () => {
   // positions that stand in a curb row. This fixture omits landmark and bridge walls; the default clearance audit
   // uses the same scope.
   const streetTrees = sites.filter((t) => t.tier === 2 || t.tier === 1 && t.pitRot !== undefined);
-  // 34,503 before the 2026-11-10 legacy layout gate: the restored 4d14df9 frontages move a few curb-row sites
-  assert.equal(streetTrees.length, 34493, 'street trees in the headless build');
+  // 34,503 before the 2026-11-10 legacy layout gate: the restored 4d14df9 frontages move a few curb-row sites.
+  // The Teatr Polski site (2026-11-12) adds 13 planted plane-row sites on the 27 Grudnia promenade and three of its
+  // nine west-lawn/garden crowns stand within 6 m of the block curb, so the curb-row count is 34,493 -> 34,509.
+  assert.equal(streetTrees.length, 34509, 'street trees in the headless build');
   // Surveyed OSM park trees have no city-grid site of their own, so street-details.js adds their trunk boxes to the
   // same player list as the street rows; count them separately rather than letting them hide a missing street trunk.
   const osmParkTrees = sites.filter((t) => t.source === 'osm' && t.tier === 0).length;
   // 25,771 before the 2026-11-10 legacy gate (310 surveyed park trees now under its courtyard buildings); 25,461 before
   // a mapped tree within 4 m of a plaza planter yielded to the planter's own tree (Wilda, (-396.2, 1068.6)); 25,460
-  // until the Teatr Polski forecourt freed one lawn tree at (-617.3, 20.6) from a generic frontage wall.
+  // until the Teatr Polski forecourt freed one lawn tree at (-617.3, 20.6) from a generic frontage wall. The nine
+  // surveyed site trees carry source 'site', so they stay out of this OSM count.
   assert.equal(osmParkTrees, 25461, 'surveyed OSM park trees');
 
+  const siteParkTrees = sites.filter((t) => t.source === 'site' && t.tier === 0).length;
   const colliders = details.colliders;
   const trunkColliders = colliders.filter((c) => c.isTrunk);
-  assert.equal(trunkColliders.length, streetTrees.length + osmParkTrees,
-    `every street and mapped park tree should have a trunk collider (${streetTrees.length} street + ` +
-    `${osmParkTrees} mapped park trees, ${trunkColliders.length} colliders)`);
+  assert.equal(trunkColliders.length, streetTrees.length + osmParkTrees + siteParkTrees,
+    `every street, mapped and site park tree should have a trunk collider (${streetTrees.length} street + ` +
+    `${osmParkTrees} mapped + ${siteParkTrees} site park trees, ${trunkColliders.length} colliders)`);
 
   // Rybaki runs roughly (-193.5, 642.4) -> (-297, 893); its sidewalk trees stand within a few metres of the curb.
   const rybaki = streetTrees.filter((t) => t.x >= -310 && t.x <= -190 && t.z >= 630 && t.z <= 905);

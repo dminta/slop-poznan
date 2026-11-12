@@ -6,7 +6,7 @@ as ESM without a package.json depends on Node's automatic module-syntax detectio
 
 ## Commands (verified)
 
-- Full suite: `node --test tests/`. 589 tests, about 133 s under concurrent traffic audits (2026-11-12). Most time is spent in `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`, the five-minute traffic-flow regression, and the signal-head and pedestrian-route audits.
+- Full suite: `node --test tests/`. 592 tests, about 133 s under concurrent traffic audits (2026-11-12). Most time is spent in `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`, the five-minute traffic-flow regression, and the signal-head and pedestrian-route audits.
 - Quick loop that skips the geodata rebuild: `node --test tests/*.cjs` (about 9 s, most of it `road-network`, `tram-infra` and `tram-clearance` building the network and the street furniture on the real Poznań graph, and `buildings-density` running `buildCityBlocks` twice).
 - One file: `node --test tests/cameras.test.cjs`. Running `node tests/cameras.test.cjs` directly also works.
 - By test name: `node --test --test-name-pattern="police" tests/`
@@ -113,6 +113,13 @@ Know which one covers the code you are editing. Two of them are coupled to the e
      `    const key =` to `    const curves =`. It compares segment acceptance against the plain projection on real
      road segments and boundaries, verifies one lazy lot build per partial-park block, and compares numeric signal
      buckets with the original string keys, including candidate order and negative cell boundaries.
+
+   - `teatr-polska-surroundings` builds the real grid with the extrusion marker above and two recording replacements:
+     `group.add(createFlatPolygonMesh(ring, 0.232, roadMat));` for each car-park surface and
+     `const mesh = createFlatPolygonMesh(path.ring, 0.238 + i * 0.0004, pavingMat);` for each site path. It checks the
+     full drawn lawns (not slivers), the three surveyed car parks, empty bays, bench/lamp/planter colliders and the
+     clear portico corridor. Keep those call texts exact, and keep the site pass after `// One merged lawn mesh` so the
+     `boot-indexes-5` slice stays unchanged.
 
    If you rename, re-indent, reorder or reformat around these markers, the tests break. So do new free variables in a sliced block that the test context does not provide. When that happens, update the test's markers and context in the same change. Keep the tested behaviour as it is.
 3. **Real ESM import.** `teleports`, `signals`, `city-text` and `road-network` tests run `await import('../js/city-config.js')` (signals and road-network also import `geodata.js`; road-network feeds both into a `loadModule`d `road-network.js`), and `geodata.test.mjs` imports a freshly built `geodata.js`. **`js/city-config.js` and `js/geodata.js` must import nothing beyond each other or other Node-loadable relative files.** A bare specifier such as `'three/webgpu'` cannot be resolved in Node, so adding one breaks these tests.

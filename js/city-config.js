@@ -117,6 +117,22 @@ const OSM_TREES = [];
 for (let i = 0; i + 3 < GEO.trees.length; i += 4) {
   OSM_TREES.push({ x: GEO.trees[i], z: GEO.trees[i + 1], species: GEO.trees[i + 2], height: GEO.trees[i + 3] });
 }
+// The west lawn and the long lawn at the Teatr Polski are planted on the 2026-11-12 aerial (Esri World Imagery and the
+// city's tree inventory), but their trunks are not individually mapped in the checked-in OSM tree snapshot. These nine
+// surveyed crowns keep the garden from reading as an empty green patch; street-details.js plants them through the same
+// mapped-tree path, with its usual wall, lane, rail and pit rules. Heights are crown estimates; species follow the
+// nearby lime/maple mix. `site: true` keeps them out of the OSM-trees regression, which pairs OSM_TREES with GEO.trees.
+const TEATR_POLSKI_GARDEN_TREES = [
+  { x: -735, z: 21, species: 2, height: 11 },
+  { x: -729, z: 28, species: 1, height: 10.5 },
+  { x: -734, z: 36, species: 2, height: 12 },
+  { x: -722, z: 37, species: 1, height: 10 },
+  { x: -727, z: 18, species: 2, height: 10.5 },
+  { x: -719, z: 32, species: 0, height: 11 },
+  { x: -676, z: 43.5, species: 2, height: 10.5 },
+  { x: -658, z: 45, species: 1, height: 10 },
+  { x: -620, z: 16, species: 0, height: 8 }
+].map((t) => ({ ...t, site: true }));
 /** Osiedla (OSM admin_level 9): [{ name, ring, minX, maxX, minZ, maxZ }] */
 const DISTRICTS = GEO.districts.map((d) => {
   const ring = toPts(d.ring);
@@ -1473,21 +1489,142 @@ const ZAMEK_FORECOURT = [
   [-1048, -985, 92, 133]
 ];
 
-// The Teatr Polski forecourt: the open square between the theatre's south front and the north curb of ul. 27 Grudnia,
-// from Okrąglak to the Ratajczaka frontage. The three mapped lawns (way/427596769, way/427596770 and
-// way/427596771) and the paved entrance path are the real garden; the 1892 front tenement that once closed it off was
-// demolished after the war, so the checked-in OSM has no buildings in front of the theatre (pl.wikipedia "Teatr Polski
-// w Poznaniu"; the 2024 local plan article on the green theatre forum). buildings.js reserves the square (world x0,
-// x1, z0, z1; north is -z), because block 631's generic 27 Grudnia frontage frames used to fill it with tenements
-// against the façade.
-// The second rect is the real lawn/passage between the theatre's east side and 3 Maja 47; it stops at the mapped
-// building's west face (x -668.4) so that building keeps its lot.
-// x0 stays east of Okrąglak's world AABB (max x −780.8): a reserve over that mapped object would drop it. The 6 m
-// strip between the reserve and the wall is narrower than the 12 m lot minimum, so no generic building fits there.
-const TEATR_POLSKI_FORECOURT = [
-  [-780, -603, 12, 40],
-  [-690, -668, -10, 12]
+// The Teatr Polski site: a real car park, three lawns and a promenade between Okrąglak and the Ratajczaka corner. The
+// 1892 front tenement that once closed the square was demolished after the war, so the checked-in OSM has no buildings
+// in front of the theatre (pl.wikipedia "Teatr Polski w Poznaniu"; the 2024 local plan article on the green theatre
+// forum). The live OSM snapshot of 2026-11-12 (the checked-in roads snapshot drops parking aisles and polygons) gives
+// three surface car parks, the promenade footway and nine benches; the three grass polygons are already in GEO.parks
+// (way/427596769–71, flagged `teatr` by tools/poz-extra.mjs). The west-lawn trees are the surveyed supplement above.
+// World coordinates: x east, z south; y = 0 on the land deck, the block sidewalks are at 0.22.
+const TEATR_POLSKI_SITE_PARKING = [
+  // way/427596717: the east lot between the theatre annexes and Ratajczaka
+  toPts([
+    -688.4, 28.0, -622.0, 35.2, -621.6, 32.2, -621.4, 30.3, -621.0, 27.3, -620.7, 24.2,
+    -620.5, 22.4, -620.2, 19.2, -653.5, 15.4, -653.2, 7.5, -685.5, 3.3, -687.4, 19.6,
+    -687.8, 22.9, -688.4, 28.0
+  ]),
+  // way/427596718: the long lot west of the west lawn
+  toPts([
+    -755.8, 32.4, -752.5, 32.8, -749.7, 33.1, -748.8, 33.2, -746.3, 33.5, -743.7, 33.8,
+    -739.7, 34.3, -736.6, 12.5, -735.9, 7.5, -734.8, -0.9, -732.3, -19.4, -733.3, -19.5,
+    -742.1, -20.7, -746.8, -12.1, -748.6, -8.0, -748.9, -6.4, -750.4, 2.5, -750.6, 3.8,
+    -755.8, 32.4
+  ]),
+  // way/427596768: the lot between Okrąglak and the west parking aisle
+  toPts([
+    -755.8, 32.4, -760.4, 31.8, -765.2, 31.3, -766.2, 30.3, -780.4, 28.6, -779.5, 22.7,
+    -778.1, 17.8, -770.6, 4.1, -769.9, 2.6, -762.4, -4.2, -755.5, 3.1, -750.6, 3.8,
+    -755.8, 32.4
+  ])
 ];
+// The 1980s promenade fills the 7.3 m between the 27 Grudnia kerb and the block edge. Its centreline sits 8.55 m north
+// of the street's centreline (4.9 m half width + 3.65 m half promenade), from Ratajczaka to Okrąglak; the OSM footway
+// 427598397 runs along the same strip, but a symmetric ribbon around it would reach into the roadway at the west end,
+// where the sidewalk narrows.
+const TEATR_POLSKI_PROMENADE_PTS = (() => {
+  const road = ROADS.find((r) => r.name === '27 Grudnia' && r.w === 9.8);
+  const a = road.pts[0], b = road.pts[1];
+  const at = (x) => ({ x, z: a.z + ((x - a.x) / (b.x - a.x)) * (b.z - a.z) });
+  const east = at(-614), west = at(-817);
+  const dx = west.x - east.x, dz = west.z - east.z, len = Math.hypot(dx, dz);
+  const nx = -dz / len, nz = dx / len; // left of east -> west is north
+  return [{ x: east.x + nx * 8.55, z: east.z + nz * 8.55 }, { x: west.x + nx * 8.55, z: west.z + nz * 8.55 }];
+})();
+const TEATR_POLSKI_SITE_PATHS = [
+  { name: 'promenada', half: 3.65, pts: TEATR_POLSKI_PROMENADE_PTS },
+  // The portico axis from the 27 Grudnia pavement to the theatre steps, through the long lawn. Like the driveway
+  // below it ends inside the promenade (kerb at z 47.2 here): carried to the OSM end on the street centreline it laid
+  // a tab of paving across the carriageway onto the tram track.
+  { name: 'portyk', half: 3.0, pts: toPts([-703.8, 16.5, -703.8, 44.0]) },
+  // The theatre's service driveway to the east lot (OSM way/330678047), split at its right-angle bend so neither ribbon
+  // folds through the corner.
+  { name: 'dojazd', half: 2.25, pts: toPts([-708.7, 43.6, -708.5, 42.2, -708.0, 37.6, -705.4, 19.2]) },
+  { name: 'dojazd', half: 2.25, pts: toPts([-705.4, 19.2, -688.8, 20.6]) }
+];
+// A flat [{x, z}] ring around a centreline, with mitred corners clamped to twice the half width.
+function ribbonRing(pts, half) {
+  const left = [], right = [];
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+    let mx, mz;
+    if (i > 0 && i < pts.length - 1) {
+      const a0 = Math.hypot(p.x - a.x, p.z - a.z) || 1;
+      const b0 = Math.hypot(b.x - p.x, b.z - p.z) || 1;
+      mx = -(p.z - a.z) / a0 - (b.z - p.z) / b0;
+      mz = (p.x - a.x) / a0 + (b.x - p.x) / b0;
+    } else {
+      const dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz) || 1;
+      mx = -dz / l;
+      mz = dx / l;
+    }
+    const ml = Math.hypot(mx, mz) || 1;
+    mx /= ml;
+    mz /= ml;
+    // angle between the mitre and the first edge normal, so a sharp bend does not shoot a spike across the street
+    const dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz) || 1;
+    const dot = Math.max(0.35, Math.abs(mx * (-dz / l) + mz * (dx / l)));
+    const k = Math.min(2 * half, half / dot);
+    left.push({ x: p.x + mx * k, z: p.z + mz * k });
+    right.push({ x: p.x - mx * k, z: p.z - mz * k });
+  }
+  return left.concat(right.reverse());
+}
+for (const p of TEATR_POLSKI_SITE_PATHS) p.ring = ribbonRing(p.pts, p.half);
+// The 1980s plane rows stand on the promenade strip, outside the block raster. Their surveyed trunks sit up to 0.6 m
+// beyond the paving edge in the OSM positions, so the acceptance ribbon is a little wider than the drawn paving.
+const TEATR_POLSKI_PROMENADE = ribbonRing(TEATR_POLSKI_PROMENADE_PTS, TEATR_POLSKI_SITE_PATHS[0].half + 0.6);
+// The OSM benches along the promenade, all facing the street (+z; the seat's back is toward the lawns).
+const TEATR_POLSKI_SITE_BENCHES = [
+  { x: -688.0, z: 43.8 }, { x: -680.1, z: 44.6 }, { x: -674.2, z: 45.1 }, { x: -665.3, z: 46.1 },
+  { x: -660.5, z: 47.1 }, { x: -733.7, z: 38.9, rot: 0.05 }, { x: -715.7, z: 40.8, rot: 0.03 },
+  // Two more on the forecourt, flanking the portico walk, so the 30 m frontage is not one unbroken slab.
+  { x: -711.2, z: 23.5, rot: 0.02 }, { x: -690.0, z: 23.5, rot: -0.02 }
+];
+// Park lamps on the promenade and the forecourt, in the same instanced family as every square and park lamp.
+const TEATR_POLSKI_SITE_LAMPS = [
+  { x: -770.0, z: 37.5 }, { x: -744.0, z: 41.0 }, { x: -714.0, z: 44.8 }, { x: -684.0, z: 48.2 },
+  { x: -650.0, z: 51.6 }, { x: -618.0, z: 54.6 }, { x: -710.5, z: 35.5 }, { x: -692.0, z: 35.5 }
+];
+const TEATR_POLSKI_SITE = {
+  parking: TEATR_POLSKI_SITE_PARKING,
+  paths: TEATR_POLSKI_SITE_PATHS,
+  benches: TEATR_POLSKI_SITE_BENCHES,
+  lamps: TEATR_POLSKI_SITE_LAMPS
+};
+// The three Teatr Polski lawns are the OSM grass ways kept by tools/poz-extra.mjs. Their full mapped outlines are drawn
+// by city-grid's site pass; the long one stops at the block edge where it reaches the 27 Grudnia pavement.
+const TEATR_POLSKI_LAWNS = (GEO.parks || []).filter((p) => p.teatr);
+// buildings.js applies the world-axis reserve below only in frontage frames within 8.6° of the world axes, i.e. the
+// 27 Grudnia frontage (block 631's main frame turns -3.5°). The block's 29.3° and 42.4° Mielżyńskiego / 3 Maja frames
+// turn the 177 m world rectangle into a 140 m–deep AABB: before this limit it stripped 20 of the block's 32 deep
+// footprints (2,341 m²), which is what made the theatre's surroundings read as a hole in the city.
+const TEATR_POLSKI_RESERVE_FRAME = 0.15;
+// The real open ground, as three tighter rects rather than one 177 × 28 m blanket: the west car park and west lawn
+// start at the parking's north edge (z -5); the forecourt, east car park and long lawn run to the promenade (z 52);
+// and the garden passage between the theatre and 3 Maja 47 stays free. x0 stays east of Okrąglak's world AABB
+// (max x -780.8) so that mapped object keeps its lot, and x1 stays at the block's east curb.
+const TEATR_POLSKI_FORECOURT = [
+  [-781, -710, -5, 45],
+  [-710, -603, 2, 52],
+  [-690, -668, -12, 2]
+];
+// Player ground height on the promenade (outside the block, so controllers.js would otherwise put the player on the
+// asphalt 24 cm below the paving). One rect per 1/12 of the 7.3 m ribbon, wide enough to cover its full paving width.
+const TEATR_POLSKI_PROMENADE_GROUND = [];
+{
+  const pts = TEATR_POLSKI_SITE.paths[0].pts;
+  const a = pts[0], b = pts[pts.length - 1];
+  const STEPS = 12;
+  for (let i = 0; i < STEPS; i++) {
+    const p = { x: a.x + (b.x - a.x) * (i / STEPS), z: a.z + (b.z - a.z) * (i / STEPS) };
+    const q = { x: a.x + (b.x - a.x) * ((i + 1) / STEPS), z: a.z + (b.z - a.z) * ((i + 1) / STEPS) };
+    TEATR_POLSKI_PROMENADE_GROUND.push({
+      minX: Math.min(p.x, q.x) - 3.6, maxX: Math.max(p.x, q.x) + 3.6,
+      minZ: Math.min(p.z, q.z) - 3.6, maxZ: Math.max(p.z, q.z) + 3.6, top: 0.238
+    });
+  }
+}
 
 // Street-level arrivals shared by every travel mode (docs/poznan-plan.md Phase 12.4). Heading 0 faces south (+z),
 // PI north; each faces its landmark. The points sit on a roadway centreline (tests/teleports.test.cjs).
@@ -1533,8 +1670,12 @@ const SRODKA_MURAL = (() => {
 
 const SPAWN = { x: -1049.7, z: 130.5, heading: Math.atan2(-16.1, -3.7) };
 
-// Raised ground the player stands on, as {minX, maxX, minZ, maxZ, top} rects (none yet; landmarks may push theirs)
+// Raised ground the player stands on, as {minX, maxX, minZ, maxZ, top} rects (the promenade below; landmarks may push
+// theirs)
 const RAISED_GROUND = [];
+// The promenade is a raised strip outside the block curb islands, so controllers.js would keep the player on the asphalt
+// under its paving; the surveyed ribbon rects put them on top of it (TEATR_POLSKI_PROMENADE_GROUND, world rects).
+RAISED_GROUND.push(...TEATR_POLSKI_PROMENADE_GROUND);
 
 // Joins the two street names of a crossing in a location label. OSM names may contain " & " ("Kiss & Ride" by the
 // Dworzec), so the join is a spaced slash, as Polish addresses write a street corner ("Roosevelta / Zachodnia"); no
@@ -1971,6 +2112,11 @@ export {
   SRODKA_MURAL,
   ZAMEK_FORECOURT,
   TEATR_POLSKI_FORECOURT,
+  TEATR_POLSKI_RESERVE_FRAME,
+  TEATR_POLSKI_SITE,
+  TEATR_POLSKI_LAWNS,
+  TEATR_POLSKI_PROMENADE,
+  TEATR_POLSKI_GARDEN_TREES,
   RAISED_GROUND,
   getLocationLabel,
   STREET_JOIN,
