@@ -2634,7 +2634,29 @@ function createContactShadowMaterial() {
   return mat;
 }
 
+// Opaque casters need depth only. The pinned renderer otherwise evaluates colorNode.a, including the whole
+// procedural RGB graph, before forcing opaque alpha back to 1. Keep alpha/mask-driven casters on the original path.
+function prepareOpaqueShadows(scene) {
+  const materials = new Set();
+  scene.traverse((object) => {
+    if (!object.castShadow) return;
+    const list = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of list) {
+      if (!material || materials.has(material)) continue;
+      materials.add(material);
+      if (!material.isNodeMaterial || !material.colorNode || material.transparent || material.opacity !== 1 ||
+          material.alphaTest || material.alphaTestNode || material.alphaMap || material.alphaHash ||
+          material.alphaToCoverage || material.blending !== THREE.NormalBlending ||
+          material.transmission > 0 || material.transmissionNode || material.backdropNode ||
+          material.maskNode || material.maskShadowNode || material.castShadowNode || material.opacityNode) continue;
+      const colorNode = material.colorNode;
+      material.colorNode = Fn((builder) => builder.material.isShadowPassMaterial ? vec4(0, 0, 0, 1) : colorNode)();
+    }
+  });
+}
+
 export {
+  prepareOpaqueShadows,
   cityUniforms,
   WALL_KINDS,
   createCurtainWallMaterial,

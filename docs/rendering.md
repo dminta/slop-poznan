@@ -273,6 +273,15 @@ pixel-identical with and without the freeze, and the change adds no draw call.
 
 ## Start-up compile and warm-up
 - The order matters. First an empty `renderPipeline.render()` with `scene.visible = false`, which configures the MSAA and depth formats of the scene target. Then `compileAsync` over 16 parallel workers, with the scene pass's render target and MRT bound. Then the first loop frame runs with frustum culling off and `updateSceneCulling` skipped, so the shadow-pass pipelines compile behind the loading screen.
+- `prepareOpaqueShadows(scene)` runs once after the tier's shadow-caster selection and before any compile. It wraps
+  opaque casters' `colorNode` in a build-time `Fn`: the scene keeps the original graph, while
+  `builder.material.isShadowPassMaterial` selects constant opaque black. The pinned renderer's `_getShadowNodes`
+  otherwise evaluates the whole procedural RGB graph for `colorNode.a`, even though opaque alpha is forced to 1.
+  This merges depth programs for facades, vehicle paints and other solid surfaces (287 → 224 programs high,
+  267 → 206 low). Alpha tests/maps/hash/coverage, masks, opacity nodes, transmission, backdrop and custom shadow colour
+  keep their original paths; vertex deformation and shadow-side selection are untouched. This uses the renderer's
+  shadow-material flag: recheck both backends after a three.js bump, along with the cascade internals above.
+  [Measurements and pixel comparisons](observations/perf-shaders-2026-11-12.md).
 - Objects or materials that first appear after this point compile on first sight and cause a hitch. Create them during the build, visible or in their pool, so these passes see them.
 - The `[init] …` timings logged once at start-up (`markInit`) are the regression signal for load time.
 - Historical baseline, before the later traffic and infrastructure fixes (Node with the three.js build and a stub DOM, the scene builders of `initApp` and `setupSceneCulling`, no renderer; 2026-10-28): over the 8.2 × 5.7 km box the builders take ≈ 3.1 s (city-config 0.22, cityGrid 0.55, blocks 0.61, streetDetails 0.64, traffic 0.33, tramInfra 0.40 s) and leave 14.6k meshes, 474k instances and 12.4M triangles before culling (CityBlocks 133k instances, StreetDetails 86k, TramInfrastructure 195k, Outskirts 47k); culling setup 55 ms. With every distance-culled chunk in range but no frustum test, about 1.7k meshes and 8.9M triangles remain drawable from the Rynek (1.5k and 6.2M over the 6.1 × 3.7 km box, whose build took ≈ 2.0 s: 7.8k meshes, 292k instances, 7.8M triangles).

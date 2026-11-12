@@ -76,6 +76,8 @@ Know which one covers the code you are editing. Two of them are coupled to the e
      replay omits city-config.js from `// The surveyed Hetmańska/Dmowskiego island` to
      `// Spatial index of the blocks`; keep those markers aligned with the surveyed correction.
    - `teleports.test.cjs` runs the part of `js/main.js` from `  function teleportTo(` to `  const openMapBtn`.
+   - `opaque-shadows` slices `prepareOpaqueShadows` in `tsl-materials.js` through the final `export {` marker,
+     checking the build-time scene/shadow branch and the exclusions for alpha, masks and transmission.
    - `facade-projection` slices `js/tsl-materials.js` between markers: `const facadeNormalVertex =`, `function facadeCell(`, `let bayWidth`, `const evaluateApartmentInterior`, `const rayWorld =` and `// Slab intersection`.
    - `boot-indexes` slices the boot indexes from their source: the buildings block outline grid and
      `outlineRay`/`outlineDist` (`const FRONT_REACH = 10;` to the lot-rect comment), the bridge corridors and SAT

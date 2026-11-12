@@ -28,6 +28,7 @@ import { CityAudioSystem } from './audio-system.js';
 import { QUALITY_TIERS, resolveQualityDecision, clearStoredQuality } from './graphics-quality.js';
 import { PerfStats } from './perf-stats.js';
 import { configureTreeQuality } from './trees.js';
+import { prepareOpaqueShadows } from './tsl-materials.js';
 
 // js/main.js
 // Main entry point for Poznań in Three.js WebGPURenderer & TSL (three.js dev, see index.html)
@@ -363,6 +364,8 @@ async function initApp() {
       }
     });
   }
+
+  prepareOpaqueShadows(scene);
 
   // 5. TSL RenderPipeline: half-res screen-space reflections, bloom and filmic toning on the high tier; a plain
   //    grading pass (no MRT, no SSR, no bloom) on the low tier. Only the chosen layout is ever built: switching would
