@@ -397,6 +397,14 @@ the [archived Phase 16 report](archive/poznan-plan.md#phase-16-signal-timing-and
 `traffic.test.cjs` and `traffic-performance.test.cjs` extract inner functions of `traffic.js` by regex: from a line starting `  function name(` up to the first line that is exactly `  }`. They then run each function in a `vm` with a hand-written context of its free variables. `traffic.test.cjs` also cuts out `courtesy` and runs `mayEnter` with its own context (the courtesy test). The extracted functions are `mayEnter, signalAhead, canStop, yieldToCrossTraffic, yieldOncoming, nearView, refreshNear, spawnVehicle, spawnPed, renderPed, updateSparks, flagRange, occupyTrams, tramBlocks, heldByTram, tramClose, tramHoldsClose, inTramLane, overlapWithPlayer, collideWithTram, tramRoom, tramCrossings, tramNear` (`mayEnter` needs `tramBlocks`, `tramRefusedClose`, `refuse` and `PED_COURTESY`; `spawnVehicle` a `nearTram` stub; `refreshNear` `vehicles`, `VEHICLE_DENSITY` and `MIN_VEHICLES`). Keep them as 2-space-indented `function` declarations. When a change adds a free variable or helper to one of them, add a stub to the matching test context.
 
 ## Trams (`js/trams.js`)
+The offline `tools/audit-tram-stop-sweeps.mjs` diagnoses standing vehicles against the union of the actual section
+chords (`TRAM_MODELS`, `poseSections`), including continuations over short switch pieces. It does not use a rigid
+full-tram rectangle. A section's articulation gap changes its arrival time, not its swept set. The sampled envelope
+and intrusion index are confined to the tool; no per-frame rule or retained app index is added. Its standing-van
+check covers lane ends, not arbitrary connector queues or articulated bus bodies. See the
+[sweep measurements](observations/car-tram-sweep-2026-11-12.md) before increasing a short edge's setback: the named
+Jeżyce lines cannot retreat clear while retaining one-car storage, and Kaponiera 6522 cannot clear all three lanes.
+
 `createTramSystem(scene, { network, rail = GEO.rail, stops = GEO.tramStops, routes = GEO.tramRoutes, traffic })` is built in `main.js` after
 the road paint, and `update(dt, elapsed, focus, camera, playerEntity, activeMode)` runs before the street traffic. It
 reads the road network (signal nodes, lanes and junction curves for `mapTramsToRoads`) and, read-only,

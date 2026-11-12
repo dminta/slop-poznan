@@ -189,6 +189,12 @@ furnished-network lanes, furniture footprints and crossing endpoints. Generated 
 Per frame: `cityBlocks.update(camX, camZ)` (detail streaming), `cityBlocks.updateLights`, `streetDetails.update(camera)` (pooled lamp lights), `landmarks.update(dt, elapsed, presetId)` (the Ratusz goats, using the shared `city-clock.js` show schedule also read by audio: start on `midday`, repeat every 120 s), and `updateSceneCulling`. Outskirts and bridges have no per-frame update. Trees update themselves from a chained `scene.onBeforeRender` that skips orthographic and array cameras, so shadow passes don't change the levels of detail.
 
 ## Road network (shared by traffic, pedestrians and paint)
+The [2026-11-12 sweep audit](observations/car-tram-sweep-2026-11-12.md) checks the final lane-end standing positions
+against the tram models' articulated section chords. A setback is per edge: clearing one lane is insufficient when
+the other lanes still intersect the sweep, and retreat must leave room for a complete car. On the current benchmark
+network, Jeżyce 4660/4661 and the three-lane Kaponiera 6522 cannot meet both requirements by retreat alone. The offline
+list includes hypothetical retreats beyond an edge; these are diagnostics, not new road or connector geometry.
+
 - The network comes from the OSM centreline graph (`GEO.roadGraph`): junctions (nearby graph nodes merged), straight runs between them and every bend, lanes from each link's real width, OSM lane count and direction. Each edge carries its link's speed limit as `limit` (m/s; from the link's km/h, 50 where it has none), which caps the drivers' desired speed (`docs/actors.md`). Bridge links are ordinary links, because `isLand` counts their decks. It is then **cut by what was built**: lanes must keep clear of the curbs and obstacles city-grid and street-details hand over. If you move curbs or sidewalks in city-grid.js, lanes vanish or reappear.
 - **Lane placement** (ports keep lanes on their OSM carriageways;
   `tests/road-network.test.cjs` checks it on the real network with the curbs city-grid hands over):

@@ -71,46 +71,27 @@ Implementation details and completed measurements live in the [topic docs](../AG
   [2026-11-08 trace and rejected variants](observations/kaponiera-traffic-2026-11-08.md),
   [Centrum trace](observations/merge-starvation-2026-11-07.md),
   [per-second left-turn/tram trace](observations/left-turn-tram-2026-11-04.md).
-- **Car–tram body overlaps:** at `6d70c71` the eight-seed audit has **36** pairs (Jeżyce 21, Kaponiera 9,
-  Stare Miasto 5, Centrum 1). `3279f75` gave the nearest same-direction car behind a tram a private leader where the
-  tram's lane proxy is dropped (`protectTramFollower`): 73 → 37 (moving 53 → 19, stopped 20 → 18; Jeżyce 47 → 21,
-  Centrum 11 → 1), with no new hold or deadlock (Jeżyce seed 4242 13.3 → 14.1 km/h); `6d70c71` moved Kaponiera
-  8 → 9 and Stare Miasto 7 → 5. Diagnosed in Jeżyce at `aecdb54`: seed 2 car 19 stopped inside tram 21's turning
-  sweep at `(-2050, -456)`, seed 2 car 47 whose proxy leader arrived after contact on edge 8081, and seed 4242 bus 204
-  at `(-2056, -458)`, where the audit's rigid 18 m rectangle starts the contact a second early but the 10.4 m front
-  section then really overlaps tram sections 0–2. **Kaponiera and Stare Miasto are diagnosed at `8c41595`**
-  ([record](observations/car-tram-kaponiera-stare-2026-11-10.md)): 6 of Kaponiera's 9 are the feeder race at the
-  10 m link 7909 (`-1385, -216`; seeds 1, 4242, 7, 5, 11) and link 280 (`-1497, 237`, seed 2) — the car passes the
-  entry guard while it can still stand on the link, accelerates along the 40–45 m feeder past that speed (7.5 → 12.8,
-  4.4 → 13.6 m/s), and the `enter` too-fast fallback then crosses the link line into the tram's curve; the other 3
-  are stopped/slow cars inside a tram's turning sweep at `-1125…-1138, 140…167` (seeds 7, 99, 5). Stare Miasto's 5
-  are 3 side-by-side contacts on the shared street-running lane at `-318, -184` (the 10 m stubs 8503/8504 carry one
-  `+1.80 m` lane the track runs along), and 2 cars whose corner reaches a tram nose that stopped 0.4–3.1 m before the
-  conflict while waiting for that very car (seeds 1 and 4242). Rejected in this pass: **a feeder speed cap** (cap a
-  car on the connector at the speed it can stand from inside the short link while its exit curve is tram-held within
-  20 m or has a standing tram, shared tram lanes excluded, engaged above 1.6× the standable speed). It removed the
-  `-1385` cluster in every tested seed but the eight-seed audit was 34 (Jeżyce 21 → 23, Centrum 1 → 4, Kaponiera
-  9 → 3, Stare 5 → 4) and the default-seed benchmark lost 1.9 km/h at Kaponiera (13.7 → 11.8, stopped 47.1 →
-  52.9 %, maximum wait 112 → 119 s; all districts 14.9 → 14.4 km/h); **a connector stop for a tram standing at the
-  exit curve**, including one waiting for this car, added a 146 s hold and one car held over 120 s at Jeżyce seed
-  4242. Both were reverted; the `tramStandsAt` "tram waits for me" exemption must stay. The turning-sweep and
-  shared-lane families need geometry (stop lines inside the swept envelope, a 10 m stub lane inside the tram's width),
-  not a queue rule.
-  `tools/audit-tram-opposing-lanes.mjs` is unchanged at **40** street-running rows / 38 lanes / 293 m (`--all`
-  55 / 51 / 498): 37 short stubs (35 lanes, 252 m) with no 4.6 m band between the tracks and the curb, and three
-  curved runs (41 m) that sweep a track across the whole carriageway; they need per-station lane geometry. Moving the
-  Rynek Jeżycki stubs still increases overlaps and adds a deadlock. Rejected: clipping the shared proxy behind the
-  tram's obstacle (Jeżyce 13.5 → 12.9 km/h), the unheld-curve arrival forecast (same 54, pairs moved), a 1.5 m gate
-  standoff (60 pairs, Centrum 4 → 10), projected entry speed (Kaponiera 3, Centrum 1, mean 11.3 km/h, switch waits
-  40.9 s), the `enter` hard stop, the stand test in every short-link `tramBlocks` call or a long-connector stop, the
-  feeder two-step, the unrestricted sibling lane, the rear-gap rule for every moving queue, and accepting a residual
-  below the audit's 5 m floor (it hides the 1.5 m overlap left at 5523).
+- **Car–tram body overlaps:** re-measured at `5199713`: **37 pairs** over eight seeds (Jeżyce 23,
+  Kaponiera 8, Stare Miasto 5, Centrum 1; 19 moving / 18 stopped), one car held over 120 s and no deadlock.
+  [Section-sweep audit and city-wide list](observations/car-tram-sweep-2026-11-12.md): 176 intruding lane ends,
+  only 37 able to retreat clear while retaining six metres. The named Jeżyce 10 m stubs need 24.75 / 10.25 m
+  retreat; Kaponiera 6522 needs 2.25 / 6.25 / 9.50 m across its three lanes on a 9.41 m edge. A whole-edge
+  setback cannot clear these while storing a car. All current Kaponiera contacts start moving; the feeder race
+  remains outside this pass. Stare Miasto 8503/8504 have lateral room, but the measured +3.70 / +4.60 m offset
+  candidate leaves the eight-seed total at 37 and is rejected: seed 2 mean 18.4 → 17.3 km/h, stopped 6.5 → 10.2%;
+  seed 7 off-stop tram holds >60 s 1 → 3, against zero measured repeat noise. No runtime geometry change is retained.
+  Connector queues and the Jeżyce shared-lane body contacts remain; the new tool is a sampled section envelope, not a continuous collision proof.
+  The opposing-lane audit stays **40 runs / 38 lanes / 293 m** (`--all` 55 / 51 / 498); the Rynek Jeżycki lane
+  moves still increase overlaps and add a deadlock. Do not retry the rejected feeder cap, connector stop, proxy
+  clipping, gate standoff, projected entry speed, unheld-curve forecast, `enter` hard stop, broad stand test,
+  feeder two-step, unrestricted sibling lane, moving-queue rear-gap rule or below-5 m residual hiding without a
+  new geometric reason. Keep `tramStandsAt`'s "tram waits for me" exemption.
   [Kaponiera and Stare diagnosis](observations/car-tram-kaponiera-stare-2026-11-10.md),
-  [Jeżyce traces and the follower fix](observations/car-tram-jezyce-2026-11-10.md),
-  [2026-11-10 traces and re-measurement](observations/car-tram-overlaps-2026-11-10.md),
-  [moving-gate measurements](observations/car-tram-overlaps-2026-11-09.md),
-  [short-link pass and rejected variants](observations/car-tram-overlaps-2026-11-08.md),
-  [eight-seed results](observations/tram-overlaps-2026-11-04.md),
+  [Jeżyce traces and follower fix](observations/car-tram-jezyce-2026-11-10.md),
+  [2026-11-10 baseline](observations/car-tram-overlaps-2026-11-10.md),
+  [moving gate](observations/car-tram-overlaps-2026-11-09.md),
+  [short-link pass](observations/car-tram-overlaps-2026-11-08.md),
+  [older eight-seed results](observations/tram-overlaps-2026-11-04.md),
   [opposing lanes](observations/tram-opposing-lanes-2026-11-08.md).
 
 Decided: central density stays as built (user, 2026-11-10). Jeżyce and Łazarz at 1.19× / 1.20× their OSM district

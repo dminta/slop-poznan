@@ -6,7 +6,7 @@ as ESM without a package.json depends on Node's automatic module-syntax detectio
 
 ## Commands (verified)
 
-- Full suite: `node --test tests/`. 577 tests, about 99 s (2026-11-12). Most time is spent in `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`, the five-minute traffic-flow regression, and the signal-head and pedestrian-route audits.
+- Full suite: `node --test tests/`. 589 tests, about 133 s under concurrent traffic audits (2026-11-12). Most time is spent in `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`, the five-minute traffic-flow regression, and the signal-head and pedestrian-route audits.
 - Quick loop that skips the geodata rebuild: `node --test tests/*.cjs` (about 9 s, most of it `road-network`, `tram-infra` and `tram-clearance` building the network and the street furniture on the real Poznań graph, and `buildings-density` running `buildCityBlocks` twice).
 - One file: `node --test tests/cameras.test.cjs`. Running `node tests/cameras.test.cjs` directly also works.
 - By test name: `node --test --test-name-pattern="police" tests/`
@@ -290,6 +290,25 @@ it neither proves collision-free behavior between frames nor checks the rendered
 for all seven districts; `tests/traffic-flow.test.mjs` runs only the five-minute Jeżyce pass at seed 4242 as a bound.
 Results over eight seeds are in
 [observations/tram-overlaps-2026-11-04.md](observations/tram-overlaps-2026-11-04.md).
+
+## Tram section sweep and standing-position audit
+
+`node tools/audit-tram-stop-sweeps.mjs [--step 0.25] [--margin 0.1]` prints a summary followed by every non-shape
+lane end whose standing 5.6 × 2.02 m van intersects a sampled turning-section envelope. It uses the benchmark world,
+the real `TRAM_MODELS` and `poseSections`, and recursively follows short track pieces over permitted routed switches.
+The section sweep is indexed only in the offline tool; it adds no app boot phase or runtime allocation. The margin
+is in metres, the sampling step in track metres. This is a sampled diagnostic, not a continuous clearance proof.
+Straight shared track is excluded from the turning envelope; connector queues and articulated buses need separate
+body checks. `retreat` / `remaining` are null when the retreat cannot leave six metres of storage; `requiredRetreat`
+still reports the hypothetical retreat along the extrapolated lane, up to 60 m.
+
+`node --test tests/tram-sweep.test.cjs` checks the real section pose against a circular-chord reference, compares
+indexed queries with a plain sampled union, exercises a clear retreated standing position, follows short switch
+pieces, excludes straight shared track, catches an S bend whose midpoint and end tangents align, and requires every returned
+retreat to clear the envelope while preserving storage (including search exhaustion). It loads the
+whole tram module with rendering imports stubbed; no new source-slice marker or preload is needed.
+The city-wide list and the eight-seed comparisons are in the
+[2026-11-12 record](observations/car-tram-sweep-2026-11-12.md).
 
 ## Opposing tram-lane clearance audit
 
