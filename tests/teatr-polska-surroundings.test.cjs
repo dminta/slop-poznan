@@ -34,7 +34,7 @@ const area = (ring) => Math.abs(ring.reduce((sum, p, i) => {
 }, 0)) / 2;
 
 // The Teatr Polski site is the one place where city-grid draws lawns outside the 80 % part-park rule, cuts them with
-// surveyed paths, and adds a car park with bay markings and its own furniture. This test builds the real
+// surveyed paths, and adds car parks and its own furniture. This test builds the real
 // grid and observes the polygons and player colliders it emits, rather than repeating the layout in the test.
 test('the Teatr Polski lawns are drawn whole and the car park is furnished', async () => {
   const config = await import('../js/city-config.js');
@@ -104,11 +104,11 @@ test('the Teatr Polski lawns are drawn whole and the car park is furnished', asy
   assert.ok(promenade && promenade.ring.some((p) => p.x < -800) && promenade.ring.some((p) => p.x > -620),
     'the promenade runs from Okrąglak to Ratajczaka');
 
-  // Player colliders: nine benches and the site lamps/planters; the bays stay empty (no parked-car boxes). The
+  // Player colliders: nine benches and the site lamps/planters; no parked cars stand on the car parks. The
   // portico corridor stays clear of all of them.
   const props = grid.propColliders;
   const carBoxes = props.filter((c) => c.obb && Math.abs(c.obb.hx - 0.98) < 1e-6 && Math.abs(c.obb.hz - 2.28) < 1e-6);
-  assert.equal(carBoxes.length, 0, 'no parked cars stand in the bays');
+  assert.equal(carBoxes.length, 0, 'no parked cars stand on the car parks');
   const benches = props.filter((c) => {
     const hx = c.obb ? c.obb.hx : (c.maxX - c.minX) * 0.5;
     const hz = c.obb ? c.obb.hz : (c.maxZ - c.minZ) * 0.5;

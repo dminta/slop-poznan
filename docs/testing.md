@@ -117,7 +117,7 @@ Know which one covers the code you are editing. Two of them are coupled to the e
    - `teatr-polska-surroundings` builds the real grid with the extrusion marker above and two recording replacements:
      `group.add(createFlatPolygonMesh(ring, 0.232, roadMat));` for each car-park surface and
      `const mesh = createFlatPolygonMesh(path.ring, 0.238 + i * 0.0004, pavingMat);` for each site path. It checks the
-     full drawn lawns (not slivers), the three surveyed car parks, empty bays, bench/lamp/planter colliders and the
+     full drawn lawns (not slivers), the three surveyed car parks, no parked cars, bench/lamp/planter colliders and the
      clear portico corridor. Keep those call texts exact, and keep the site pass after `// One merged lawn mesh` so the
      `boot-indexes-5` slice stays unchanged.
 

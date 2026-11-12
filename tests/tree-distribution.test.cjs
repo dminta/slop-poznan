@@ -103,7 +103,7 @@ test('seeded species assignment preserves the full built city tree sites and col
   // The Teatr Polski site (2026-11-12) adds nine surveyed garden crowns (source 'site') and lifts the block-raster
   // exclusion on the 27 Grudnia promenade: 13 of the 14 mapped plane-row candidates plant on that surveyed ribbon, and
   // three site crowns join the curb row. That moves the species, site and collider pins below; the tree-field mesh pins
-  // do not depend on the site count. The site's bays stay empty (no parked-car boxes in the prop colliders).
+  // do not depend on the site count. The site's car parks stay empty (no parked-car boxes in the prop colliders).
   assert.deepEqual(before, [45715, 49569, 21971, 1985]);
   assert.deepEqual(after, [43842, 47511, 21065, 6822]);
   assert.equal(siteHash, '0be1c44246c4905575e91041956d630690ea686a981326750d7ffc20cb0897d9');
