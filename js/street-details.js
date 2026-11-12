@@ -2139,12 +2139,14 @@ function buildStreetDetails(scene, opts = {}) {
       }
       return true;
     };
-    const key = (x, z) => `${Math.floor(x / cell)},${Math.floor(z / cell)}`;
+    // This build-local grid covers the city (cell coordinates below 1,000 in magnitude). Numeric keys avoid
+    // allocating a coordinate string for every curve/lane/building bucket entry and every placement probe.
+    const key = (x, z) => Math.floor(x / cell) * 100000 + Math.floor(z / cell);
     const index = () => new Map();
     const file = (map, item, minX, maxX, minZ, maxZ) => {
       for (let ix = Math.floor(minX / cell); ix <= Math.floor(maxX / cell); ix++) {
         for (let iz = Math.floor(minZ / cell); iz <= Math.floor(maxZ / cell); iz++) {
-          const k = `${ix},${iz}`;
+          const k = ix * 100000 + iz;
           if (!map.has(k)) map.set(k, []);
           map.get(k).push(item);
         }

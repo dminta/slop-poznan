@@ -1946,6 +1946,9 @@ function buildCityGrid(scene, opts = {}) {
   });
   for (const b of BLOCKS) {
     if (!(b.park > 0) || isParkBlock(b) || b.median) continue;
+    // A block can touch dozens of mapped park rings. Its lot layout is unchanged between them; defer it until
+    // the first tree candidate ring and reuse it only for this block (no lot cache escapes construction).
+    let bLots = null;
     for (const ring of partParkRings) {
       if (!ring.some((p) => p.x > b.minX && p.x < b.maxX && p.z > b.minZ && p.z < b.maxZ)) continue;
       // A ring mostly inside (Park Dąbrowskiego: 37 of 38 vertices) has the stray vertices pulled onto the block's
@@ -1986,7 +1989,7 @@ function buildCityGrid(scene, opts = {}) {
       for (const p of ring) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
       const SP = 12;
       const E = PARK_TREE_EDGE;
-      const bLots = b.buildings > 0 ? blockLots(b) : [];
+      if (!bLots) bLots = b.buildings > 0 ? blockLots(b) : [];
       for (let gx = Math.max(x0, b.minX) + SP * 0.5; gx < Math.min(x1, b.maxX); gx += SP) {
         for (let gz = Math.max(z0, b.minZ) + SP * 0.5; gz < Math.min(z1, b.maxZ); gz += SP) {
           const tx = gx + (prand(gx, gz) - 0.5) * SP * 0.7;

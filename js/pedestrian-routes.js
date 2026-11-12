@@ -1331,6 +1331,11 @@ function createPedestrianRoutes(
     if (nodeKey && nearSegmentCache.has(nodeKey)) return nearSegmentCache.get(nodeKey);
     const tracks = new Set();
     const nearSegment = (ax, az, bx, bz, reach) => {
+      // Signal placement asks this for every edge at each junction. Most are across town; reject their boxes
+      // before projection/hypot, with slack for the endpoint arithmetic at an exactly touching boundary.
+      const pad = reach + 1e-7;
+      if (x < Math.min(ax, bx) - pad || x > Math.max(ax, bx) + pad ||
+          z < Math.min(az, bz) - pad || z > Math.max(az, bz) + pad) return false;
       const dx = bx - ax, dz = bz - az, len2 = dx * dx + dz * dz;
       const t = len2 ? Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / len2)) : 0;
       return Math.hypot(x - ax - t * dx, z - az - t * dz) <= reach;

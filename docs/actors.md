@@ -17,6 +17,12 @@ checks reachability in both directions through the actual walking links; full-sc
 [backlog](backlog.md).
 
 ## Map (who owns what)
+
+Boot part 5 adds a conservative segment-box reject to `segmentsNear` before its unchanged projection and distance
+test. Signal placement still materialises the same lazy pedestrian links in the same order; its private grids use
+numeric city-cell keys instead of coordinate strings. No placement or route rules change
+([record](observations/perf-boot-5-2026-11-12.md)).
+
 - `js/traffic.js` exports `createTrafficSystem`, which covers the road graph: cars, buses, **all pedestrian behaviour** (spawning, walking, crosswalk rules, queues, conversations), collision sparks and the pooled vehicle lights. Traffic stays on this graph; there is no separate highway population.
 - `js/pedestrians.js` is only the body: `PersonRig` (planted-foot gait + IK) and `PersonCrowd` (one instanced skinned draw per LOD). `controllers.js` also uses them for the player's pedestrian and the cyclist's rider.
 - `js/pedestrian-routes.js` lazily builds and caches sidewalk tracks (`along(edge)`) and the corner links between them and the crosswalks (`next`). Junction links connect only points on the same block (`blockAt`). Crossing the road always goes through a crosswalk track. Linear `highway=pedestrian` streets (`PEDESTRIAN_WAYS`: Półwiejska, Wrocławska, the Stary Rynek lanes) are not curb islands (`blockAt` is null) and are absent from the road graph; the fifth `createPedestrianRoutes` argument lays their own two-way walking lines 1.7 / 2.8 m either side of each mapped centreline, chains the bends, and joins their ends to nearby sidewalk and crosswalk ends and to each other (`links`). `ways` / `waysNear(x, z, radius)` expose them for spawning; they are never in `network.edges`, so no car or bus can be placed on them.

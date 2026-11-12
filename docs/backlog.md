@@ -152,6 +152,9 @@ share are not thinned; [central-density record](observations/central-density-202
   Boot part 4 removes curb-ring interior visits, short-circuits corner-link band checks and adds an outline-distance
   hierarchy: precompile init 7.16 → 6.70 s at 1× / 45.42 → 42.74 s at 6×, with identical build hashes and unchanged
   retained heap ([record](observations/perf-boot-4-2026-11-12.md)).
+  Boot part 5 reuses park lots and trims signal-placement work: precompile init 6.63 → 6.29 s at 1× /
+  43.04 → 40.78 s at 6×, with matching build hashes and unchanged retained heap
+  ([record](observations/perf-boot-5-2026-11-12.md)).
   Cached per-pass chunk boxes reduce submitted triangles by up to 10% with fewer draws and unchanged programs;
   GPU-time savings remain unproven ([record](observations/perf-culling-2026-11-12.md)).
   Next steps, in order:
@@ -164,10 +167,11 @@ share are not thinned; [central-density record](observations/central-density-202
      route/collider/guide indexes and shader NodeData (~38 MB) dominate. Use real-device measurements to justify
      further exact packing or geometry deduplication; shader-cache release needs a renderer-supported lifecycle.
      Post-upload attribute release remains unsafe in the pinned three.js; keep GEO/BLOCKS late-reader inputs.
-  4. **Remaining boot work** after four passes: `pointInPolyIndexed`, `roadClearance` and `railClearance` lead
-     the new 6× profile (2.62 / 1.82 / 1.21 s self); investigate caller counts and exact segment pre-tests before
-     adding more indexes. CityGrid (~9.6 s), traffic including signal placement (~10.4 s) and culling (~2.5 s)
-     remain larger phase budgets; use real-device profiles to justify packing, workers or deferred work.
+  4. **Remaining boot work** after five passes: polygon/road/rail helpers still cost ~5.32 s self at 6×;
+     investigate block-query callers and threshold-only `distToLots` (~0.77 s) before adding caches. Traffic (~9.54 s),
+     streetDetails (~9.21 s), cityGrid (~8.09 s) and culling (~2.87 s) remain larger budgets; road-clearance box
+     rejects, a centre-rail cache and fused chunk-bound passes did not beat noise. Workers or deferral would need
+     pure layout/buffer boundaries (cityGrid + traffic: 17.64 s upper-bound budget), justified by real-device reports.
   5. **Remaining off-screen instances:** masts, local gas lanterns and members of intersecting chunks still dominate;
      use real-device reports to justify a conservative hierarchy/range approach, measuring per-pass CPU and buffer
      uploads. Smaller heavy-mesh cells added 52–232 draws for only 0.7–2.6% extra triangle savings and were rejected.

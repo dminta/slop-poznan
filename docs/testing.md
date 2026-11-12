@@ -97,6 +97,12 @@ Know which one covers the code you are editing. Two of them are coupled to the e
      early exit. The existing `boot-indexes` tests also cover deep/clipped curb rings and interior/exterior outline
      hierarchy queries against the plain scans.
 
+   - `boot-indexes-5` slices `nearSegment` inside `segmentsNear` through its closing `    };`, the partial-park loop
+     from `  const PARK_TREE_EDGE = 10;` to `  // One merged lawn mesh`, and the signal audit's grid helpers from
+     `    const key =` to `    const curves =`. It compares segment acceptance against the plain projection on real
+     road segments and boundaries, verifies one lazy lot build per partial-park block, and compares numeric signal
+     buckets with the original string keys, including candidate order and negative cell boundaries.
+
    If you rename, re-indent, reorder or reformat around these markers, the tests break. So do new free variables in a sliced block that the test context does not provide. When that happens, update the test's markers and context in the same change. Keep the tested behaviour as it is.
 3. **Real ESM import.** `teleports`, `signals`, `city-text` and `road-network` tests run `await import('../js/city-config.js')` (signals and road-network also import `geodata.js`; road-network feeds both into a `loadModule`d `road-network.js`), and `geodata.test.mjs` imports a freshly built `geodata.js`. **`js/city-config.js` and `js/geodata.js` must import nothing beyond each other or other Node-loadable relative files.** A bare specifier such as `'three/webgpu'` cannot be resolved in Node, so adding one breaks these tests.
 

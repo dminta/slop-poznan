@@ -20,6 +20,11 @@ next block and cleared after construction. Mapped-tree curb searches now visit o
 including clipped rings and first-edge distance ties; they no longer walk the square interior just to skip it.
 See [the measurements and equivalence checks](observations/perf-boot-4-2026-11-12.md).
 
+Boot part 5 reuses a partial-park block's lot layout across its mapped park rings: `blockLots` is lazy and local to
+the current block, rather than repeated for each ring. The signal-placement audit uses numeric cell keys within the
+city's coordinate range; its candidate filing and lookup order are unchanged and its grids expire with the audit.
+See [the measurements and rejected clearance/culling trials](observations/perf-boot-5-2026-11-12.md).
+
 Street-details clears its private curb-edge, wall, tree-neighbour, tree-lane, mapped-tree and lot-frame placement
 indexes after tree construction; its later signal-head audit and light updates do not read them. The railway
 collision callback captures only the final raster tiles, outside the layout scope, so it does not retain the lane,
