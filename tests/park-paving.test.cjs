@@ -50,6 +50,7 @@ function setupTestWorld() {
       './landmarks-dworzec.js': loadModule(source('landmarks-dworzec'), { imports: { ...rendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
       './landmarks-historic.js': loadModule(source('landmarks-historic'), { imports: { ...rendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
       './landmarks-towers.js': loadModule(source('landmarks-towers'), { imports: { ...rendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
+      './landmarks-piotrowo.js': loadModule(source('landmarks-piotrowo'), { imports: { ...rendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
       './landmarks-stadium.js': loadModule(source('landmarks-stadium'), { imports: { ...rendering, './landmark-kit.js': kit }, globals })
     },
     globals

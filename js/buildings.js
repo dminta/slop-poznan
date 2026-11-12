@@ -4227,7 +4227,7 @@ function buildCityBlocks(scene) {
     'Collegium Maius', 'Kościół Bernardynów', 'Kościół Franciszkanów', 'Kościół Najświętszej Marii Panny',
     'Kościół św. Wojciecha', 'Kościół Bożego Ciała',
     // Enea Stadion: its park block (GEO.blockFootprints[1658]) would otherwise put a generic facility hall on the bowl
-    'Enea Stadion'
+    'Enea Stadion', 'Centrum Wykładowe PP', 'Biblioteka Techniczna PP', 'Hala Sportowa PP'
   ].map((name) => {
     const t = LANDMARK_SITES[name];
     if (!t) return null;

@@ -6,12 +6,29 @@ as ESM without a package.json depends on Node's automatic module-syntax detectio
 
 ## Commands (verified)
 
-- Full suite: `node --test tests/`. 592 tests, about 133 s under concurrent traffic audits (2026-11-12). Most time is spent in `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`, the five-minute traffic-flow regression, and the signal-head and pedestrian-route audits.
+- Full suite: `node --test tests/`. 596 tests, about 123 s under concurrent traffic audits (2026-11-12). Most time is spent in `tests/geodata.test.mjs`, which runs the full `tools/build-poznan.mjs` in a temp copy of the repo with `--max-old-space-size=8192`, the five-minute traffic-flow regression, and the signal-head and pedestrian-route audits.
 - Quick loop that skips the geodata rebuild: `node --test tests/*.cjs` (about 9 s, most of it `road-network`, `tram-infra` and `tram-clearance` building the network and the street furniture on the real Poznań graph, and `buildings-density` running `buildCityBlocks` twice).
 - One file: `node --test tests/cameras.test.cjs`. Running `node tests/cameras.test.cjs` directly also works.
 - By test name: `node --test --test-name-pattern="police" tests/`
 - Serve the app: `python3 -m http.server 8000` from the repo root, then open `http://localhost:8000/`. Any static server works. There is no build step, and `.js` is served as `text/javascript`. Three.js loads from jsDelivr (`three@dev`) through the import map in `index.html`, so the page needs network access. `localhost` counts as a secure context, which WebGPU requires.
 - `.gitignore` contains only `.DS_Store`. Nothing is generated except `js/geodata.js`, which is committed.
+
+## Piotrowo landmark regression
+
+`node --test tests/landmarks-piotrowo.test.cjs` builds the real landmark module with the shared Three.js stub.
+It checks the three OSM-derived heights and courtyard-hole counts, shared materials, player/vehicle colliders over
+sampled solid footprints, open patios, geometry vertices clear of carriageways/tram envelopes/water, and roofs with
+the mapped holes. A before-control removes only the three new reserve names from the real `buildings.js`, then
+compares generated footprints and tones outside a 300 m circle at `(1040, 580)` and samples the landmark footprints
+for generic-building overlaps. The control must find overlap before the reserves and none after them.
+The furnished world audit in `tools/audit-tree-clearance.mjs` and the park-paving fixture include the new builder.
+
+Pins changed for this addition: module preloads 50 → 51 (new builder); geodata landmark names 36 → 39 (three OSM
+objects); map-label coverage exempts `map: false` sites (the user's explicit buildings-only scope). No teleport pin
+or UI destination is added. The reduced tree fixtures omit landmark walls: the local reserve redistribution
+removes nine accepted sites (seven surveyed park trees) and changes their site/grid/prop hashes, while tree-field
+mesh counts and all outside-300 m sites remain unchanged. Browser screenshots, timings and the full outside collider/tree/prop hashes are recorded
+in `.agent-task/REPORT.md`; the automated tests do not validate rendered appearance.
 
 ## No rendering tests
 

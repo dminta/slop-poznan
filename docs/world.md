@@ -724,6 +724,35 @@ non-park cells clear of park rings (`parkFreeCells`), while purely unmapped park
   [the OSM tree record](observations/osm-street-trees-2026-11-08.md).
 - **Scene culling** is automatic for anything under the seven named roots; thresholds and opt-outs are in [`rendering.md`](rendering.md#culling-scene-cullingjs-registering-new-static-geometry).
 
+## Piotrowo campus landmarks (2026-11-12)
+
+`landmarks-piotrowo.js` builds Centrum Wykładowe PP (A23), Biblioteka Techniczna PP (A23a) and
+Hala Sportowa PP (A29) on their OSM footprints. The connected lecture centre/library retain the curved entrance
+recess and all four open courtyards. Cream piers frame green curtain walls; the lecture wing has a 3 m recessed
+lower west wall beneath its projecting upper volume, a shallow round lecture-theatre roof drum and rooflights.
+The sports hall has a long flat roof, dark horizontally ribbed upper cladding, concrete bands and lower glazing.
+All materials come from `createLandmarkMaterials`; window glow follows the existing night uniforms, with no new
+light pool or material program. Rooflights stand above the roof rather than sharing its top plane.
+
+Unlike the bounding-box-fitted older landmarks, these models extrude the actual world outline and its courtyard
+holes. Boundary OBBs follow every wall segment; 0.5 m scanline interior collider runs keep restored players and
+vehicles out of the solid interior while leaving the patios open. The west recess has separate lower/upper
+colliders, so ground travel remains possible beneath the overhang. The scanline approximation can overreach a
+sloping wall by a fraction of a metre; it does not replace the oriented boundary colliders.
+
+The existing `LANDMARK_RESERVE` transforms the three polygon outlines into each frontage frame and applies the
+usual 3 m margin. No broad campus forecourt reserve is added. In the furnished headless audit, generated
+buildings within 300 m of `(1040, 580)` fall from 108 to 102 (112 → 106 parts); building footprints, building/landmark/bridge
+colliders, trees and street props outside that circle retain identical hashes. Distinct buildings are grouped by lot and shared
+building tone; parts retain the renderer footprint count.
+The three sites carry `map: false`: the user explicitly requested buildings only, with no teleport or map/UI entry.
+A25 at Polanka 3 is outside this Piotrowo-only scope; no other PP site is added.
+
+Heights are **storey-derived**, not surveyed: the fetched OSM objects have no `height` tag, only 2/3/3 storeys.
+The normal pipeline conversion yields 6.8/10.2/10.2 m; the drum and rooflights remain within those top heights.
+The simplified roof equipment and facade rhythm are not bay-for-bay reproductions. Sources are in
+[`geodata.md`](geodata.md#piotrowo-campus-snapshot-2026-11-12).
+
 ## Batching
 - `batchStaticGroupMeshes(root, excludeMaterials)` merges all non-instanced meshes that share a **material object** into one mesh. It keeps only `position`, `normal` and `uv`, and meshes missing any of those are skipped. The originals are removed, so their names, userData and custom attributes are lost.
   - Pass a material in `excludeMaterials` to keep its meshes separate, for example a material with custom attributes, or one whose mesh another module looks up.

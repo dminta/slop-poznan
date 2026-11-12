@@ -14,7 +14,9 @@ const EXPECTED_LANDMARKS = [
   'Poznań Financial Centre', 'Novotel', 'AND2', 'Nowy Rynek', 'Delta',
   'Biblioteka Raczyńskich', 'Pałac Działyńskich', 'Hotel Bazar', 'Muzeum Narodowe', 'Teatr Polski',
   'Collegium Maius', 'Kościół Bernardynów', 'Kościół Franciszkanów', 'Kościół Najświętszej Marii Panny',
-  'Kościół św. Wojciecha', 'Kościół Bożego Ciała'
+  'Kościół św. Wojciecha', 'Kościół Bożego Ciała',
+  // The three Piotrowo footprints are model-only landmarks.
+  'Centrum Wykładowe PP', 'Biblioteka Techniczna PP', 'Hala Sportowa PP'
 ];
 // Built in a temp checkout whose path has spaces and non-ASCII characters, with the default paths (tools/data in,
 // js/geodata.js out), offline from the committed snapshots. Reuse that build to detect stale committed output.
@@ -54,7 +56,7 @@ test('Poznań geodata builds offline with default paths in a checkout containing
     assert.ok(share((v) => v === 50) > 0.3, '50 km/h is the common limit');
     assert.ok(share((v) => v <= 30) > 0.3, 'many 30 and 20 zones');
     assert.ok(limits.includes(70), 'a 70 km/h artery');
-    assert.deepEqual(Object.keys(GEO.landmarks).sort(), EXPECTED_LANDMARKS.slice().sort(), 'all 36 landmark sites survive the build');
+    assert.deepEqual(Object.keys(GEO.landmarks).sort(), EXPECTED_LANDMARKS.slice().sort(), 'all 39 landmark sites survive the build');
     const [x0, x1, z0, z1] = GEO.frame.detailBox;
     for (const [name, site] of Object.entries(GEO.landmarks)) {
       assert.ok(['x', 'z', 'w', 'd', 'h', 'area', 'ang'].every((key) => Number.isFinite(site[key])), `${name}: finite placement and dimensions`);

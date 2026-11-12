@@ -25,7 +25,7 @@ GEO_DATA=/some/dir node ... tools/build-poznan.mjs                # read inputs 
   EDTs are large.
 - The output is deterministic. A rebuild from the committed `tools/data` reproduces the committed `js/geodata.js` byte for byte (verified for the west-expansion output on 2026-11-08). After any change to tools/, build to a temporary path and `cmp` it against the committed file: an unexpected diff means a behaviour change.
 - `tests/geodata.test.mjs` compares its fresh offline build byte for byte with the committed file, including the
-  deterministic header. It also checks the exact 36 landmark names and validates their placement and footprints,
+  deterministic header. It also checks the exact 39 landmark names and validates their placement and footprints,
   so a missing site cannot pass through the map tests unnoticed.
 - `js/geodata.js` is GENERATED: its header says "do not edit by hand", and its single JSON line is about 4.6 MB. To change any geodata value, change the tools or the inputs and rebuild. Commit the regenerated file together with the tool change.
 - Read the build's `[geodata]` log lines (counts, the frame, the per-key KB at the end). They are the quickest sanity check after a change.
@@ -49,7 +49,7 @@ GEO_DATA=/some/dir node ... tools/build-poznan.mjs                # read inputs 
   - `tram-infra.js`: `rail` (for `oneway`, which `RAIL` drops) and `tramStops`
   - `trams.js`: `rail` (with each tram chain's `routes`), `tramStops` and `tramRoutes`
 - When you add, rename or re-layout a `GEO` key, update every consumer of it, plus the `GEO` stubs in `tests/city-map.test.cjs` if `city-map.js` reads it.
-- `GEO.landmarks` is keyed by a curated name (`Ratusz`, `Katedra`, `Bałtyk`, …; `poz-extra.mjs`), each `{x, z, w, d, h, area, ring, ang}`. `ang` (radians, the turn of a frontage frame's θ and three.js `rotation.y`) is the outline's principal axis: `w` and `d` are the extents along the turned axes, and `fitToSite` turns the model and its colliders by it (see [`world.md`](world.md)). `h` uses a curated height first, then OSM `height` only when it is at least max(6 m, `building:levels` × 3.4 m), then the storeys × 3.4 m, or the placeholder when none is usable. Tiny or implausible OSM heights are rejected. Runtime code looks entries up by name (`LANDMARK_SITES['Ratusz']`), so a dropped match silently drops the landmark: `fitToSite` returns early on a missing site.
+- `GEO.landmarks` is keyed by a curated name (`Ratusz`, `Katedra`, `Bałtyk`, …; `poz-extra.mjs`), each `{x, z, w, d, h, area, ring, ang}` (Piotrowo additionally retains `holes` and `map: false`). `ang` (radians, the turn of a frontage frame's θ and three.js `rotation.y`) is the outline's principal axis: `w` and `d` are the extents along the turned axes, and `fitToSite` turns the model and its colliders by it (see [`world.md`](world.md)). `h` uses a curated height first, then OSM `height` only when it is at least max(6 m, `building:levels` × 3.4 m), then the storeys × 3.4 m, or the placeholder when none is usable. Tiny or implausible OSM heights are rejected. Runtime code looks entries up by name (`LANDMARK_SITES['Ratusz']`), so a dropped match silently drops the landmark: `fitToSite` returns early on a missing site.
 
 ## Data sources and licensing (tools/data/)
 - Fetched inputs are OpenStreetMap via Overpass, © OpenStreetMap contributors, **ODbL**: each snapshot has a matching `q_poz_*.overpassql`. `poz_places.json` is the hand-written label supplement described below; it has no Overpass query. Extents, dates and schemas are in the next section.
@@ -64,6 +64,32 @@ tools/overpass.sh tools/data/poz_landmarks.json tools/data/q_poz_landmarks.overp
 - To add a landmark footprint, add its exact OSM name to `q_poz_landmarks.overpassql` (ways and relations) and its curated entry to `poz-extra.mjs`, then refetch and rebuild. For the runtime side, see [`world.md`](world.md).
 - The 11 historic landmark elements added on 2026-11-05 were populated in `tools/data/poz_landmarks.json` from the 2026-10-28 `poz_buildings.json` snapshot (same geometry), not refetched with the new query.
 - The build logs `WARNING landmark query name "…" matches nothing` for every name in the query's `["name"~…]` / `["name"=…]` filters that no snapshot element carries: an OSM rename otherwise drops the landmark silently. Unnamed footprints (Domki Budnicze, Bałtyk) are fetched by id or by another tag.
+
+## Piotrowo campus snapshot (2026-11-12)
+
+`tools/data/poz_piotrowo.json` supplements the frozen landmark snapshot with three Piotrowo buildings:
+
+| Runtime landmark | OSM object | Levels | Derived top |
+| --- | --- | --- | --- |
+| Centrum Wykładowe PP | [relation 9084535](https://www.openstreetmap.org/relation/9084535) | 2 | 6.8 m |
+| Biblioteka Techniczna PP | [relation 9084537](https://www.openstreetmap.org/relation/9084537) | 3 | 10.2 m |
+| Hala Sportowa PP | [way 497154325](https://www.openstreetmap.org/way/497154325) | 3 | 10.2 m |
+
+Fetched on 2026-11-12 from `https://api.openstreetmap.org/api/0.6/relation/9084535/full.json`,
+`relation/9084537/full.json` and `way/497154325/full.json` under the same API root. Overpass endpoints returned
+HTTP 406/403, so the OSM API supplied the same source objects. Node coordinates were expanded into the usual
+way/member `geometry` arrays; the cache retains the ways and relations, not separate nodes. Copyright
+© OpenStreetMap contributors, ODbL. `q_poz_piotrowo.overpassql` records the equivalent `out body geom` query.
+`poz-extra.mjs` reads this supplement alongside `poz_landmarks.json`; no existing snapshot is refreshed.
+The resulting geodata differs only in the three added landmark records. The relations retain one/three courtyard
+holes respectively. No fetched object has a measured `height`; the existing levels × 3.4 m rule supplies the tops.
+
+Visual reference: [the university's A23 gallery](https://www.put.poznan.pl/node/16955) and
+[A29 gallery](https://www.put.poznan.pl/node/16957), source: Politechnika Poznańska, viewed 2026-11-12.
+The images were inspected as references and are not shipped as assets. The university identifies WIiT A25 as
+[Polanka 3](https://www.put.poznan.pl/sites/default/files/2022-03/Deklaracja%20dost%C4%99pno%C5%9Bci%20architektonicznej_A25.pdf);
+that site is excluded by the Piotrowo-only scope. The three campus landmarks intentionally have no map pins,
+location-label entries or teleport buttons.
 
 ## Poznań snapshots (tools/data/poz_*.json)
 Inputs for the Poznań pipeline, OSM via Overpass, **ODbL**. The core snapshots were refetched for the larger

@@ -62,7 +62,8 @@ test('street trees carry player colliders, including Rybaki', async () => {
   // a mapped tree within 4 m of a plaza planter yielded to the planter's own tree (Wilda, (-396.2, 1068.6)); 25,460
   // until the Teatr Polski forecourt freed one lawn tree at (-617.3, 20.6) from a generic frontage wall. The nine
   // surveyed site trees carry source 'site', so they stay out of this OSM count.
-  assert.equal(osmParkTrees, 25461, 'surveyed OSM park trees');
+  // Piotrowo's reserves reshape local generic parts; this fixture omits the replacement landmark walls.
+  assert.equal(osmParkTrees, 25454, 'surveyed OSM park trees');
 
   const siteParkTrees = sites.filter((t) => t.source === 'site' && t.tier === 0).length;
   const colliders = details.colliders;

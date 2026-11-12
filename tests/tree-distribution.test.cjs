@@ -104,11 +104,14 @@ test('seeded species assignment preserves the full built city tree sites and col
   // exclusion on the 27 Grudnia promenade: 13 of the 14 mapped plane-row candidates plant on that surveyed ribbon, and
   // three site crowns join the curb row. That moves the species, site and collider pins below; the tree-field mesh pins
   // do not depend on the site count. The site's car parks stay empty (no parked-car boxes in the prop colliders).
-  assert.deepEqual(before, [45715, 49569, 21971, 1985]);
-  assert.deepEqual(after, [43842, 47511, 21065, 6822]);
-  assert.equal(siteHash, '0be1c44246c4905575e91041956d630690ea686a981326750d7ffc20cb0897d9');
-  assert.equal(digest(grid.propColliders), 'e29b9231383732cb5e33586ba5b77c3173a1f83d998a354417e442548f88fcad');
-  assert.equal(digest(details.colliders), '439fffecddf6084358c6dc48bdbf994ca737094e3d1bddb1b2c2b0724d766348');
+  // Piotrowo's reserves redistribute local generic parts; this reduced fixture omits the new landmark walls.
+  assert.deepEqual(before, [45708, 49569, 21969, 1985]);
+  assert.deepEqual(after, [43835, 47510, 21063, 6823]); // Local Piotrowo sites change the assigned species mix.
+  assert.equal(siteHash, 'a862e3e0d16ce68fcf2d8a386d7aff4c84c7a6e4f74326141fb670a6b33e55e6'); // Nine local sites removed.
+  // The local replacement also changes which park-tree trunk colliders remain in the grid.
+  assert.equal(digest(grid.propColliders), '8028ff784a7f8a2151411a43bb96e4ffbd5843392144a2f0d54f23de7586ea3d');
+  // Street-details receives the same local tree clearance changes; outside campus its colliders are identical.
+  assert.equal(digest(details.colliders), '0fbabd6b0233e8f4dddf9a555997d63d93e2a3372c9a20b8699283bc275ddaca');
   assert.equal(meshCount((t) => t.species || 0), 25477);
   assert.equal(meshCount(treeSpecies), 30366);
   // Every surveyed node the clearance rules accept reaches the field exactly at its OSM position. The rest are dropped
@@ -119,7 +122,7 @@ test('seeded species assignment preserves the full built city tree sites and col
   // 331 surveyed trees (a dropped node is never moved, see above). The promenade acceptance adds 14 row trees, one of
   // which the wall/lane checks still reject; the nine garden crowns are source 'site' and stay out of this count:
   // 32,742 -> 32,755.
-  assert.equal(osm.length, 32755);
+  assert.equal(osm.length, 32748); // Seven mapped park sites lose clearance at Piotrowo.
   // The garden, car-park and promenade sites the task restored are planted, not merely configured.
   const westLawnTrees = sites.filter((t) => t.source === 'site' && t.x > -740 && t.x < -711 && t.z > 12 && t.z < 42);
   assert.ok(westLawnTrees.length >= 6, `the west lawn keeps its surveyed trees: ${westLawnTrees.length}`);

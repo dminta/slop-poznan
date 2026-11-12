@@ -26,10 +26,15 @@ test('map text helpers fold Polish letters, sort and upper-case in Polish', asyn
   assert.deepEqual(LABEL_ALIAS, {});
 });
 
-test('every landmark site has a map pin, and the location label names the nearest one', async () => {
+test('every mapped landmark site has a pin, and the location label names the nearest one', async () => {
   const { CITY_LANDMARKS, LANDMARK_SITES, getLocationLabel } = await import('../js/city-config.js');
   const pinned = new Map(CITY_LANDMARKS.map((l) => [`${l.x},${l.z}`, l]));
   for (const [name, s] of Object.entries(LANDMARK_SITES)) {
+    // Piotrowo is deliberately model-only: the user requested no new map/UI entries.
+    if (s.map === false) {
+      assert.ok(!pinned.has(`${s.x},${s.z}`), `${name} stays absent from the map`);
+      continue;
+    }
     const lm = pinned.get(`${s.x},${s.z}`);
     assert.ok(lm, `${name} has no map pin`);
     assert.ok(getLocationLabel(s.x, s.z).startsWith(lm.name), `standing at ${name} names ${lm.name}`);

@@ -225,7 +225,10 @@ const LANDMARK_ELEMENTS = {
   'Kościół Franciszkanów': ['way/104781037'],
   'Kościół Najświętszej Marii Panny': ['way/238040916'],
   'Kościół św. Wojciecha': ['way/129682752'],
-  'Kościół Bożego Ciała': ['way/106179574']
+  'Kościół Bożego Ciała': ['way/106179574'],
+  'Centrum Wykładowe PP': ['relation/9084535'],
+  'Biblioteka Techniczna PP': ['relation/9084537'],
+  'Hala Sportowa PP': ['way/497154325']
 };
 // Heights (m) from §9.1 (pl.wikipedia / Wikidata: tower tops, spires, roof tops). These override OSM, whose height tags
 // here are eaves (Ratusz 16 vs a ≈ 61 m tower), a lower wing (Collegium Altum 16 vs 103.35) or junk (Katedra 0.1).
@@ -295,7 +298,7 @@ function minAreaRect(ring) {
   return best;
 }
 
-const lmElements = load('poz_landmarks.json').elements;
+const lmElements = [...load('poz_landmarks.json').elements, ...load('poz_piotrowo.json').elements];
 const lmIndex = new Map(lmElements.map((e) => [`${e.type}/${e.id}`, e]));
 // Every name the query asks for must still name an element: an OSM rename silently drops a landmark (js/landmarks.js
 // fitToSite skips a missing site), so the build says which names matched nothing
@@ -350,6 +353,11 @@ for (const [key, ids] of Object.entries(LANDMARK_ELEMENTS)) {
     x: r1(box.x), z: r1(box.z), w: r1(box.w), d: r1(box.d), h, area: Math.round(pick.area), ring: flat(ring),
     ang: Math.round(box.ang * 1e4) / 1e4
   };
+  // Piotrowo's open courtyards must remain open in the model as well as its OSM outline.
+  if (key.endsWith(' PP')) {
+    landmarks[key].holes = outerInner(pick.e).inner.map((r) => flat(cleanRing(r, 0.4)));
+    landmarks[key].map = false;
+  }
   log(`landmark ${key}: ${pick.id}, ${landmarks[key].w} × ${landmarks[key].d} m at (${landmarks[key].x}, ${landmarks[key].z}), ang ${((box.ang * 180) / Math.PI).toFixed(1)}°, h ${h} (${src})`);
 }
 log(`${Object.keys(landmarks).length} landmarks, ${(JSON.stringify(landmarks).length / 1024).toFixed(0)} KB`);
