@@ -348,7 +348,9 @@ test('crossingRuns piece rejects keep the plain per-metre sample runs', () => {
 });
 
 test('the split footprint hash answers the same curb and obstacle queries', () => {
-  const slice = cut(read('road-network.js'), '  const curbs = new Map();', '  // All four corners at least SHORE_MARGIN');
+  const source = read('road-network.js');
+  const factory = cut(source, 'function createFootprintIndex(', '\nfunction buildRoadNetwork(');
+  const slice = cut(source, '  const boxKey =', '  // All four corners at least SHORE_MARGIN');
   let seed = 31;
   const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
   const sidewalks = [], obstacles = [];
@@ -358,8 +360,9 @@ test('the split footprint hash answers the same curb and obstacle queries', () =
     const r = { minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2, walkable: rnd() < 0.3 };
     if (i % 3 === 0) sidewalks.push(r); else obstacles.push(i % 11 === 0 ? { ...r, curb: true } : r);
   }
-  const context = vm.createContext({ Math, Map, CELL: 16, sidewalks, obstacles });
-  const { query, curbs, hash } = vm.runInContext(`${slice}\n;({ query, curbs, hash })`, context);
+  const BLOCKS = [{ ...obstacles[0], median: true }, { ...obstacles[2], park: 0.8 }];
+  const context = vm.createContext({ Math, Map, CELL: 16, sidewalks, obstacles, BLOCKS });
+  const { curbs, blocked } = vm.runInContext(`${factory}\n${slice}\n;({ curbs, blocked })`, context);
   const overlaps = (r, minX, maxX, minZ, maxZ) => r.minX < maxX && r.maxX > minX && r.minZ < maxZ && r.maxZ > minZ;
   const curbRects = [...sidewalks, ...obstacles.filter((r) => r.curb)];
   const obstacleRects = obstacles.filter((r) => !r.curb);
@@ -370,9 +373,13 @@ test('the split footprint hash answers the same curb and obstacle queries', () =
     const minX = x - s, maxX = x + s, minZ = z - s, maxZ = z + s;
     const wantCurb = curbRects.some((r) => overlaps(r, minX, maxX, minZ, maxZ));
     const wantObstacle = obstacleRects.some((r) => !r.walkable && overlaps(r, minX, maxX, minZ, maxZ));
-    assert.equal(query(curbs, minX, maxX, minZ, maxZ, () => true), wantCurb, `curb box ${x},${z} ${s}`);
-    assert.equal(query(hash, minX, maxX, minZ, maxZ, (r) => !r.walkable), wantObstacle, `obstacle box ${x},${z} ${s}`);
-    checked += 2;
+    assert.equal(curbs(minX, maxX, minZ, maxZ, 1), wantCurb, `curb box ${x},${z} ${s}`);
+    assert.equal(blocked(minX, maxX, minZ, maxZ, 1), wantObstacle, `obstacle box ${x},${z} ${s}`);
+    const wantRoadObstacle = obstacleRects.some((r) =>
+      r !== obstacles[0] && r !== obstacles[2] && (r.maxX - r.minX < 50 || r.maxZ - r.minZ < 50) &&
+      overlaps(r, minX, maxX, minZ, maxZ));
+    assert.equal(blocked(minX, maxX, minZ, maxZ, 2), wantRoadObstacle, `road obstacle box ${x},${z} ${s}`);
+    checked += 3;
   }
   assert.ok(checked > 3000);
 });

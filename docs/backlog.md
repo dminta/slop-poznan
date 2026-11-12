@@ -137,8 +137,10 @@ share are not thinned; [central-density record](observations/central-density-202
   piece, lamp mast + housing merged, cheap-prop culling cells, merged prop shadow stand-ins on high only; see
   [record](observations/perf-draw-calls-2026-11-11.md) for the rebased ablation). Not yet measured on a real phone or
   integrated GPU; `?stats=1` shows a copyable report for that.
-  Retained JS heap after GC is ~890 MB high / ~820 MB low after releasing two accidentally captured build scopes
-  (−104 MB, [record](observations/perf-heap-2026-11-11.md)).
+  Retained JS heap after GC is now ~843 MB high / ~780 MB low: after the first captured-scope release
+  (−104 MB, [record](observations/perf-heap-2026-11-11.md)), the second pass releases local building/tree/road staging
+  and packs immutable footprint queries (a further ~43 MiB per tier, with equivalent graph hashes and unchanged frame
+  p50; [record](observations/perf-heap-2-2026-11-12.md)).
   Street furniture geometry trimmed (lamp masts, hydrants, gas lanterns, bollards, columns: −43 % furniture
   triangles, frame −12 to −14 %; [record](observations/perf-heavy-props-2026-11-11.md)).
   Sun shadow cadence: one depth map per cascade, the far cascade every second frame (shadow draws −31 to −42 %,
@@ -153,9 +155,10 @@ share are not thinned; [central-density record](observations/central-density-202
      `graphics-quality.js` from them.
   2. **Scene shader compile** still takes ~1 s on this Mac; use real-device reports to justify further material
      consolidation, and keep the full warm-up until deferred first-use hitches can be ruled out.
-  3. **JS heap** (~890 MB high / ~820 MB low retained): another dominator pass on the current snapshot; candidates
-     are a cheaper representation of route/collider/road-graph data and shader NodeData (~39 MB). Post-upload
-     attribute release is not safe in the pinned three.js.
+  3. **JS heap** (~843 MB high / ~780 MB low retained): runtime land rasters, scene/geometry buffers, remaining
+     route/collider/guide indexes and shader NodeData (~38 MB) dominate. Use real-device measurements to justify
+     further exact packing or geometry deduplication; shader-cache release needs a renderer-supported lifecycle.
+     Post-upload attribute release remains unsafe in the pinned three.js; keep GEO/BLOCKS late-reader inputs.
   4. **Remaining boot entries** after three index passes: `nearestCurbFrame`, `pointInPolyIndexed`, `roadClearance`,
      `outlineDist`; take a new browser profile first, no further index is obvious.
   5. **Off-screen instances** (68 % at Rynek in the audit, per-chunk culling): finer culling for the heaviest instanced

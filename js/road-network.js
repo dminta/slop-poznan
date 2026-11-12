@@ -94,40 +94,59 @@ function laneShiftAt(e, s) {
 }
 const laneOffset = (e, i, s = 0) => e.lanes[i] + laneShiftAt(e, s);
 
-function buildRoadNetwork(sidewalks, obstacles) {
-  // 1. Spatial hash of ground footprints: curbs bound the roads, everything else also blocks pedestrians. Curbs and
-  // obstacles live in separate hashes because every query asks for one kind only (the 0.3 m curb probe was scanning
-  // every obstacle filed in the same cell): `query` was 398 ms of the 2026-11-11 headless road-network build.
-  const curbs = new Map();
-  const hash = new Map();
-  const cellKey = (ix, iz) => (ix + 1024) * 2048 + iz + 1024; // 16 m cells: x ±570, z ±177 in the detail box
-
-  function insert(map, r) {
+// Immutable footprint queries keep exact float64 bounds once per rectangle and CSR bucket ids, rather than
+// retaining arrays of object references in every cell. Flags select the two boolean predicates used by the network.
+function createFootprintIndex(rects, flagOf) {
+  const bounds = new Float64Array(rects.length * 4);
+  const flags = new Uint8Array(rects.length);
+  const cells = new Map();
+  const buckets = [];
+  for (let i = 0; i < rects.length; i++) {
+    const r = rects[i];
+    bounds.set([r.minX, r.maxX, r.minZ, r.maxZ], i * 4);
+    flags[i] = flagOf(r);
     for (let ix = Math.floor(r.minX / CELL); ix <= Math.floor(r.maxX / CELL); ix++) {
       for (let iz = Math.floor(r.minZ / CELL); iz <= Math.floor(r.maxZ / CELL); iz++) {
-        const k = cellKey(ix, iz);
-        const list = map.get(k);
-        if (list) list.push(r);
-        else map.set(k, [r]);
+        const key = (ix + 1024) * 2048 + iz + 1024;
+        let bucket = cells.get(key);
+        if (bucket === undefined) {
+          bucket = buckets.length;
+          cells.set(key, bucket);
+          buckets.push([]);
+        }
+        buckets[bucket].push(i);
       }
     }
   }
-  for (const r of sidewalks) insert(curbs, { minX: r.minX, maxX: r.maxX, minZ: r.minZ, maxZ: r.maxZ });
-  for (const r of obstacles) insert(r.curb ? curbs : hash, r);
+  const starts = new Uint32Array(buckets.length + 1);
+  for (let i = 0; i < buckets.length; i++) starts[i + 1] = starts[i] + buckets[i].length;
+  const ids = new Uint32Array(starts[buckets.length]);
+  for (let i = 0; i < buckets.length; i++) ids.set(buckets[i], starts[i]);
 
-  // Calls fn(rect) for every footprint of `map` overlapping the box until fn returns true
-  function query(map, minX, maxX, minZ, maxZ, fn) {
+  return (minX, maxX, minZ, maxZ, mask) => {
     for (let ix = Math.floor(minX / CELL); ix <= Math.floor(maxX / CELL); ix++) {
       for (let iz = Math.floor(minZ / CELL); iz <= Math.floor(maxZ / CELL); iz++) {
-        const list = map.get(cellKey(ix, iz));
-        if (!list) continue;
-        for (const r of list) {
-          if (r.minX < maxX && r.maxX > minX && r.minZ < maxZ && r.maxZ > minZ && fn(r)) return true;
+        const bucket = cells.get((ix + 1024) * 2048 + iz + 1024);
+        if (bucket === undefined) continue;
+        for (let k = starts[bucket]; k < starts[bucket + 1]; k++) {
+          const id = ids[k], o = id * 4;
+          if (bounds[o] < maxX && bounds[o + 1] > minX && bounds[o + 2] < maxZ && bounds[o + 3] > minZ &&
+            (flags[id] & mask)) return true;
         }
       }
     }
     return false;
-  }
+  };
+}
+
+function buildRoadNetwork(sidewalks, obstacles) {
+  // 1. Separate curb and obstacle indexes: lane probes ask for curbs, pedestrian probes only for obstacles.
+  const boxKey = (r) => [r.minX, r.maxX, r.minZ, r.maxZ].map((v) => Math.round(v * 2)).join(',');
+  const outlineBoxes = new Set(BLOCKS.filter((b) => b.median || b.park > 0.6).map(boxKey));
+  const curbs = createFootprintIndex([...sidewalks, ...obstacles.filter((r) => r.curb)], () => 1);
+  const blocked = createFootprintIndex(obstacles.filter((r) => !r.curb), (r) =>
+    (!r.walkable ? 1 : 0) | ((r.maxX - r.minX < 50 || r.maxZ - r.minZ < 50) &&
+      !outlineBoxes.has(boxKey(r)) ? 2 : 0));
 
   // All four corners at least SHORE_MARGIN in from the water (bridge decks are land all across)
   function onLand(minX, maxX, minZ, maxZ) {
@@ -136,17 +155,13 @@ function buildRoadNetwork(sidewalks, obstacles) {
   }
 
   const walkable = (minX, maxX, minZ, maxZ) => onLand(minX, maxX, minZ, maxZ) &&
-    !query(hash, minX, maxX, minZ, maxZ, (r) => !r.walkable);
+    !blocked(minX, maxX, minZ, maxZ, 1);
   // Lanes follow the real streets: the rectangles standing in for irregular sidewalks may reach a little past their
   // curbs, and the footprints city-grid.js hands over for median islands and park blocks are their bounding boxes,
   // which on a turned block take in the streets around it. So only a curb right at (x, z), medians by their real
   // outline and other obstacles under 50 m across count; a park block's box is no obstacle (park blocks hand over no
   // curb rects either, and OSM runs some service roads through them).
   const OUTLINED = BLOCKS.filter((b) => b.median);
-  const boxKey = (r) => [r.minX, r.maxX, r.minZ, r.maxZ].map((v) => Math.round(v * 2)).join(',');
-  const outlineBoxes = new Set(BLOCKS.filter((b) => b.median || b.park > 0.6).map(boxKey));
-  const outlinedObstacles = new Set(obstacles.filter((r) => outlineBoxes.has(boxKey(r)))); // park/median boxes
-  const smallObstacle = (r) => r.maxX - r.minX < 50 || r.maxZ - r.minZ < 50;
   const outlineCells = new Map(); // 64 m cells -> the outlined blocks reaching into them
   for (const b of OUTLINED) {
     for (let ix = Math.floor((b.minX - 2) / 64); ix <= Math.floor((b.maxX + 2) / 64); ix++) {
@@ -177,9 +192,9 @@ function buildRoadNetwork(sidewalks, obstacles) {
     return false;
   }
   const blockedOnStreet = (x, z, clear) => !onLand(x - clear, x + clear, z - clear, z + clear) ||
-    query(curbs, x - 0.3, x + 0.3, z - 0.3, z + 0.3, () => true) ||
+    curbs(x - 0.3, x + 0.3, z - 0.3, z + 0.3, 1) ||
     nearOutline(x, z, clear) ||
-    query(hash, x - clear, x + clear, z - clear, z + clear, (r) => smallObstacle(r) && !outlinedObstacles.has(r));
+    blocked(x - clear, x + clear, z - clear, z + clear, 2);
 
   // 2. Streets from the centreline graph: junctions (graph nodes a few metres apart merged into one) and straight runs
   //    between them, with a shape node at every bend, so every edge stays straight
@@ -1722,6 +1737,13 @@ function buildRoadNetwork(sidewalks, obstacles) {
     if (p) Object.assign(p, { sx: e.sx, sz: e.sz, len: e.len, setbackFrom: e.setbackFrom, setbackTo: e.setbackTo });
   }
 
+  // These indexes only build/deduplicate edges, map paint nodes and test tram conflicts while placing lanes. Runtime
+  // queries share this scope but never read them; preserve the finished graph, not its construction maps.
+  keptEdge.clear();
+  inOf.clear();
+  paintNodes.clear();
+  streetTracks.length = 0;
+
   const isRoadClear = (x, z, clear = 0.15) => !blockedOnStreet(x, z, clear);
   const network = { nodes, edges, paintEdges, connector, curvePoint, laneOffset, laneShiftAt, walkable, isRoadClear };
   network.configureCrosswalks = (crosswalks) => configureCompoundCrossings(network, crosswalks);
@@ -1940,6 +1962,6 @@ function curvePoint(c, s, out) {
 }
 
 export {
-  buildRoadNetwork, busLaneIndexes, configureCompoundCrossings, laneShiftAt,
+  createFootprintIndex, buildRoadNetwork, busLaneIndexes, configureCompoundCrossings, laneShiftAt,
   CROSSWALK, CROSSWALK_REACH, STOP_SETBACK
 };

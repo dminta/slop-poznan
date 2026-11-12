@@ -87,7 +87,8 @@ Know which one covers the code you are editing. Two of them are coupled to the e
      `nearestCurbFrame`, before `const parkCollider`). Keep those markers aligned when the indexed functions move.
    - `boot-indexes-3` slices the part-3 fast paths: `ringDist` plus the 16 m edge grid (`js/city-grid.js`), the rail
      clearance bbox reject (`function railCells()` through `railClearance`), the walked `segmentGrid`, the rail
-     keep-out `fillRect`, `crossingRuns` (inside `clearOpposingTracks`), and the whole land-raster IIFE; it also runs
+     keep-out `fillRect`, `crossingRuns` (inside `clearOpposingTracks`), the packed `createFootprintIndex` factory and
+     its curb/obstacle setup, and the whole land-raster IIFE; it also runs
      `pavedPlazas()` with and without the road-segment buckets. Keep those markers aligned when the functions move.
 
    If you rename, re-indent, reorder or reformat around these markers, the tests break. So do new free variables in a sliced block that the test context does not provide. When that happens, update the test's markers and context in the same change. Keep the tested behaviour as it is.

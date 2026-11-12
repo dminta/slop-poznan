@@ -1542,7 +1542,7 @@ function buildStreetDetails(scene, opts = {}) {
   // =========================================================================
   const { isClearOfWalls } = createTreeWallChecker(buildingColliders, SPECIES_CROWN_R);
 
-  const treePositions = []; // { x, y, z, scale, species (0 lime, 1 Norway maple, 2 horse chestnut; trees.js can reassign 3 black locust) }
+  let treePositions = []; // { x, y, z, scale, species (0 lime, 1 Norway maple, 2 horse chestnut; trees.js can reassign 3 black locust) }
   const mixSpecies = (r, lime, maple) => (r < lime ? 0 : (r < lime + maple ? 1 : 2));
 
   // A. The parks, squares & plazas (sites laid out by city-grid.js, plus buildings.js's leftover slabs), and every
@@ -1914,9 +1914,9 @@ function buildStreetDetails(scene, opts = {}) {
   const pitGrateGeo = new THREE.RingGeometry(0.24, 0.82, 12, 1).rotateX(-Math.PI / 2);
   const gratedTrees = sidewalkTreePositions.filter((t) => t.grate !== false);
 
-  const pitCurbInst = new THREE.InstancedMesh(pitCurbGeo, pitCurbMat, sidewalkTreePositions.length);
-  const pitSoilInst = new THREE.InstancedMesh(pitSoilGeo, pitSoilMat, sidewalkTreePositions.length);
-  const pitGrateInst = new THREE.InstancedMesh(pitGrateGeo, grateMat, Math.max(1, gratedTrees.length));
+  let pitCurbInst = new THREE.InstancedMesh(pitCurbGeo, pitCurbMat, sidewalkTreePositions.length);
+  let pitSoilInst = new THREE.InstancedMesh(pitSoilGeo, pitSoilMat, sidewalkTreePositions.length);
+  let pitGrateInst = new THREE.InstancedMesh(pitGrateGeo, grateMat, Math.max(1, gratedTrees.length));
   pitCurbInst.receiveShadow = true;
   pitSoilInst.receiveShadow = true;
   pitGrateInst.receiveShadow = true;
@@ -1954,6 +1954,12 @@ function buildStreetDetails(scene, opts = {}) {
   // level of detail, each tree's level following the camera
   const treeField = createTreeField(scene, treePositions);
   group.add(treeField.group);
+  // The tree field copied these sites into its LOD buffers. Drop our staging list and the pit mesh references:
+  // after culling replaces the pits with chunks, no runtime helper should retain their original instance buffers.
+  treePositions = null;
+  pitCurbInst = null;
+  pitSoilInst = null;
+  pitGrateInst = null;
 
   // These private placement indexes have no readers after the tree loops above (including the late signal-head
   // audit below). Escaping lighting/signal helpers share this scope, retaining ~66 MB of otherwise dead caches.

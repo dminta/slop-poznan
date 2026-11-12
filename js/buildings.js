@@ -610,7 +610,7 @@ function buildCityBlocks(scene) {
   // per-instance attribute), so each unit piece is one mesh rather than three; the gable ends are render. Staged by
   // commit, written once by finish() below
   const roofMaterial = createRoofMaterial({ kinds: ROOF_MATERIALS });
-  const roofs = createRoofs({
+  let roofs = createRoofs({
     materials: {
       tile: roofMaterial,
       slate: roofMaterial,
@@ -4622,6 +4622,10 @@ function buildCityBlocks(scene) {
     group.add(inst);
   });
   roofs.finish();
+  // Facade records and the roof builder are staging data. Streaming below reads allBlocks, not these records;
+  // retaining the builder also keeps its pre-chunking meshes alive after scene culling replaces them (~20 MiB).
+  buckets.length = 0;
+  roofs = null;
 
   // Rear yards, light courts & project lawns: one thin slab per patch just above the sidewalk (buildings standing on
   // it hide the rest). The turf is the parks' own material, pattern and normal response, so a courtyard reads as the

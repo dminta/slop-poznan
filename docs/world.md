@@ -20,6 +20,14 @@ collision callback captures only the final raster tiles, outside the layout scop
 rail and fence construction grids. Together these ownership fixes save about 104 MiB of retained browser heap;
 the sites, colliders, network and raster stay intact ([heap investigation](observations/perf-heap-2026-11-11.md)).
 
+Building massing drops its facade staging buckets and roof builder after their instance buffers are filled. Street
+furniture drops its temporary tree-site list after `createTreeField` copies it into the LOD arrays, and drops local
+references to the tree-pit meshes so culling can replace them without retaining the original instance buffers. The
+rendered geometry, tree LOD inputs and streamed `allBlocks` records remain intact. The road network also clears its
+edge-deduplication, incoming-edge, paint-node and lane-placement tram indexes after construction. These local
+ownership changes and the packed footprint queries save about 43 MiB on both tiers
+([second heap investigation](observations/perf-heap-2-2026-11-12.md)).
+
 **Load-time point tests** are indexed ([observation record](observations/perf-boot-predicates-2026-11-11.md)). `blockAt` and buildings.js `insideCurbIsland` share a lazily built 4 m z-slot edge index per block (`createPolygonIndex` / `pointInPolyIndexed` / `pointInBlockPoly`), stored as CSR typed arrays; the ray test visits only edges whose z span can cross the point, with the exact endpoint pairing of `pointInPoly`, so edge and vertex ties stay identical. `pointInPark` buckets the park rings in a 64 m grid and indexes each ring, and the land raster's scanline fill reuses the same edge buckets. `city-grid.js` uses one weak per-polygon index for repeated park/plaza samples, `street-details.js` buckets its plaza rects in 64 m cells before `inPlaza`, and `road-paint.js` buckets crosswalks in 16 m cells before the P-22 4 m keep. On 2026-11-11 this took the boot CPU share of `pointInPoly` from 19-22 % to ~4 %, `pointInPark` from ~5-5.5 % to below 1 %, and boot from 18.4 to 11.9 s at 1× CPU and 109.5 to 70.8 s at 6× CPU (headless Chrome, busy machine; the observation file has the method). The block indexes retain 2.4 MB (CSR, down from 17 MB of small arrays); the park indexes are released after the city-grid build and rebuild lazily if a late caller needs them.
 
 ## Park and road clearance follow-up (2026-11-02)
