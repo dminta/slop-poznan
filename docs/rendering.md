@@ -199,6 +199,15 @@
   - Meshes that would get a cull distance over 2 km are chunked into 1 km cells, frustum culling only.
   - Opaque shadow casters with ≥ 20k triangles and a radius over 600 m get position-only stand-ins on `SHADOW_PROXY_LAYER`, a layer only the cascade cameras render. The originals get `castShadow = false`.
   - **Cheap street props get merged shadow stand-ins before chunking (high tier only).** Under `StreetDetails`, `TramInfrastructure` and `CityGrid`, casters with 4k–300k triangles and a radius over 300 m (trees excluded; hydrants at 0.96M triangles and lamp masts at 2.8M stay direct/instanced) are baked into one position-only mesh per 500 m cell and face side, sharing the same `SHADOW_PROXY_LAYER`. The shadow pass needs depth only, so all prop geometries of a side share one draw per cell instead of one per category per 250 m chunk; the high tier keeps casting exactly the same triangles. Baked positions are 36 bytes/triangle: the current set is 1.21M triangles (down from 1.42M before the heavy-prop geometry cut), about 44 MB if every cell is ever uploaded, but only the cells the cascades actually render are uploaded (`attributes` grew 5.9 MB over eight views). The stand-ins are flagged `userData.propShadowProxy`. `main.js` passes `propShadowProxies: qualitySettings.shadowCasters`, so **low does not build them at all**: it disables those casters anyway, and skipping the bake keeps its heap unchanged. Standalone cost on high: +52 MB retained heap, +5.8 MB GPU at boot, +326 ms in the culling phase. Cell positions are filled in two passes into typed arrays; keeping them in JS number arrays first cost ~300 MB of transient boot heap.
+- **Static chunks and shadow stand-ins use world-space boxes for frustum tests.** After their final world matrices
+  are computed, `prepareChunkBounds` caches the union of transformed instance geometry boxes (or the baked geometry
+  box) and installs `intersectsFrustum`. This replaces the loose sphere test without splitting cells or touching
+  instance buffers. The pinned renderer calls it with the current pass's frustum: a caster outside the scene view can
+  still enter either shadow cascade. No camera visibility is cached, so the far cascade's skipped frames retain their
+  existing map/matrix pairing. Shader-displaced materials keep the original renderer path. These bounds are static:
+  later transform/instance edits require rebuilding them, just as the baked proxies require rebuilding. The original
+  spheres remain available for distance culling and other renderer consumers. See
+  [perf-culling-2026-11-12](observations/perf-culling-2026-11-12.md) for measurements and rejected smaller chunks.
 - **Heavy street furniture is a vertex budget, not a draw budget.** The LED mast (23,193 instances) and the hydrant
   (5,144) are the largest instanced furniture meshes. Their geometry is deliberately reduced where the detail is
   sub-pixel at street distance (mast 284 → 120 triangles, hydrant 266 → 186, gas lantern 268 → 176, bollard 88 → 56,

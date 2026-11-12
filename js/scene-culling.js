@@ -130,6 +130,27 @@ function chunkInstancedMesh(mesh, cell) {
   return chunks;
 }
 
+// Static chunks are often almost flat (rails, tree pits) or tall and thin (masts). A sphere extends hundreds of
+// metres above/below them and admits whole cells outside the view. Keep their world-space AABB instead: the renderer
+// supplies the current pass's frustum, including the cascade camera only when its cached map is actually refreshed.
+function intersectsStaticChunk(frustum) {
+  return frustum.intersectsBox(this._cullingBox);
+}
+
+function prepareChunkBounds(mesh) {
+  // CPU geometry bounds cannot describe shader displacement (for example wind or screen-space widening).
+  const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  if (materials.some((m) => m && (m.positionNode || m.vertexNode || m.displacementMap || m.castShadowPositionNode))) return;
+  if (mesh.isInstancedMesh) {
+    mesh.computeBoundingBox();
+    mesh._cullingBox = mesh.boundingBox.clone().applyMatrix4(mesh.matrixWorld);
+  } else {
+    if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+    mesh._cullingBox = mesh.geometry.boundingBox.clone().applyMatrix4(mesh.matrixWorld);
+  }
+  mesh.intersectsFrustum = intersectsStaticChunk;
+}
+
 // A caster can stand in as bare positions only if its material neither moves its vertices nor cuts holes in it
 function proxyableMaterial(mat) {
   return !!mat && !Array.isArray(mat) && !mat.transparent && !(mat.alphaTest > 0) && !mat.alphaMap &&
@@ -146,6 +167,7 @@ function replaceWithChunks(mesh, cell) {
     // Shader precompile: every chunk shares the first chunk's pipeline (main.js).
     if (k > 0) chunk.userData.sharesPipelineWith = chunks[0];
     chunk.updateMatrixWorld(true);
+    prepareChunkBounds(chunk);
   });
   return chunks;
 }
@@ -374,6 +396,8 @@ function setupSceneCulling(scene, roots, shadow = null, { propShadowProxies = tr
       if (firstProxy.has(kind)) mesh.userData.sharesPipelineWith = firstProxy.get(kind);
       else firstProxy.set(kind, mesh);
       scene.add(mesh);
+      mesh.updateMatrixWorld(true);
+      prepareChunkBounds(mesh);
     };
     for (const entry of instancedBySig.values()) {
       for (const list of entry.cells.values()) {
@@ -419,4 +443,4 @@ function updateSceneCulling(cameraPosition) {
   }
 }
 
-export { setupSceneCulling, updateSceneCulling, chunkCellScale, SHADOW_PROXY_LAYER };
+export { setupSceneCulling, updateSceneCulling, chunkCellScale, prepareChunkBounds, SHADOW_PROXY_LAYER };

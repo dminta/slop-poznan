@@ -152,6 +152,8 @@ share are not thinned; [central-density record](observations/central-density-202
   Boot part 4 removes curb-ring interior visits, short-circuits corner-link band checks and adds an outline-distance
   hierarchy: precompile init 7.16 → 6.70 s at 1× / 45.42 → 42.74 s at 6×, with identical build hashes and unchanged
   retained heap ([record](observations/perf-boot-4-2026-11-12.md)).
+  Cached per-pass chunk boxes reduce submitted triangles by up to 10% with fewer draws and unchanged programs;
+  GPU-time savings remain unproven ([record](observations/perf-culling-2026-11-12.md)).
   Next steps, in order:
   1. **Measure real devices** with `?stats=1` (a phone in the default low tier, an integrated-GPU laptop, an iPad in
      Safari where the GPU model is masked) and let those reports pick the next target; extend the GPU table in
@@ -166,8 +168,9 @@ share are not thinned; [central-density record](observations/central-density-202
      the new 6× profile (2.62 / 1.82 / 1.21 s self); investigate caller counts and exact segment pre-tests before
      adding more indexes. CityGrid (~9.6 s), traffic including signal placement (~10.4 s) and culling (~2.5 s)
      remain larger phase budgets; use real-device profiles to justify packing, workers or deferred work.
-  5. **Off-screen instances** (68 % at Rynek in the audit, per-chunk culling): finer culling for the heaviest instanced
-     meshes, measured against the draw-call cost it adds.
+  5. **Remaining off-screen instances:** masts, local gas lanterns and members of intersecting chunks still dominate;
+     use real-device reports to justify a conservative hierarchy/range approach, measuring per-pass CPU and buffer
+     uploads. Smaller heavy-mesh cells added 52–232 draws for only 0.7–2.6% extra triangle savings and were rejected.
   6. Tree LOD / draw distance for the high tier (low already has its own profile), only if real devices need it.
   [Ranked opportunities](observations/perf-older-devices-2026-11-11.md).
 - Road levels and richer road-priority classification; revisit only with a runtime consumer.
