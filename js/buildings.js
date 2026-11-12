@@ -30,6 +30,7 @@ import {
   SPAWN,
   SRODKA_MURAL,
   ZAMEK_FORECOURT,
+  TEATR_POLSKI_FORECOURT,
   blockAt,
   pointInPark,
   pointInBlockPoly,
@@ -4255,6 +4256,12 @@ function buildCityBlocks(scene) {
   // Marcin stays an open square, so the castle is not walled off from the street by the block's frontage frames.
   for (const [x0, x1, z0, z1] of ZAMEK_FORECOURT) {
     LANDMARK_RESERVE.push(outlineBounds([[x0, z0], [x1, z0], [x1, z1], [x0, z1]]));
+  }
+  // Teatr Polski's forecourt (city-config.js TEATR_POLSKI_FORECOURT): the mapped square in front of the theatre. The
+  // world reserve takes no RESERVE_MARGIN, because its west edge already stops at Okrąglak's mapped object; the
+  // block's frontage frames give it their usual 3 m when they cut their own lots.
+  for (const [x0, x1, z0, z1] of TEATR_POLSKI_FORECOURT) {
+    LANDMARK_RESERVE.push({ pts: [[x0, z0], [x1, z0], [x1, z1], [x0, z1]], x0, x1, z0, z1 });
   }
   function outlineBounds(pts) {
     const m = RESERVE_MARGIN;

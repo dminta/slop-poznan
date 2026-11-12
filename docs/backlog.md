@@ -198,13 +198,6 @@ checks below; each remaining bullet is the part that is still open.
 
 ### Defects found in the 2026-11-11 browser checks
 
-- **Teatr Polski is buried behind a generated block:** at `(-701, -5)` its front faces south-west towards
-  `(-717, 53)`, but generated buildings stand on that frontage at z 20–37 (colliders `maxY` 15.2–22.8 m). A camera at
-  the modelled front is inside a brick wall, and a street view from the south-east shows a generic tenement with a
-  `PIZZERIA` sign; from the air the white portico sits in a narrow slot between roofs. Cut the block back to the
-  theatre's forecourt and re-check the front and entrance from ul. 27 Grudnia/Fredry on WebGPU and WebGL2.
-  Note: the real Teatr Polski stands back in a courtyard behind the ul. 27 Grudnia frontage, reached through a gate,
-  so a partly hidden front is correct; check the courtyard footprint against OSM before cutting the block.
 - **Phone touch layout overlaps:** at 390 × 844 the `.touch-look-hint` (top 136 px) is partly covered by the camera
   switcher (`#hud-bottom-right`, top 78 px), and the current-camera label ellipsizes to "Kamera za grac…" on both the
   phone and the 1280 × 720 desktop HUD. Move the hint below the camera cluster (or hide it while the cluster is open) and

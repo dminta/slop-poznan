@@ -193,7 +193,9 @@ The build reads only the committed `poz_*.json` snapshots. The current output co
     rail lines, rail corridors, `roads`, tram stops and signal nodes.
   - `poz-water.mjs`: water polygons; `land` (the detail box minus water on a 2 m raster) with `landHoles`; `outskirts`
     with `outskirtsHoles`; `isLandAt`.
-  - `poz-extra.mjs`: parks and the park-coverage pass, landmarks (with `ang`), districts and labels.
+  - `poz-extra.mjs`: parks and the park-coverage pass, landmarks (with `ang`), districts and labels. `GEO.parks` keeps
+    named parks/gardens/woods from 2,000 m² and other green patches from 1 ha; the three small map lawns around the
+    Teatr Polski square are keep-listed by OSM id (way/427596769–71) so the landmark forecourt stays planted.
   - `poz-blocks.mjs`: curb islands on a 1 m raster over the detail box (13,612 × 5,677 cells after Etap 2 of the
     2026-11-08 west expansion; 9,743 × 5,677 after Etap 1, 8,168 × 5,677 before it and 6,126 × 3,674 before the
     2026-10-28 enlargement). The Ławica aerodrome outline (`aeroway=aerodrome`, 2.81 km²) is cleared after the railway

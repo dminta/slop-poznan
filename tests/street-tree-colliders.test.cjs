@@ -57,8 +57,9 @@ test('street trees carry player colliders, including Rybaki', async () => {
   // same player list as the street rows; count them separately rather than letting them hide a missing street trunk.
   const osmParkTrees = sites.filter((t) => t.source === 'osm' && t.tier === 0).length;
   // 25,771 before the 2026-11-10 legacy gate (310 surveyed park trees now under its courtyard buildings); 25,461 before
-  // a mapped tree within 4 m of a plaza planter yielded to the planter's own tree (Wilda, (-396.2, 1068.6))
-  assert.equal(osmParkTrees, 25460, 'surveyed OSM park trees');
+  // a mapped tree within 4 m of a plaza planter yielded to the planter's own tree (Wilda, (-396.2, 1068.6)); 25,460
+  // until the Teatr Polski forecourt freed one lawn tree at (-617.3, 20.6) from a generic frontage wall.
+  assert.equal(osmParkTrees, 25461, 'surveyed OSM park trees');
 
   const colliders = details.colliders;
   const trunkColliders = colliders.filter((c) => c.isTrunk);

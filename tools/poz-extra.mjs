@@ -155,11 +155,17 @@ function parkCoverage(outline, res = 1) {
 // (Park Sołacki, Park Kasprowicza, Junikowo, Miłostowo) so the city map has its big greens. 1 m simplification inside,
 // 3 m outside.
 const DRAW_PAD = 500;
+// The three lawns of the Teatr Polski square (370, 493 and 1,425 m²) are below the 1 ha grass threshold, but they are
+// the real garden in front of and beside the theatre: keeping them draws the garden and lets buildings.js parkFreeCells
+// keep the frontage off it. The largest one (way/427596769) crosses the 27 Grudnia curb and stays paving there, as
+// city-grid does for every part-park ring that reaches a street.
+const KEEP_SMALL_PARKS = new Set(['way/427596769', 'way/427596770', 'way/427596771']);
 const parks = [];
 for (const p of parkRings) {
   const inside = bbHitsBox(p.bb, DRAW_PAD);
   const keep = inside
-    ? p.area_m2 >= 10000 || (p.area_m2 >= 2000 && (p.name || ['park', 'garden', 'cemetery', 'forest'].includes(p.cat)))
+    ? p.area_m2 >= 10000 || KEEP_SMALL_PARKS.has(p.id) ||
+      (p.area_m2 >= 2000 && (p.name || ['park', 'garden', 'cemetery', 'forest'].includes(p.cat)))
     : p.area_m2 >= 50000 && p.name && ['park', 'cemetery'].includes(p.cat);
   if (!keep) continue;
   const rings = p.outer.filter((r) => Math.abs(ringArea(r)) > 300).map((r) => flat(cleanRing(r, inside ? 1 : 3))).filter((r) => r.length >= 6);

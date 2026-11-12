@@ -98,20 +98,22 @@ test('seeded species assignment preserves the full built city tree sites and col
   // The 2026-11-10 legacy layout gate (4d14df9 kamienice in the dense districts, clipped yards, trimmed legacy
   // buildings) moves the building colliders and therefore the street/park tree sites and their species counts.
   // The same day a mapped tree 3.4 m off a Wilda plaza planter yields to the planter's tree instead of emptying it.
-  assert.deepEqual(before, [45706, 49560, 21965, 1985]);
-  assert.deepEqual(after, [43834, 47502, 21059, 6821]);
-  assert.equal(siteHash, '04a74558e50abddef1ef9546b5f64d7dbf1843d43fe78ae8f127512b106f7ad3');
+  // The Teatr Polski forecourt reserve (2026-11-12) frees one surveyed lawn tree at (-617.3, 20.6) that a generic
+  // frontage building had rejected; it adds one site (species 3) and moves the site/collider pins.
+  assert.deepEqual(before, [45707, 49560, 21965, 1985]);
+  assert.deepEqual(after, [43834, 47502, 21059, 6822]);
+  assert.equal(siteHash, '777151d9619d0e73edb6ca196989c1f4054a14c2b0aa45334a903164dc402614');
   assert.equal(digest(grid.propColliders), 'b8e7bc624e624fc37e20965597f1d6ef22cfda6115bbe111e695a8d1f5ded04d');
-  assert.equal(digest(details.colliders), '9e4d701b0ce524b506e2cb0b019dc3bfebe5419dc0985ac083fb932d1e1e47e1');
+  assert.equal(digest(details.colliders), '4127f80031c972063dc17f424729a77cc489d61f033fe9a80ef33529bab7f699');
   assert.equal(meshCount((t) => t.species || 0), 25477);
-  assert.equal(meshCount(treeSpecies), 30363);
+  assert.equal(meshCount(treeSpecies), 30366);
   // Every surveyed node the clearance rules accept reaches the field exactly at its OSM position. The rest are dropped
   // where a wall, lane, track, water or building doorway leaves no room, or within 4 m of a plaza planter whose own tree
   // stands for them, rather than moved off the surveyed point.
   const osm = sites.filter((t) => t.source === 'osm');
   // 33,073 before the 2026-11-10 legacy gate: its kamienice and oficyny stand where the mapped objects left room for
   // 331 surveyed trees (a dropped node is never moved, see above)
-  assert.equal(osm.length, 32741);
+  assert.equal(osm.length, 32742);
   assert.ok(osm.every((t) => t.tier === 0 || (t.pitRot !== undefined && Number.isFinite(t.pitRot))));
   assert.ok(osm.every((t) => Number.isFinite(t.x) && Number.isFinite(t.z) && t.scale >= 0.55 && t.scale <= 1.3));
 });

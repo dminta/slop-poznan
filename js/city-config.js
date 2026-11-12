@@ -1473,6 +1473,22 @@ const ZAMEK_FORECOURT = [
   [-1048, -985, 92, 133]
 ];
 
+// The Teatr Polski forecourt: the open square between the theatre's south front and the north curb of ul. 27 Grudnia,
+// from Okrąglak to the Ratajczaka frontage. The three mapped lawns (way/427596769, way/427596770 and
+// way/427596771) and the paved entrance path are the real garden; the 1892 front tenement that once closed it off was
+// demolished after the war, so the checked-in OSM has no buildings in front of the theatre (pl.wikipedia "Teatr Polski
+// w Poznaniu"; the 2024 local plan article on the green theatre forum). buildings.js reserves the square (world x0,
+// x1, z0, z1; north is -z), because block 631's generic 27 Grudnia frontage frames used to fill it with tenements
+// against the façade.
+// The second rect is the real lawn/passage between the theatre's east side and 3 Maja 47; it stops at the mapped
+// building's west face (x -668.4) so that building keeps its lot.
+// x0 stays east of Okrąglak's world AABB (max x −780.8): a reserve over that mapped object would drop it. The 6 m
+// strip between the reserve and the wall is narrower than the 12 m lot minimum, so no generic building fits there.
+const TEATR_POLSKI_FORECOURT = [
+  [-780, -603, 12, 40],
+  [-690, -668, -10, 12]
+];
+
 // Street-level arrivals shared by every travel mode (docs/poznan-plan.md Phase 12.4). Heading 0 faces south (+z),
 // PI north; each faces its landmark. The points sit on a roadway centreline (tests/teleports.test.cjs).
 // `to`: a LANDMARK_SITES name or an { x, z } point to face.
@@ -1954,6 +1970,7 @@ export {
   SPAWN,
   SRODKA_MURAL,
   ZAMEK_FORECOURT,
+  TEATR_POLSKI_FORECOURT,
   RAISED_GROUND,
   getLocationLabel,
   STREET_JOIN,

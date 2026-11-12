@@ -1104,6 +1104,79 @@ test('the Zamek Cesarski forecourt stays open towards Święty Marcin', async ()
   assert.deepEqual(hits, [], `generic buildings block the castle from Święty Marcin: ${hits.join('; ')}`);
 });
 
+test('the Teatr Polski forecourt stays open from ul. 27 Grudnia to the portico', async () => {
+  const { config, city, GEO } = await buildCity();
+  const site = config.LANDMARK_SITES['Teatr Polski'];
+  assert.ok(site, 'Teatr Polski is a landmark site');
+  const forecourt = config.TEATR_POLSKI_FORECOURT;
+  assert.ok(Array.isArray(forecourt) && forecourt.length >= 1, 'city-config reserves the theatre forecourt');
+  // The real square between the theatre's south front and the north curb of ul. 27 Grudnia, aligned with the portico
+  // (site centre x -700.9, front at site z +20.05). The 1892 front tenement was demolished: the checked-in OSM has no
+  // building here, and the two mapped lawns (way/427596769 and way/427596771) still are the square's garden.
+  const zone = { x0: -720, x1: -688, z0: 16, z1: 40 };
+  const union = {
+    x0: Math.min(...forecourt.map((r) => r[0])),
+    x1: Math.max(...forecourt.map((r) => r[1])),
+    z0: Math.min(...forecourt.map((r) => r[2])),
+    z1: Math.max(...forecourt.map((r) => r[3]))
+  };
+  assert.ok(union.x0 <= zone.x0 && union.x1 >= zone.x1 && union.z0 <= zone.z0 && union.z1 >= zone.z1,
+    'the reserved forecourt covers the entrance view zone');
+  // The theatre's OSM outline must stay free of generic footprints too (its landmark reserve, not the square).
+  const ring = site.ring;
+  const ringPoints = [];
+  for (let i = 0; i + 1 < ring.length; i += 2) ringPoints.push({ x: ring[i], z: ring[i + 1] });
+  const siteBox = {
+    x0: Math.min(...ringPoints.map((p) => p.x)), x1: Math.max(...ringPoints.map((p) => p.x)),
+    z0: Math.min(...ringPoints.map((p) => p.z)), z1: Math.max(...ringPoints.map((p) => p.z))
+  };
+  const hits = [];
+  for (const blk of city.allBlocks) {
+    for (const f of blk.footprints) {
+      const pts = f.pts || [
+        { x: f.x0, z: f.z0 }, { x: f.x1, z: f.z0 }, { x: f.x1, z: f.z1 }, { x: f.x0, z: f.z1 }
+      ];
+      const x0 = Math.min(...pts.map((p) => p.x)), x1 = Math.max(...pts.map((p) => p.x));
+      const z0 = Math.min(...pts.map((p) => p.z)), z1 = Math.max(...pts.map((p) => p.z));
+      if (x1 > zone.x0 && x0 < zone.x1 && z1 > zone.z0 && z0 < zone.z1) {
+        hits.push(`forecourt ${blk.id} (${f.h.toFixed(1)} m at ${x0.toFixed(1)}, ${z0.toFixed(1)})`);
+      }
+      if (x1 > siteBox.x0 && x0 < siteBox.x1 && z1 > siteBox.z0 && z0 < siteBox.z1) {
+        hits.push(`theatre ${blk.id} (${f.h.toFixed(1)} m at ${x0.toFixed(1)}, ${z0.toFixed(1)})`);
+      }
+    }
+  }
+  assert.deepEqual(hits, [], `generic buildings stand on the theatre or its forecourt: ${hits.join('; ')}`);
+  // No generated wall may cross the walk from the 27 Grudnia pavement to the portico. A 2.2 m corridor covers the
+  // player and the collision radius; the portico's terrace is at the site's local z 20.05 (world z about 15.3).
+  const from = { x: -704.5, z: 40 };
+  const to = { x: -703.5, z: 18 };
+  const blocks = [];
+  const walls = [];
+  for (let i = 0; i <= 44; i++) {
+    const t = i / 44;
+    const x = from.x + (to.x - from.x) * t;
+    const z = from.z + (to.z - from.z) * t;
+    if (i === 0 || i === 44) blocks.push(config.blockAt(x, z));
+    if (!(config.roadClearance(x, z) >= 0)) walls.push(`roadway at ${x.toFixed(1)}, ${z.toFixed(1)}`);
+    for (const c of city.colliders) {
+      if (c.maxX < x - 1.1 || c.minX > x + 1.1 || c.maxZ < z - 1.1 || c.minZ > z + 1.1) continue;
+      if (c.minY > 2) continue;
+      walls.push(`wall at ${x.toFixed(1)}, ${z.toFixed(1)} (${c.minX.toFixed(1)}..${c.maxX.toFixed(1)}, ` +
+        `${c.minZ.toFixed(1)}..${c.maxZ.toFixed(1)})`);
+    }
+  }
+  assert.ok(blocks.every((b) => b && b.id === 631), `the walk stays on block 631: ${blocks.map((b) => b && b.id)}`);
+  assert.deepEqual(walls, [], `the passage from ul. 27 Grudnia to the portico is blocked: ${walls.join('; ')}`);
+  // The two real lawns remain in the drawn park layer, so the reserved square reads as a garden, not a bare slab.
+  const lawns = (GEO.parks || []).filter((p) => p.cat === 'grass' && p.rings.some((r) => {
+    const pts = [];
+    for (let i = 0; i + 1 < r.length; i += 2) pts.push({ x: r[i], z: r[i + 1] });
+    return pointInPoly(pts, -730, 30) || pointInPoly(pts, -660, 35);
+  }));
+  assert.ok(lawns.length >= 2, `the theatre forecourt keeps its two OSM lawns: ${lawns.length}`);
+});
+
 // Distance from (x, z) to the centreline of the named streets
 function roadDistance(ways, x, z) {
   let best = Infinity;
