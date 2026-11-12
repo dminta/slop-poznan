@@ -1710,11 +1710,13 @@ function buildStreetDetails(scene, opts = {}) {
         // after rings 0..ring-1 every unvisited edge is at least (ring - 1) cells away
         const bound = (ring - 1) * idx.cell - 1e-9;
         if (bound > 0 && best < bound) break;
-        for (let ix = gx - ring; ix <= gx + ring; ix++) {
-          if (ix < 0 || ix >= idx.cols) continue;
-          for (let iz = gz - ring; iz <= gz + ring; iz++) {
+        // Visit the perimeter directly: mapped park trees can stand hundreds of cells inside a block. Scanning
+        // every square's interior just to skip it makes that search cubic in the distance from the curb.
+        for (let ix = Math.max(0, gx - ring); ix <= Math.min(idx.cols - 1, gx + ring); ix++) {
+          const side = ix === gx - ring || ix === gx + ring;
+          const step = side || ring === 0 ? 1 : 2 * ring;
+          for (let iz = gz - ring; iz <= gz + ring; iz += step) {
             if (iz < 0 || iz >= idx.rows) continue;
-            if (ring > 0 && ix !== gx - ring && ix !== gx + ring && iz !== gz - ring && iz !== gz + ring) continue;
             const c = iz * idx.cols + ix;
             for (let k = idx.starts[c], end = idx.starts[c + 1]; k < end; k++) test(idx.edges[k]);
           }

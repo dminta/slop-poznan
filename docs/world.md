@@ -14,6 +14,12 @@ their bbox in the nearest queries, buckets poles in 4 m cells and tests each via
 The same arithmetic answers every query; the headless block build fell from 5.1 to 1.9 s and the headless tram/rail
 layout from 1.8/2.0 s to 0.66/1.34 s, with every build hash unchanged.
 
+Boot part 4 adds a nearest-distance hierarchy to the same single-block outline cache: median splits and eight-edge
+leaves prune by conservative bounds, then run the original squared-distance arithmetic. The cache is replaced on the
+next block and cleared after construction. Mapped-tree curb searches now visit only each grid ring's perimeter,
+including clipped rings and first-edge distance ties; they no longer walk the square interior just to skip it.
+See [the measurements and equivalence checks](observations/perf-boot-4-2026-11-12.md).
+
 Street-details clears its private curb-edge, wall, tree-neighbour, tree-lane, mapped-tree and lot-frame placement
 indexes after tree construction; its later signal-head audit and light updates do not read them. The railway
 collision callback captures only the final raster tiles, outside the layout scope, so it does not retain the lane,

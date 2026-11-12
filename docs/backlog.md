@@ -149,6 +149,9 @@ share are not thinned; [central-density record](observations/central-density-202
   Opaque shadow shader consolidation cuts programs 287 → 224 high / 267 → 206 low and median compile + warm-up
   8–18% across tiers/profile-cache states, with equivalent screenshots on both backends
   ([record](observations/perf-shaders-2026-11-12.md)).
+  Boot part 4 removes curb-ring interior visits, short-circuits corner-link band checks and adds an outline-distance
+  hierarchy: precompile init 7.16 → 6.70 s at 1× / 45.42 → 42.74 s at 6×, with identical build hashes and unchanged
+  retained heap ([record](observations/perf-boot-4-2026-11-12.md)).
   Next steps, in order:
   1. **Measure real devices** with `?stats=1` (a phone in the default low tier, an integrated-GPU laptop, an iPad in
      Safari where the GPU model is masked) and let those reports pick the next target; extend the GPU table in
@@ -159,8 +162,10 @@ share are not thinned; [central-density record](observations/central-density-202
      route/collider/guide indexes and shader NodeData (~38 MB) dominate. Use real-device measurements to justify
      further exact packing or geometry deduplication; shader-cache release needs a renderer-supported lifecycle.
      Post-upload attribute release remains unsafe in the pinned three.js; keep GEO/BLOCKS late-reader inputs.
-  4. **Remaining boot entries** after three index passes: `nearestCurbFrame`, `pointInPolyIndexed`, `roadClearance`,
-     `outlineDist`; take a new browser profile first, no further index is obvious.
+  4. **Remaining boot work** after four passes: `pointInPolyIndexed`, `roadClearance` and `railClearance` lead
+     the new 6× profile (2.62 / 1.82 / 1.21 s self); investigate caller counts and exact segment pre-tests before
+     adding more indexes. CityGrid (~9.6 s), traffic including signal placement (~10.4 s) and culling (~2.5 s)
+     remain larger phase budgets; use real-device profiles to justify packing, workers or deferred work.
   5. **Off-screen instances** (68 % at Rynek in the audit, per-chunk culling): finer culling for the heaviest instanced
      meshes, measured against the draw-call cost it adds.
   6. Tree LOD / draw distance for the high tier (low already has its own profile), only if real devices need it.

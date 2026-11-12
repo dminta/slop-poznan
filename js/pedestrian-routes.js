@@ -825,6 +825,8 @@ function createPedestrianRoutes(
         const p = block.poly[j], q = block.poly[k], dx = q.x - p.x, dz = q.z - p.z;
         const t = Math.max(0, Math.min(1, ((x - p.x) * dx + (z - p.z) * dz) / (dx * dx + dz * dz || 1)));
         distance = Math.min(distance, Math.hypot(x - p.x - dx * t, z - p.z - dz * t));
+        // Only membership in the 4 m curb band is read; later edges cannot invalidate an accepting distance.
+        if (distance <= 4) break;
       }
       if (distance > 4) return false;
     }

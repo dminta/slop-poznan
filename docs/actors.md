@@ -25,6 +25,11 @@ checks reachability in both directions through the actual walking links; full-sc
 - `js/actor-models.js` holds the vehicle geometry and TSL materials (cars, bus, trams, and the player's helicopter). `js/vehicle-lights.js` holds the one headlight profile shared by street traffic, trams and the player's taxi.
 - `main.js` calls `trafficSystem.update(dt, elapsed, cameraSystem.currentPos, activeEntity, activeMode, camera)`. The **focus is the camera position, not the player**. Consumers of the returned `cars`/`buses`/`peds`: `audio-sources.js` (reads `edge, x, z, speed, acc, driver.a, yaw, yawOffset, isPolice, isSUV, bus, wait, gap, leaderSpeed, conn, yielding`; for peds `placed, v, conversation, rig.feet`, plus track fields) and the `city-map.js` radar. Renaming these fields breaks those modules.
 
+Corner-link clearance still samples the same one-metre steps inside the same block and requires every sample within
+4 m of its curb outline. Its edge scan now stops at the first distance at most 4 m: only band membership is read,
+and subsequent edges can only reduce the minimum. No route geometry or acceptance threshold changes
+([boot part 4](observations/perf-boot-4-2026-11-12.md)).
+
 ## Street simulation model
 
 Shared crossings span a parallel outgoing-only arm and incoming-only arm in the same signal group, at the outgoing

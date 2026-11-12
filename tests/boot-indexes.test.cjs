@@ -52,7 +52,7 @@ const plainDist = (poly, x, z) => {
 
 const DIRECTIONS = [[1, 0], [0, 1], [-1, 0], [0, -1], [0.6, 0.8], [-0.6, 0.8], [0.8, -0.6], [-0.8, -0.6]];
 
-test('outlineRay edge grid matches the plain ray cast; distances stay a full scan', async () => {
+test('outline rays and the distance hierarchy match the plain scans', async () => {
   const { BLOCKS } = await import('../js/city-config.js');
   const slice = cut(read('buildings.js'), '  const FRONT_REACH = 10;',
     "  // World point (x, z) inside one of the source block's lot rects");
@@ -80,6 +80,16 @@ test('outlineRay edge grid matches the plain ray cast; distances stay a full sca
           }
         }
       }
+    }
+    // The hierarchy is also queried well inside and outside the outline, where the ray's fixed reach is irrelevant.
+    const xs = poly.map(p => p.x), zs = poly.map(p => p.z);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), z0 = Math.min(...zs), z1 = Math.max(...zs);
+    let seed = poly.length + 1;
+    const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+    for (let i = 0; i < 60; i++) {
+      const x = x0 - 100 + rnd() * (x1 - x0 + 200), z = z0 - 100 + rnd() * (z1 - z0 + 200);
+      assert.equal(outlineDist(x, z), plainDist(poly, x, z), `block ${b.id} interior/exterior distance`);
+      compared++;
     }
   }
   assert.ok(compared > 50000, `compared ${compared} outline samples`);
@@ -358,7 +368,8 @@ test('the curb edge grid gives the same nearest frame and reach answer', async (
   const blocks = BLOCKS.filter((b) => b.poly.length >= 3).filter((b, i) => i % 25 === 0).slice(0, 80);
   const synthetic = [
     { poly: [{ x: 0, z: 0 }, { x: 40, z: 0 }, { x: 40, z: 0 }, { x: 40, z: 40 }, { x: 4, z: 40 }, { x: 4, z: 8 },
-      { x: 0, z: 8 }] }
+      { x: 0, z: 8 }] },
+    { poly: [{ x: 0, z: 0 }, { x: 1024, z: 0 }, { x: 1024, z: 512 }, { x: 0, z: 512 }] }
   ];
   let compared = 0;
   for (const b of [...blocks, ...synthetic]) {
@@ -374,7 +385,11 @@ test('the curb edge grid gives the same nearest frame and reach answer', async (
     }
     let seed = b.poly.length * 7 + 1;
     const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
-    for (let i = 0; i < 12; i++) seen.push([-10 + rnd() * 60, -10 + rnd() * 60]);
+    const xs = b.poly.map(p => p.x), zs = b.poly.map(p => p.z);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), z0 = Math.min(...zs), z1 = Math.max(...zs);
+    // Deep interiors exercise large rings clipped by each side of the grid, including equal-distance ties.
+    for (const t of [0.1, 0.25, 0.5, 0.75, 0.9]) seen.push([x0 + (x1 - x0) * t, z0 + (z1 - z0) * t]);
+    for (let i = 0; i < 12; i++) seen.push([x0 - 10 + rnd() * (x1 - x0 + 20), z0 - 10 + rnd() * (z1 - z0 + 20)]);
     for (const [x, z] of seen) {
       for (const reach of [0, 0.598, 0.7]) {
         const actual = api.blockCurbDist(x, z, b, reach);

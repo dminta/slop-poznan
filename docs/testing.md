@@ -79,7 +79,7 @@ Know which one covers the code you are editing. Two of them are coupled to the e
    - `opaque-shadows` slices `prepareOpaqueShadows` in `tsl-materials.js` through the final `export {` marker,
      checking the build-time scene/shadow branch and the exclusions for alpha, masks and transmission.
    - `facade-projection` slices `js/tsl-materials.js` between markers: `const facadeNormalVertex =`, `function facadeCell(`, `let bayWidth`, `const evaluateApartmentInterior`, `const rayWorld =` and `// Slab intersection`.
-   - `boot-indexes` slices the boot indexes from their source: the buildings block outline grid and
+   - `boot-indexes` slices the boot indexes from their source: the buildings block outline grid, nearest-distance hierarchy and
      `outlineRay`/`outlineDist` (`const FRONT_REACH = 10;` to the lot-rect comment), the bridge corridors and SAT
      (`const bridgeCorridors = [];` to `const SIDES = `), `segmentGrid` (`function segmentGrid(cell = 24, walk = false) {`
      to the lane-distance comment), the tram pole block (`const poleCells = new Map();` to the `// March out from the track`
@@ -90,6 +90,12 @@ Know which one covers the code you are editing. Two of them are coupled to the e
      keep-out `fillRect`, `crossingRuns` (inside `clearOpposingTracks`), the packed `createFootprintIndex` factory and
      its curb/obstacle setup, and the whole land-raster IIFE; it also runs
      `pavedPlazas()` with and without the road-segment buckets. Keep those markers aligned when the functions move.
+
+   - `boot-indexes-4` slices `cornerClear` from `  function cornerClear(a, b, block) {` to
+     `  // Clearance for a fallback connector:` in pedestrian-routes.js. It compares the 4 m early exit with the plain
+     full scan on real outlines, exact band boundaries and degenerate edges, and counts distance calls to pin the
+     early exit. The existing `boot-indexes` tests also cover deep/clipped curb rings and interior/exterior outline
+     hierarchy queries against the plain scans.
 
    If you rename, re-indent, reorder or reformat around these markers, the tests break. So do new free variables in a sliced block that the test context does not provide. When that happens, update the test's markers and context in the same change. Keep the tested behaviour as it is.
 3. **Real ESM import.** `teleports`, `signals`, `city-text` and `road-network` tests run `await import('../js/city-config.js')` (signals and road-network also import `geodata.js`; road-network feeds both into a `loadModule`d `road-network.js`), and `geodata.test.mjs` imports a freshly built `geodata.js`. **`js/city-config.js` and `js/geodata.js` must import nothing beyond each other or other Node-loadable relative files.** A bare specifier such as `'three/webgpu'` cannot be resolved in Node, so adding one breaks these tests.
