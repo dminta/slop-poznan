@@ -17,6 +17,17 @@ as ESM without a package.json depends on Node's automatic module-syntax detectio
 
 No test runs a browser, WebGPU, TSL shader compilation or a screenshot comparison. Tests that touch shader or scene code (`facade-projection`, `vehicle-lights`) re-implement or stub the TSL nodes and check only the math. Any change to geometry, materials, TSL nodes, lighting, post-processing or culling has to be checked by hand: serve the app and look in a WebGPU browser. `WebGPURenderer` falls back to WebGL2 when WebGPU is unavailable, and `js/main.js` branches on `renderer.backend.isWebGPUBackend` (for example for instanced attributes). If you touch that kind of code, check the fallback too. Watch the browser console, because shader and node errors show up only there.
 
+The [worker boundary study](observations/perf-workers-2026-11-12.md) stopped at Stage 1: no production worker,
+fallback switch or new module exists, so no test markers or module-preload counts change. Its scratch harnesses
+rebuild the browser boot profiler, measure builder call trees and payload sizes, and compare a canonical tram layout;
+that is not a replacement for the 60 whole-build categories, query-reader equivalence, fallback/error protocol tests
+or backend/screenshot checks that a production worker change must pass. For future profiling, capture ready time at
+the `[init]` event, filter long tasks to that boot interval, and measure worker CPU and heap separately. In Chrome
+157, page CPU throttling does **not** throttle a dedicated worker (measured: config 385–405 ms at both 1× and 6×),
+and `Emulation.setCPUThrottlingRate` on the worker target is rejected. Scale or measure worker work separately;
+page-throttled page time against an unthrottled worker overstates any gain. The scratch harness lives under
+`.agent-task/perf/` and is not committed.
+
 ## Measuring performance on a real device
 
 Add `?stats=1` to the page URL (`https://slop-poznan.dominikminta.com/?stats=1`, or

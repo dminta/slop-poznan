@@ -57,6 +57,12 @@
   sidewalk/obstacle arguments; existing reduced headless callers retain that fallback. Keep both builders' obstacle
   inputs/order aligned when adding furniture. This avoids a second main-thread network build during browser boot.
 - `markInit(label)` logs phase timings once as `[init] ...`. Add a `markInit` call for any new heavy boot phase.
+- The [worker boundary study](observations/perf-workers-2026-11-12.md) maps the build's data dependencies and
+  measures the candidate payloads. It stopped at Stage 1: no production worker path ships, so this boot order is
+  unchanged and there is no worker/fallback switch. A worker result would need explicit serialization: the road
+  graph contains cycles, clearance closures and references to the original shared signal plans, and a document
+  import map does not resolve bare imports inside a module worker. The worker's 85 MiB config/geodata heap and the
+  dependency-chain overlap are why the current seams do not pay.
 
 ## Review URL parameters
 These switches are for browser checks and real-device measurements; none is persisted:
