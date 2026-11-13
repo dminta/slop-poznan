@@ -1,0 +1,68 @@
+{
+  "date": "2026-11-13",
+  "source": "GUGiK PZGiK, NMPT/NMT acquired 2024-09-17, PL-EVRF2007-NH / EPSG:2180; university tender dimensions. See docs/geodata.md.",
+  "raster": {
+    "sheet": "N-33-130-D-d-2-1",
+    "dsm": "https://opendata.geoportal.gov.pl/NumDaneWys/NMPT/80271/80271_1539191_N-33-130-D-d-2-1.asc",
+    "dtm": "https://opendata.geoportal.gov.pl/NumDaneWys/NMT/80272/80272_1539297_N-33-130-D-d-2-1.asc",
+    "method": "Nearest source cell NMPT minus NMT on global even-metre world lattice inside OSM exterior, excluding mapped holes; linear percentiles; NoData rejected. No mapped holes on these four ways. A30 unrepresented atrium remains in diagnostic statistics; use documented height instead."
+  },
+  "buildings": [
+    {
+      "id": "way/300946610",
+      "h": 18,
+      "basis": "Raster p90 rounded to 0.5 m; roof and plant mixture, not eaves.",
+      "rasterStats": {
+        "samples": 1225,
+        "median": 16.39,
+        "p90": 17.95,
+        "p95": 18.53,
+        "min": -0.06,
+        "max": 21.38
+      }
+    },
+    {
+      "id": "way/497154325",
+      "h": 12,
+      "basis": "Raster p90 rounded to 0.5 m; local ground slopes by about 4 m.",
+      "rasterStats": {
+        "samples": 903,
+        "median": 10.37,
+        "p90": 12.15,
+        "p95": 12.36,
+        "min": 3.17,
+        "max": 13.69
+      }
+    },
+    {
+      "id": "way/536004095",
+      "h": 12,
+      "basis": "Documented 11.80 m above-ground part rounded to 0.5 m. Raster includes sloping lower terrain and roof equipment; not the facade datum.",
+      "rasterStats": {
+        "samples": 1228,
+        "median": 14.21,
+        "p90": 16.58,
+        "p95": 17.12,
+        "min": 5.57,
+        "max": 18.35
+      },
+      "document": "https://info.put.poznan.pl/sites/default/files/zamowienia/4020/siwz/Specyfikacja%20Istotnych%20Warunk%C3%B3w%20Zam%C3%B3wienia%20WAIWIZ.pdf",
+      "page": 7
+    },
+    {
+      "id": "way/1330185469",
+      "h": 16.5,
+      "basis": "Documented 16.31 m above-ground part rounded to 0.5 m. 20.61 m is from foundations; 2024 raster is during construction.",
+      "rasterStats": {
+        "samples": 338,
+        "median": 16.71,
+        "p90": 17.77,
+        "p95": 18.04,
+        "min": 11.83,
+        "max": 19.81
+      },
+      "document": "https://info.put.poznan.pl/sites/default/files/zamowienia/4668/komunikaty/RPP-PFU%2006AR-Architektura_26.05.2023.pdf",
+      "page": 11
+    }
+  ]
+}

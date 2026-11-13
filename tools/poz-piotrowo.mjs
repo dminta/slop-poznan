@@ -9,6 +9,7 @@ const members = new Set(elements.filter(e => e.type === 'relation' && e.tags?.bu
   .flatMap(e => (e.members || []).map(m => m.type + '/' + m.ref)));
 const existing = new Set([9084535, 9084537, 497154325]);
 const measured = new Map(load('poz_piotrowo_heights.json').measurements.map(m => [m.id, m]));
+const modern = new Map(load('poz_piotrowo_modern_heights.json').buildings.map(m => [m.id, m.h]));
 // Historical DSM predates the modern northern buildings; near-zero differences there are ground, not roof heights.
 const estimated = new Set([300946610, 536004095, 1330185469, 497708234, 741982274, 922860630, 1537143706]);
 const buildings = [];
@@ -26,6 +27,7 @@ for (const e of elements) {
   const m = measured.get(e.type + '/' + e.id);
   if (m && m.samples >= 10 && !estimated.has(e.id)) h = Math.round(m.p90 * 2) / 2;
   if (e.id === 203590784) h = 7.7; // PP's connector tender, measured from ground-floor finished floor.
+  if (modern.has(e.type + '/' + e.id)) h = modern.get(e.type + '/' + e.id);
   buildings.push({ id: e.type + '/' + e.id, name: t.name || t.ref || 'Budynek PP', h: r1(h),
     kind: tower ? 'tower' : chemistry ? 'chemistry' : tennis ? 'tennis' : 'university',
     ring: flat(rings[0]), holes: elemRings(e, toWorld, 'inner').map(flat) });

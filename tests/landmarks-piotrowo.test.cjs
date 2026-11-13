@@ -44,7 +44,7 @@ function contains(c, x, z, y) {
 test('Piotrowo models use the campus OSM footprints and corrected heights without adding map pins or teleports', () => {
   const { group } = build();
   assert.deepEqual(group.children.slice(0, 3).map((c) => c.name), names);
-  assert.deepEqual(sites.map((s) => s.h), [17.7, 14.8, 12.5]);
+  assert.deepEqual(sites.map((s) => s.h), [17.7, 14.8, 12]);
   assert.deepEqual(sites.map((s) => s.holes.length), [1, 3, 0]);
   for (let i = 0; i < sites.length; i++) {
     const s = sites[i], bounds = new THREE.Box3().setFromObject(group.children[i]);
@@ -185,6 +185,10 @@ test('All mapped campus masses have roofs, shared materials and solid-footprint 
   const { group, colliders } = build();
   assert.equal(GEO.piotrowo.boundaries.length, 3);
   assert.equal(GEO.piotrowo.buildings.length, 42);
+  // Dated 2024 roof samples for chemistry; explicit above-ground dimensions for A30 and rectorate.
+  for (const [id, h] of [['way/300946610', 18], ['way/536004095', 12], ['way/1330185469', 16.5]]) {
+    assert.equal(GEO.piotrowo.buildings.find(s => s.id === id).h, h);
+  }
   for (const id of ['way/497154322', 'way/497154324', 'way/300946610', 'relation/1514954', 'way/1330185469',
     'way/497629139', 'way/497629140', 'way/497629141', 'way/497629148']) {
     assert.ok(GEO.piotrowo.buildings.some(s => s.id === id), id);

@@ -6,7 +6,8 @@ Implementation details and completed measurements live in the [topic docs](../AG
 
 ## Known gaps and follow-up investigations
 
-- **Piotrowo detail:** obtain recent height coverage for A28/A30/new rectorate/A29 (the GUGiK DSM predates them).
+- **Piotrowo heights:** confirm the new rectorate against a post-completion survey; its 16.5 m model height now
+  follows the documented 16.31 m above-ground portion. A28/A29 use 2024 elevation data; A30 uses PP’s 11.80 m dimension.
   Vault profiles, tagged pitch surfaces/markings and the circular lecture forecourt are implemented. See [world](world.md#piotrowo-campus-landmarks-2026-11-12-round-2) and
   [height evidence](geodata.md#piotrowo-campus-snapshot-2026-11-12).
 

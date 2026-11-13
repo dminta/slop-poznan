@@ -98,10 +98,49 @@ so this coverage plainly predates them. Do not interpret their near-zero differe
 | Library | 14.8 m | DSM p90 14.77 m; median 13.63; tree/plant maximum rejected; about ±1–2 m |
 | A1 / A3 towers | 35.5 m | DSM p90 35.70 / 35.69 m, rounded to 0.5 m; roof/plant mix, about ±1–2 m |
 | A1a connector | 7.7 m | [PP tender, PDF p.8](https://info.put.poznan.pl/sites/default/files/zamowienia/4079/siwz/Specyfikacja%20Istostnych%20Warunk%C3%B3w%20Zam%C3%B3wienia%20%C5%81%C4%85cznik_Dachy.pdf), from ground-floor finished floor |
-| Chemistry A28 | 17 m estimate | [PP brochure](https://www.put.poznan.pl/sites/default/files/2021-05/folder_cdwtch_2014.pdf), floor levels 0/3.98/7.95/11.93 m plus upper storey/roof plant; ±2 m |
-| Sports hall A29 | 12.5 m estimate | [PP photos](https://www.put.poznan.pl/node/16957), tall hall/upper cladding relative to doors and facade bays; ±2 m |
-| A30 / new rectorate | 10.2 / 13.6 m estimates | 3/4 OSM storeys × 3.4 m; ±2 m; historical raster unsuitable |
+| Chemistry A28 | 18 m | 2024-09-17 NMPT−NMT p90 17.95 m, rounded to 0.5 m; roof/plant mix, about ±1–2 m |
+| Sports hall A29 | 12 m | 2024-09-17 NMPT−NMT p90 12.15 m, rounded to 0.5 m; sloping ground, about ±1–2 m |
+| A30 | 12 m | [PP tender §2.5, PDF p.7](https://info.put.poznan.pl/sites/default/files/zamowienia/4020/siwz/Specyfikacja%20Istotnych%20Warunk%C3%B3w%20Zam%C3%B3wienia%20WAIWIZ.pdf): 11.80 m above-ground part, rounded to 0.5 m |
+| New rectorate | 16.5 m | [PP PFU 06AR §3.2, PDF p.11](https://info.put.poznan.pl/sites/default/files/zamowienia/4668/komunikaty/RPP-PFU%2006AR-Architektura_26.05.2023.pdf): 16.31 m above-ground part, rounded to 0.5 m; design dimension |
 | Other older buildings | cached p90 rounded to 0.5 m | at least 10 interior samples; small/missing modern objects retain OSM height/levels or 6 m placeholder |
+
+The **2026-11-13 height follow-up** uses `poz_piotrowo_modern_heights.json` for these four replacements; the
+historical cache remains unchanged. The GUGiK NMPT and NMT WFS sheet indexes identify the same
+**2024-09-17** laser campaign, sheet **N-33-130-D-d-2-1**, in PL-EVRF2007-NH / EPSG:2180:
+[NMPT, 0.5 m cells](https://opendata.geoportal.gov.pl/NumDaneWys/NMPT/80271/80271_1539191_N-33-130-D-d-2-1.asc)
+and [NMT, 1 m cells](https://opendata.geoportal.gov.pl/NumDaneWys/NMT/80272/80272_1539297_N-33-130-D-d-2-1.asc).
+No 2025/2026 NMPT or LiDAR sheet intersects the campus in the queried indexes. The WCS's other coverage,
+`DSM_PL-EVRF2007-NH`, has no acquisition metadata, so the dated original sheets take precedence.
+
+| Building / OSM way | Samples | 2024 median / p90 / p95, m | Use |
+| --- | --- | --- | --- |
+| A28 / 300946610 | 1,225 | 16.39 / 17.95 / 18.53 | p90 rounded to 18 m |
+| A29 / 497154325 | 903 | 10.37 / 12.15 / 12.36 | p90 rounded to 12 m |
+| A30 / 536004095 | 1,228 | 14.21 / 16.58 / 17.12 | diagnostic only; documented above-ground part |
+| Rectorate / 1330185469 | 338 | 16.71 / 17.77 / 18.04 | diagnostic only; construction-era survey |
+
+Samples use a global even-metre world lattice, nearest source cells and linear percentiles within each cached OSM
+outline, excluding mapped holes and NoData. These four ways have no mapped holes. A30's physical atrium is absent
+from its OSM polygon, so its lower returns remain in the diagnostic statistics. No footprint is changed here.
+A30 ground spans 58.59–63.58 m, while median roof elevation is 75.34 m. The national
+[LoD1 2024 Poznań archive](https://opendata.geoportal.gov.pl/InneDane/Budynki3D/LOD1/2024/30/3064.zip)
+(24.5 MB; GUGiK, CC BY 4.0) gives A30 `measuredHeight=16.70` m above minimum terrain, and A29 12.78 m.
+Those minimum-ground heights differ from the pointwise nDSM and the above-ground architectural dimension.
+A30's 11.80 m is also repeated in the university's
+[2020 completion magazine](https://info.put.poznan.pl/sites/default/files/GP_11_12_2020_1_0.pdf).
+Use that documented above-ground mass on the simulation's flat terrain, without adding the lower slope exposure
+or rooftop equipment to every wall. The rectorate's PFU distinguishes 16.31 m above ground from **20.61 m measured
+from foundations**, with four above-ground floors and one underground. Its 2024 construction-stage raster cannot
+establish the finished roof; a post-completion survey would provide stronger confirmation.
+
+The [GEOPOZ city model](https://sip.poznan.pl/model3d/) exposes LoD1/LoD2 tiles and roof/ground attributes, but
+metadata position links did not reliably match these footprints, so they were not used for calibration. GUGiK's
+current county index returned LoD1 2024 but no Poznań LoD2 download; A28 and rectorate had no strict footprint-centre
+match in that LoD1 sheet. Four-way-only OSM API requests returned 429; Overpass alternatives returned 406/403.
+The cached 4/3/3/4 storey tags remain unchanged and are no longer the height basis for these four buildings.
+Source responses, calculations and failures are recorded in the task evidence; compact statistics, URLs and
+per-building decisions are retained in the modern-height cache. GUGiK PZGiK elevation data is freely reusable;
+only derived height statistics are shipped, not raster or CityGML geometry.
 
 The connector document calls the towers nine-storey while OSM records ten above-ground levels. The raster-derived
 roof height avoids choosing a storey conversion to resolve that counting convention. The lecture drum/overhang

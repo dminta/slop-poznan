@@ -238,8 +238,9 @@ const LANDMARK_H = {
   'Ratusz': 61, 'Katedra': 62, 'Zamek Cesarski': 75, 'Bałtyk': 67, 'Okrąglak': 45, 'Collegium Altum': 103.35,
   'Andersia': 102.1, 'Poznań Financial Centre': 91, 'Novotel': 68, 'Nowy Rynek': 66, 'AND2': 116, 'Iglica': 64,
   'Pomnik Czerwca 1956': 21,
-  // GUGiK DSM minus DTM roof samples; sports hall postdates that coverage (photo estimate, ±2 m).
-  'Centrum Wykładowe PP': 17.7, 'Biblioteka Techniczna PP': 14.8, 'Hala Sportowa PP': 12.5,
+  // Lecture/library use historical DSM; the sports hall uses the dated 2024 NMPT/NMT calibration.
+  'Centrum Wykładowe PP': 17.7, 'Biblioteka Techniczna PP': 14.8,
+  'Hala Sportowa PP': load('poz_piotrowo_modern_heights.json').buildings.find(m => m.id === 'way/497154325').h,
   'Fara': 40, 'Zamek Królewski': 43, 'Brama Poznania': 18, 'Teatr Wielki': 27, 'Collegium Minus': 27,
   'Domki Budnicze': 14.4, 'Wieża Wójtowska': 20.5, 'Poznań Główny': 13.6, 'Stary Dworzec': 19.3, 'Avenida': 25.3,
   'Stary Browar': 42,

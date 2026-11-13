@@ -741,8 +741,10 @@ and night uniforms add no light pool or shader programs. There are no new map pi
 
 The lecture centre has a 10 m main roof and a 17.7 m auditorium/ventilation drum, rather than flattening its two
 large-volume storeys to 6.8 m. Its west ground wall is recessed 5 m beneath the upper volume at 4.8 m. The library
-reaches 14.8 m. The sports hall is a 12.5 m photo estimate. Heights, historical raster coverage limitations and
-modern-building estimates are documented in [`geodata.md`](geodata.md#piotrowo-campus-snapshot-2026-11-12).
+reaches 14.8 m. The sports hall is 12 m and chemistry A28 is 18 m, from the 2024-09-17 NMPT−NMT p90, rounded
+to 0.5 m. A30 is 12 m and the new rectorate 16.5 m, from PP’s documented 11.80 / 16.31 m above-ground portions.
+Sloping-ground raster heights are not substituted for those architectural datums. Footprints and mass breakdowns
+are unchanged. Heights, historical raster coverage limitations and the newer evidence are documented in [`geodata.md`](geodata.md#piotrowo-campus-snapshot-2026-11-12).
 
 All four mapped patios remain open. Boundary OBBs and 0.5 m scanline interior collider runs follow the walls,
 with separate lower/upper bands at the west overhang. Scanline boxes can overreach sloping edges by a fraction
