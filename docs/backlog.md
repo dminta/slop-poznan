@@ -175,6 +175,7 @@ share are not thinned; [central-density record](observations/central-density-202
      use real-device reports to justify a conservative hierarchy/range approach, measuring per-pass CPU and buffer
      uploads. Smaller heavy-mesh cells added 52–232 draws for only 0.7–2.6% extra triangle savings and were rejected.
   6. Tree LOD / draw distance for the high tier (low already has its own profile), only if real devices need it.
+  7. **High-altitude panoramic vistas** (e.g. Winogrady overlooking the city center) peak at 2,314 scene draws on High / 1,714 on Low as frustum depth accumulates chunks across open estate setbacks ([record](observations/perf-transitions-2026-11-14.md)).
   [Ranked opportunities](observations/perf-older-devices-2026-11-11.md).
 - Road levels and richer road-priority classification; revisit only with a runtime consumer.
 - Additional height sources (nDSM/LoD1/LoD2) and GEOPOZ machine-readable data: research candidates.
@@ -182,8 +183,10 @@ share are not thinned; [central-density record](observations/central-density-202
 ## Browser checks still outstanding
 
 The 2026-11-11 headless Chrome pass is recorded in
-[observations/browser-checks-2026-11-11.md](observations/browser-checks-2026-11-11.md). It covered part or all of the
-checks below; each remaining bullet is the part that is still open.
+[observations/browser-checks-2026-11-11.md](observations/browser-checks-2026-11-11.md); coverage transitions and
+Ławica airport draw-call / shadow costs across both backends were measured 2026-11-14 in
+[observations/perf-transitions-2026-11-14.md](observations/perf-transitions-2026-11-14.md). It covered part or all of
+the checks below; each remaining bullet is the part that is still open.
 
 ### Interface and performance
 
@@ -192,10 +195,6 @@ checks below; each remaining bullet is the part that is still open.
 - Verify shop-sign atlas mip bleed at grazing angles on WebGPU and WebGL2; per-instance cell selection, the two chain
   signs and the dusk/night spot colours were checked 2026-11-11 (all 28 cells in the live pool, `ŻABKA`/`BIEDRONKA`
   legible day, twilight and midnight).
-- Measure draw calls, shadow-pass share and the transitions across roof/dormer coverage, pool limits, estate slabs and
-  the outskirts on both backends; boot time and fps at seven viewpoints were measured 2026-11-11.
-- Measure Ławica's draw-call/shadow cost; the runway from the air and Bukowska, the terminals and jet bridges, the
-  markings and night lights, and the 3.5 cm tarmac/land join were checked 2026-11-11 with no z-fighting.
 
 ### Geometry, materials and collisions
 
