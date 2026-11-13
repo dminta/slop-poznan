@@ -1078,8 +1078,11 @@ function buildMaius(group, colliders, M) {
     for (const s of [-1, 1]) windowGrid(b, M, face('x', s * 15, s), spread(-24, -6, 4), [3.0, 8.5], 1.6, 3.2, { trim, shape: 'arch' });
     band(b, trim, face('z', -27, -1), -15, 15, 13.4, 0.6, 0.3);
     emit(obj, b);
-    // The aerial hall roof runs behind the dome along local z; its exact glazed profile remains unresolved.
-    pitchedRoof(obj, 30, 24, 3.5, M.glass, 0, 14, -15, { ridge: 'z', hip: 0.2 });
+    // GUGiK ortho (~13 × 17 m) and GEOPOZ obliques: a narrow glazed gable above flat roofs, not the curved
+    // interior ceiling. See the 2026-11-13 hall-roof record; the unmeasured 14 m eaves / 3.5 m rise stay as before.
+    // The deck overlaps the wall top and the slope feet by 5 cm to close joins without coplanar faces.
+    box(obj, 30, 0.1, 24, M.slate, 0, 13.95, -15);
+    pitchedRoof(obj, 13, 17, 3.5, M.glass, 0, 14, -15, { ridge: 'z' });
   }
 
   // --- The semicircular risalit, the avant-corps behind it, the drum, dome and lantern ---

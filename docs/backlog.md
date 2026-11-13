@@ -218,10 +218,10 @@ checks below; each remaining bullet is the part that is still open.
   4.6 m of the roadway or over a track); the Podgórna/Strzelecka aerial and the Wilda near-balcony pool
   (262 instances, five complete storeys, nearest 38 m) were checked 2026-11-11.
   [Alignment record](observations/street-alignment-2026-11-09.md).
-- Review the exact profile of Collegium Maius's glazed hall roof if better roof-level/interior evidence becomes
-  available; its local-z alignment is retained, but the aerial does not establish a simple hipped gable profile.
-  Orthophotos resolved the Bazar west-cap axis (keep z) and both Maius side-wing axes (changed to z).
-  [Roof evidence and captures, 2026-11-13](observations/kit-roofs-2026-11-13.md#architectural-ridge-review-2026-11-13).
+- Calibrate Collegium Maius hall weather-cover elevations and outer panel specification if a measured section or
+  dated refurbishment record becomes available. Its narrow gabled exterior above curved interior glazing is now
+  resolved from GUGiK/GEOPOZ imagery (13 × 17 m approximation); 14 m eaves / 3.5 m rise remain model assumptions.
+  [Hall-roof evidence, 2026-11-13](observations/kit-roofs-2026-11-13.md#hall-weather-roof-review-2026-11-13).
 - Continue landmark-placement and scenic-camera checks, panel-material shimmer, balcony LOD transitions and
   platform/slab flicker where surfaces are only 1 cm apart.
 - Check Most Świętego Rocha and Most Królowej Jadwigi from the bank; Most Chrobrego, Most Mieszka I and the 13 m Most
