@@ -38,7 +38,7 @@ scope.
 | 7 | Eleven historic landmarks, WebGPU + WebGL2, day/night | **partial + defects** (D1, D6) |
 | 8 | Open canopies from below/outside, tram/fuel/pergola, column collisions | **partial OK** (Dworzec Letni/Garbary and a moving train not checked) |
 | 9 | Street-aligned fallback lots, courtyard guard, Wilda near balconies | **partial OK** (Wilda passes; not every courtyard checked) |
-| 10 | Outward-facing x-ridge roofs | **could not check** |
+| 10 | Outward-facing x-ridge roofs | **OK, 2026-11-13 follow-up** — [geometry and sampled browser checks](kit-roofs-2026-11-13.md); ridge fidelity review remains |
 | 11 | Scenic cameras, panel shimmer, balcony LOD, platform/slab flicker | **partial** (no shimmer/flicker in stills; not a motion check) |
 | 12 | Bridges Chrobrego, Św. Rocha, Królowej Jadwigi, Mieszka I, Dworcowy | **partial** (Chrobrego, Mieszka I, Dworcowy OK; the other two not framed) |
 | 13 | Street-tree collision on Rybaki, OSM rows, tree frame cost | **partial OK** (collision deflects; rows/cost not checked) |
