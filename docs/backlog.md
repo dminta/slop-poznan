@@ -7,8 +7,7 @@ Implementation details and completed measurements live in the [topic docs](../AG
 ## Known gaps and follow-up investigations
 
 - **Piotrowo detail:** obtain recent height coverage for A28/A30/new rectorate/A29 (the GUGiK DSM predates them).
-  The campus masses and lawns are restored; tennis vault profiles, pitch markings/surface colours and the circular
-  lecture forecourt remain schematic. See [world](world.md#piotrowo-campus-landmarks-2026-11-12-round-2) and
+  Vault profiles, tagged pitch surfaces/markings and the circular lecture forecourt are implemented. See [world](world.md#piotrowo-campus-landmarks-2026-11-12-round-2) and
   [height evidence](geodata.md#piotrowo-campus-snapshot-2026-11-12).
 
 - **Pedestrian overlap residual:** at `5e6a68e` the eight-district audit (seeds 4242/77, 3 min) has no cluster

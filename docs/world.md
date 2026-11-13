@@ -755,10 +755,29 @@ of mixed northern blocks. Existing three-landmark reserves remain unchanged. Wit
 parts fall from 106 to 42; the remaining parts are outside university property. A 600 m audit covers the entire
 campus; outside hashes and all non-campus generic footprints (including inside that radius) stay identical.
 
-Mapped campus grass and outdoor pitch outlines are drawn through city-grid's existing lawn material, cut back
-from roads and rails. The existing paving between them supplies walkable paths; no whole-block slab is added.
-Ground layers follow the usual non-colliding lawn convention. Pitch surfacing/markings and the circular forecourt
-remain schematic. Computing also occupies BT/CW at Piotrowo 2: OSM's Instytut Informatyki and ECBiG nodes and PP
+Campus grass keeps city-grid's road/rail-cut lawn pass. The five tagged outdoor pitches instead use the existing
+landmark palette for green artificial turf/carpet, red rubber, terracotta clay and beige sand, with standard sport
+markings scaled uniformly to smaller outlines. The multi-sport carpet carries white football and ochre hockey
+layouts. These are inferred standard layouts rather than a survey of the current painted lines.
+
+The four tennis halls now have low 2.2 m side walls, 32-segment elliptical barrel vaults and closed end gables along
+their unchanged long axes. Ridge heights remain 8 / 7.5 / 8 / 8 m, from the historical DSM; eaves are estimated.
+The actual footprint clips every roof strip, with the existing 0.5 m scanline collider approach applied per strip
+above the eave as well as throughout the lower body. Roof-band colliders use the lower of each strip's end heights,
+so they do not create flat invisible walls beside the curved roof; the final small curved cap is approximate.
+
+The lecture forecourt is anchored to OSM's circular walkway at `(1092, 551.7)`, measured radius 20.35 m. Photo-based
+13.5 m central lawn and 28.3 m outer paving radii, shallow pale coping, a dark inset band and slab joints distinguish
+it from the surrounding paths. No unsupported furniture or retaining walls are added. See the
+[dimensions and evidence](geodata.md#piotrowo-campus-snapshot-2026-11-12) for measured versus estimated values.
+
+Ground layers remain non-colliding: lawn tops at .26 m, new surfaces at .275 m, white paint at .285 m and secondary
+hockey paint at .299 m, clear of sidewalk .22 m and path .238 m. These ground meshes batch per existing material
+separately from building casters under `Landmarks`; otherwise merging would restore shadow casting and cause
+self-shadow speckling on shallow layers. No new materials, shaders, runtime updates or light pools are added.
+The existing paving between mapped patches still supplies walkable paths; no whole-block slab is added.
+Headless Chrome day/midnight screenshots of campus, tennis halls, both pitch areas and street/low-aerial forecourt
+were checked on WebGPU and WebGL2 on 2026-11-13; screenshots and measurements are in `.agent-task/REPORT.md`. Computing also occupies BT/CW at Piotrowo 2: OSM's Instytut Informatyki and ECBiG nodes and PP
 staff contact pages confirm it. A25 at Polanka 3 is a separate site outside this scope.
 
 ## Batching

@@ -24,6 +24,12 @@ non-campus generic footprints (including nearby neighbours), and keep outside-60
 `roofs.test.cjs` checks that rewinding a discarded campus building leaves no roof instances or consumed capacity.
 The furnished audit in `tools/audit-tree-clearance.mjs` and park-paving fixture include the campus builder.
 
+The 2026-11-13 detail regressions also pin barrel-vault ridge/eave heights, ground-level solid hall collision and
+clear air beside the curved roof, all five source sport/surface tags, each standard marking layout (including both
+sports on the carpet) fitting inside its actual rotated outline, and the mapped 20.35 m forecourt walkway radius,
+13.5 m lawn opening and estimated 28.3 m paving radius. All non-colliding ground meshes have casting disabled;
+production batches these separately from building shadow casters. No source-slice markers changed.
+
 Round 1 pins: preloads 50 → 51; named landmarks 36 → 39; model-only map-label exemption. Round 2 adds no module
 preload, named landmark, teleport or UI destination. The reduced tree fixtures omit replacement landmark walls:
 removing campus housing restores 177 accepted OSM park trees (25,454 → 25,631), changing species/site/street-collider

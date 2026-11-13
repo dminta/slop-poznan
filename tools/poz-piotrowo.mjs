@@ -35,7 +35,11 @@ for (const e of load('poz_piotrowo_grounds.json').elements) {
   const r = elemRings(e, toWorld)[0];
   // Retain only complete campus patches; a river-bank lawn may extend beyond the university's property.
   if (!boundaries.some(b => r.every(([x, z]) => pointInRing(x, z, b)))) continue;
-  grounds.push({ id: 'way/' + e.id, kind: e.tags.landuse === 'grass' ? 'grass' : 'pitch', ring: flat(r) });
+  grounds.push({ id: 'way/' + e.id, kind: e.tags.landuse === 'grass' ? 'grass' : 'pitch',
+    ...(e.tags.leisure === 'pitch' ? { sport: e.tags.sport || '', surface: e.tags.surface || '' } : {}), ring: flat(r) });
 }
-const piotrowo = { boundaries: boundaries.map(flat), buildings, grounds };
+const forecourtWay = load('poz_piotrowo_forecourt.json').elements[0];
+const forecourt = { id: 'way/' + forecourtWay.id, surface: forecourtWay.tags.surface,
+  ring: flat(elemRings(forecourtWay, toWorld)[0]) };
+const piotrowo = { boundaries: boundaries.map(flat), buildings, grounds, forecourt };
 export { piotrowo };

@@ -206,3 +206,70 @@ test('All mapped campus masses have roofs, shared materials and solid-footprint 
     assert.ok(samples > 0, s.id);
   }
 });
+
+test('Tennis vaults retain measured ridges, estimated low eaves and the mapped footprint', () => {
+  const { group, colliders } = build();
+  for (const s of GEO.piotrowo.buildings.filter(s => s.kind === 'tennis')) {
+    const obj = group.children.find(o => o.name === s.name);
+    const roof = obj.children.find(m => m.geometry?.attributes?.position);
+    const ring = s.ring.reduce((a, _, i) => { if (i % 2 === 0) a.push([s.ring[i], s.ring[i + 1]]); return a; }, []);
+    const f = builder.campusFrame(ring);
+    const vertices = roof.geometry.vertices;
+    const centre = f.world(0, 0);
+    for (let i = 0; i < vertices.length; i += 3) {
+      const a = vertices[i], b = vertices[i + 1], c = vertices[i + 2];
+      const normal = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a));
+      const mid = a.clone().add(b).add(c).multiplyScalar(1 / 3);
+      assert.ok(normal.dot(mid.sub(new THREE.Vector3(centre[0], 2.2, centre[1]))) >= -0.001,
+        `${s.id} triangle ${i}: vault and closed gables face outwards`);
+    }
+    assert.ok(vertices.some(p => Math.abs(p.y - s.h) < 0.001), 'ridge uses unchanged DSM-derived height');
+    assert.ok(vertices.some(p => Math.abs(p.y - 2.2) < 0.001), 'roof meets 2.2 m low side wall');
+    assert.ok(f.width > 16 && f.width < 19 && f.length > 35 && f.length < 37);
+    for (const u of [-f.length / 3, 0, f.length / 3]) {
+      const [x, z] = f.world(u, 0);
+      assert.ok(colliders.some(c => contains(c, x, z, s.h - 0.1)), 'ridge solid, no walk-through hall');
+    }
+    const [x, z] = f.world(0, f.width / 2 - 0.1);
+    assert.ok(!colliders.some(c => contains(c, x, z, s.h - 0.5)), 'no flat invisible roof beside vault');
+  }
+});
+
+test('Mapped pitch tags choose surfaces and standard markings fit the actual rotated outlines', () => {
+  const pitches = GEO.piotrowo.grounds.filter(s => s.kind === 'pitch');
+  assert.deepEqual(pitches.map(s => [s.sport, s.surface]), [
+    ['soccer', 'artificial_turf'], ['basketball', 'rubber'], ['beachvolleyball', 'sand'],
+    ['tennis', 'clay'], ['soccer;field_hockey', 'carpet']
+  ]);
+  for (const s of pitches) {
+    for (const sport of s.sport.split(';')) {
+      const m = builder.campusMarkings(s, sport);
+      assert.ok(m.length <= m.f.length - 2.99 && m.width <= m.f.width - 2.99);
+      assert.ok(m.scale > 0 && m.scale <= 1);
+      for (const line of m.lines) for (let i = 0; i < 4; i += 2) {
+        const [x, z] = m.f.world(line[i], line[i + 1]);
+        assert.ok(inside(s.ring, x, z), `${s.id}: every paint endpoint inside pitch`);
+      }
+      if (s.sport === 'tennis') { assert.equal(m.length, 23.77); assert.equal(m.width, 10.97); }
+      if (s.sport === 'basketball') { assert.equal(m.length, 28); assert.equal(m.width, 15); }
+      if (s.sport === 'beachvolleyball') { assert.equal(m.length, 16); assert.equal(m.width, 8); assert.equal(m.lines.length, 4); }
+    }
+  }
+});
+
+test('Lecture forecourt is anchored to the mapped circular walkway and preserves a central lawn', () => {
+  const f = builder.campusForecourt();
+  assert.ok(Math.abs(f.x - 1092) < 0.1 && Math.abs(f.z - 551.7) < 0.1);
+  assert.ok(Math.abs(f.radius - 20.35) < 0.1);
+  const { group, colliders } = build();
+  const surfaces = group.children.find(c => c.name === 'Piotrowo nawierzchnie');
+  assert.ok(surfaces.children.some(m => m.material === M.concrete && m.geometry.parameters?.shape.holes.length === 1));
+  const paving = surfaces.children.find(m => m.material === M.concrete);
+  const radii = paving.geometry.vertices.map(p => Math.hypot(p.x - f.x, p.z - f.z));
+  assert.ok(Math.abs(Math.max(...radii) - 28.3) < 0.001, 'photo-scaled outer paving radius');
+  const hole = paving.geometry.parameters.shape.holes[0].points;
+  assert.ok(hole.every(p => Math.abs(Math.hypot(p.x - f.x, -p.y - f.z) - 13.5) < 0.001),
+    'central lawn opening');
+  surfaces.traverse(m => { if (m.isMesh) assert.equal(m.castShadow, false, 'ground avoids self-shadow speckle'); });
+  assert.ok(!colliders.some(c => contains(c, f.x, f.z, 1)), 'forecourt stays walkable');
+});

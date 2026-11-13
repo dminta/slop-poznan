@@ -2032,6 +2032,7 @@ function buildCityGrid(scene, opts = {}) {
     }
   }
   for (const surface of GEO.piotrowo?.grounds || []) {
+    if (surface.kind !== 'grass') continue;
     const ring = [];
     for (let i = 0; i < surface.ring.length; i += 2) ring.push({ x: surface.ring[i], z: surface.ring[i + 1] });
     for (const piece of cutSlab(ring, campusCuts, 0)) {

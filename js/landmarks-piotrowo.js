@@ -60,7 +60,8 @@ function buildColliders(colliders, s, rings, minY, maxY) {
   }
 }
 
-function buildPiotrowoLandmarks({ group, colliders, M }) {
+function buildPiotrowoLandmarks(ctx) {
+  const { group, colliders, M } = ctx;
   for (const name of PIOTROWO_NAMES) {
     const s = LANDMARK_SITES[name];
     if (!s) continue;
@@ -145,6 +146,7 @@ function buildPiotrowoLandmarks({ group, colliders, M }) {
     if (lecture) buildColliders(colliders, s, [ring, ...holes], 4.8, roof);
   }
   buildCampusMasses(group, colliders, M);
+  ctx.piotrowoGrounds = buildCampusGrounds(group, M);
 }
 
 // Modest university buildings keep their mapped concave plans. Only the skyline towers and chemistry centre
@@ -156,8 +158,11 @@ function buildCampusMasses(group, colliders, M) {
     group.add(obj);
     const ring = points(s.ring, { x: 0, z: 0 }), holes = s.holes.map(h => points(h, { x: 0, z: 0 }));
     const tower = s.kind === 'tower', chemistry = s.kind === 'chemistry', tennis = s.kind === 'tennis';
-    slab(obj, ring, holes, 0.24, s.h - 0.54, tennis ? M.plasterWhite :
-      chemistry ? M.facade.glassGreen : tower ? M.facade.glassBlue : M.facade.plasterCream);
+    if (tennis) {
+      buildTennisVault(obj, colliders, s, ring, M);
+      continue;
+    }
+    slab(obj, ring, holes, 0.24, s.h - 0.54, chemistry ? M.facade.glassGreen : tower ? M.facade.glassBlue : M.facade.plasterCream);
     slab(obj, ring, holes, s.h - 0.3, 0.3, M.zinc);
     for (let i = 0; i < ring.length; i++) {
       const a = ring[i], b = ring[(i + 1) % ring.length];
@@ -192,4 +197,185 @@ function buildCampusMasses(group, colliders, M) {
   }
 }
 
-export { buildPiotrowoLandmarks };
+// The longest mapped edge fixes the hall/court axis, without straightening or enlarging its footprint.
+function campusFrame(ring) {
+  let length = 0, ux = 1, uz = 0;
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i], b = ring[(i + 1) % ring.length], d = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (d > length) { length = d; ux = (b[0] - a[0]) / d; uz = (b[1] - a[1]) / d; }
+  }
+  const us = ring.map(p => p[0] * ux + p[1] * uz), vs = ring.map(p => -p[0] * uz + p[1] * ux);
+  const u0 = Math.min(...us), u1 = Math.max(...us), v0 = Math.min(...vs), v1 = Math.max(...vs);
+  return { ux, uz, u0, u1, v0, v1, length: u1 - u0, width: v1 - v0,
+    world: (u, v) => [(u + (u0 + u1) / 2) * ux - (v + (v0 + v1) / 2) * uz,
+      (u + (u0 + u1) / 2) * uz + (v + (v0 + v1) / 2) * ux] };
+}
+
+function clipCampusRing(ring, distance) {
+  const out = [];
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i], b = ring[(i + 1) % ring.length], da = distance(a), db = distance(b);
+    if (da >= 0) out.push(a);
+    if ((da >= 0) !== (db >= 0)) out.push([a[0] + (b[0] - a[0]) * da / (da - db),
+      a[1] + (b[1] - a[1]) * da / (da - db)]);
+  }
+  return out;
+}
+
+function buildTennisVault(obj, colliders, s, ring, M) {
+  const f = campusFrame(ring), eave = 2.2, base = 0.24, segments = 32;
+  const height = v => eave + (s.h - eave) * Math.sqrt(Math.max(0, 1 - (2 * v / f.width) ** 2));
+  slab(obj, ring, [], base, eave - base, M.plasterWhite);
+  buildColliders(colliders, { x: 0, z: 0 }, [ring], base, eave);
+  const positions = [], uv = [];
+  const tri = (a, b, c) => {
+    const centre = f.world(0, 0);
+    const normal = new THREE.Vector3().subVectors(new THREE.Vector3(...b), new THREE.Vector3(...a))
+      .cross(new THREE.Vector3().subVectors(new THREE.Vector3(...c), new THREE.Vector3(...a)));
+    const outward = new THREE.Vector3((a[0] + b[0] + c[0]) / 3 - centre[0],
+      (a[1] + b[1] + c[1]) / 3 - eave, (a[2] + b[2] + c[2]) / 3 - centre[1]);
+    if (normal.dot(outward) < 0) [b, c] = [c, b];
+    positions.push(...a, ...b, ...c);
+    for (const p of [a, b, c]) uv.push(p[0], p[2]);
+  };
+  for (let j = 0; j < segments; j++) {
+    const v0 = -f.width / 2 + f.width * j / segments, v1 = v0 + f.width / segments;
+    const project = p => -p[0] * f.uz + p[1] * f.ux - (f.v0 + f.v1) / 2;
+    const patch = clipCampusRing(clipCampusRing(ring, p => project(p) - v0), p => v1 - project(p));
+    if (patch.length < 3) continue;
+    const y = p => height(v0) + (height(v1) - height(v0)) * (project(p) - v0) / (v1 - v0);
+    const top = patch.map(p => [p[0], y(p), p[1]]);
+    for (let k = 1; k + 1 < top.length; k++) {
+      const a = top[0], b = top[k], c = top[k + 1];
+      if ((b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]) > 0) tri(a, b, c);
+      else tri(a, c, b);
+    }
+    // Gables are closed along the actual end outlines; internal strip faces are deliberately omitted.
+    for (let k = 0; k < patch.length; k++) {
+      const a = patch[k], b = patch[(k + 1) % patch.length];
+      if (Math.abs(project(a) - project(b)) < 1e-5) continue;
+      const lowA = [a[0], eave, a[1]], lowB = [b[0], eave, b[1]];
+      const highA = [a[0], y(a), a[1]], highB = [b[0], y(b), b[1]];
+      tri(lowA, highB, highA); tri(lowA, lowB, highB);
+    }
+    buildColliders(colliders, { x: 0, z: 0 }, [patch], eave, Math.min(height(v0), height(v1)));
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geometry.computeVertexNormals();
+  addMesh(obj, geometry, M.plasterWhite);
+}
+
+// White paint is geometry at y=.285 (hockey .299): above campus lawn (.26), sidewalk (.22) and park paths (.238).
+function campusMarkings(surface, sport = surface.sport.split(';')[0]) {
+  const ring = points(surface.ring, { x: 0, z: 0 }), f = campusFrame(ring), lines = [];
+  const tennis = sport === 'tennis', beach = sport === 'beachvolleyball';
+  const basketball = sport === 'basketball', hockey = sport.includes('field_hockey');
+  const length = tennis ? 23.77 : beach ? 16 : basketball ? 28 : hockey ? 91.4 : 105;
+  const width = tennis ? 10.97 : beach ? 8 : basketball ? 15 : hockey ? 55 : 68;
+  const scale = Math.min(1, (f.length - 3) / length, (f.width - 3) / width);
+  const lineWidth = (tennis || beach || basketball ? 0.05 : hockey ? 0.075 : 0.12) * scale;
+  const line = (a, b, c, d) => lines.push([a * scale, b * scale, c * scale, d * scale]);
+  const rect = (a, b, c, d) => { line(a, b, c, b); line(c, b, c, d); line(c, d, a, d); line(a, d, a, b); };
+  const arc = (u, v, r, start = 0, end = Math.PI * 2) => {
+    const n = Math.ceil((end - start) * 16);
+    for (let i = 0; i < n; i++) {
+      const a = start + (end - start) * i / n, b = start + (end - start) * (i + 1) / n;
+      line(u + r * Math.cos(a), v + r * Math.sin(a), u + r * Math.cos(b), v + r * Math.sin(b));
+    }
+  };
+  rect(-length / 2, -width / 2, length / 2, width / 2);
+  if (tennis) {
+    rect(-length / 2, -8.23 / 2, length / 2, 8.23 / 2);
+    line(-6.4, -8.23 / 2, -6.4, 8.23 / 2); line(6.4, -8.23 / 2, 6.4, 8.23 / 2);
+    line(-6.4, 0, 6.4, 0);
+    for (const sign of [-1, 1]) line(sign * length / 2, 0, sign * (length / 2 - 0.1), 0);
+  } else if (!beach) {
+    line(0, -width / 2, 0, width / 2);
+    if (basketball) {
+      arc(0, 0, 1.8);
+      for (const sign of [-1, 1]) {
+        rect(sign * 14, -2.45, sign * 8.2, 2.45);
+        arc(sign * 8.2, 0, 1.8);
+        // FIBA corner straights meet the 6.75 m arc 0.9 m in from each sideline.
+        const a = Math.asin(6.6 / 6.75), basket = sign * 12.425;
+        arc(basket, 0, 6.75, sign > 0 ? Math.PI - a : -a, sign > 0 ? Math.PI + a : a);
+        const u = basket - sign * Math.sqrt(6.75 ** 2 - 6.6 ** 2);
+        line(sign * 14, -6.6, u, -6.6); line(sign * 14, 6.6, u, 6.6);
+      }
+    } else if (hockey) {
+      for (const sign of [-1, 1]) {
+        line(sign * (45.7 - 22.9), -27.5, sign * (45.7 - 22.9), 27.5);
+        const x = sign * 45.7;
+        arc(x, -1.83, 14.63, sign > 0 ? Math.PI : -Math.PI / 2, sign > 0 ? Math.PI * 1.5 : 0);
+        arc(x, 1.83, 14.63, sign > 0 ? Math.PI / 2 : 0, sign > 0 ? Math.PI : Math.PI / 2);
+        arc(x - sign * 6.4, 0, 0.075);
+        line(x - sign * 14.63, -1.83, x - sign * 14.63, 1.83);
+      }
+    } else {
+      arc(0, 0, 9.15);
+      arc(0, 0, 0.1);
+      for (const sign of [-1, 1]) {
+        rect(sign * 52.5, -20.16, sign * (52.5 - 16.5), 20.16);
+        rect(sign * 52.5, -9.16, sign * (52.5 - 5.5), 9.16);
+        arc(sign * (52.5 - 11), 0, 0.1);
+        // Penalty arc is only the portion outside the penalty area.
+        const a = Math.acos(5.5 / 9.15);
+        arc(sign * (52.5 - 11), 0, 9.15, sign > 0 ? Math.PI - a : -a, sign > 0 ? Math.PI + a : a);
+      }
+    }
+  }
+  return { f, scale, length: length * scale, width: width * scale, lineWidth, lines };
+}
+
+function buildCampusGrounds(group, M) {
+  const obj = new THREE.Group();
+  obj.name = 'Piotrowo nawierzchnie';
+  group.add(obj);
+  const material = { artificial_turf: M.hedge, carpet: M.hedge, rubber: M.brick, sand: M.sandstone, clay: M.tileRed };
+  for (const s of GEO.piotrowo.grounds) {
+    if (s.kind !== 'pitch') continue;
+    slab(obj, points(s.ring, { x: 0, z: 0 }), [], 0.22, 0.055, material[s.surface] || M.granite);
+    for (const sport of s.sport.split(';')) {
+      const marks = campusMarkings(s, sport);
+      for (const [u0, v0, u1, v1] of marks.lines) {
+        const a = marks.f.world(u0, v0), b = marks.f.world(u1, v1);
+        box(obj, Math.hypot(b[0] - a[0], b[1] - a[1]), 0.008, marks.lineWidth, sport === 'field_hockey' ? M.plasterOchre : M.plasterWhite,
+          (a[0] + b[0]) / 2, sport === 'field_hockey' ? 0.299 : 0.285, (a[1] + b[1]) / 2, Math.atan2(a[1] - b[1], b[0] - a[0]));
+      }
+    }
+  }
+  const forecourt = campusForecourt();
+  const circle = r => Array.from({ length: 96 }, (_, i) => [forecourt.x + Math.cos(i * Math.PI / 48) * r,
+    forecourt.z + Math.sin(i * Math.PI / 48) * r]);
+  // Photo ratios against the mapped 20.4 m walkway: central lawn 13.5 m, outer paving 28.3 m.
+  // Coping is shallow and walkable; no unsupported furniture, retaining walls or raised terraces.
+  slab(obj, circle(28.3), [circle(13.5)], 0.22, 0.055, M.concrete);
+  slab(obj, circle(13.5), [], 0.22, 0.055, M.hedge);
+  for (const [outer, inner, mat, y] of [[14, 13.5, M.sandstone, 0.285], [23, 22.4, M.granite, 0.28],
+    [28.3, 28, M.sandstone, 0.28]]) slab(obj, circle(outer), [circle(inner)], y, 0.015, mat);
+  // Pale slab joints on a regular grid distinguish the forecourt from the surrounding walks.
+  for (let x = -28; x <= 28; x += 2) {
+    const z = Math.sqrt(Math.max(0, 28 ** 2 - x ** 2));
+    const gap = Math.abs(x) < 14 ? Math.sqrt(14 ** 2 - x ** 2) : 0;
+    for (const sign of [-1, 1]) {
+      if (z <= gap) continue;
+      box(obj, 0.025, 0.005, z - gap, M.stoneGrey, forecourt.x + x, 0.278,
+        forecourt.z + sign * (z + gap) / 2);
+      box(obj, z - gap, 0.005, 0.025, M.stoneGrey, forecourt.x + sign * (z + gap) / 2, 0.278,
+        forecourt.z + x);
+    }
+  }
+  obj.traverse(mesh => { if (mesh.isMesh) mesh.castShadow = false; });
+  return obj;
+}
+
+function campusForecourt() {
+  const ring = points(GEO.piotrowo.forecourt.ring, { x: 0, z: 0 });
+  const xs = ring.map(p => p[0]), zs = ring.map(p => p[1]);
+  return { x: (Math.min(...xs) + Math.max(...xs)) / 2, z: (Math.min(...zs) + Math.max(...zs)) / 2,
+    radius: (Math.max(...xs) - Math.min(...xs) + Math.max(...zs) - Math.min(...zs)) / 4 };
+}
+
+export { buildPiotrowoLandmarks, campusFrame, campusMarkings, campusForecourt };

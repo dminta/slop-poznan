@@ -37,8 +37,15 @@ function buildLandmarks(scene) {
     buildPiotrowoLandmarks(ctx)
   ].filter(Boolean);
 
+  // Shallow non-colliding ground must not inherit building shadow casting when materials are merged.
+  const grounds = ctx.piotrowoGrounds;
+  if (grounds) group.remove(grounds);
   emitFacadeBoxes(group, M.boxLocalTwins);
   batchStaticGroupMeshes(group, new Set([M.steel, M.gold]));
+  if (grounds) {
+    batchStaticGroupMeshes(grounds);
+    group.add(grounds);
+  }
 
   scene.add(group);
   scene.add(dynamic);
