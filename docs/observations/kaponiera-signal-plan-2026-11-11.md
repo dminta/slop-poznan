@@ -153,8 +153,9 @@ plans on the same clock.
 
 ## Remaining cases
 
-- Seed 7's one 139 s hold is unchanged in kind: a line-20 switch jam holds the crossing proxies at `(-1496, 82)`, not a
-  car queue.
+- Correction, 2026-11-13: seed 7's old 139 s switch/proxy hold was removed by this change, as the result table above
+  already shows (longest 95 s, no hold over 120 s). The remaining one hold is seed 1's boundary queue below.
+  [Current baseline and historical switch trace](kaponiera-switch-jam-2026-11-13.md).
 - Seed 1's 175 s bus queue into Centrum's `(-1136, 127)` and seed 5's box stop are new side effects of the changed
   flow; both sit outside the Kaponiera junction and were the price of draining seed 2.
 - Seed 11's mean falls 13.5 → 12.2 km/h while its longest hold stays 113 s; the eight-seed mean still rises.

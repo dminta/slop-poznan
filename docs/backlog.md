@@ -51,8 +51,11 @@ Implementation details and completed measurements live in the [topic docs](../AG
   169 → 116 s longest; the eight Kaponiera seeds go 11 → 1 hold, 130 → 90 over 60 s, 12.6 → 13.1 km/h, 0 deadlocks.
   Costs: seed 1's new 175 s queue into Centrum, seed 5's one box stop, Centrum −0.2 km/h and Jeżyce +0.1 km/h (the
   other four districts are bit-identical); the eight-seed car–tram audit is 37 before and 37 after on this tree (36
-  was measured at 8c41595), Kaponiera 9 → 8 and Jeżyce 21 → 23. Open: seed 7's one 139 s hold (a line-20 switch jam holds
-  the crossing proxies, not a car rule); seed 1's new boundary queue and seed 5's box stop. Rejected in this pass:
+  was measured at 8c41595), Kaponiera 9 → 8 and Jeżyce 21 → 23. Rechecked on 2026-11-13: seed 7's old 139 s hold
+  was already removed by that signal change (longest 95 s, maximum switch wait 7.9 s). The remaining one hold over
+  120 s belongs to seed 1's 175 s boundary queue; seed 5's box stop also stays open. The historical switch replay
+  distinguishes line 20's occupied-switch and boarding-crossing waits from line 2's 81.4 s maximum; no new runtime
+  change was justified. [Switch investigation](observations/kaponiera-switch-jam-2026-11-13.md). Rejected in this pass:
   1.2 m/s for every plan (173 plans re-timed, two Kaponiera deadlocks over eight seeds), green1 12–15 s at this site
   (audit 38–39, a deadlock, or mean speed lower), keeping the 1 m/s split and moving the offset (seed 2 still had
   7 holds), and the +6 s phase-preserving offset (Centrum and Jeżyce bit-identical but 8 holds and audit 38). The
