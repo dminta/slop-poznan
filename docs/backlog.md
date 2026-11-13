@@ -215,10 +215,10 @@ checks below; each remaining bullet is the part that is still open.
   4.6 m of the roadway or over a track); the Podgórna/Strzelecka aerial and the Wilda near-balcony pool
   (262 instances, five complete storeys, nearest 38 m) were checked 2026-11-11.
   [Alignment record](observations/street-alignment-2026-11-09.md).
-- Review architectural evidence for the short-axis ridges on Hotel Bazar's shallow mansard cap and Collegium Maius's
-  two side wings and glazed courtyard hall. All 75 kit roofs passed transformed winding/stored-normal checks; midday
-  WebGPU street/aerial and WebGL2 aerial views of nine landmarks found no rendering defect.
-  [Roof audit, 2026-11-13](observations/kit-roofs-2026-11-13.md).
+- Review the exact profile of Collegium Maius's glazed hall roof if better roof-level/interior evidence becomes
+  available; its local-z alignment is retained, but the aerial does not establish a simple hipped gable profile.
+  Orthophotos resolved the Bazar west-cap axis (keep z) and both Maius side-wing axes (changed to z).
+  [Roof evidence and captures, 2026-11-13](observations/kit-roofs-2026-11-13.md#architectural-ridge-review-2026-11-13).
 - Continue landmark-placement and scenic-camera checks, panel-material shimmer, balcony LOD transitions and
   platform/slab flicker where surfaces are only 1 cm apart.
 - Check Most Świętego Rocha and Most Królowej Jadwigi from the bank; Most Chrobrego, Most Mieszka I and the 13 m Most

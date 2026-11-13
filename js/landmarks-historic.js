@@ -744,6 +744,7 @@ function buildBazar(group, colliders, M) {
     frustum(b, M.slate, 36.0, 24.0, 33.6, 21.6, 2.3, -17.55, EAVE, 6.7);
     for (const z of spread(-1.5, 15.5, 5)) if (Math.abs(z) > 3) dormer(b, M, face('x', -35.55, -1), z, EAVE + 0.25, M.slate, { off: -0.45 });
     emit(obj, b);
+    // GUGiK orthophoto: the west mansard ridge follows Marcinkowskiego (local z), despite this cap's wider x span.
     pitchedRoof(obj, 33.6, 21.6, 0.7, M.slate, -17.55, 20.6, 6.7, { ridge: 'z', hip: 0.5 });
   }
 
@@ -1065,7 +1066,8 @@ function buildMaius(group, colliders, M) {
     for (const s of [-1, 1]) pitchedRoof(obj, 30.2, 26.0, 6.5, M.tileRed, s * 30.1, EAVE, 10.0, { hip: 0.3 });
     for (const s of [-1, 1]) {
       box(obj, 23.7, EAVE, 45.7, wall, s * 33.05, 0, -13.85);
-      pitchedRoof(obj, 24.0, 46.0, 6.5, M.tileRed, s * 33.2, EAVE, -14.0, { hip: 0.5 });
+      // GUGiK orthophoto: both side-wing ridges run front-to-back, perpendicular to Fredry (local z).
+      pitchedRoof(obj, 24.0, 46.0, 6.5, M.tileRed, s * 33.2, EAVE, -14.0, { ridge: 'z', hip: 0.5 });
     }
   }
 
@@ -1076,6 +1078,7 @@ function buildMaius(group, colliders, M) {
     for (const s of [-1, 1]) windowGrid(b, M, face('x', s * 15, s), spread(-24, -6, 4), [3.0, 8.5], 1.6, 3.2, { trim, shape: 'arch' });
     band(b, trim, face('z', -27, -1), -15, 15, 13.4, 0.6, 0.3);
     emit(obj, b);
+    // The aerial hall roof runs behind the dome along local z; its exact glazed profile remains unresolved.
     pitchedRoof(obj, 30, 24, 3.5, M.glass, 0, 14, -15, { ridge: 'z', hip: 0.2 });
   }
 
