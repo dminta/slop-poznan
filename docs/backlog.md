@@ -184,13 +184,6 @@ checks below; each remaining bullet is the part that is still open.
 
 ### Defects found in the 2026-11-11 browser checks
 
-- **Phone touch layout overlaps:** at 390 × 844 the `.touch-look-hint` (top 136 px) is partly covered by the camera
-  switcher (`#hud-bottom-right`, top 78 px), and the current-camera label ellipsizes to "Kamera za grac…" on both the
-  phone and the 1280 × 720 desktop HUD. Move the hint below the camera cluster (or hide it while the cluster is open) and
-  widen/shorten the camera label.
-- **The WebGL2 fallback labels itself WebGPU:** with `?backend=webgl` the HUD subtitle still reads
-  `three.js · WebGPU · TSL` and the loading status says `Inicjalizacja WebGPURenderer…`. Drive both strings from
-  `renderer.backend.isWebGPUBackend` (or drop the backend name from the static HUD).
 - **Fara niches:** the four lower-tier statues on the north front at `(6.5, 229.5)` (niches y ≈ 9.35–13.85) have their
   crozier/spear/cross in the same sandstone colour as the robes, not gilded, and the niches are unlit at midnight. The
   aedicules, hoods, silhouettes, the 2.1 m outer-pair rise and the absence of z-fighting are correct.

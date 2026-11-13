@@ -1498,6 +1498,9 @@ body.is-boosting #hud-speed-meter {
   padding: 4px;
 }
 
+/* The touch camera menu opens below the cluster, over the look hint. Keep its closed layout unchanged. */
+body:has(#camera-popover:popover-open) .touch-look-hint { visibility: hidden; }
+
 .touch-actions {
   display: grid;
   grid-template-columns: repeat(2, 64px);

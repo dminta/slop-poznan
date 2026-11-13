@@ -358,6 +358,8 @@ camera is not readable in full.
 
 Screenshots: `loading-phone/04-hud-touch-webgpu.png`, `loading-desktop/03-hud-webgpu.png`.
 
+**Fixed 2026-11-13:** see the D4/D5 follow-up below.
+
 ### D5 — WebGL2 fallback still labels itself WebGPU (low)
 
 With `?backend=webgl`, the HUD subtitle stays `three.js · WebGPU · TSL` and the loading status begins
@@ -365,6 +367,45 @@ With `?backend=webgl`, the HUD subtitle stays `three.js · WebGPU · TSL` and th
 the on-screen backend identity is wrong.
 
 Screenshots: `loading-desktop/03-hud-webgl.png`, `loading-desktop/01-loader-webgl-dark.png`.
+
+**Fixed 2026-11-13:** see the D4/D5 follow-up below.
+
+### D4/D5 follow-up, 2026-11-13 — fixed
+
+Headless Chrome 157 on macOS, `--enable-unsafe-webgpu --enable-features=WebGPU --use-angle=metal`, served from this
+worktree on port 8011. Ran both the default WebGPU URL and `?backend=webgl`, with no quality override. A CDP breakpoint
+after `renderer.init()` confirmed the actual `renderer.backend.isWebGPUBackend` value on both paths. Touch emulation
+used five touch points and `(any-pointer: coarse)`, so `TouchControls.updateAvailability()` set `body.touch-enabled`
+itself; no forced body class. Desktop disabled touch emulation. These are emulated layouts, not physical-phone checks.
+
+Measured closed and open camera menus before and after at all sizes below, on both backends. Rectangles are CSS px,
+`(x, y, width, height)`, identical on both backends; the label is the chase-camera label. The cluster is
+`.hud-bottom-right` (there is no element with the id `hud-bottom-right`).
+
+| Viewport | Cluster before = after | Hint before = after | Label before → after |
+|---|---|---|---|
+| 390 × 844 | (148, 74, 230, 54) | (52.67, 132, 325.33, 22) | (233, 93, 86, 16) → (239.14, 93, 73.72, 16) |
+| 360 × 800 | (118, 126, 230, 54) | (22.67, 184, 325.33, 22) | (203, 145, 86, 16) → (209.14, 145, 73.72, 16) |
+| 320 × 568 | (78, 126, 230, 54) | (0, 184, 308, 36) | (163, 145, 86, 16) → (169.14, 145, 73.72, 16) |
+| 844 × 390 | (594, 78, 230, 54) | (498.67, 140, 325.33, 22) | (679, 97, 86, 16) → (685.14, 97, 73.72, 16) |
+| 1280 × 720 | (988, 547, 272, 153) | hidden, (0, 0, 0, 0) | (1065, 669, 117, 16) → (1086.64, 669, 73.72, 16) |
+
+In this checkout the closed cluster already cleared the hint by 4–8 px; the open menu covered it at all four touch
+sizes. The hint now uses `visibility: hidden` while `#camera-popover:popover-open`, retaining its measured rectangle
+and restoring on close. Every camera was selected through its actual button at every viewport: all 12 existing
+`CAMERA_PRESETS.short` labels fit (`scrollWidth === clientWidth`), including Bałtyk and Niski kąt. Full descriptions
+remain in the camera menu. Toolbar, location/street HUD, minimap, touch stick and camera-cluster rectangles were exactly
+unchanged in all 20 before/after state comparisons. Desktop minimap remains visible; touch minimap remains hidden.
+
+The subtitle now reads WebGPU or WebGL2 from the initialized backend, keeping `#hud-fps`. Both the static loader and
+the revision-bearing JavaScript initialization message are backend-neutral; a MutationObserver checked the loading
+statuses during both after boots. No page exceptions or error-level browser log entries were recorded.
+`node --test tests/`: 598 passed, 0 failed (207.6 s); `git diff --check` passed.
+
+Scratch evidence: `.agent-task/before.json`, `after.json`, `before.log`, `after.log`, `tests.log`, and the CDP driver
+`.agent-task/check.mjs`. Forty screenshots are under `.agent-task/shots/`, named
+`{before,after}-{webgpu,webgl}-{width}x{height}-{closed,open}.png`. The detailed per-state and per-camera measurements
+are in `.agent-task/REPORT.md`. No audio, performance or unrelated landmark checks were run in this follow-up.
 
 ### D6 — Fara niche attributes are not gilded and the niches are unlit at night (low)
 

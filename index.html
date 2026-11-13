@@ -98,7 +98,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..800&amp;family=Overpass:wght@500;600&amp;display=swap" />
-  <link rel="stylesheet" href="./css/style.css?v=20261111-perf-stats" />
+  <link rel="stylesheet" href="./css/style.css?v=20261113-hud-defects" />
 </head>
 <body>
   <!-- Icon sprite (24 × 24 stroke icons, drawn in currentColor) -->
@@ -137,7 +137,7 @@
       <span class="badge loader-badge" aria-hidden="true">PŃ</span>
       <div class="loader-title">Slop Poznań</div>
       <div class="loader-track is-indeterminate" aria-hidden="true"><span id="loading-progress" class="loader-fill"></span></div>
-      <div id="loading-status">Inicjalizacja WebGPURenderer i shaderów TSL…</div>
+      <div id="loading-status">Inicjalizacja renderera i shaderów TSL…</div>
       <div class="loader-credits">
         <p class="loader-credits-line">
           © 2026 Dominik Minta · na bazie <a href="https://github.com/mrdoob/slop-newyork" target="_blank" rel="noopener noreferrer">Slop New York</a> (© 2026 Mr.doob) · licencja <a href="https://github.com/dminta/slop-poznan/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT</a>
@@ -165,7 +165,7 @@
           <a class="repo-link" href="https://github.com/dminta/slop-poznan/" target="_blank" rel="noopener noreferrer" aria-label="Slop Poznań na GitHubie (otwiera się w nowej karcie)">GitHub <span aria-hidden="true">↗</span></a>
           <a id="quality-link" class="quality-link" href="?quality=low" title="Grafika: wysoka — przełącz na niską (przeładuje stronę)" aria-label="Grafika: wysoka — przełącz na niską (przeładuje stronę)">Grafika<span class="quality-tier">: wysoka</span> <span aria-hidden="true">↻</span></a>
         </div>
-        <div class="brand-subtitle">three.js · WebGPU · TSL · <span id="hud-fps" class="fps-ok">60</span> fps</div>
+        <div class="brand-subtitle">three.js · <span id="hud-backend">…</span> · TSL · <span id="hud-fps" class="fps-ok">60</span> fps</div>
       </div>
     </div>
   </header>
@@ -263,7 +263,7 @@
           <svg class="icon" aria-hidden="true"><use href="#i-chevron-left"/></svg>
         </button>
         <button id="cam-menu-btn" class="camera-current" type="button" popovertarget="camera-popover" title="Wszystkie kamery [V: następna]">
-          <svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg><span id="hud-active-camera">Kamera za graczem</span><kbd>V</kbd>
+          <svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg><span id="hud-active-camera">Za graczem</span><kbd>V</kbd>
         </button>
         <button id="cam-next" class="icon-btn" type="button" title="Następna kamera [V]" aria-label="Następna kamera">
           <svg class="icon" aria-hidden="true"><use href="#i-chevron-right"/></svg>

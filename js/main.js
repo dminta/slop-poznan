@@ -99,7 +99,7 @@ async function initApp() {
   };
 
   if (loadingStatus) {
-    loadingStatus.textContent = `Inicjalizacja Three.js r${THREE.REVISION} WebGPURenderer i shaderów TSL…`;
+    loadingStatus.textContent = `Inicjalizacja Three.js r${THREE.REVISION} i shaderów TSL…`;
   }
 
   // 1. Initialize Three.js WebGPURenderer with 32-bit float reversedDepthBuffer
@@ -130,6 +130,8 @@ async function initApp() {
 
   await renderer.init();
   markInit('renderer');
+  const elBackend = document.getElementById('hud-backend');
+  if (elBackend) elBackend.textContent = renderer.backend.isWebGPUBackend ? 'WebGPU' : 'WebGL2';
 
   // Quality is fixed for this page load: ?quality=low|high wins, otherwise the GPU identity (software, integrated/old
   // or strong classes), the actual WebGL2 backend (forced or a silent fallback), <= 4 threads, <= 4 GB or an unknown
@@ -519,7 +521,7 @@ async function initApp() {
       btn.classList.toggle('active', btn.getAttribute('data-camera') === camId);
     });
     const preset = cameraSystem.getActivePreset();
-    if (elCamera) elCamera.textContent = preset.name;
+    if (elCamera) elCamera.textContent = preset.short;
   }
 
   // Steps through CAMERA_PRESETS (V / Shift+V, and the arrows either side of the camera name)

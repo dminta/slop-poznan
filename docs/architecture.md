@@ -238,7 +238,7 @@ Physics notes:
 
 ## HUD, CSS and cache busting
 - `css/style.css` is linked as `./css/style.css?v=YYYYMMDD-<slug>` (currently
-  `20261111-perf-stats`). When you change `style.css`, bump that query in `index.html` in the same commit;
+  `20261113-hud-defects`). When you change `style.css`, bump that query in `index.html` in the same commit;
   GitHub Pages caches it.
 - The top-right toolbar carries the time presets, Teleportuj, Mapa (M), sound (N) and the clean-view toggle. Quality is
   fixed at boot and is not a toolbar control: the brand line's `Grafika: … ↻` link (`#quality-link`) reloads the page
