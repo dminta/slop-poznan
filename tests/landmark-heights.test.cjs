@@ -8,7 +8,13 @@ const { THREE } = require('./helpers/three-stub.cjs');
 const cityConfig = require('../js/city-config.js');
 const { LANDMARK_SITES } = cityConfig;
 
+// Geometry tests retain the material graph without compiling shaders; appearance is checked in the browser.
+const nodeStub = new Proxy(function () {}, {
+  get: () => nodeStub,
+  apply: () => nodeStub
+});
 const tslStub = {
+  cityUniforms: { uInteriorGlow: { value: 0.24 } },
   createPreWarBuildingMaterial: (o) => ({ ...o }),
   createCurtainWallMaterial: (o) => ({ ...o }),
   createFacadeBoxes: () => new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), {}),
@@ -47,6 +53,8 @@ test('Brama Poznania ICHOT: height corrected to 16.3 m from AD Artis architectur
     imports: {
       'three/webgpu': THREE,
       './landmark-kit.js': kit,
+      'three/tsl': { color: nodeStub, normalWorld: nodeStub, smoothstep: nodeStub, vec3: nodeStub },
+      './tsl-materials.js': tslStub,
       './city-config.js': cityConfig
     },
     globals: { Math, console }
@@ -176,6 +184,8 @@ test('Zamek Królewski: tower apex at 43.0 m and covered terrace floor at 30.0 m
     imports: {
       'three/webgpu': THREE,
       './landmark-kit.js': kit,
+      'three/tsl': { color: nodeStub, normalWorld: nodeStub, smoothstep: nodeStub, vec3: nodeStub },
+      './tsl-materials.js': tslStub,
       './city-config.js': cityConfig
     },
     globals: { Math, console }
@@ -285,6 +295,8 @@ test('Fara and Novotel: sourced heights retained (40.0 m and 68.0 m)', () => {
     imports: {
       'three/webgpu': THREE,
       './landmark-kit.js': kit,
+      'three/tsl': { color: nodeStub, normalWorld: nodeStub, smoothstep: nodeStub, vec3: nodeStub },
+      './tsl-materials.js': tslStub,
       './city-config.js': cityConfig
     },
     globals: { Math, console }

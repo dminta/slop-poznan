@@ -1,4 +1,6 @@
 import * as THREE from 'three/webgpu';
+import { color, normalWorld, smoothstep, vec3 } from 'three/tsl';
+import { cityUniforms } from './tsl-materials.js';
 import { fitToSite, addMesh, box, cylinder, lathe, pitchedRoof, prism, profileSlab, collider, site } from './landmark-kit.js';
 import { SRODKA_MURAL, CITY_BOUNDS } from './city-config.js';
 
@@ -184,6 +186,31 @@ const FARA_NICHE = {
   pedestalZ: -28.28
 };
 
+// Local materials for the four niches. Like the landmark windows and street lamps, the night wash follows
+// uInteriorGlow; it is exactly off at midday (0.24), without real lights. Only the figures, pedestals and the recess
+// behind them are washed: the white aedicule frames and hoods stay unlit, so the niches do not read as lit boxes.
+// A directional lift retains the robe folds instead of making the whole sculpture glow flat.
+// The kit gilt (metalness 1) renders the 28-36 mm spear and crozier shafts near-black, because a thin fully metallic
+// cylinder shows only its dark reflection. The niche gilt is therefore half-metallic with a small constant emission.
+function createFaraNicheMaterials(M) {
+  const materials = { ...M };
+  const night = smoothstep(0.6, 1.15, cityUniforms.uInteriorGlow);
+  const relief = normalWorld.dot(vec3(-0.15, 0.55, -0.82)).max(0.15);
+  for (const [key, strength] of [['sandstone', 0.32], ['glass', 0.065]]) {
+    const material = M[key].clone();
+    material.name = 'FaraNiche-' + key;
+    material.emissiveNode = color(0xffd49a).mul(night).mul(relief).mul(strength);
+    materials[key] = material;
+  }
+  const gold = M.gold.clone();
+  gold.name = 'FaraNiche-gold';
+  gold.metalness = 0.45;
+  gold.roughness = 0.42;
+  gold.emissiveNode = color(0xd8aa48).mul(0.16).add(color(0xffc04a).mul(night).mul(relief).mul(0.24));
+  materials.gold = gold;
+  return materials;
+}
+
 // A tapered stone limb between two points: arms, the crozier's staff and hook, and the spear shaft
 function faraLimb(parent, ax, ay, az, bx, by, bz, r, material, segments = 6) {
   const dx = bx - ax;
@@ -352,11 +379,15 @@ function buildFara(group, colliders, M) {
     box(obj, 0.6, 3.4, 0.4, M.glass, s * 5.4, F.frontLower + 4.5, fz - 1.05);
   }
   // The four lower-tier side niches, two either side of the portal, with their aediculae, pedestals and figures
+  const niches = new THREE.Group();
+  const nicheMaterials = createFaraNicheMaterials(M);
   for (const variant of FARA_STATUES) {
-    faraNiche(obj, variant.x, variant.bottom, M);
-    faraPedestal(obj, variant.x, variant.bottom, M);
-    faraFigure(obj, variant, Math.sign(variant.x), M);
+    faraNiche(niches, variant.x, variant.bottom, nicheMaterials);
+    faraPedestal(niches, variant.x, variant.bottom, nicheMaterials);
+    faraFigure(niches, variant, Math.sign(variant.x), nicheMaterials);
   }
+  // The spear, five crozier segments and cross share one gilt mesh, even though kit gold is excluded globally.
+  obj.add(niches);
   profileSlab(obj, [[-10.4, 0], [10.4, 0], [0, 4.8]], 2.4, trim, 0, F.frontUpper, fz - 0.2);
   profileSlab(obj, [[-9, 0.5], [9, 0.5], [0, 4]], 1.6, wall, 0, F.frontUpper, fz - 0.6);
   box(obj, 1, 2.2, 1, M.sandstone, 0, F.frontUpper + 4.8, fz - 0.2);

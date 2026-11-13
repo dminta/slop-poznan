@@ -702,6 +702,7 @@ class Box3 {
 
 class MeshStandardNodeMaterial {
   constructor(params = {}) { Object.assign(this, params); }
+  clone() { return new MeshStandardNodeMaterial({ ...this }); }
 }
 
 class MeshBasicNodeMaterial {

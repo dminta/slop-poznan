@@ -417,6 +417,10 @@ otherwise correct and there is no z-fighting.
 Screenshots: `landmarks2-webgpu/fara-niches-day.png`, `fara-niches-day-crop.png`, `fara-niches-night.png`,
 `fara-front-night.png`.
 
+**Fixed/re-checked 2026-11-13:** see [the Fara niche follow-up](fara-niches-2026-11-13.md). The branch already used
+the kit gold on the attributes, but its thin shafts rendered near-black; the follow-up gives the niches a local,
+less metallic gilt and a warm night wash on the figures.
+
 ## Notes and limits
 
 - Headless Chrome on a Mac is not a phone or an integrated GPU; the touch checks used emulated coarse pointers and

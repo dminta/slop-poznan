@@ -182,12 +182,6 @@ The 2026-11-11 headless Chrome pass is recorded in
 [observations/browser-checks-2026-11-11.md](observations/browser-checks-2026-11-11.md). It covered part or all of the
 checks below; each remaining bullet is the part that is still open.
 
-### Defects found in the 2026-11-11 browser checks
-
-- **Fara niches:** the four lower-tier statues on the north front at `(6.5, 229.5)` (niches y ≈ 9.35–13.85) have their
-  crozier/spear/cross in the same sandstone colour as the robes, not gilded, and the niches are unlit at midnight. The
-  aedicules, hoods, silhouettes, the 2.1 m outer-pair rise and the absence of z-fighting are correct.
-
 ### Interface and performance
 
 - Confirm the loading-screen credit link hover/focus and external navigation in a real (non-headless) browser; its
