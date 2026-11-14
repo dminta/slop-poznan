@@ -106,13 +106,15 @@ test('seeded species assignment preserves the full built city tree sites and col
   // do not depend on the site count. The site's car parks stay empty (no parked-car boxes in the prop colliders).
   // Piotrowo's reserves redistribute local generic parts; this reduced fixture omits the new landmark walls.
   // Round 2 removes campus housing: 177 sites return, updating species/field meshes and street collider pins.
+  // Exact 0.5 m rail clearance in buildings.js removes/trims buildings on tracks in blocks 326, 849 and 1257,
+  // updating siteHash (e.g. street-tree pitRot facing nearest walls) while counts and colliders stay unchanged.
   assert.deepEqual(before, [45769, 49628, 22025, 1986]);
   assert.deepEqual(after, [43893, 47566, 21112, 6837]); // Local Piotrowo sites change the assigned species mix.
-  assert.equal(siteHash, 'd9ced1f3179e9b8cf40d190a43831fed5b3f38e9240548e4ec3ca1aac4edee7c'); // Campus house removal frees 177 sites; replacement landmark walls are omitted here.
+  assert.equal(siteHash, 'ac4805f5ed9bcc4f8f87d9cd1c4854923fc8b725aea61b679006d508880336c5'); // Campus house removal + building-rail clearance.
   // The local replacement also changes which park-tree trunk colliders remain in the grid.
   assert.equal(digest(grid.propColliders), '8028ff784a7f8a2151411a43bb96e4ffbd5843392144a2f0d54f23de7586ea3d');
-  // Street-details receives the same local tree clearance changes; outside campus its colliders are identical.
-  assert.equal(digest(details.colliders), '4f4b21d69bad0619dfc58c61936decd68f33ddc96e8c59ba2e289f48dde4619d');
+  // Street-details receives the same local clearance changes; outside affected blocks its colliders are identical.
+  assert.equal(digest(details.colliders), '2586abbe455c32500ac752ea7220bd521b3faeb07be449121f7b98db610dfa11');
   assert.equal(meshCount((t) => t.species || 0), 25480);
   assert.equal(meshCount(treeSpecies), 30368);
   // Every surveyed node the clearance rules accept reaches the field exactly at its OSM position. The rest are dropped

@@ -747,6 +747,75 @@ function clearOfRails(x, z, radius) {
   return railClearance(x, z, RAIL_PROP_KEEP + radius + 1) >= RAIL_PROP_KEEP + radius;
 }
 
+/**
+ * True when the oriented rectangle (cx, cz, half-extents hx, hz, rotation ry) stays at least `keep` m from every
+ * GEO.rail segment (reusing railCells(); exact so tracks cannot slip between 2 m perimeter probes).
+ */
+function railRectClear(cx, cz, hx, hz, ry = 0, keep = 0.5) {
+  const cells = railCells();
+  const cs = Math.cos(ry), sn = Math.sin(ry);
+  const wx = hx * Math.abs(cs) + hz * Math.abs(sn) + keep;
+  const wz = hx * Math.abs(sn) + hz * Math.abs(cs) + keep;
+  const minX = cx - wx, maxX = cx + wx;
+  const minZ = cz - wz, maxZ = cz + wz;
+  const keep2 = keep * keep;
+  const hxK = hx + keep, hzK = hz + keep;
+  for (let ix = Math.floor(minX / RAIL_CELL); ix <= Math.floor(maxX / RAIL_CELL); ix++) {
+    for (let iz = Math.floor(minZ / RAIL_CELL); iz <= Math.floor(maxZ / RAIL_CELL); iz++) {
+      const list = cells.get(ix * 100003 + iz);
+      if (!list) continue;
+      for (const s of list) {
+        if (s.x1 < minX || s.x0 > maxX || s.z1 < minZ || s.z0 > maxZ) continue;
+        // Transform segment into the slab's local (u, v) frame where the slab is [-hx, hx] x [-hz, hz].
+        const dax = s.ax - cx, daz = s.az - cz;
+        const dbx = s.bx - cx, dbz = s.bz - cz;
+        const u0 = dax * cs - daz * sn, v0 = dax * sn + daz * cs;
+        const u1 = dbx * cs - dbz * sn, v1 = dbx * sn + dbz * cs;
+        if (Math.max(u0, u1) < -hxK || Math.min(u0, u1) > hxK ||
+            Math.max(v0, v1) < -hzK || Math.min(v0, v1) > hzK) continue;
+        // Liang-Barsky clip against [-hx, hx] x [-hz, hz] to catch segments intersecting the slab interior.
+        const du = u1 - u0, dv = v1 - v0;
+        let t0 = 0, t1 = 1;
+        let hit = true;
+        if (du === 0) { if (u0 < -hx || u0 > hx) hit = false; }
+        else {
+          const r1 = (-hx - u0) / du, r2 = (hx - u0) / du;
+          const lo = r1 < r2 ? r1 : r2, hi = r1 < r2 ? r2 : r1;
+          if (lo > t0) t0 = lo;
+          if (hi < t1) t1 = hi;
+          if (t0 > t1) hit = false;
+        }
+        if (hit) {
+          if (dv === 0) { if (v0 < -hz || v0 > hz) hit = false; }
+          else {
+            const r1 = (-hz - v0) / dv, r2 = (hz - v0) / dv;
+            const lo = r1 < r2 ? r1 : r2, hi = r1 < r2 ? r2 : r1;
+            if (lo > t0) t0 = lo;
+            if (hi < t1) t1 = hi;
+            if (t0 > t1) hit = false;
+          }
+        }
+        if (hit) return false;
+        // Disjoint convex polygons: min distance is attained at an endpoint-to-box or corner-to-segment pair.
+        const e0u = Math.max(0, Math.abs(u0) - hx), e0v = Math.max(0, Math.abs(v0) - hz);
+        if (e0u * e0u + e0v * e0v < keep2) return false;
+        const e1u = Math.max(0, Math.abs(u1) - hx), e1v = Math.max(0, Math.abs(v1) - hz);
+        if (e1u * e1u + e1v * e1v < keep2) return false;
+        const L2 = du * du + dv * dv;
+        const invL2 = L2 > 0 ? 1 / L2 : 0;
+        for (let k = 0; k < 4; k++) {
+          const cu = (k & 1) ? hx : -hx;
+          const cv = (k & 2) ? hz : -hz;
+          const t = L2 > 0 ? Math.min(1, Math.max(0, ((cu - u0) * du + (cv - v0) * dv) * invL2)) : 0;
+          const pu = u0 + du * t - cu, pv = v0 + dv * t - cv;
+          if (pu * pu + pv * pv < keep2) return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
 /** Twice the signed area of triangle a, b, c: positive when it turns left in (x, z) */
 function cross2(a, b, c) {
   return (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x);
@@ -2223,6 +2292,7 @@ export {
   pavedPlazas,
   cutSlab,
   railClearance,
+  railRectClear,
   clearOfRails,
   RAIL_PROP_KEEP,
   TRAM_CUT,

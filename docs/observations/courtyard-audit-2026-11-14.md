@@ -101,3 +101,7 @@ Supports `--json`, `--top N` (default `10`) and `--near x,z,r`.
 
 - Headless Node audit with inert Three.js/TSL rendering stubs; checks the final `blk.yards` geometry records against `LANE_GUIDE`, `PEDESTRIAN_WAYS`, `GEO.rail` and `BLOCKS[i].poly`, not rendered WebGPU/WebGL2 appearance or z-fighting.
 - `GUIDE_GRID` in `js/city-config.js:649` pads segments by `half + 4 m` (less than `YARD_ROAD_KEEP = 4.6 m`), which did not cause any violation here (confirmed by the audit's `half + 20 m` index) but remains a latent cell-boundary blind spot in `roadClearance`.
+
+## Fix
+
+Added `railRectClear` in `js/city-grid.js` (reusing `railCells()`, testing segment-to-oriented-rectangle intersection via Liang-Barsky and exact disjoint distance `< 0.5 m` in the slab's local frame) and called it from `yardFitsBlock` in `js/buildings.js`. Re-running `node tools/audit-courtyards.mjs` drops only the offending block `1257` (`Łazarz_-2757_2320`, `(-2757.62, 2309.3)`, `11 × 17 m`) slab (whose three crossing tracks leave no `>= 4 × 4 m` clear rectangle in `clipYard`), leaving **19,580** slabs with **0** violations (`road < 4.6 m = 0`, `ped < 0.5 m = 0`, `rail < 0.5 m = 0`, `outsideCurb = 0`).

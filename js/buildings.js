@@ -53,7 +53,7 @@ import {
 } from './tsl-materials.js';
 import { createRoofs, ROOF_MATERIALS } from './roofs.js';
 import { GEO } from './geodata.js';
-import { pavedPlazaRects, parkTreeSites, railClearance, sidewalkBlocks } from './city-grid.js';
+import { pavedPlazaRects, parkTreeSites, railClearance, railRectClear, sidewalkBlocks } from './city-grid.js';
 
 // js/buildings.js
 // Generates the city's generic blocks of buildings (city-config.js BLOCKS), indexed by a spatial 2D quadtree that
@@ -676,6 +676,13 @@ function buildCityBlocks(scene) {
     }
     return false;
   }
+  // Exact segment-to-oriented-rectangle rail clearance (0.5 m) for a part in the current frame; returns true when
+  // railRectClear is stubbed/omitted in unit tests.
+  function partRailClear(x0, x1, z0, z1) {
+    if (!railRectClear) return true;
+    const [cx, cz] = toWorld((x0 + x1) * 0.5, (z0 + z1) * 0.5);
+    return railRectClear(cx, cz, (x1 - x0) * 0.5, (z1 - z0) * 0.5, xf ? xf.th : 0, 0.5);
+  }
 
   const SIDES = ['n', 's', 'w', 'e'];
   // Coordinate of rect r's `side` wall
@@ -1056,6 +1063,10 @@ function buildCityBlocks(scene) {
       return;
     }
     if (parts.some((p) => hitsBridgeCorridor(p.x0, p.x1, p.z0, p.z1))) {
+      blk.voidLots.push(b.lot);
+      return;
+    }
+    if (parts.some((p) => !partRailClear(p.x0, p.x1, p.z0, p.z1))) {
       blk.voidLots.push(b.lot);
       return;
     }
@@ -2959,10 +2970,13 @@ function buildCityBlocks(scene) {
     const cs = Math.cos(y.ry || 0), sn = Math.sin(y.ry || 0);
     const cx = (y.x0 + y.x1) * 0.5, cz = (y.z0 + y.z1) * 0.5;
     const hx = (y.x1 - y.x0) * 0.5, hz = (y.z1 - y.z0) * 0.5;
+    // Exact segment-to-rectangle rail check first: 2 m probes straddled three Zajezdnia Głogowska tracks (nearest
+    // probe 0.51 m on an 11 x 17 m slab in block 1257). Falls back to per-probe railClearance when stubbed.
+    if (railRectClear && !railRectClear(cx, cz, hx, hz, y.ry || 0, 0.5)) return false;
     const check = (u, v) => {
       const x = cx + u * cs + v * sn, z = cz - u * sn + v * cs;
       return roadClearance(x, z) >= YARD_ROAD_KEEP && pedestrianClearance(x, z) >= 0.5 &&
-        railClearance(x, z) >= 0.5 && insideCurbIsland(x, z);
+        (railRectClear || railClearance(x, z) >= 0.5) && insideCurbIsland(x, z);
     };
     const nu = Math.max(1, Math.ceil((2 * hx) / 2));
     const nv = Math.max(1, Math.ceil((2 * hz) / 2));
@@ -3037,6 +3051,7 @@ function buildCityBlocks(scene) {
     return null;
   }
   function fallbackPartClear(x0, x1, z0, z1) {
+    if (!partRailClear(x0, x1, z0, z1)) return false;
     const at = (lx, lz) => toWorld(lx, lz);
     const probes = [];
     for (let i = 0; i <= 8; i++) {
@@ -4152,6 +4167,7 @@ function buildCityBlocks(scene) {
     // mirrored the outline and rejected Maraton and AWF opposite Karmelicka although their real envelopes stand clear.
     const world = (u, v) => [cx + u * cs + v * sn, cz - u * sn + v * cs];
     const clear = (hw, hd, margin) => {
+      if (railRectClear && !railRectClear(cx, cz, hw, hd, th, 0.5)) return false;
       const edges = [
         [-hw, -hd, hw, -hd], [hw, -hd, hw, hd], [hw, hd, -hw, hd], [-hw, hd, -hw, -hd]
       ];

@@ -145,6 +145,61 @@ test('railClearance bbox reject keeps the plain segment scan', () => {
   assert.ok(compared > 10000);
 });
 
+test('railRectClear catches tracks passing between 2 m probes and matches exact segment-to-rect clearance', () => {
+  const source = read('city-grid.js');
+  const cells = cut(source, 'function railCells()', '/** Distance from (x, z) to the nearest GEO.rail centreline');
+  const rectClear = cut(source, 'function railRectClear(', '\n/** Twice the signed area');
+  const depotRails = [
+    { pts: [-2773.8, 2298.8, -2680.1, 2336.4] },
+    { pts: [-2773.1, 2305, -2674.8, 2344.2] },
+    { pts: [-2775.7, 2310.4, -2689, 2345.5] }
+  ];
+  const ctx = vm.createContext({ Math, GEO: { rail: depotRails }, _railCells: null, RAIL_CELL: 32 });
+  const railRectClear = vm.runInContext(`${cells}\n${rectClear}\n;railRectClear`, ctx);
+
+  // Block 1257 (Łazarz_-2757_2320) 11 x 17 m slab whose 2 m probes straddled the three depot tracks.
+  assert.equal(railRectClear(-2757.62, 2309.3, 5.5, 8.5, -0.3735, 0.5), false);
+  // Adjacent clear slabs in block 1257 stay accepted.
+  assert.equal(railRectClear(-2735, 2307.75, 10, 4.2, -0.3735, 0.5), true);
+  assert.equal(railRectClear(-2715.88, 2314.49, 4.5, 2.815, -0.6998, 0.5), true);
+
+  // Exact 0.5 m edge/endpoint boundary on a rotated slab.
+  const unitCtx = vm.createContext({ Math, GEO: { rail: [{ pts: [0, 0, 10, 0] }] }, _railCells: null, RAIL_CELL: 32 });
+  const unitClear = vm.runInContext(`${cells}\n${rectClear}\n;railRectClear`, unitCtx);
+  assert.equal(unitClear(5, 2.499, 2, 2, 0, 0.5), false);
+  assert.equal(unitClear(5, 2.501, 2, 2, 0, 0.5), true);
+  // Segment crossing the middle of an edge without hitting 2 m corners.
+  assert.equal(unitClear(12.499, 0, 2, 5, 0, 0.5), false);
+  assert.equal(unitClear(12.501, 0, 2, 5, 0, 0.5), true);
+});
+
+test('partRailClear transforms lot-frame rects into world space for railRectClear', () => {
+  const cgSource = read('city-grid.js');
+  const cells = cut(cgSource, 'function railCells()', '/** Distance from (x, z) to the nearest GEO.rail centreline');
+  const rectClear = cut(cgSource, 'function railRectClear(', '\n/** Twice the signed area');
+  const bldSource = read('buildings.js');
+  const partClearSrc = cut(bldSource, '  function partRailClear(', '\n  const SIDES =');
+  const th = -0.3735;
+  const xf = { th, cs: Math.cos(th), sn: Math.sin(th), px: -2730, pz: 2322 };
+  const toWorld = (x, z) => [
+    xf.px + (x - xf.px) * xf.cs + (z - xf.pz) * xf.sn,
+    xf.pz - (x - xf.px) * xf.sn + (z - xf.pz) * xf.cs
+  ];
+  const depotRails = [{ pts: [-2773.1, 2305, -2674.8, 2344.2] }];
+  const ctx = vm.createContext({
+    Math, GEO: { rail: depotRails }, _railCells: null, RAIL_CELL: 32, xf, toWorld
+  });
+  const partRailClear = vm.runInContext(`${cells}\n${rectClear}\n${partClearSrc}\n;partRailClear`, ctx);
+  // Local rect whose transformed world centre sits on the depot track (z ≈ 2322.2 at x = -2730).
+  assert.equal(partRailClear(-2735, -2725, 2317, 2327), false);
+  // Local rect well clear of the track.
+  assert.equal(partRailClear(-2735, -2725, 2260, 2270), true);
+  // Stubbed/omitted railRectClear falls back to true.
+  const stubCtx = vm.createContext({ Math, railRectClear: null, xf: null, toWorld: (x, z) => [x, z] });
+  const stubClear = vm.runInContext(`${partClearSrc}\n;partRailClear`, stubCtx);
+  assert.equal(stubClear(0, 10, 0, 10), true);
+});
+
 test('the walked segment grid keeps the nearest-segment result', () => {
   const slice = cut(read('tram-infra.js'), 'function segmentGrid(cell = 24, walk = false) {',
     '\n// Distance to the nearest car lane');
