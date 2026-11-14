@@ -1819,6 +1819,12 @@ function plateColor(p, plateY, atFront, plateCode) {
   return mix(col, mix(color(0xb8262c), color(0xe6e1d6), smoothstep(0.017, 0.015, stickerDist)), sticker);
 }
 
+// The lamp above the rear recess illuminates the printed plate too; keep the ink dark and the glow below bloom.
+// Match the head/tail running-light fade, independently of the brake and turn-signal state.
+function createPlateLampNode(paint) {
+  return paint.mul(color(0xfff8ec)).mul(smoothstep(0.60, 1.15, cityUniforms.uInteriorGlow)).mul(0.65);
+}
+
 /**
  * Creates the TSL material for lofted vehicles.
  * Instanced traffic reads the per-instance `paintColor` (vec3) and `carState` (vec4: brake, left (+x) & right (-x)
@@ -2265,7 +2271,8 @@ function createLoftedCarMaterial(spec, fixedColorHex = null) {
   // EU plates, front and rear, each car with its own registration (blank on the fixed-colour variant)
   const atFront = step(0.0, p.z);
   const plateCode = fixed ? null : attribute('plateCode', 'vec4');
-  body = mix(body, plateColor(p, mix(float(plateR), float(plateF), atFront), atFront, plateCode), plates);
+  const platePaint = plateColor(p, mix(float(plateR), float(plateF), atFront), atFront, plateCode);
+  body = mix(body, platePaint, plates);
   body = mix(body, color(0x0e1013), under);
 
   // Glasshouse: tinted glass, black seals & B / C pillars, painted roof & A pillars, chrome sill strip, CHMSL; on a
@@ -2327,7 +2334,8 @@ function createLoftedCarMaterial(spec, fixedColorHex = null) {
   mat.colorNode = col;
   mat.roughnessNode = rough;
   mat.metalnessNode = metal;
-  mat.emissiveNode = headlamps.add(tail).add(stop).add(turn).add(sign);
+  mat.emissiveNode = headlamps.add(tail).add(stop).add(turn).add(sign)
+    .add(createPlateLampNode(platePaint).mul(plateRear));
 
   _carMaterialCache.set(cacheKey, mat);
   return mat;
@@ -2668,7 +2676,8 @@ function createLoftedBusMaterial() {
     .mul(pod.mul(0.45).add(headLamp.mul(1.35)))
     .mul(nightHeadlamp)
     .add(color(0xff9a14).mul(max(turnFront, turnRear).mul(blink).mul(2.0)))
-    .add(color(0xff0a12).mul(tailLamp.mul(brake.mul(1.5).add(0.75))));
+    .add(color(0xff0a12).mul(tailLamp.mul(brake.mul(1.5).add(0.75))))
+    .add(createPlateLampNode(busPlate).mul(plateRear));
 
   _busLoftedMat = mat;
   return mat;
@@ -3011,7 +3020,8 @@ function createLoftedBus18RearMaterial() {
   const blink = max(state.y.mul(step(0.0, p.x)), state.z.mul(step(p.x, 0.0)));
   mat.emissiveNode = color(0xff9a14)
     .mul(turnRear.mul(blink).mul(2.0))
-    .add(color(0xff0a12).mul(tailLamp.mul(brake.mul(1.5).add(0.75))));
+    .add(color(0xff0a12).mul(tailLamp.mul(brake.mul(1.5).add(0.75))))
+    .add(createPlateLampNode(busPlate).mul(plateRear));
 
   _bus18RearMat = mat;
   return mat;
@@ -3728,6 +3738,7 @@ export {
   buildCarGeometry,
   buildCarProxyGeometry,
   createLoftedCarMaterial,
+  createPlateLampNode,
   lightbarPlacement,
   buildLightbarGeometry,
   createLightbarMaterial,

@@ -393,3 +393,37 @@ test('the shared car material paints statutory bands and keeps one instanced dra
   assert.match(traffic, /EMERGENCY_PAINT\[2\]/, 'traffic uses the shared PRM paint');
   assert.match(traffic, /EMERGENCY_PAINT\[3\]/, 'traffic uses the shared PSP paint');
 });
+
+test('rear plate lamp follows running lights and preserves printed ink', () => {
+  const source = readFileSync(join(__dirname, '../js/actor-models.js'), 'utf8');
+  const helper = source.match(/function createPlateLampNode\(paint\) \{[\s\S]*?\n\}/)[0];
+  const glow = { value: 0.24 };
+  const node = (values) => ({
+    values,
+    mul(other) {
+      return node(values.map((v, i) => v * (typeof other === 'number' ? other : other.values[i])));
+    }
+  });
+  const lamp = vm.runInNewContext(`${helper}; createPlateLampNode`, {
+    cityUniforms: { uInteriorGlow: glow },
+    color: () => node([1, 0.939, 0.839]),
+    smoothstep: (lo, hi, uniform) => {
+      const t = Math.max(0, Math.min(1, (uniform.value - lo) / (hi - lo)));
+      return t * t * (3 - 2 * t);
+    }
+  });
+  const paint = node([1, 1, 1]);
+  assert.deepEqual(lamp(paint).values, [0, 0, 0], 'no added emission at midday');
+  glow.value = 1.55;
+  const night = lamp(paint).values;
+  assert.ok(night[0] > night[1] && night[1] > night[2], 'warm white at night');
+  assert.ok(night.every((v) => v > 0 && v < 1), 'restrained emission below bloom');
+  assert.deepEqual(lamp(node([0, 0, 0])).values, [0, 0, 0], 'black characters stay black');
+  glow.value = 0.875;
+  assert.ok(Math.abs(lamp(paint).values[0] - night[0] / 2) < 1e-9, 'smooth dusk fade');
+  assert.equal((source.match(/createPlateLampNode\([^)]*\)\.mul\(plateRear\)/g) || []).length, 3,
+    'car, rigid bus and articulated rear use only their rear plate masks');
+  const controllers = readFileSync(join(__dirname, '../js/controllers.js'), 'utf8');
+  assert.match(controllers, /rearPlateMat\.emissiveNode = createPlateLampNode\(texture\(plateTex\)\.rgb\)/);
+  assert.match(controllers, /dir < 0 \? rearPlateMat : plateMat/);
+});

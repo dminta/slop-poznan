@@ -32,6 +32,7 @@ function keyboardHarness(cityConfig = {}) {
     globals: { window, document },
     imports: {
       'three/webgpu': {},
+      'three/tsl': {},
       './city-config.js': config,
       './tsl-materials.js': {},
       './actor-models.js': {},

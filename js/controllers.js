@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu';
+import { texture } from 'three/tsl';
 import {
   CITY_BOUNDS,
   RAISED_GROUND,
@@ -16,6 +17,7 @@ import {
   buildSteerableWheelGeo,
   drawPoznanCrest,
   createLoftedCarMaterial,
+  createPlateLampNode,
   PLATE_FONT_FAMILY,
   buildHelicopterBodyGeometry,
   buildHelicopterMainRotorGeometry,
@@ -626,13 +628,15 @@ class ThirdPersonControllerManager {
     // underneath, so none of it shows round the plate.
     const plateTex = createPolishLicensePlateTexture('P1', 'ROGAL');
     const plateMat = new THREE.MeshStandardNodeMaterial({ map: plateTex, roughness: 0.28 });
+    const rearPlateMat = plateMat.clone();
+    rearPlateMat.emissiveNode = createPlateLampNode(texture(plateTex).rgb);
     const holderMat = new THREE.MeshStandardNodeMaterial({ color: 0x121417, roughness: 0.6 });
     const plateGeo = new THREE.BoxGeometry(PLATE_W, PLATE_H, 0.008);
     const holderGeo = new THREE.BoxGeometry(PLATE_W + 0.016, PLATE_H + 0.018, 0.014);
     for (const [y, z, dir] of [[spec.plates[0], spec.zFront, 1], [spec.plates[1], spec.zRear, -1]]) {
       const holder = new THREE.Mesh(holderGeo, holderMat);
       holder.position.set(0, y, z + dir * 0.001);
-      const plate = new THREE.Mesh(plateGeo, plateMat);
+      const plate = new THREE.Mesh(plateGeo, dir < 0 ? rearPlateMat : plateMat);
       plate.position.set(0, y, z + dir * 0.012);
       chassisPivot.add(holder, plate);
     }

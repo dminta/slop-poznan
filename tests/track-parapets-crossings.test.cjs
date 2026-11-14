@@ -348,6 +348,7 @@ test('cars can drive across all railway underpasses and former crossings without
     globals: { window: {}, document: { hidden: false } },
     imports: {
       'three/webgpu': inert(),
+      'three/tsl': inert(),
       './city-config.js': cityConfig,
       './tsl-materials.js': inert(),
       './actor-models.js': inert(),
