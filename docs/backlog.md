@@ -31,9 +31,15 @@ Implementation details and completed measurements live in the [topic docs](../AG
   a world-grid body-clearance check at short-link entrances (new 19 s pairs at Głogowska / Zachodnia), ignoring an
   oncoming blocker on the same route key (no effect), matching the reversed link by its endpoints (pairs/s up in both
   seeds, ~19 %), the same after 5 s stuck (hold persists), dropping dead-end twin U-turns (pairs/s 7.1 → 9.1), or a
-  one-direction-at-a-time rule on tracks under 3 m (rooms +1,914 ped-s at Centrum alone). [Corner-link record](observations/ped-corner-links-2026-11-10.md),
+  one-direction-at-a-time rule on tracks under 3 m (rooms +1,914 ped-s at Centrum alone). On `3b6ec32` (2026-11-14
+  recheck), the eight-district audit has 3 clusters (all in Centrum at Stanisława Taczaka, longest 14 s, biggest 5),
+  5.82 overlap pairs/s, 107.5 crosswalk entries/min, and 25,811 ped-s in `--ped-rooms` (Centrum 16,608, longest
+  20.1 s); do not revive segment-exact `onNext` on corner links, `stuck > 1` oncoming-exit swaps, or `< 2 * QUEUE_GAP`
+  short-link box guards (each regresses Centrum `--ped-rooms` or `pairs/s` / clusters).
+  [Corner-link record](observations/ped-corner-links-2026-11-10.md),
   [twin-lane and Pasaż pass](observations/ped-twin-lane-loops-2026-11-10.md),
   [Pasaż record](observations/ped-overlap-pasaz-2026-11-10.md),
+  [2026-11-14 stand-off follow-up](observations/ped-twin-lane-standoff-2026-11-14.md),
   [mechanisms](observations/ped-overlap-remnants-2026-11-08.md).
 - **Kaponiera long holds and the last deadlock:** at `8c41595` (8 seeds × 7 districts, 5 min) every hold > 120 s and
   every deadlock is in Kaponiera: 12.6 km/h, 51.3 % stopped, worst wait 145 s, held > 60 s 133, > 120 s **13**,
