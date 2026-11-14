@@ -686,18 +686,10 @@ default Kaponiera 22:1 is a 15-pair-frame side graze after the car was already o
 
 ## Vehicle lights and turn-signal conventions
 - Model space: +Z is forward and **+X is the vehicle's left**. `carState` (vec4) = (brake, left/+x signal, right/−x signal, livery 0 none / 1 Policja / 2 ambulance / 3 fire). `busState` uses the same first three, and `.w` is the bus's route (destination sign row; the sign mesh shares the attribute). `v.blink < 0` means left. `pose()` sets the blink from a lane change (sign of `dl`) or from a planned turn within 35 m of the edge end or inside the connector. The flash period is 0.8 s, offset per vehicle by `blinkPhase`. Brake lights on street traffic come on at `acc < -0.8 || speed < 0.3`. The player's taxi uses the fixed-colour material variant and drives `material.userData.carState` from `controllers.js`. It is silver, and `createCarEntity` lays its own meshes over the body material's taxi marking and blank plates: a side stripe across both doors (y 0.55–0.71 m, one canvas per side, covering the chequer strip, crest and side number; the patch hugs the body skin and is wound outward on both sides, its u running front→rear on +x and rear→front on −x so each canvas reads left to right from outside) and 520 × 114 mm Polish plates on holders larger than the painted plates, so those stay hidden whatever `actor-models.js` paints there. The player's stripe draws its own vector crest with `drawPoznanCrest()` (the same routine as the street taxis' texture), "TAXI" and "POZNAŃ" on the front door, and the side number in the official white panel with a black frame on the rear door. The crest and the city's marking rules are public-domain municipal symbols (art. 4 of the Polish Copyright Act); the drawing follows the Statut Miasta Poznania and the § 10 taxi marking resolution (XX/342/VIII/2019), keeping the model's yellow-and-black chequer for visibility instead of the official 4 cm white-and-black squares.
-- Player signals activate automatically after 0.45 s of continuous steering input ≥0.25 toward one side, with
-  matching `steerAngle` ≥0.08 rad and forward speed >0.5 m/s (1.8 km/h). At 60 Hz the production smoothing reaches
-  0.08 rad in one full-input frame or about 0.1 s at 25% input: activation takes about 0.45–0.55 s. Alternating
-  wobble, input below 25%, stopping and reversing reset the timer. Sustained opposite steering cancels an automatic
-  signal after the same delay, resetting the timer to zero; the opposite side can start only after a fresh delay. Optional Z/X and gamepad D-pad left/right override it; manually cancelling suppresses that
-  side until steering is released or changes direction. No new touch buttons or sound.
-- A player signal arms cancellation after a signed heading change ≥45° toward the chosen side (half of a 90° junction
-  turn, keeping small lane corrections below the threshold). Heading differences wrap across ±π. After steering is
-  <0.05 rad (2.9°, 9.6% of lock) and input <0.1 for 0.2 s, the signal cancels in the next off half-cycle, so the
-  final lit pulse is complete. An automatic signal also cancels below 45° after 1.2 s continuously near centre:
-  1.5 blink periods give a shallow lane change time to settle. Cancellation still finishes the lit half-cycle.
-  Manual signals keep the 45° rule (or cancel via their key/button); steering cannot replace a manual signal.
+- Player signals are manual only (user, 2026-11-14): Z/X or gamepad D-pad left/right switch a side on, the same key
+  switches it off and the other key switches straight to the other side. Steering never switches an indicator on or
+  off and there is no self-cancel after a turn (an automatic mode with a 0.45 s steering delay and 45° self-cancel
+  was built in 6360c7d and removed at the user's request). There are no touch buttons, so phones cannot signal.
   Front/rear signals share a 0.8 s period with 50% duty cycle, starting lit. This body
   has no separate side repeaters. Leaving the car or teleporting clears both indicators and reverse.
 - Player reverse lamps use a separate fixed-material `userData.reverseLight` scalar uniform: white emission in the

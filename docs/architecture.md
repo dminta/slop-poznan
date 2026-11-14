@@ -141,14 +141,14 @@ per-frame code free of allocations. Collision listeners must copy any event fiel
 - Some keys are not movement and are handled elsewhere:
   - In `main.js`: `1`-`4` select the mode, `5`-`0` and `V` select the camera, `H`, `N` and `B` (horn).
   - In `controllers.js`: `Z` toggles the taxi's left signal, `X` the right (same key cancels; key repeats and
-    Ctrl/Meta/Alt shortcuts are ignored). Automatic indicators also work with keyboard, touch stick and gamepad steering.
+    Ctrl/Meta/Alt shortcuts are ignored). Indicators are manual only; steering never switches them.
   - In `city-map.js`: `M` and `Esc`.
   - Every keyboard handler must skip events where `isTypingInField(e)` is true, so typing in the map search box doesn't drive
     the player.
 - Every source resets on `blur` and `visibilitychange`. Opening the map calls `resetInput()` and disables touch and gamepad
   through `onToggle`.
 - In car mode gamepad D-pad left/right toggle the left/right indicator (buttons 14/15), using the same edge and
-  held-button suppression as camera actions. No extra touch HUD buttons are needed: sustained stick turns signal automatically.
+  held-button suppression as camera actions. There are no touch HUD indicator buttons.
 - `GamepadControls` reads only pads with `mapping === 'standard'`. It suppresses buttons that are already held after a connect,
   a reset or a mode change, so a held button never fires a fresh action. It also checks `this.revision` after each callback,
   because callbacks such as `selectMode` call `reset()` synchronously.

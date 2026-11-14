@@ -634,9 +634,7 @@ function signalHarness() {
     position: { x: 0, y: 0, z: 0 }, heading: 0, speed: 8, steerAngle: 0,
     vx: 0, vz: 0, angularVel: 0, pitchVel: 0, rollVel: 0, heaveVel: 0, heaveY: 0, wheelSpin: 0,
     chassisPivot: { rotation: { x: 0, z: 0 }, position: { y: 0 } }, wheels: [],
-    signalDirection: 0, signalAutomatic: false, signalHeading: 0,
-    signalElapsed: 0, signalTurnReached: false, signalCentreElapsed: 0,
-    autoSignalDirection: 0, autoSignalElapsed: 0, autoSignalSuppressed: 0,
+    signalDirection: 0, signalElapsed: 0,
     carState: { value: { x: 0, y: 0, z: 0, w: 0 } }, reverseLight: { value: 0 }
   };
   h.controller.entities = { car: h.car, person: {} };
@@ -676,99 +674,31 @@ test('manual Z/X toggles the correct side, ignores repeat, modifiers, typing and
   assert.equal(h.car.signalDirection, 0);
 });
 
-for (const direction of [1, -1]) {
-  test(`automatic signal ${direction} waits for sustained real steering then blinks with a 0.8 s period`, () => {
+test('steering never switches an indicator on, whatever the input, speed or duration', () => {
+  const h = signalHarness();
+  for (const input of [1, -1, 0.25]) {
+    h.step(3, input);
+    assert.equal(h.car.signalDirection, 0);
+  }
+  for (let i = 0; i < 20; i++) h.step(0.2, i % 2 ? 1 : -1);
+  assert.equal(h.car.signalDirection, 0);
+});
+
+for (const [code, direction] of [['KeyZ', 1], ['KeyX', -1]]) {
+  test(`manual ${code} blinks its side with a 0.8 s period`, () => {
     const h = signalHarness();
-    h.step(0.4, direction);
-    assert.equal(h.car.signalDirection, 0, 'below 0.45 s never triggers');
-    h.step(0.1, direction);
-    assert.equal(h.car.signalDirection, direction);
+    h.key('keydown', code);
     const state = direction === 1 ? 'y' : 'z';
     const other = direction === 1 ? 'z' : 'y';
+    h.step(0.1);
     assert.equal(h.car.carState.value[state], 1);
     assert.equal(h.car.carState.value[other], 0);
-    h.step(0.4, direction);
+    h.step(0.4);
     assert.equal(h.car.carState.value[state], 0);
-    h.step(0.4, direction);
+    h.step(0.4);
     assert.equal(h.car.carState.value[state], 1);
   });
 }
-
-test('alternating wobble, weak input, rest and reversing cannot activate a signal', () => {
-  const h = signalHarness();
-  for (let i = 0; i < 20; i++) h.step(0.2, i % 2 ? 1 : -1);
-  assert.equal(h.car.signalDirection, 0);
-  h.step(2, 0.2);
-  assert.equal(h.car.signalDirection, 0);
-  for (const speed of [0, 0.5, -8]) {
-    h.car.speed = speed;
-    h.step(2, 1);
-    assert.equal(h.car.signalDirection, 0);
-  }
-});
-
-test('quarter input activates after steering settles and the continuous delay elapses', () => {
-  const h = signalHarness();
-  h.step(0.5, 0.25);
-  assert.equal(h.car.signalDirection, 0);
-  h.step(0.15, 0.25);
-  assert.equal(h.car.signalDirection, 1);
-});
-
-test('counter-steering cancels the auto signal before a fresh opposite delay starts', () => {
-  const h = signalHarness();
-  h.step(0.6, 1);
-  h.step(0.4, -1);
-  assert.equal(h.car.signalDirection, 1);
-  for (let i = 0; i < 30 && h.car.signalDirection; i++) {
-    h.step(1 / 60, -1);
-    assert.notEqual(h.car.signalDirection, -1, 'counter-steer must cancel before signalling the other side');
-  }
-  assert.equal(h.car.signalDirection, 0);
-  assert.equal(h.car.autoSignalElapsed, 0, 'the opposite side starts with no accumulated time');
-  h.step(0.4, -1);
-  assert.equal(h.car.signalDirection, 0);
-  h.step(0.1, -1);
-  assert.equal(h.car.signalDirection, -1, 'a new full delay can activate the opposite side');
-});
-
-test('a full 90-degree auto turn cancels after centring hold and never cuts a lit pulse', () => {
-  const h = signalHarness();
-  h.car.heading = Math.PI - 0.2;
-  const initialHeading = h.car.heading;
-  h.step(0.6, 1);
-  h.step(0.8, 1);
-  assert.ok(h.car.heading - initialHeading >= Math.PI / 2, 'the production controller completes a full 90-degree turn');
-  assert.equal(h.car.signalTurnReached, true, 'heading passes +pi without losing the turn');
-  assert.equal(h.car.signalDirection, 1, 'held steering keeps the signal');
-  h.step(0.2);
-  assert.equal(h.car.signalDirection, 1, 'steering has not settled near centre');
-  for (let i = 0; i < 90 && h.car.signalDirection; i++) {
-    const lit = h.car.carState.value.y;
-    h.step(1 / 60);
-    if (!h.car.signalDirection) {
-      assert.ok(h.car.signalCentreElapsed >= 0.2);
-      assert.ok(h.car.signalElapsed >= 0.4);
-      if (lit) assert.ok(h.car.signalElapsed < 0.42, 'lit pulse finishes at its natural boundary');
-    }
-  }
-  assert.equal(h.car.signalDirection, 0);
-  assert.equal(h.car.carState.value.y, 0);
-});
-
-test('small heading corrections do not arm self-cancel and manual cancellation overrides held steering', () => {
-  const h = signalHarness();
-  h.step(0.6, 1);
-  h.step(1);
-  assert.equal(h.car.signalTurnReached, false);
-  assert.equal(h.car.signalDirection, 1);
-  h.key('keydown', 'KeyZ');
-  h.step(1, 1);
-  assert.equal(h.car.signalDirection, 0);
-  h.step(0.1);
-  h.step(0.6, 1);
-  assert.equal(h.car.signalDirection, 1, 'a fresh steering gesture can activate again');
-});
 
 test('reverse lamp follows backwards motion and reverse at rest, independently of brake and blink', () => {
   const h = signalHarness();
@@ -780,70 +710,20 @@ test('reverse lamp follows backwards motion and reverse at rest, independently o
   }
 });
 
-test('production steering measures activation within 0.45–0.55 s at 60 Hz', (t) => {
-  for (const input of [1, 0.25]) {
-    const h = signalHarness();
-    let frames = 0;
-    while (!h.car.signalDirection && frames < 60) {
-      h.step(1 / 60, input);
-      frames++;
-    }
-    assert.ok(frames / 60 >= 0.45 && frames / 60 <= 0.55);
-    t.diagnostic(`${input * 100}% input: ${frames} frames, ${(frames / 60).toFixed(3)} s, steerAngle=${h.car.steerAngle.toFixed(4)} rad`);
-  }
-});
-
-test('input interruption resets the automatic delay before a fresh press', () => {
-  const h = signalHarness();
-  h.step(0.4, 1);
-  h.controller.resetInput();
-  h.step(0.1, 1);
-  assert.equal(h.car.signalDirection, 0);
-  h.step(0.4, 1);
-  assert.equal(h.car.signalDirection, 1);
-});
-
-for (const direction of [1, -1]) {
-  test(`a shallow auto turn ${direction} cancels after 1.2 s centred without cutting a lit pulse`, () => {
-    const h = signalHarness();
-    h.step(0.6, direction * 0.25);
-    assert.equal(h.car.signalDirection, direction);
-    while ((h.car.heading - h.car.signalHeading) * direction < Math.PI / 12) h.step(1 / 60, direction * 0.25);
-    h.step(1);
-    assert.equal(h.car.signalTurnReached, false, 'roughly 15 degrees is below the real-car threshold');
-    assert.equal(h.car.signalDirection, direction, 'one second from release is too short');
-    for (let i = 0; i < 60 && h.car.signalDirection; i++) {
-      h.step(1 / 60);
-      if (!h.car.signalDirection) {
-        assert.ok(h.car.signalCentreElapsed >= 1.2);
-        assert.ok(h.car.signalCentreElapsed < 1.62, 'only a lit half-cycle may extend the hold');
-        assert.ok(h.car.signalElapsed >= 0.4, 'cancel only in the off phase');
-      }
-    }
-    assert.equal(h.car.signalDirection, 0);
-    assert.equal(h.car.carState.value.y, 0);
-    assert.equal(h.car.carState.value.z, 0);
-  });
-}
-
-test('a manual signal with no turn stays on after the automatic centre timeout', () => {
-  const h = signalHarness();
-  h.key('keydown', 'KeyZ');
-  h.step(3);
-  assert.equal(h.car.signalDirection, 1);
-  assert.equal(h.car.signalTurnReached, false);
-  h.step(0.7, -1);
-  assert.equal(h.car.signalDirection, 1, 'counter-steer does not override the manual real-car rule');
-  h.key('keydown', 'KeyZ');
-  assert.equal(h.car.signalDirection, 0);
-});
-
-test('a full 90-degree manual turn keeps the short centre cancellation rule', () => {
+test('a manual signal survives a full turn, straightening and counter-steer until its key is pressed again', () => {
   const h = signalHarness();
   h.key('keydown', 'KeyX');
   while (h.car.heading > -Math.PI / 2) h.step(1 / 60, -1);
-  assert.equal(h.car.signalTurnReached, true);
-  h.step(1);
+  h.step(3);
+  h.step(1, 1);
+  assert.equal(h.car.signalDirection, -1, 'no self-cancel after the turn and no override from steering');
+  h.key('keyup', 'KeyX');
+  h.key('keydown', 'KeyZ');
+  assert.equal(h.car.signalDirection, 1, 'the other key switches straight to the other side');
+  h.key('keyup', 'KeyZ');
+  h.key('keydown', 'KeyZ');
   assert.equal(h.car.signalDirection, 0);
-  assert.ok(h.car.signalCentreElapsed >= 0.2 && h.car.signalCentreElapsed < 0.62);
+  h.step(0.1);
+  assert.equal(h.car.carState.value.y, 0);
+  assert.equal(h.car.carState.value.z, 0);
 });
