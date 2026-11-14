@@ -179,8 +179,16 @@ function createPedestrianRoutes(
       const b = point(next, port.end);
       if (!clearGap(a, b)) continue;
       lines.add(line);
+      // Links between the parallel lines of one pedestrian way (the U-turns and cross-overs of its twin lanes) that
+      // start at the same point along the way overlap physically; they share one queue key (the way and that point,
+      // to the metre) so walkers on different lines' links see each other instead of standing body to body.
+      const cx = track.ux < 0 || (track.ux === 0 && track.uz < 0) ? -track.ux : track.ux;
+      const cz = track.ux < 0 || (track.ux === 0 && track.uz < 0) ? -track.uz : track.uz;
+      const linkKey = next.way && next.edge === track.edge
+        ? `corner:way:${line.split(':')[1]}:${Math.round(a.x * cx + a.z * cz)}`
+        : `corner:${line}`;
       result.push([
-        { track: segment(a, b, { walkKey: `corner:${line}` }), dir: 1 },
+        { track: segment(a, b, { walkKey: linkKey }), dir: 1 },
         { track: next, dir: port.end ? -1 : 1 }
       ]);
       if (result.length >= 8) break;

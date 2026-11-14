@@ -38,12 +38,19 @@ Implementation details and completed measurements live in the [topic docs](../AG
   short-link box guards (each regresses Centrum `--ped-rooms` or `pairs/s` / clusters). On `agy-taczaka`
   (`ped-taczaka-clusters-2026-11-14.md`), bisecting to `59ee496` showed a sequence shift exposing the `way:88` Pasaż
   Różowy 1.87 m dead-end pocket; `next()` now skips entering dead-end `way` stubs under 3 m, clearing all **3 → 0** clusters (6.02 pairs/s, 106.7 entries/min) and cutting Centrum `--ped-rooms`
-  **16,608 → 14,588** ped-s (7-district total **25,811 → 23,791**).
+  **16,608 → 14,588** ped-s (7-district total **25,811 → 23,791**). On `agy-ped-marcin`
+  (`ped-centrum-pairs-2026-11-14.md`), ablation of the four Centrum longest-pair fixes kept only shared same-way
+  `wayLinks` keys (`js/pedestrian-routes.js`), cutting eight-district overlap **6.02 → 5.60** pairs/s (Centrum `4242`
+  **17.7 → 13.9**, `77` **12.1 → 10.6**), entries/min **106.7 → 106.9**, and `--ped-rooms` **23,791 → 23,580**
+  (Centrum **14,588 → 14,075**) with **0** clusters and **0** deadlocks / **0** cars held > 120 s across all 8
+  Jeżyce/Centrum seeds; `spawnPed` `pedNear` retry, `entrance` guards, and `curbLane` 2nd column were dropped (see
+  observation record for per-change ablation).
   [Corner-link record](observations/ped-corner-links-2026-11-10.md),
   [twin-lane and Pasaż pass](observations/ped-twin-lane-loops-2026-11-10.md),
   [Pasaż record](observations/ped-overlap-pasaz-2026-11-10.md),
   [2026-11-14 stand-off follow-up](observations/ped-twin-lane-standoff-2026-11-14.md),
   [Taczaka cluster fix](observations/ped-taczaka-clusters-2026-11-14.md),
+  [Centrum pair fixes](observations/ped-centrum-pairs-2026-11-14.md),
   [mechanisms](observations/ped-overlap-remnants-2026-11-08.md).
 - **Kaponiera long holds and the last deadlock:** at `8c41595` (8 seeds × 7 districts, 5 min) every hold > 120 s and
   every deadlock is in Kaponiera: 12.6 km/h, 51.3 % stopped, worst wait 145 s, held > 60 s 133, > 120 s **13**,
