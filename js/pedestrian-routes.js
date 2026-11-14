@@ -1292,10 +1292,35 @@ function createPedestrianRoutes(
     return result;
   }
 
+  // Does pedestrian way `wayEdge` link anywhere other than itself and `fromEdge`? The route graph is fixed once built,
+  // so the answer is cached per (way, entry) pair: next() runs for every walker's every track change.
+  const wayExitCache = new Map();
+  function wayHasExit(wayEdge, fromEdge) {
+    let byFrom = wayExitCache.get(wayEdge);
+    if (!byFrom) wayExitCache.set(wayEdge, byFrom = new Map());
+    let exit = byFrom.get(fromEdge);
+    if (exit !== undefined) return exit;
+    exit = false;
+    for (const t of wayTracks) {
+      if (t.edge !== wayEdge) continue;
+      for (const d of [-1, 1]) {
+        for (const p of links(t, d)) {
+          const dest = p[p.length - 1].track;
+          if (dest.edge !== wayEdge && dest.edge !== fromEdge) { exit = true; break; }
+        }
+        if (exit) break;
+      }
+      if (exit) break;
+    }
+    byFrom.set(fromEdge, exit);
+    return exit;
+  }
+
   function next(track, dir, goalX, goalZ) {
     let best = null, bestScore = -Infinity;
     const a = point(track, dir > 0 ? 1 : 0);
     const gx = goalX - a.x, gz = goalZ - a.z, distance = Math.hypot(gx, gz) || 1;
+    const wayExit = track.way && wayHasExit(track.edge, null);
     for (const path of links(track, dir)) {
       const last = path[path.length - 1], target = last.track;
       // A crossing whose far end lands on a known block with no way off it (a park edge with no sidewalk track) is no
@@ -1309,6 +1334,13 @@ function createPedestrianRoutes(
       // through step off it. Ordinary blocks still reject a dead landing (a court or park edge).
       if (landing && blockAt(landing.x, landing.z) && !target.terminus && !target.landing &&
           !links(target, last.dir).length) continue;
+      // A dead-end pedestrian way shorter than 2 * PED_LANE_RAMP (3 m) whose parallel tracks only link to each other
+      // and back to the entry way is a pocket with no room for opposing flows to separate (e.g. Pasaż Różowy's 1.87 m
+      // stub): do not enter it from outside, and if spawned inside, leave it.
+      if (target.way && target.edge !== track.edge && target.len < 3 && !wayHasExit(target.edge, track.edge)) continue;
+      if (track.way && track.len < 3 && !wayExit && target.edge === track.edge) {
+        if (links(track, dir).some((p) => p[p.length - 1].track.edge !== track.edge)) continue;
+      }
       const ux = target.ux * last.dir, uz = target.uz * last.dir;
       const back = ux * track.ux * dir + uz * track.uz * dir < -0.8;
       const score = (ux * gx + uz * gz) / distance + Math.random() * 0.7 - (back ? 2 : 0);

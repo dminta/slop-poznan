@@ -94,3 +94,27 @@ test('pedestrian-street spawns are weighted by track length, not one vote per fr
   // 4 x 1.87 m of 67.5 m is 11%: the old uniform pick gave the four stubs 80% of the spawns
   assert.ok(counts.stub >= 8 && counts.stub <= 14, `stubs took ${counts.stub} of 100 draws`);
 });
+
+test('next() does not enter a dead-end pedestrian-way stub under 3 m and exits one if spawned inside', async () => {
+  const config = await import('../js/city-config.js');
+  const { createPedestrianRoutes } = loadModule(
+    readFileSync(join(__dirname, '../js/pedestrian-routes.js'), 'utf8'),
+    { imports: { './road-network.js': { CROSSWALK: 4.3, CROSSWALK_REACH: 4 } }, filename: 'pedestrian-routes.js' }
+  );
+  const routes = createPedestrianRoutes(
+    { nodes: [], edges: [], walkable: () => true }, () => null, null, null,
+    [
+      { name: 'Main', w: 8, pts: [{ x: 0, z: 0 }, { x: 0, z: 12 }] },
+      { name: 'Stub', w: 8, pts: [{ x: 0, z: 24 }, { x: 0, z: 25.87 }] }
+    ]
+  );
+  const main = routes.ways.find((t) => t.wayName === 'Main');
+  const stub = routes.ways.find((t) => t.wayName === 'Stub');
+  assert.ok(main && stub && stub.len < 3);
+  // Looking north from Main toward (0, 100) must not enter the dead-end Stub
+  const pick = routes.next(main, 1, 0, 100);
+  assert.ok(!pick || pick[pick.length - 1].track.wayName !== 'Stub');
+  // If spawned on Stub facing north, next() must still exit back to Main rather than bouncing between Stub lines
+  const exit = routes.next(stub, 1, 0, 100);
+  assert.ok(exit && exit[exit.length - 1].track.wayName === 'Main');
+});
