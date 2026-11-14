@@ -1130,7 +1130,8 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     return true;
   }
 
-  // No car on the track from the rear of a tram placed with its front at path.u to 10 m ahead of it
+  // No car on the track from the rear of a tram placed with its front at path.u to 10 m ahead of it,
+  // nor a car already committed in a junction box whose crossing lies within the 25 m spawn braking distance ahead
   function trackClear(path, length) {
     for (let d = -length; d <= 10; d += 3) {
       path.pointAt(path.u + d, _p);
@@ -1139,6 +1140,20 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
         if (!list) continue;
         for (const v of list) {
           if (v.edge && Math.abs(v.x - _p.x) < v.half + 3 && Math.abs(v.z - _p.z) < v.half + 3 && Math.hypot(v.x - _p.x, v.z - _p.z) < v.half + 2.5) return false;
+        }
+      }
+    }
+    for (let i = path.indexAt(path.u); i < path.n; i++) {
+      const base = path.start[i];
+      if (base - path.u > 25) break;
+      for (const c of path.edges[i].junctions) {
+        if (base + c.s0 - path.u < 0 || base + c.s0 - path.u > 25) continue;
+        for (let pass = 0; pass < 2; pass++) {
+          const list = pass ? traffic.buses : traffic.cars;
+          if (!list) continue;
+          for (const v of list) {
+            if (v.conn && v.edge === c.e && v.lane === c.i && v.move && v.move.to === c.f && v.out === c.j) return false;
+          }
         }
       }
     }

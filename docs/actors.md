@@ -659,7 +659,10 @@ default Kaponiera 22:1 is a 15-pair-frame side graze after the car was already o
   `mayEnter` refuses a held curve through `tramBlocks(v, n, f, j)`, except for
   the car the tram waits for (`tram.obstacle`), a car right in front of the front, or one ahead in a lane the tram
   runs along (`inTramLane`).
-  `spawnVehicle` rejects places within 3 m of a tram body (`nearTram`); tram spawns reject track with a car on it.
+  `spawnVehicle` rejects places within 3 m of a tram body (`nearTram`); tram spawns reject track with a car on it,
+  and a spot within 25 m (the spawn braking distance) of a car–tram junction conflict whose car is already committed in the junction box (the Centrum seed-1 Gwarna cycle:
+  a tram spawned 14.7 m short of a committed car and the two held each other 33 s;
+  [record](observations/gwarna-car-tram-cycle-2026-11-14.md)).
 - **Trams brake** (`drive()`): the path ahead is sampled every 2 m up to the braking distance + 12 m (≤ 70 m); cars,
   buses and the player whose OBB reaches into that swept corridor are IDM leaders at their speed along the track
   (`waitReason 'car'` / `'player'`), and so are pedestrians within `TRAM_HALF_WIDTH + PED_REACH` (1.7–1.9 m) of the centreline (`traffic.peds`, `'pedestrian'`, no bell). For a moving body the test keeps the whole rectangle in the way
