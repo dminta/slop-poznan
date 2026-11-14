@@ -644,9 +644,9 @@ const { SIGNAL_SITES, LANE_GUIDE, JUNCTIONS } = (() => {
   return { SIGNAL_SITES: sites, LANE_GUIDE: guide, JUNCTIONS: junctions };
 })();
 const GUIDE_CELL = 32;
-const GUIDE_GRID = new Map(); // each segment in every cell within its half width + 4 m
+const GUIDE_GRID = new Map(); // each segment in every cell within its half width + 6 m (covers YARD_ROAD_KEEP = 4.6 m)
 for (const s of LANE_GUIDE) {
-  const m = s[4] + 4;
+  const m = s[4] + 6;
   for (let ix = Math.floor((Math.min(s[0], s[2]) - m) / GUIDE_CELL); ix <= Math.floor((Math.max(s[0], s[2]) + m) / GUIDE_CELL); ix++) {
     for (let iz = Math.floor((Math.min(s[1], s[3]) - m) / GUIDE_CELL); iz <= Math.floor((Math.max(s[1], s[3]) + m) / GUIDE_CELL); iz++) {
       const k = ix * 100000 + iz;
@@ -655,8 +655,9 @@ for (const s of LANE_GUIDE) {
     }
   }
 }
-// How far (x, z) stands outside the nearest roadway (LANE_GUIDE): negative inside one, up to ~4 m (Infinity when no
-// road is that near). Street furniture keeps its footprint outside, so it closes no lane (docs/world.md obstacle rule).
+// How far (x, z) stands outside the nearest roadway (LANE_GUIDE): negative inside one, exact up to 6 m (may return
+// a farther segment or Infinity beyond 6 m). Street furniture keeps its footprint outside, so it closes no lane
+// (docs/world.md obstacle rule).
 function roadClearance(x, z) {
   let best = Infinity;
   for (const [ax, az, bx, bz, half] of GUIDE_GRID.get(Math.floor(x / GUIDE_CELL) * 100000 + Math.floor(z / GUIDE_CELL)) || []) {
@@ -669,7 +670,7 @@ function roadClearance(x, z) {
 
 // Linear pedestrian streets are not drivable and so are absent from the road graph. Their corridors (± w/2 around the
 // centreline) still may not carry buildings: a fallback lot laid on Wrocławska would put a whole kamienica mid-street.
-// Indexed like LANE_GUIDE; the contract matches roadClearance (negative inside the corridor).
+// Indexed like LANE_GUIDE; negative inside the corridor, exact up to 4 m (callers only test <= 0.5 m).
 const PEDESTRIAN_CELL = 32;
 const PEDESTRIAN_GRID = new Map();
 for (const way of PEDESTRIAN_WAYS) {
