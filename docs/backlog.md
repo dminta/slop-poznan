@@ -222,8 +222,13 @@ the checks below; each remaining bullet is the part that is still open.
 - Walk and drive around the named diagonal tram shelters at Dworzec Zachodni and Żniwna, checking collision against
   their back glass and ends; a shelter at `(-1552.6, 229.7)` stopped the walking player at 3.84 m on 2026-11-11.
   [Furniture geometry](world.md#tram-infrastructure).
-- Inspect park lamps on Za Cytadelą and lamps moved onto lawns in narrow-walk parks (e.g. block 212 near
-  `−953, −1928`); check trees by Avenida and in park blocks with buildings (Park Nad Wartą, Antoninek block 874).
+- Browser check: visually inspect park lamps on Za Cytadelą and lamps stepped onto lawns in narrow-walk parks (e.g.
+  block 212 near `−953, −1928`), plus Park Nad Wartą and Park Jana Kasprowicza. The 2026-11-14 headless audit
+  ([record](observations/park-lamps-trees-2026-11-14.md)) confirmed 0 lamp trunk/prop/building/water/road/rail overlaps
+  (dropped 6 OSM trees overlapping `parkLampSites`), 0 `parkLampSites` pairs `< 6 m` apart (dropped 81 duplicate
+  park/plaza lamps, `3,519 → 3,438`), 0 procedural park trees on walks/pond paths (dropped 32), 0 trunks inside
+  buildings across Avenida, Park Nad Wartą, Antoninek block 876 (was 874) and all 44 full park blocks with buildings,
+  and verified that all 122 `onLawn` lamps sit 1.0–1.59 m inside narrow 0.2–1.0 m walks where no walk-edge spot exists.
   [Tree/building clearance](observations/tree-building-clearance-2026-11-03.md).
 - Check the corrected heights of Iglica, Delta, Brama Poznania and Zamek Królewski, and the refined Teatr Wielki
   portico/Pegasus from street level and above; the Fara front gable/cross reads from Świętosławska.

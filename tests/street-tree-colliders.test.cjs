@@ -58,8 +58,9 @@ test('street trees carry player colliders, including Rybaki', async () => {
   // Surveyed OSM park trees have no city-grid site of their own, so street-details.js adds their trunk boxes to the
   // same player list as the street rows; count them separately rather than letting them hide a missing street trunk.
   const osmParkTrees = sites.filter((t) => t.source === 'osm' && t.tier === 0).length;
-  // Pole-overlap fix (2026-11-14) drops 1 overlapping OSM park tree -> 25,630.
-  assert.equal(osmParkTrees, 25630, 'surveyed OSM park trees');
+  // Pole-overlap fix (2026-11-14) drops 1 overlapping OSM park tree -> 25,630;
+  // park-lamp overlap fix (2026-11-14) drops 6 more OSM park trees -> 25,624.
+  assert.equal(osmParkTrees, 25624, 'surveyed OSM park trees');
 
   const siteParkTrees = sites.filter((t) => t.source === 'site' && t.tier === 0).length;
   const colliders = details.colliders;

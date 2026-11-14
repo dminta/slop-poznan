@@ -1602,6 +1602,13 @@ function buildStreetDetails(scene, opts = {}) {
     }
     return true;
   };
+  const parkLampCells = new Map();
+  for (const p of parkLampSites || []) {
+    const k = poleKey(Math.floor(p.x / POLE_CELL), Math.floor(p.z / POLE_CELL));
+    const list = parkLampCells.get(k);
+    if (list) list.push(p);
+    else parkLampCells.set(k, [p]);
+  }
   const clearOfOsmPoleOverlap = (x, z, scale) => {
     if (!clearOfTramPoles(x, z, scale)) return false;
     const base = 0.28 * scale + 0.15;
@@ -1611,6 +1618,11 @@ function buildStreetDetails(scene, opts = {}) {
         const minD = base + (p.r ?? 0.18);
         const dx = p.x - x, dz = p.z - z;
         if (dx * dx + dz * dz < minD * minD) return false;
+      }
+      const lampMinD2 = (base + 0.2) ** 2;
+      for (const p of parkLampCells.get(poleKey(i, j)) || []) {
+        const dx = p.x - x, dz = p.z - z;
+        if (dx * dx + dz * dz < lampMinD2) return false;
       }
     }
     return true;

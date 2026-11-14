@@ -1621,6 +1621,21 @@ function buildCityGrid(scene, opts = {}) {
   const graniteMat = new THREE.MeshStandardNodeMaterial({ color: 0x86837c, roughness: 0.8 }); // benches, planters, copings
   const benchMatrices = []; // slatted park benches
   const lampMatrices = []; // cast-iron lampposts with glass globes
+  const lampSites = [];
+  // 20 % of the 30 m plaza spacing; keeps 90° plaza/park corners (>= 7.8 / 18.8 m) and Teatr Polski (>= 9.9 m)
+  const MIN_LAMP_SPACING = 6.0;
+  const lampCells = new Map();
+  const clearOfLamps = (x, z) => {
+    const ix = Math.floor(x / MIN_LAMP_SPACING), iz = Math.floor(z / MIN_LAMP_SPACING);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        for (const p of lampCells.get((ix + dx) * 100000 + (iz + dz)) || []) {
+          if ((p.x - x) ** 2 + (p.z - z) ** 2 < MIN_LAMP_SPACING * MIN_LAMP_SPACING) return false;
+        }
+      }
+    }
+    return true;
+  };
   const treeSites = []; // { x, y, z, scale, species } park & plaza trees planted by street-details.js (section 7)
   const PLAZA_Y = 0.24;
   const pavedRects = []; // plaza & park slab bounds, exported so street trees (street-details.js) stay off them
@@ -1718,8 +1733,14 @@ function buildCityGrid(scene, opts = {}) {
     return true;
   }
   function addLamp(x, y, z) {
-    if (!railClear(x, z, 0.3)) return false;
+    if (!railClear(x, z, 0.3) || !clearOfLamps(x, z)) return false;
     lampMatrices.push(new THREE.Matrix4().makeTranslation(x, y, z));
+    const site = { x, y: y + 4.17, z };
+    lampSites.push(site);
+    const k = Math.floor(x / MIN_LAMP_SPACING) * 100000 + Math.floor(z / MIN_LAMP_SPACING);
+    const list = lampCells.get(k);
+    if (list) list.push(site);
+    else lampCells.set(k, [site]);
     addPropCollider(x, z, 0.2, 0.2, y + 4.45); // the 0.4 m cast base up to the globe
     return true;
   }
@@ -1917,14 +1938,13 @@ function buildCityGrid(scene, opts = {}) {
     // 4 m of a pond
     const SP = b.area > 20000 ? 14 : 11;
     const parkTree0 = treeSites.length;
-    const inner = lawnTop || bed;
     const bLots = b.buildings > 0 ? blockLots(b) : [];
     for (let gx = b.minX + SP * 0.5; gx < b.maxX; gx += SP) {
       for (let gz = b.minZ + SP * 0.5; gz < b.maxZ; gz += SP) {
         const tx = gx + (prand(gx, gz) - 0.5) * SP * 0.7;
         const tz = gz + (prand(gz, gx, 1) - 0.5) * SP * 0.7;
-        if (!polygonIn(inner, tx, tz) || (roadCuts && !lawns.some((p) => polygonIn(p, tx, tz))) ||
-          distToWater(tx, tz) < 4) continue;
+        if (!(lawns.length ? lawns.some((p) => polygonIn(p, tx, tz)) : beds.some((p) => polygonIn(p, tx, tz))) ||
+          bedHoles.some((h) => polygonIn(h, tx, tz)) || distToWater(tx, tz) < 4) continue;
         if (prand(tx, tz, 9) < 0.3) continue; // glades (pure hash: after the cheap rejects)
         const scale = 0.9 + prand(tx, tz, 3) * 0.4;
         if (bLots.length > 0 && distToLots(tx, tz, bLots) < Math.max(1.2, 6.07 * scale)) continue;
@@ -2263,7 +2283,7 @@ function buildCityGrid(scene, opts = {}) {
 
   // Park & plaza tree and lamp sites, read by street-details.js after the city grid is built
   parkTreeSites = treeSites;
-  parkLampSites = lampMatrices.map((m) => ({ x: m.elements[12], y: m.elements[13] + 4.17, z: m.elements[14] }));
+  parkLampSites = lampSites;
   pavedPlazaRects = pavedRects;
   sidewalkBlocks = blockSidewalks; // { cx, cz, w, d } raised sidewalk slabs (cross-street tree rows)
   ringDistIndexes = new WeakMap(); // boot-only: the plaza/park outlines are not measured after this build

@@ -37,7 +37,7 @@ function inert() {
   });
 }
 
-async function runAudit({ worldOnly = false, streetSource = source('street-details'), capture = () => {} } = {}) {
+async function runAudit({ worldOnly = false, gridSource = source('city-grid'), streetSource = source('street-details'), capture = () => {} } = {}) {
   const startTime = Date.now();
   console.log('1. Loading configurations and building world models...');
   const config = await import('../js/city-config.js');
@@ -80,7 +80,7 @@ async function runAudit({ worldOnly = false, streetSource = source('street-detai
   const { treeSpecies } = treesMod;
 
   // Step 1: City Grid
-  let gridSrc = source('city-grid');
+  let gridSrc = gridSource;
   gridSrc = gridSrc.replace('treeSites.push({ x, y: PLAZA_Y + 0.55, z, scale, species, planter: true });',
     'treeSites.push({ x, y: PLAZA_Y + 0.55, z, scale, species, planter: true, source: "plaza planters" });');
   gridSrc = gridSrc.replace('treeSites.push({ x: tx, y: BED_Y, z: tz, scale, species: r < 0.55 ? 0 : (r < 0.75 ? 1 : 2) });',
@@ -237,6 +237,7 @@ async function runAudit({ worldOnly = false, streetSource = source('street-detai
 
   if (worldOnly) return { sites, details, grid: cityGridBuilt, gridModule, liveGrid,
     buildingColliders: allBuildingColliders, routeColliders: [...landmarkColliders, ...blockColliders],
+    footprintsByBlock: cityBlocksBuilt.footprintsByBlock, roadMod, treesMod, config, GEO,
     buildMs: Date.now() - streetStart };
 
   const keptColliders = new Set(sites.map((s) => s.collider).filter(Boolean));
