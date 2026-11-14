@@ -56,7 +56,13 @@ Implementation details and completed measurements live in the [topic docs](../AG
   was already removed by that signal change (longest 95 s, maximum switch wait 7.9 s). The remaining one hold over
   120 s belongs to seed 1's 175 s boundary queue; seed 5's box stop also stays open. The historical switch replay
   distinguishes line 20's occupied-switch and boarding-crossing waits from line 2's 81.4 s maximum; no new runtime
-  change was justified. [Switch investigation](observations/kaponiera-switch-jam-2026-11-13.md). Rejected in this pass:
+  change was justified. [Switch investigation](observations/kaponiera-switch-jam-2026-11-13.md).
+  Rechecked at `eed1a16` (after `5015aa1`, 2026-11-14): 0 deadlocks across all 8 seeds × 7 districts; seed 5's box stop
+  is cleared (`boxStuck 0`, worst hold `145 s` merge at `(-1497, 198)`), and seed 1's boundary queue into Centrum at
+  `(-1136, 127)` (`waitMax 142 s`, `#11` `153 s`) is a real capacity + physical tram-queue interaction (`18 s / 65 s`
+  `g0` split plus two missed greens from trams queueing out of `(-1066.3, 137.2)` and trapping `#68` in the box),
+  so no game code was changed. [Seed 1 queue trace](observations/kaponiera-seed1-queue-2026-11-14.md).
+  Rejected in this pass:
   1.2 m/s for every plan (173 plans re-timed, two Kaponiera deadlocks over eight seeds), green1 12–15 s at this site
   (audit 38–39, a deadlock, or mean speed lower), keeping the 1 m/s split and moving the offset (seed 2 still had
   7 holds), and the +6 s phase-preserving offset (Centrum and Jeżyce bit-identical but 8 holds and audit 38). The
