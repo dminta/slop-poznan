@@ -270,12 +270,16 @@ function segmentGrid(cell = 24, walk = false) {
     },
     // Nearest segment within r of (x, z) passing `accept`: { seg, d, t, qx, qz } or null
     nearest(x, z, r, accept) {
-      let best = null;
+      let bestSeg = null;
       let bestD = r;
+      let bestD2 = r * r;
+      let bestT = 0, bestQx = 0, bestQz = 0;
       const q = ++stamp;
       for (let ix = Math.floor((x - r) / cell); ix <= Math.floor((x + r) / cell); ix++) {
         for (let iz = Math.floor((z - r) / cell); iz <= Math.floor((z + r) / cell); iz++) {
-          for (const sg of cells.get(key(ix, iz)) || []) {
+          const list = cells.get(key(ix, iz));
+          if (!list) continue;
+          for (const sg of list) {
             if (sg._q === q) continue;
             sg._q = q;
             if (accept && !accept(sg)) continue;
@@ -289,15 +293,80 @@ function segmentGrid(cell = 24, walk = false) {
             const t = Math.max(0, Math.min(1, ((x - sg.ax) * ex + (z - sg.az) * ez) / (ex * ex + ez * ez || 1)));
             const qx = sg.ax + ex * t;
             const qz = sg.az + ez * t;
-            const d = Math.hypot(qx - x, qz - z);
+            const dx = qx - x, dz = qz - z;
+            const d2 = dx * dx + dz * dz;
+            if (d2 > bestD2 * (1 + 1e-12)) continue;
+            const d = Math.hypot(dx, dz);
             if (d < bestD) {
               bestD = d;
-              best = { seg: sg, d, t, qx, qz };
+              bestD2 = d * d;
+              bestSeg = sg;
+              bestT = t;
+              bestQx = qx;
+              bestQz = qz;
             }
           }
         }
       }
-      return best;
+      return bestSeg ? { seg: bestSeg, d: bestD, t: bestT, qx: bestQx, qz: bestQz } : null;
+    },
+    nearestDist(x, z, r, accept) {
+      let bestD = r;
+      let bestD2 = r * r;
+      const q = ++stamp;
+      for (let ix = Math.floor((x - r) / cell); ix <= Math.floor((x + r) / cell); ix++) {
+        for (let iz = Math.floor((z - r) / cell); iz <= Math.floor((z + r) / cell); iz++) {
+          const list = cells.get(key(ix, iz));
+          if (!list) continue;
+          for (const sg of list) {
+            if (sg._q === q) continue;
+            sg._q = q;
+            if (accept && !accept(sg)) continue;
+            const lim = bestD + 1e-9;
+            if (x < sg.x0 - lim || x > sg.x1 + lim || z < sg.z0 - lim || z > sg.z1 + lim) continue;
+            const ex = sg.bx - sg.ax;
+            const ez = sg.bz - sg.az;
+            const t = Math.max(0, Math.min(1, ((x - sg.ax) * ex + (z - sg.az) * ez) / (ex * ex + ez * ez || 1)));
+            const dx = sg.ax + ex * t - x;
+            const dz = sg.az + ez * t - z;
+            const d2 = dx * dx + dz * dz;
+            if (d2 > bestD2 * (1 + 1e-12)) continue;
+            const d = Math.hypot(dx, dz);
+            if (d < bestD) {
+              bestD = d;
+              bestD2 = d * d;
+            }
+          }
+        }
+      }
+      return bestD;
+    },
+    within(x, z, r, accept) {
+      const r2 = r * r;
+      const lo2 = r2 * (1 - 1e-12), hi2 = r2 * (1 + 1e-12);
+      const lim = r + 1e-9;
+      const q = ++stamp;
+      for (let ix = Math.floor((x - r) / cell); ix <= Math.floor((x + r) / cell); ix++) {
+        for (let iz = Math.floor((z - r) / cell); iz <= Math.floor((z + r) / cell); iz++) {
+          const list = cells.get(key(ix, iz));
+          if (!list) continue;
+          for (const sg of list) {
+            if (sg._q === q) continue;
+            sg._q = q;
+            if (accept && !accept(sg)) continue;
+            if (x < sg.x0 - lim || x > sg.x1 + lim || z < sg.z0 - lim || z > sg.z1 + lim) continue;
+            const ex = sg.bx - sg.ax;
+            const ez = sg.bz - sg.az;
+            const t = Math.max(0, Math.min(1, ((x - sg.ax) * ex + (z - sg.az) * ez) / (ex * ex + ez * ez || 1)));
+            const dx = sg.ax + ex * t - x;
+            const dz = sg.az + ez * t - z;
+            const d2 = dx * dx + dz * dz;
+            if (d2 < lo2) return true;
+            if (d2 <= hi2 && Math.hypot(dx, dz) < r) return true;
+          }
+        }
+      }
+      return false;
     },
     // Every segment crossing the segment a-b: [{ seg, x, z }]
     crossing(ax, az, bx, bz) {
@@ -364,10 +433,7 @@ function laneDistance(network) {
       }
     }
   }
-  return (x, z, r = 6) => {
-    const h = laneGrid.nearest(x, z, r);
-    return h ? h.d : r;
-  };
+  return (x, z, r = 6) => laneGrid.nearestDist(x, z, r);
 }
 
 // Rails are laid as straight pieces up to PIECE long, so they follow curbs and bends. There is no raised tram track
@@ -410,10 +476,8 @@ function layoutTramInfrastructure(network) {
     }
   }
   const laneDist = laneDistance(network);
-  const trackDist = (x, z, r = 4, except = null) => {
-    const h = trackGrid.nearest(x, z, r, except ? (sg) => sg.data.tr !== except : null);
-    return h ? h.d : r;
-  };
+  const trackDist = (x, z, r = 4, except = null) =>
+    trackGrid.nearestDist(x, z, r, except ? (sg) => sg.data.tr !== except : null);
   // Poles keep 2 m from a lane centreline: the road network tests obstacles by box overlap, so a pole is clear of its
   // 1.2 m only beyond 1.2 + 0.16 m along both axes (up to 1.92 m diagonally)
   const clearSpot = (x, z, keep = TRACK_KEEP) => isLand(x, z) && laneDist(x, z) >= 2.0 && trackDist(x, z) >= keep;
@@ -501,7 +565,7 @@ function layoutTramInfrastructure(network) {
     for (let i = 0; i < count; i++) {
       const s = (i + 0.5) * tr.len / count;
       const P = pointAt(tr, s);
-      if (supported.nearest(P.x, P.z, STATION * 0.4, (sg) => sg.data === tr)) continue;
+      if (supported.within(P.x, P.z, STATION * 0.4, (sg) => sg.data === tr)) continue;
       const nx = -P.dz;
       const nz = P.dx;
       const street = tr.street === 1;
@@ -851,7 +915,13 @@ function layoutRailInfrastructure(network) {
   const roadDist = (x, z) => {
     if (underDeck(x, z)) return Infinity;
     const g = roadClearance(x, z);
-    return Math.min(Number.isFinite(g) ? g : RAIL_ROAD_KEEP + 1, laneDist(x, z, RAIL_ROAD_KEEP + 3) - 1.75);
+    // a lane farther than g + 1.75 cannot lower the minimum, so the lane query stops there (exact: a capped answer
+    // returns g itself rather than the re-rounded (g + 1.75) - 1.75)
+    if (g <= -1.75) return g;
+    const r = Number.isFinite(g) ? Math.min(RAIL_ROAD_KEEP + 3, g + 1.75) : RAIL_ROAD_KEEP + 3;
+    const lane = laneDist(x, z, r);
+    if (r < RAIL_ROAD_KEEP + 3 && lane >= r) return g;
+    return Math.min(Number.isFinite(g) ? g : RAIL_ROAD_KEEP + 1, lane - 1.75);
   };
   const railGrid = segmentGrid();
   for (const tr of tracks) {
@@ -861,20 +931,16 @@ function layoutRailInfrastructure(network) {
   for (const tr of loadTracks('tram')) {
     for (let k = 0; k + 1 < tr.n; k++) tramGrid.add(tr.p[2 * k], tr.p[2 * k + 1], tr.p[2 * k + 2], tr.p[2 * k + 3], tr);
   }
-  const railDist = (x, z, r = 4) => {
-    const h = railGrid.nearest(x, z, r);
-    return h ? h.d : r;
-  };
+  const railDist = (x, z, r = 4) => railGrid.nearestDist(x, z, r);
   const tramDist = (x, z, r = RAIL_TRAM_KEEP + 1) => {
     if (underDeck(x, z)) return r;
-    const h = tramGrid.nearest(x, z, r);
-    return h ? h.d : r;
+    return tramGrid.nearestDist(x, z, r);
   };
   const levelGrid = segmentGrid(32, true);
   const lx = GEO.levelCrossings || [];
   for (let k = 0; k + 1 < lx.length; k += 2) levelGrid.add(lx[k], lx[k + 1], lx[k], lx[k + 1] + 0.001, k / 2);
   const segNear = (A, B, r) => {
-    for (let t = 0; t <= 1; t += 0.125) if (levelGrid.nearest(A.x + (B.x - A.x) * t, A.z + (B.z - A.z) * t, r)) return true;
+    for (let t = 0; t <= 1; t += 0.125) if (levelGrid.within(A.x + (B.x - A.x) * t, A.z + (B.z - A.z) * t, r)) return true;
     return false;
   };
 
@@ -1329,7 +1395,7 @@ function layoutRailInfrastructure(network) {
   };
   // The wire ends at every cut end: a support 1.5 m back from it (or further in, up to 8 m, if none fits there)
   for (const e of ends) {
-    if (supported.nearest(e.x, e.z, 3, (sg) => sg.data === e.tr)) continue;
+    if (supported.within(e.x, e.z, 3, (sg) => sg.data === e.tr)) continue;
     for (const inset of [1.5, 4, 8]) {
       const s = e.s + e.inward * inset;
       if (!keptOn(e.tr, s)) continue;
@@ -1343,7 +1409,7 @@ function layoutRailInfrastructure(network) {
       const s = ((i + 0.5) * tr.len) / count;
       if (!keptOn(tr, s)) continue;
       const P = pointAt(tr, s);
-      if (supported.nearest(P.x, P.z, RAIL_STATION * 0.4, (sg) => sg.data === tr)) continue;
+      if (supported.within(P.x, P.z, RAIL_STATION * 0.4, (sg) => sg.data === tr)) continue;
       support(tr, P);
     }
   }

@@ -156,13 +156,15 @@ share are not thinned; [central-density record](observations/central-density-202
      route/collider/guide indexes and shader NodeData (~38 MB) dominate. Use real-device measurements to justify
      further exact packing or geometry deduplication; shader-cache release needs a renderer-supported lifecycle.
      Post-upload attribute release remains unsafe in the pinned three.js; keep GEO/BLOCKS late-reader inputs.
-  4. **Remaining boot work** after six passes: boot part 6 ([record](observations/perf-boot-6-2026-11-14.md)) adds
-     threshold-only `lotsWithin`, same-block `isBlockAt`, redundant `splitAlong` `blockAt` removal and `cornerClear`
-     4 m edge-bbox rejects (headless Node build 16.12 → 14.72 s median / −8.7%, `signalHeads` −25.9%, `cityGrid`
-     −9.1%, 24/24 output hashes identical, unchanged retained heap; browser 1×/6× measurement pending). Remaining
-     larger budgets are `railClearance` (1.61 s Node self), `tram-infra` `nearest` (1.54 s), `road-network` footprint
-     index (1.35 s), `outlineDist` (0.81 s), `wireSupportClear` (0.62 s) and `pointInPolyIndexed` (0.59 s);
-     road-clearance box rejects, a centre-rail cache and fused chunk-bound passes did not beat noise. Workers or deferral would need
+  4. **Remaining boot work** after seven passes: boot part 7 ([record](observations/perf-boot-7-2026-11-14.md)) reuses
+     `supportCells` in `wireSupportClear`, adds threshold-only `railWithin`/`railBoxHasSegs` and `segmentGrid`
+     `nearestDist`/`within` with deferred result allocation, and checks `flags` first in `createFootprintIndex`
+     (headless Node build 14.91 → 13.56 s median / −9.1%, `signalHeads` −26.5%, `streetDetails` −3.0%, 24/24 output
+     hashes identical, unchanged retained heap; browser 1×/6× measurement pending). Remaining larger budgets in Node
+     `--cpu-prof` are `tram-infra` `nearestDist` + `nearest` (0.81 + 0.21 s self), `outlineDist` (0.68 s),
+     `railWithin` (0.64 s), `road-network` footprint index (0.59 s), `nearSegment` (0.44 s) and `pointInPolyIndexed`
+     (0.33 s); 12 m `laneGrid` cells and flat `Int32Array` grids for `railWithin`/`createFootprintIndex` regressed.
+     Workers or deferral would need
      pure layout/buffer boundaries (cityGrid + traffic: 17.64 s upper-bound budget), justified by real-device reports.
      The [worker boundary study](observations/perf-workers-2026-11-12.md) stopped at Stage 1: production remains
      synchronous and there is no `?workers=0` or worker path. The large phases are mostly pure logic, but a worker

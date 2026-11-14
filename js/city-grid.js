@@ -826,8 +826,48 @@ function railClearance(x, z, r = 8) {
 }
 
 /** Is a prop whose footprint reaches `radius` from (x, z) at least RAIL_PROP_KEEP from every track? */
+function railWithin(x, z, d) {
+  const cells = railCells();
+  const d2 = d * d;
+  const lo2 = d2 * (1 - 1e-12), hi2 = d2 * (1 + 1e-12);
+  for (let ix = Math.floor((x - d) / RAIL_CELL); ix <= Math.floor((x + d) / RAIL_CELL); ix++) {
+    for (let iz = Math.floor((z - d) / RAIL_CELL); iz <= Math.floor((z + d) / RAIL_CELL); iz++) {
+      const list = cells.get(ix * 100003 + iz);
+      if (!list) continue;
+      for (const s of list) {
+        if (x < s.x0 - d || x > s.x1 + d || z < s.z0 - d || z > s.z1 + d) continue;
+        const ex = s.bx - s.ax, ez = s.bz - s.az;
+        const L2 = ex * ex + ez * ez;
+        const t = L2 > 0 ? Math.min(1, Math.max(0, ((x - s.ax) * ex + (z - s.az) * ez) / L2)) : 0;
+        const dx = s.ax + ex * t - x, dz = s.az + ez * t - z;
+        const dist2 = dx * dx + dz * dz;
+        if (dist2 < lo2) return true;
+        if (dist2 <= hi2 && Math.hypot(dx, dz) < d) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function railBoxHasSegs(minX, maxX, minZ, maxZ) {
+  const cells = railCells();
+  for (let ix = Math.floor(minX / RAIL_CELL); ix <= Math.floor(maxX / RAIL_CELL); ix++) {
+    for (let iz = Math.floor(minZ / RAIL_CELL); iz <= Math.floor(maxZ / RAIL_CELL); iz++) {
+      const list = cells.get(ix * 100003 + iz);
+      if (!list) continue;
+      for (const s of list) {
+        if (s.x1 >= minX && s.x0 <= maxX && s.z1 >= minZ && s.z0 <= maxZ) return true;
+      }
+    }
+  }
+  return false;
+}
+
+railClearance.within = railWithin;
+railClearance.boxHasRails = railBoxHasSegs;
+
 function clearOfRails(x, z, radius) {
-  return railClearance(x, z, RAIL_PROP_KEEP + radius + 1) >= RAIL_PROP_KEEP + radius;
+  return !railWithin(x, z, RAIL_PROP_KEEP + radius);
 }
 
 /**

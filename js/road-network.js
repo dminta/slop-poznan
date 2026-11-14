@@ -103,7 +103,8 @@ function createFootprintIndex(rects, flagOf) {
   const buckets = [];
   for (let i = 0; i < rects.length; i++) {
     const r = rects[i];
-    bounds.set([r.minX, r.maxX, r.minZ, r.maxZ], i * 4);
+    const o = i * 4;
+    bounds[o] = r.minX; bounds[o + 1] = r.maxX; bounds[o + 2] = r.minZ; bounds[o + 3] = r.maxZ;
     flags[i] = flagOf(r);
     for (let ix = Math.floor(r.minX / CELL); ix <= Math.floor(r.maxX / CELL); ix++) {
       for (let iz = Math.floor(r.minZ / CELL); iz <= Math.floor(r.maxZ / CELL); iz++) {
@@ -124,14 +125,18 @@ function createFootprintIndex(rects, flagOf) {
   for (let i = 0; i < buckets.length; i++) ids.set(buckets[i], starts[i]);
 
   return (minX, maxX, minZ, maxZ, mask) => {
-    for (let ix = Math.floor(minX / CELL); ix <= Math.floor(maxX / CELL); ix++) {
-      for (let iz = Math.floor(minZ / CELL); iz <= Math.floor(maxZ / CELL); iz++) {
-        const bucket = cells.get((ix + 1024) * 2048 + iz + 1024);
+    const ix0 = Math.floor(minX / CELL), ix1 = Math.floor(maxX / CELL);
+    const iz0 = Math.floor(minZ / CELL), iz1 = Math.floor(maxZ / CELL);
+    for (let ix = ix0; ix <= ix1; ix++) {
+      const row = (ix + 1024) * 2048 + 1024;
+      for (let iz = iz0; iz <= iz1; iz++) {
+        const bucket = cells.get(row + iz);
         if (bucket === undefined) continue;
-        for (let k = starts[bucket]; k < starts[bucket + 1]; k++) {
-          const id = ids[k], o = id * 4;
-          if (bounds[o] < maxX && bounds[o + 1] > minX && bounds[o + 2] < maxZ && bounds[o + 3] > minZ &&
-            (flags[id] & mask)) return true;
+        for (let k = starts[bucket], end = starts[bucket + 1]; k < end; k++) {
+          const id = ids[k];
+          if (!(flags[id] & mask)) continue;
+          const o = id * 4;
+          if (bounds[o] < maxX && bounds[o + 1] > minX && bounds[o + 2] < maxZ && bounds[o + 3] > minZ) return true;
         }
       }
     }

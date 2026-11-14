@@ -33,6 +33,8 @@ function createPedestrianRoutes(
   pedestrianWays = [], isBlockAt = null
 ) {
   const sameBlockAt = isBlockAt || ((x, z, b) => blockAt(x, z) === b);
+  const railWithin = railClearance ? (railClearance.within || ((x, z, d) => railClearance(x, z, d) < d)) : null;
+  const boxHasRails = railClearance && railClearance.boxHasRails;
   const sidewalks = new Map(), crossings = new Map(), junctions = new Map(), connections = new WeakMap();
   const islandPorts = new Map(), curbPorts = new Map();
   const point = (track, end) => ({ x: track.ax + track.ux * track.len * end, z: track.az + track.uz * track.len * end });
@@ -101,7 +103,7 @@ function createPedestrianRoutes(
     for (let i = 0; i <= steps; i++) {
       const x = a.x + (b.x - a.x) * i / steps, z = a.z + (b.z - a.z) * i / steps;
       if (!walkable(x - 0.4, x + 0.4, z - 0.4, z + 0.4)) return false;
-      if (railClearance && railClearance(x, z, RAIL_KEEP) < RAIL_KEEP) return false;
+      if (railWithin && railWithin(x, z, RAIL_KEEP)) return false;
       if (hitsBuilding(x, z)) return false;
     }
     return true;
@@ -214,6 +216,10 @@ function createPedestrianRoutes(
     // clearance is checked at the offset point only where the centre line itself is clear: a track that already
     // crosses the rails (both points inside RAIL_KEEP) keeps its crossing as before.
     const steps = Math.max(1, Math.ceil(len / 0.5));
+    const checkRails = railWithin && (!boxHasRails || boxHasRails(
+      Math.min(a.x, b.x) - LANE_INSET - RAIL_KEEP, Math.max(a.x, b.x) + LANE_INSET + RAIL_KEEP,
+      Math.min(a.z, b.z) - LANE_INSET - RAIL_KEEP, Math.max(a.z, b.z) + LANE_INSET + RAIL_KEEP
+    ));
     let lanes = 0;
     for (const side of [-1, 1]) {
       let clearSide = true;
@@ -228,8 +234,7 @@ function createPedestrianRoutes(
           clearSide = false;
           break;
         }
-        if (railClearance && railClearance(cx, cz, RAIL_KEEP) >= RAIL_KEEP &&
-            railClearance(x, z, RAIL_KEEP) < RAIL_KEEP) {
+        if (checkRails && !railWithin(cx, cz, RAIL_KEEP) && railWithin(x, z, RAIL_KEEP)) {
           clearSide = false;
           break;
         }
@@ -396,7 +401,7 @@ function createPedestrianRoutes(
     const walkableAt = (t) => {
       const x = a.x + dx * t, z = a.z + dz * t;
       if (!sameBlockAt(x, z, block)) return false;
-      return !railClearance || railClearance(x, z, LANDING_RAIL_KEEP + 1) >= LANDING_RAIL_KEEP;
+      return !railWithin || !railWithin(x, z, LANDING_RAIL_KEEP);
     };
     if (!walkableAt(0)) return null;
     let lo = 0, hi = 0;
@@ -503,9 +508,9 @@ function createPedestrianRoutes(
   const STRIP_MIN = 3.2, STRIP_MAX = 14, STRIP_RUN = 15, STRIP_OFFSET = 12, STRIP_LAND = 1.6;
   // Room to wait at a strip end: from its curb at (x, z) inward along (wx, wz), STRIP_LAND clear of RAIL_KEEP
   const roomToWait = (x, z, wx, wz) => {
-    if (!railClearance) return true;
+    if (!railWithin) return true;
     for (let d = 0; d <= STRIP_LAND + 1e-6; d += 0.2) {
-      if (railClearance(x + wx * d, z + wz * d, RAIL_KEEP + 1) < RAIL_KEEP) return false;
+      if (railWithin(x + wx * d, z + wz * d, RAIL_KEEP)) return false;
     }
     return true;
   };
@@ -1007,7 +1012,7 @@ function createPedestrianRoutes(
     const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.5));
     for (let i = 0; i <= steps; i++) {
       const x = a.x + (b.x - a.x) * i / steps, z = a.z + (b.z - a.z) * i / steps;
-      if (railClearance && railClearance(x, z, RAIL_KEEP) < RAIL_KEEP) return false;
+      if (railWithin && railWithin(x, z, RAIL_KEEP)) return false;
       if (hitsBuilding(x, z)) return false;
       if (lots) {
         const block = blockAt(x, z);

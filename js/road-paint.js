@@ -59,6 +59,7 @@ function laneWidth(e, i) {
 }
 
 function layoutBusMarkings(edges, crosswalks, railClearance) {
+  const railWithin = railClearance ? (railClearance.within || ((x, z, d) => railClearance(x, z, d + 1) < d)) : null;
   const marks = [];
   // Keep the P-22 inscription 4 m off every zebra. A 16 m bucket list of the zebra segments (each bounds grown by the
   // 4 m keep) replaces the per-sample scan of all ~2,400 crosswalks: layoutBusMarkings was 3.3% of the boot profile.
@@ -100,7 +101,7 @@ function layoutBusMarkings(edges, crosswalks, railClearance) {
       // Sample the entire rectangle conservatively, with a margin for gaps between samples.
       for (let a = -2; a <= 2 && clear; a += 0.5) for (let b = -0.81; b <= 0.81 && clear; b += 0.27) {
         const px = x + e.dx * a + e.rx * b, pz = z + e.dz * a + e.rz * b;
-        if (railClearance && railClearance(px, pz, 3) < 2.0) clear = false;
+        if (railWithin && railWithin(px, pz, 2.0)) clear = false;
         if (nearCrosswalk(px, pz)) clear = false;
       }
       if (clear) marks.push({ x, z, dx: e.dx, dz: e.dz, way: e.busWay });
@@ -294,9 +295,10 @@ function buildRoadPaint(scene, network, crosswalks = [], railClearance = null) {
     const ux = (c.bx - c.ax) / len, uz = (c.bz - c.az) / len;
     const h = (CROSSWALK - 0.3) / 2;
     // on the track's reach anywhere across the zebra's depth at s m along it
+    const railWithin = railClearance.within || ((x, z, d) => railClearance(x, z, d + 1) < d);
     const onTrack = (s) => {
       for (const d of [-h, 0, h]) {
-        if (railClearance(c.ax + ux * s - uz * d, c.az + uz * s + ux * d, ZEBRA_RAIL_KEEP + 1) < ZEBRA_RAIL_KEEP) return true;
+        if (railWithin(c.ax + ux * s - uz * d, c.az + uz * s + ux * d, ZEBRA_RAIL_KEEP)) return true;
       }
       return false;
     };

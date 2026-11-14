@@ -2557,12 +2557,20 @@ function buildStreetDetails(scene, opts = {}) {
             // A stay at 7.2 m passes under the 7.6 m traction poles' tops, so it must not cross another pole.
             const wireSupportClear = (from, to, skipA, skipB) => {
               const dx = to.x - from.x, dz = to.z - from.z, len2 = dx * dx + dz * dz;
-              for (const s of supports) {
-                if ((s.h ?? 0) <= SPAN_TRAM_TOP + 0.3) continue;
-                if (Math.hypot(s.x - skipA.x, s.z - skipA.z) < 1e-6 ||
-                  Math.hypot(s.x - skipB.x, s.z - skipB.z) < 1e-6) continue;
-                const t = len2 ? Math.max(0, Math.min(1, ((s.x - from.x) * dx + (s.z - from.z) * dz) / len2)) : 0;
-                if (Math.hypot(from.x + dx * t - s.x, from.z + dz * t - s.z) < 0.3) return false;
+              const ix0 = Math.floor((Math.min(from.x, to.x) - 0.3) / supportCell);
+              const ix1 = Math.floor((Math.max(from.x, to.x) + 0.3) / supportCell);
+              const iz0 = Math.floor((Math.min(from.z, to.z) - 0.3) / supportCell);
+              const iz1 = Math.floor((Math.max(from.z, to.z) + 0.3) / supportCell);
+              for (let ix = ix0; ix <= ix1; ix++) for (let iz = iz0; iz <= iz1; iz++) {
+                const list = supportCells.get((ix + 4096) * 8192 + (iz + 4096));
+                if (!list) continue;
+                for (const s of list) {
+                  if ((s.h ?? 0) <= SPAN_TRAM_TOP + 0.3) continue;
+                  if (Math.hypot(s.x - skipA.x, s.z - skipA.z) < 1e-6 ||
+                    Math.hypot(s.x - skipB.x, s.z - skipB.z) < 1e-6) continue;
+                  const t = len2 ? Math.max(0, Math.min(1, ((s.x - from.x) * dx + (s.z - from.z) * dz) / len2)) : 0;
+                  if (Math.hypot(from.x + dx * t - s.x, from.z + dz * t - s.z) < 0.3) return false;
+                }
               }
               return true;
             };
