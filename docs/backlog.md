@@ -37,8 +37,7 @@ Implementation details and completed measurements live in the [topic docs](../AG
   20.1 s); do not revive segment-exact `onNext` on corner links, `stuck > 1` oncoming-exit swaps, or `< 2 * QUEUE_GAP`
   short-link box guards (each regresses Centrum `--ped-rooms` or `pairs/s` / clusters). On `agy-taczaka`
   (`ped-taczaka-clusters-2026-11-14.md`), bisecting to `59ee496` showed a sequence shift exposing the `way:88` Pasaż
-  Różowy 1.87 m dead-end pocket; `next()` now skips entering dead-end `way` stubs under 3 m and exits them if
-  spawned inside, clearing all **3 → 0** clusters (6.02 pairs/s, 106.7 entries/min) and cutting Centrum `--ped-rooms`
+  Różowy 1.87 m dead-end pocket; `next()` now skips entering dead-end `way` stubs under 3 m, clearing all **3 → 0** clusters (6.02 pairs/s, 106.7 entries/min) and cutting Centrum `--ped-rooms`
   **16,608 → 14,588** ped-s (7-district total **25,811 → 23,791**).
   [Corner-link record](observations/ped-corner-links-2026-11-10.md),
   [twin-lane and Pasaż pass](observations/ped-twin-lane-loops-2026-11-10.md),

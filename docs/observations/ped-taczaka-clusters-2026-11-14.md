@@ -13,7 +13,6 @@ Bisected and fixed on `agy-taczaka` from `f08835b`.
 In `js/pedestrian-routes.js` (`wayHasExit` + `next()`):
 
 - Do not enter a dead-end pedestrian-way stub shorter than `3 m` (`2 * PED_LANE_RAMP`, where opposing lanes cannot separate) whose external links only return to the entry way (`!wayHasExit(target.edge, track.edge)`).
-- If a walker spawns inside such a stub and an external link exists from its current track end, skip internal same-way links so it exits.
 - Pinned by a unit test in `tests/pedestrian-streets.test.cjs`.
 
 ## Verification
@@ -37,3 +36,8 @@ In `js/pedestrian-routes.js` (`wayHasExit` + `next()`):
 `wayHasExit` is cached per (way, entry way) pair, since the route graph is fixed once built and `next()` runs on
 every track change. Centrum audit rerun with the cache gives the same numbers (0 clusters, 14.9 pairs/s, 82 entries/min).
 Full `node --test tests/` passes 623/623.
+
+The agent's second clause (leave such a stub if spawned inside it) could never fire: `wayHasExit(edge, null)` counts
+any link off the way as an exit, and the clause required one. It was removed together with its test assertion, which
+passed only on lucky `Math.random` route scores (failed 2 of 6 runs). The measured numbers above came from the
+first clause alone and are unchanged.
