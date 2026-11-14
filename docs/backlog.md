@@ -255,8 +255,11 @@ the checks below; each remaining bullet is the part that is still open.
   [Dworzec checks](observations/dworzec-2026-10-30.md), [bus population check](observations/bus-population-2026-10-30.md).
 - Inspect the 2026-11-08 span and cantilever heads on WebGPU and WebGL2: the 48 cantilever heads (16 new 6.2 m
   masts) and 27 span heads (25 new 10 m masts), stay height and sag above the tram wires and portals, and the Górna
-  Wilda head hanging from the two 7.6 m traction poles (stays at 7.2 m). Check visibility through the queue and that
-  no mast, stay or head clips a tram. [Measurements](observations/missing-signal-heads-2026-11-08.md).
+  Wilda head hanging from the two 7.6 m traction poles (stays at 7.2 m). Check visibility through the queue in a browser;
+  the 2026-11-14 headless geometric audit ([record](observations/signal-tram-clearance-2026-11-14.md),
+  `tools/audit-signal-tram-clearance.mjs`) confirms 0 clashes against the articulated tram swept envelope and catenary
+  wires (min lateral 0.508 m on cantilever heads, 0.775 m on span heads, 0.873 m on ordinary poles; min stay vertical
+  clearance +1.382 m above 5.8 m contact wire at Górna Wilda, +4.182 m elsewhere). [Measurements](observations/missing-signal-heads-2026-11-08.md).
 - Check overhead signal visibility for the 8 stop-line fallback heads (7 cantilever, 1 span; down from 15 after the
   2026-11-08 span pass): two (`-3242, 1727` and `-2722, 2057`) were seen over the car in front from 20 m back on
   2026-11-14 ([record](observations/browser-checks-2026-11-14.md)), and the 2026-11-14 geometric audit
