@@ -383,6 +383,7 @@ for (const d of districts) {
     stoppedPct: round((100 * r.stopped) / r.samples), longestQueue: r.queue,
     waitP50: round(pct(waits, 0.5), 0), waitP90: round(pct(waits, 0.9), 0), waitMax: round(waits[waits.length - 1] || 0, 0),
     held60: r.held60.size, held120: r.held120.size, longestHeld: round(r.longestHeld, 0), deadlocks: r.deadlocks.size, boxStuck: r.boxStuck.size,
+    deadlockDetails: [...r.deadlocks.values()].map((d) => ({ wait: round(d.wait, 0), at: round(d.at, 0), members: d.members })),
     tramsHeld60: r.tramHeld.size, switchHeld60: r.switchHeld.size,
     maxSwitchWait: round(r.maxSwitchWait), switchSeconds: round(r.switchSeconds)
   };

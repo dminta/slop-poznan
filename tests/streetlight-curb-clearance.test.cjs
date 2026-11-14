@@ -1,3 +1,4 @@
+// Pins re-derived on poznan 15f9359 plus the tram cut; see the tram-bed-surfaces observation.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { join } = require('node:path');
@@ -8,14 +9,14 @@ test('all city lamps (street, gas, park, plaza) sit on sidewalk/walk with >= 0.5
   const { allLamps, byType } = auditCityLamps({ root });
 
   // 1. Lamp counts per class
-  assert.equal(byType.main.count, 2571, 'expected 2,571 main LED streetlights');
-  assert.equal(byType.side.count, 20622, 'expected 20,622 side LED streetlights');
-  assert.equal(byType.gas.count, 1074, 'expected 1,074 historic gas lanterns');
+  assert.equal(byType.main.count, 2559, 'expected 2,559 main LED streetlights');
+  assert.equal(byType.side.count, 20578, 'expected 20,578 side LED streetlights');
+  assert.equal(byType.gas.count, 1055, 'expected 1,055 historic gas lanterns');
   // Minimum 6 m lamp spacing in city-grid.js drops duplicate park/plaza lamps at corners and shared edges.
-  assert.equal(byType.park.count, 2826, 'expected 2,826 park walk and lawn lampposts');
+  assert.equal(byType.park.count, 2782, 'expected 2,782 park walk and lawn lampposts');
   // 665 before Teatr Polski (+8 -> 673), then 615 after dropping duplicate plaza lamps (< 6 m apart).
-  assert.equal(byType.plaza.count, 615, 'expected 615 square/plaza lampposts');
-  assert.equal(allLamps.length, 27708, 'expected 27,708 total lamps citywide');
+  assert.equal(byType.plaza.count, 612, 'expected 612 square/plaza lampposts');
+  assert.equal(allLamps.length, 27586, 'expected 27,586 total lamps citywide');
 
   // 2. Zero lamps overlapping curb stone or roadway (< 0.25 m from curb edge)
   for (const [type, t] of Object.entries(byType)) {

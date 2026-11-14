@@ -480,6 +480,7 @@ class BufferGeometry {
     delete this.attributes[name];
     return this;
   }
+  dispose() {}
   computeVertexNormals() {}
   rotateX(rad) {
     const c = Math.cos(rad);

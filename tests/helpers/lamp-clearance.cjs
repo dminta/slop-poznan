@@ -129,6 +129,8 @@ function auditCityLamps({ root = join(__dirname, '../..'), before = false } = {}
     for (const r of config.RAISED_GROUND || []) {
       if (x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ) return true;
     }
+    // Raw plaza and underpass outlines below must not restore paving removed by the final tram cut.
+    if (config.inTramSurfaceCut(x, z)) return false;
     if (blockAt(x, z)) return true;
     for (let i = 0; i < plazas.length; i++) {
       const b = plazaBox[i];

@@ -1,4 +1,4 @@
-// Headless world build: per-phase timings (--gc: retained heap) and 24 output hashes (--hashes); --root picks a checkout.
+// Headless world build: timings (--gc: heap), 24 hashes (--hashes), optional real surface triangulation.
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -6,14 +6,16 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const require = createRequire(import.meta.url);
+const { THREE } = require('../tests/helpers/three-stub.cjs');
 const { loadModule } = require(join(dirname(fileURLToPath(import.meta.url)), '../tests/helpers/module.cjs'));
 
 function parseArgs(argv) {
-  const args = { root: resolve(dirname(fileURLToPath(import.meta.url)), '..'), hashes: false, gc: false, json: null };
+  const args = { root: resolve(dirname(fileURLToPath(import.meta.url)), '..'), hashes: false, gc: false, json: null, triangulateSurfaces: false };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--root') args.root = resolve(argv[++i]);
     else if (a === '--json') args.json = argv[++i];
+    else if (a === '--triangulate-surfaces') args.triangulateSurfaces = true;
     else if (a === '--hashes') args.hashes = true;
     else if (a === '--gc') args.gc = true;
     else throw new Error(`Unknown arg: ${a}`);
@@ -138,7 +140,13 @@ async function main() {
   const { GEO } = await import(pathToFileURL(join(root, 'js/geodata.js')).href);
   phases.config = performance.now() - t0;
 
-  const three = { 'three/webgpu': inert(), 'three/tsl': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert() };
+  // Inert ShapeUtils returns no faces and would omit the new corridor clipping work from a timing.
+  const threeStub = inert();
+  const three = {
+    'three/webgpu': args.triangulateSurfaces
+      ? new Proxy(threeStub, { get: (t, k) => k === 'ShapeUtils' ? THREE.ShapeUtils : t[k] }) : threeStub,
+    'three/tsl': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert()
+  };
 
   // 1. Blocks
   t0 = performance.now();

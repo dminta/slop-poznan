@@ -10,6 +10,7 @@ import {
   UNDERPASS_SIDEWALKS,
   blockAt,
   isBlockAt,
+  tramSurfaceClearance,
   distToWater,
   blockLots,
   lotsWithin,
@@ -127,6 +128,22 @@ function createWorldXZShape(pts, holes = []) {
 }
 
 function createExtrudedPolygonMesh(pts, bottomY, height, material, receiveShadow = true, castShadow = false, holes = []) {
+  const segs = tramSurfaceSegments(pts, holes);
+  if (!segs.length) return createSurfaceMesh(pts, bottomY, height, material, receiveShadow, castShadow, holes);
+  // Start with the renderer's filled triangles, preserving holes and even historical folded park outlines.
+  const pieces = triangulateSurface(pts, holes).flatMap((triangle) => cutSlab(triangle, segs, TRAM_CUT));
+  const geos = pieces.map((p) => createSurfaceMesh(p, bottomY, height, material, receiveShadow, castShadow).geometry);
+  const geometry = geos.length ? mergeGeometries(geos, false) : new THREE.ExtrudeGeometry(new THREE.Shape(), {
+    depth: height, bevelEnabled: false, curveSegments: 1
+  });
+  for (const geo of geos) geo.dispose();
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.receiveShadow = receiveShadow;
+  mesh.castShadow = castShadow;
+  return mesh;
+}
+
+function createSurfaceMesh(pts, bottomY, height, material, receiveShadow, castShadow, holes = []) {
   const shape = createWorldXZShape(pts, holes);
   const geo = new THREE.ExtrudeGeometry(shape, {
     depth: height,
@@ -706,7 +723,7 @@ function railCells() {
     const p = r.pts;
     for (let i = 0; i + 3 < p.length; i += 2) {
       const seg = {
-        ax: p[i], az: p[i + 1], bx: p[i + 2], bz: p[i + 3],
+        kind: r.kind, ax: p[i], az: p[i + 1], bx: p[i + 2], bz: p[i + 3],
         x0: Math.min(p[i], p[i + 2]), x1: Math.max(p[i], p[i + 2]),
         z0: Math.min(p[i + 1], p[i + 3]), z1: Math.max(p[i + 1], p[i + 3])
       };
@@ -720,6 +737,71 @@ function railCells() {
     }
   }
   return _railCells;
+}
+
+// Match ExtrudeGeometry's ShapeUtils triangulation in the same x/-z shape frame, including hole winding.
+function triangulateSurface(pts, holes = []) {
+  const vector = (p) => ({ x: p.x, y: -p.z, equals(q) { return this.x === q.x && this.y === q.y; } });
+  const contour = pts.map(vector);
+  if (!THREE.ShapeUtils.isClockWise(contour)) contour.reverse();
+  const inner = holes.map((h) => {
+    const ring = h.map(vector);
+    if (THREE.ShapeUtils.isClockWise(ring)) ring.reverse();
+    return ring;
+  });
+  const faces = THREE.ShapeUtils.triangulateShape(contour, inner);
+  const vertices = contour.concat(...inner);
+  const triangles = [];
+  for (const face of faces) {
+    const triangle = face.map((i) => ({ x: vertices[i].x, z: -vertices[i].y }));
+    if (polygonCentroidArea(triangle) < 0) triangle.reverse();
+    triangles.push(triangle);
+  }
+  return triangles;
+}
+
+// Final surface clipping also covers park lawns, underpass strips and corridors that only graze a block edge.
+// Test positive intersection before splitting: nearby but untouched surfaces retain their exact original records.
+function tramSurfaceSegments(pts, holes = []) {
+  if (pts.length < 3) return [];
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const p of pts) {
+    x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x);
+    z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z);
+  }
+  const pad = TRAM_CUT * 2;
+  const seen = new Set(), segs = [];
+  let triangles = null;
+  const cells = railCells();
+  for (let ix = Math.floor((x0 - pad) / RAIL_CELL); ix <= Math.floor((x1 + pad) / RAIL_CELL); ix++) {
+    for (let iz = Math.floor((z0 - pad) / RAIL_CELL); iz <= Math.floor((z1 + pad) / RAIL_CELL); iz++) {
+      for (const s of cells.get(ix * 100003 + iz) || []) {
+        if (s.kind !== 'tram' || seen.has(s)) continue;
+        seen.add(s);
+        if (s.x1 + pad < x0 || s.x0 - pad > x1 || s.z1 + pad < z0 || s.z0 - pad > z1) continue;
+        const len = Math.hypot(s.bx - s.ax, s.bz - s.az);
+        if (len < 1e-6) continue;
+        const ux = (s.bx - s.ax) / len * TRAM_CUT, uz = (s.bz - s.az) / len * TRAM_CUT;
+        const quad = [
+          { x: s.ax - ux + uz, z: s.az - uz - ux }, { x: s.bx + ux + uz, z: s.bz + uz - ux },
+          { x: s.bx + ux - uz, z: s.bz + uz + ux }, { x: s.ax - ux - uz, z: s.az - uz + ux }
+        ];
+        if (cross2(quad[0], quad[1], quad[2]) < 0) quad.reverse();
+        const overlapArea = (tris) => {
+          let sum = 0;
+          for (const t of tris) {
+            let p = t;
+            for (let i = 0; i < 4 && p.length >= 3; i++) p = clipHalfPlane(p, quad[i], quad[(i + 1) % 4], true);
+            if (p.length >= 3) sum += Math.abs(polygonCentroidArea(p));
+          }
+          return sum;
+        };
+        triangles ||= triangulateSurface(pts, holes);
+        if (overlapArea(triangles) > 1e-7) segs.push([s.ax, s.az, s.bx, s.bz]);
+      }
+    }
+  }
+  return segs;
 }
 
 /** Distance from (x, z) to the nearest GEO.rail centreline (tram or mainline), capped at `r` */
@@ -1734,7 +1816,7 @@ function buildCityGrid(scene, opts = {}) {
     return true;
   }
   function addLamp(x, y, z) {
-    if (!railClear(x, z, 0.3) || !clearOfLamps(x, z)) return false;
+    if (!railClear(x, z, 0.3) || tramSurfaceClearance(x, z, 0.7) < 0.7 || !clearOfLamps(x, z)) return false;
     lampMatrices.push(new THREE.Matrix4().makeTranslation(x, y, z));
     const site = { x, y: y + 4.17, z };
     lampSites.push(site);

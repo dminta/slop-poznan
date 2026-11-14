@@ -302,7 +302,8 @@ test('the curb edge grid gives the same nearest frame and reach answer', async (
   const indexSrc = cut(source, '  const curbEdgeIndexes = new Map();', '  // With a reach the answer');
   const reachSrc = cut(source, '  const blockCurbDist = (px, pz, b, reach = 0) => {', '  // Design choice:');
   const frameSrc = cut(source, '  const nearestCurbFrame = (b, x, z) => {', '  const parkCollider = ');
-  const context = vm.createContext({ Math, Infinity });
+  // Isolate the original outline index; the added tram cut distance has its own height/clearance regression.
+  const context = vm.createContext({ Math, Infinity, tramSurfaceClearance: () => Infinity });
   const api = vm.runInContext(
     `${distSrc}\n${indexSrc}\n${reachSrc}\n${frameSrc}\n;({ blockCurbDist, nearestCurbFrame })`, context);
   const plainDistToSeg = (px, pz, ax, az, bx, bz) => {

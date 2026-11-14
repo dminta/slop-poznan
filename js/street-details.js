@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { Fn, float, color, uniform, mod, fract, step, smoothstep, mix, uv, texture, attribute, vec2, floor, sin, positionWorld } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { SIGNAL_SITES, SIGNAL_PLANS, updateSignal, JUNCTIONS, blockAt, isBlockAt, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES, createTreeWallChecker, OSM_TREES, isWater, createPolygonIndex, pointInPolyIndexed, TEATR_POLSKI_PROMENADE, TEATR_POLSKI_SITE, TEATR_POLSKI_GARDEN_TREES } from './city-config.js';
+import { SIGNAL_SITES, SIGNAL_PLANS, updateSignal, JUNCTIONS, blockAt, isBlockAt, tramSurfaceClearance, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES, createTreeWallChecker, OSM_TREES, isWater, createPolygonIndex, pointInPolyIndexed, TEATR_POLSKI_PROMENADE, TEATR_POLSKI_SITE, TEATR_POLSKI_GARDEN_TREES } from './city-config.js';
 import { buildRoadNetwork, CROSSWALK, CROSSWALK_REACH, STOP_SETBACK } from './road-network.js';
 import { cityUniforms, createTreeGrateMaterial } from './tsl-materials.js';
 import { createTreeField, SPECIES_CROWN_R } from './trees.js';
@@ -1085,7 +1085,7 @@ function buildStreetDetails(scene, opts = {}) {
         }
       }
     }
-    return best;
+    return Math.min(best, tramSurfaceClearance(px, pz, reach || best));
   };
   // Design choice: minimum clearance from curb face to pole surface: >= 0.50 m (reflecting Polish urban road practice)
   const CURB_CLEARANCE = 0.50;

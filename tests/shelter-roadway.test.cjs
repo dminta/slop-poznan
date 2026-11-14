@@ -1,3 +1,4 @@
+// Pins re-derived on poznan 15f9359 plus the tram cut; see the tram-bed-surfaces observation.
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const { join } = require('node:path');
@@ -22,13 +23,13 @@ test('no tram shelter footprint leaves raised ground', () => {
   const r = report();
   assert.equal(r.label, 'after');
   assert.equal(r.stops, 232);
-  assert.equal(r.shelters, 225);
+  assert.equal(r.shelters, 224);
   assert.equal(r.overlaps, 0, JSON.stringify(r.rows));
   assert.equal(r.raisedOverlaps, 0, JSON.stringify(r.raisedShelters));
   assert.equal(r.poleOverlaps, 0, JSON.stringify(r.poleShelters));
-  assert.equal(r.moved, 38);
-  assert.equal(r.dropped, 3);
-  assert.deepEqual(r.droppedShelters.map((s) => s.name).sort(), ['AWF', 'Gwarna', 'Sołacz']);
+  assert.equal(r.moved, 41);
+  assert.equal(r.dropped, 4);
+  assert.deepEqual(r.droppedShelters.map((s) => s.name).sort(), ['AWF', 'Gwarna', 'Rondo Śródka', 'Sołacz']);
 });
 
 test('the Rondo Kaponiera shelters move off the roadway and the pole', () => {

@@ -1383,7 +1383,64 @@ function underpassBlockAt(x, z) {
   return null;
 }
 
+// The final city-grid surface cut applies to every tram corridor, including parks and underpass strips.
+// Reject its indexed quads before either block lookup so an overlapping block cannot restore invisible raised ground.
+const TRAM_SURFACE_CELL = 32;
+const TRAM_SURFACE_GRID = new Map();
+for (const r of GEO.rail) {
+  if (r.kind !== 'tram') continue;
+  for (let i = 0; i + 3 < r.pts.length; i += 2) {
+    const [ax, az, bx, bz] = r.pts.slice(i, i + 4);
+    const len = Math.hypot(bx - ax, bz - az);
+    if (len < 1e-6) continue;
+    const seg = { ax, az, ux: (bx - ax) / len, uz: (bz - az) / len, len };
+    const pad = TRAM_CUT_HALF * 2;
+    for (let ix = Math.floor((Math.min(ax, bx) - pad) / TRAM_SURFACE_CELL);
+      ix <= Math.floor((Math.max(ax, bx) + pad) / TRAM_SURFACE_CELL); ix++) {
+      for (let iz = Math.floor((Math.min(az, bz) - pad) / TRAM_SURFACE_CELL);
+        iz <= Math.floor((Math.max(az, bz) + pad) / TRAM_SURFACE_CELL); iz++) {
+        const key = ix * 100003 + iz;
+        if (!TRAM_SURFACE_GRID.has(key)) TRAM_SURFACE_GRID.set(key, []);
+        TRAM_SURFACE_GRID.get(key).push(seg);
+      }
+    }
+  }
+}
+
+// Distance to the rendered cut edge, used by support placement as well as the point-height exclusion below.
+function tramSurfaceClearance(x, z, radius = 8) {
+  let best = radius;
+  for (let ix = Math.floor((x - radius) / TRAM_SURFACE_CELL); ix <= Math.floor((x + radius) / TRAM_SURFACE_CELL); ix++) {
+    for (let iz = Math.floor((z - radius) / TRAM_SURFACE_CELL); iz <= Math.floor((z + radius) / TRAM_SURFACE_CELL); iz++) {
+      for (const s of TRAM_SURFACE_GRID.get(ix * 100003 + iz) || []) {
+        const dx = x - s.ax, dz = z - s.az;
+        const along = dx * s.ux + dz * s.uz;
+        const across = dz * s.ux - dx * s.uz;
+        const du = Math.max(0, -TRAM_CUT_HALF - along, along - s.len - TRAM_CUT_HALF);
+        const dv = Math.max(0, Math.abs(across) - TRAM_CUT_HALF);
+        best = Math.min(best, Math.hypot(du, dv));
+        if (!best) return 0;
+      }
+    }
+  }
+  return best;
+}
+
+function inTramSurfaceCut(x, z) {
+  const list = TRAM_SURFACE_GRID.get(Math.floor(x / TRAM_SURFACE_CELL) * 100003 +
+    Math.floor(z / TRAM_SURFACE_CELL));
+  if (!list) return false;
+  for (const s of list) {
+    const dx = x - s.ax, dz = z - s.az;
+    const along = dx * s.ux + dz * s.uz;
+    const across = dz * s.ux - dx * s.uz;
+    if (along >= -TRAM_CUT_HALF && along <= s.len + TRAM_CUT_HALF && Math.abs(across) <= TRAM_CUT_HALF) return true;
+  }
+  return false;
+}
+
 function blockCutAt(b, x, z) {
+  if (inTramSurfaceCut(x, z)) return true;
   if (b.roadCut) {
     for (const [ax, az, bx, bz, half] of b.roadCut) {
       const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
@@ -1408,6 +1465,7 @@ function blockCutAt(b, x, z) {
 
 /** The block (curb island) under (x, z), or null on the roadway / in the water */
 function blockAt(x, z) {
+  if (inTramSurfaceCut(x, z)) return null;
   const list = BLOCK_GRID.get(Math.floor(x / BLOCK_CELL) * 100000 + Math.floor(z / BLOCK_CELL));
   if (list) {
     for (const b of list) {
@@ -1421,6 +1479,7 @@ function blockAt(x, z) {
 
 /** True when `blockAt(x, z) === block`, testing `block` first so callers skip unrelated blocks */
 function isBlockAt(x, z, block) {
+  if (inTramSurfaceCut(x, z)) return !block;
   if (!block) return blockAt(x, z) === null;
   if (x < block.minX || x > block.maxX || z < block.minZ || z > block.maxZ) return false;
   if (block.underpass) return blockAt(x, z) === block;
@@ -2146,6 +2205,8 @@ export {
   UNDERPASS_SIDEWALKS,
   blockAt,
   isBlockAt,
+  inTramSurfaceCut,
+  tramSurfaceClearance,
   blocksInRect,
   districtAt,
   LANDMARK_SITES,
