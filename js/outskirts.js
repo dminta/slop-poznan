@@ -28,6 +28,7 @@ import {
 import { cityUniforms, parkLawnColorNode, parkLawnNormalNode, setParkLawnSpecular, createPanelBlockMaterial, createFacadeBoxes, WALL_KINDS } from './tsl-materials.js';
 import { LL, OUTSKIRTS, OUTSKIRTS_HOLES, DISTRICTS, CITY_BOUNDS } from './city-config.js';
 import { SATELLITE_SITES, satelliteClearance } from './satellite-sites.js';
+import { railRectClear } from './city-grid.js';
 
 // js/outskirts.js
 // Poznań beyond the detailed core, at true 1:1 scale on the real geography (1 unit = 1 m, x = east, z = south, origin
@@ -1148,7 +1149,12 @@ function generateBlock(list, zone, land, i, j, c, dM, lu, rand) {
       const q = zoneToWorld(zone, uc + (k & 1 ? 1 : -1) * (w * 0.5 + m), vc + (k & 2 ? 1 : -1) * (d * 0.5 + m));
       if (zoneAt(q.x, q.z) !== zone) return null;
     }
-    const rec = { x: p.x, y: land.top, z: p.z, w, h, d, rot, tint, style, seed: rand() * 100 };
+    // Check rail clearance after rand() so rejecting an on-track building never shifts the RNG stream for later blocks
+    const rec = {
+      x: p.x, y: land.top, z: p.z, w, h, d, rot, tint, style,
+      seed: rand() * 100,
+      onRail: !railRectClear(p.x, p.z, w * 0.5, d * 0.5, rot, 1.5)
+    };
     list.push(rec);
     return rec;
   };
@@ -1156,7 +1162,11 @@ function generateBlock(list, zone, land, i, j, c, dM, lu, rand) {
   const roofBox = (rec, uc, vc) => {
     if (!rec || rec.h < 16 || dM > 2000 || rand() > 0.5) return;
     const p = zoneToWorld(zone, uc + (rand() - 0.5) * rec.w * 0.4, vc + (rand() - 0.5) * rec.d * 0.3);
-    list.push({ x: p.x, y: rec.y + rec.h, z: p.z, w: Math.max(2.5, Math.min(8, rec.w * 0.3)), h: 2.6 + rand() * 1.2, d: Math.max(2.5, Math.min(8, rec.d * 0.3)), rot, tint: rec.tint, style: 2, seed: rand() * 100 });
+    list.push({
+      x: p.x, y: rec.y + rec.h, z: p.z,
+      w: Math.max(2.5, Math.min(8, rec.w * 0.3)), h: 2.6 + rand() * 1.2, d: Math.max(2.5, Math.min(8, rec.d * 0.3)),
+      rot, tint: rec.tint, style: 2, seed: rand() * 100, onRail: rec.onRail
+    });
   };
 
   const uc = (u0 + u1) * 0.5;
@@ -1302,7 +1312,7 @@ function generateOutskirtsBuildings() {
     }
     stats[zone.id] = list.length - before;
   }
-  return { list, stats };
+  return { list: list.filter((b) => !b.onRail), stats };
 }
 
 // Satellite silhouettes: retail panels, sheet-metal sheds and glass entrance wings on the same box pipeline as the

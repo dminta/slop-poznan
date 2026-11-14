@@ -724,7 +724,20 @@ function layoutTramInfrastructure(network) {
     } else {
       stop.shelter = null;
     }
-    stop.sign = { ...at(stop.kind === 'island' ? 12 : 9, base + 0.55), y, yaw: Math.atan2(fx, fz) };
+    // Place the stop sign by stepping along the curved track rather than extrapolating the centre tangent
+    const sRaw = stop.sc + stop.dir * (stop.kind === 'island' ? 12 : 9);
+    const sSign = stop.kind === 'island'
+      ? Math.max(stop.platform.s0 + 0.5, Math.min(stop.platform.s1 - 0.5, sRaw))
+      : Math.max(0, Math.min(tr.len, sRaw));
+    const SP = pointAt(tr, sSign);
+    const srx = -SP.dz * stop.side;
+    const srz = SP.dx * stop.side;
+    stop.sign = {
+      x: SP.x + srx * (base + 0.55),
+      z: SP.z + srz * (base + 0.55),
+      y,
+      yaw: Math.atan2(SP.dx * stop.dir, SP.dz * stop.dir)
+    };
     // Curb stops keep their furniture on the sidewalk and off the tracks
     if (stop.kind === 'curb' && ![stop.shelter, stop.sign, stop.machine].every((p) => !p || onCurb(p.x, p.z))) {
       if (!onCurb(stop.sign.x, stop.sign.z)) {
