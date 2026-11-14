@@ -345,9 +345,28 @@ function segmentGrid(cell = 24, walk = false) {
       const r2 = r * r;
       const lo2 = r2 * (1 - 1e-12), hi2 = r2 * (1 + 1e-12);
       const lim = r + 1e-9;
+      const ix0 = Math.floor((x - r) / cell), ix1 = Math.floor((x + r) / cell);
+      const iz0 = Math.floor((z - r) / cell), iz1 = Math.floor((z + r) / cell);
+      if (ix0 === ix1 && iz0 === iz1) {
+        const list = cells.get(key(ix0, iz0));
+        if (!list) return false;
+        for (const sg of list) {
+          if (accept && !accept(sg)) continue;
+          if (x < sg.x0 - lim || x > sg.x1 + lim || z < sg.z0 - lim || z > sg.z1 + lim) continue;
+          const ex = sg.bx - sg.ax;
+          const ez = sg.bz - sg.az;
+          const t = Math.max(0, Math.min(1, ((x - sg.ax) * ex + (z - sg.az) * ez) / (ex * ex + ez * ez || 1)));
+          const dx = sg.ax + ex * t - x;
+          const dz = sg.az + ez * t - z;
+          const d2 = dx * dx + dz * dz;
+          if (d2 < lo2) return true;
+          if (d2 <= hi2 && Math.hypot(dx, dz) < r) return true;
+        }
+        return false;
+      }
       const q = ++stamp;
-      for (let ix = Math.floor((x - r) / cell); ix <= Math.floor((x + r) / cell); ix++) {
-        for (let iz = Math.floor((z - r) / cell); iz <= Math.floor((z + r) / cell); iz++) {
+      for (let ix = ix0; ix <= ix1; ix++) {
+        for (let iz = iz0; iz <= iz1; iz++) {
           const list = cells.get(key(ix, iz));
           if (!list) continue;
           for (const sg of list) {
@@ -433,7 +452,9 @@ function laneDistance(network) {
       }
     }
   }
-  return (x, z, r = 6) => laneGrid.nearestDist(x, z, r);
+  return Object.assign((x, z, r = 6) => laneGrid.nearestDist(x, z, r), {
+    within: (x, z, r) => laneGrid.within(x, z, r)
+  });
 }
 
 // Rails are laid as straight pieces up to PIECE long, so they follow curbs and bends. There is no raised tram track
@@ -478,9 +499,11 @@ function layoutTramInfrastructure(network) {
   const laneDist = laneDistance(network);
   const trackDist = (x, z, r = 4, except = null) =>
     trackGrid.nearestDist(x, z, r, except ? (sg) => sg.data.tr !== except : null);
+  const trackWithin = (x, z, r = 4, except = null) =>
+    trackGrid.within(x, z, r, except ? (sg) => sg.data.tr !== except : null);
   // Poles keep 2 m from a lane centreline: the road network tests obstacles by box overlap, so a pole is clear of its
   // 1.2 m only beyond 1.2 + 0.16 m along both axes (up to 1.92 m diagonally)
-  const clearSpot = (x, z, keep = TRACK_KEEP) => isLand(x, z) && laneDist(x, z) >= 2.0 && trackDist(x, z) >= keep;
+  const clearSpot = (x, z, keep = TRACK_KEEP) => isLand(x, z) && !laneDist.within(x, z, 2.0) && !trackWithin(x, z, keep);
   const onCurb = (x, z) => {
     const b = blockAt(x, z);
     return !!(b && !b.median);
@@ -630,8 +653,8 @@ function layoutTramInfrastructure(network) {
   const shelterClear = (x, z, yaw, len, needBlock, pieces, edge = SHELTER_EDGE) => {
     const rect = shelterRect(x, z, yaw, len);
     for (const [px, pz] of shelterSamples(rect, edge)) {
-      if (laneDist(px, pz, 6) < LANE_HALF - 1e-6) return false;
-      if (trackDist(px, pz, 4) < TRACK_KEEP - 1e-6) return false;
+      if (laneDist.within(px, pz, LANE_HALF - 1e-6)) return false;
+      if (trackWithin(px, pz, TRACK_KEEP - 1e-6)) return false;
       if (needBlock && !blockAt(px, pz)) return false;
       if (!shelterRaisedAt(px, pz, pieces)) return false;
     }
@@ -643,10 +666,10 @@ function layoutTramInfrastructure(network) {
       for (const o of [o0, (o0 * 3 + o1) / 4, (o0 + o1) / 2, (o0 + o1 * 3) / 4, o1]) {
         const x = P.x - P.dz * o;
         const z = P.z + P.dx * o;
-        if (!isLand(x, z) || laneDist(x, z) < LANE_KEEP) return false;
+        if (!isLand(x, z) || laneDist.within(x, z, LANE_KEEP)) return false;
         // ...and clear of the other tracks (not tested at the track-side edge, which the chain continuing the
         // platform's own track past a switch passes as close as its own track)
-        if (o !== o0 && trackDist(x, z, 4, tr) < PLATFORM_EDGE) return false;
+        if (o !== o0 && trackWithin(x, z, PLATFORM_EDGE, tr)) return false;
       }
     }
     return true;
@@ -923,6 +946,13 @@ function layoutRailInfrastructure(network) {
     if (r < RAIL_ROAD_KEEP + 3 && lane >= r) return g;
     return Math.min(Number.isFinite(g) ? g : RAIL_ROAD_KEEP + 1, lane - 1.75);
   };
+  const roadWithin = (x, z, thresh) => {
+    if (underDeck(x, z)) return false;
+    const g = roadClearance(x, z);
+    if (g < thresh) return true;
+    const r = thresh + 1.75;
+    return r > 0 && laneDist.within(x, z, r);
+  };
   const railGrid = segmentGrid();
   for (const tr of tracks) {
     for (let k = 0; k + 1 < tr.n; k++) railGrid.add(tr.p[2 * k], tr.p[2 * k + 1], tr.p[2 * k + 2], tr.p[2 * k + 3], tr);
@@ -932,10 +962,12 @@ function layoutRailInfrastructure(network) {
     for (let k = 0; k + 1 < tr.n; k++) tramGrid.add(tr.p[2 * k], tr.p[2 * k + 1], tr.p[2 * k + 2], tr.p[2 * k + 3], tr);
   }
   const railDist = (x, z, r = 4) => railGrid.nearestDist(x, z, r);
+  const railWithin = (x, z, r) => railGrid.within(x, z, r);
   const tramDist = (x, z, r = RAIL_TRAM_KEEP + 1) => {
     if (underDeck(x, z)) return r;
     return tramGrid.nearestDist(x, z, r);
   };
+  const tramWithin = (x, z, r) => !underDeck(x, z) && tramGrid.within(x, z, r);
   const levelGrid = segmentGrid(32, true);
   const lx = GEO.levelCrossings || [];
   for (let k = 0; k + 1 < lx.length; k += 2) levelGrid.add(lx[k], lx[k + 1], lx[k], lx[k + 1] + 0.001, k / 2);
@@ -972,8 +1004,8 @@ function layoutRailInfrastructure(network) {
       for (const t of [0, 0.25, 0.5, 0.75, 1]) {
         const x = A.x + (B.x - A.x) * t;
         const z = A.z + (B.z - A.z) * t;
-        if (roadDist(x, z) < RAIL_ROAD_KEEP) why[i] = 'road';
-        else if (!underDeck(x, z) && tramDist(x, z) < RAIL_TRAM_KEEP) why[i] = why[i] || 'tram';
+        if (roadWithin(x, z, RAIL_ROAD_KEEP)) why[i] = 'road';
+        else if (!underDeck(x, z) && tramWithin(x, z, RAIL_TRAM_KEEP)) why[i] = why[i] || 'tram';
         if (why[i] === 'road') break;
       }
       if (why[i]) continue;
@@ -1043,7 +1075,7 @@ function layoutRailInfrastructure(network) {
           const isBridgeTram = (mz < -150 && mz > -230 && mx > -1380 && mx < -1265) ||
                                (mz > 50 && mz < 150 && mx > -1450 && mx < -1320) ||
                                (mz > 500 && mz < 630 && mx > -1565 && mx < -1335);
-          const hasTram = isBridgeTram || spanPieces.some((p) => tramDist((p.ax + p.bx) / 2, (p.az + p.bz) / 2, 5) < 4.5);
+          const hasTram = isBridgeTram || spanPieces.some((p) => tramWithin((p.ax + p.bx) / 2, (p.az + p.bz) / 2, 4.5));
           const yClearance = hasTram ? 6.0 : 4.8;
           const deckY = yClearance + 0.35;
           viaducts.push({
@@ -1196,8 +1228,8 @@ function layoutRailInfrastructure(network) {
     }
     return inside;
   });
-  const fenceClear = (x, z) => isLand(x, z) && !underDeck(x, z) && roadDist(x, z) >= RAIL_FENCE_ROAD && tramDist(x, z) >= RAIL_MAST_TRAM &&
-    railDist(x, z) >= 3;
+  const fenceClear = (x, z) => isLand(x, z) && !underDeck(x, z) && !roadWithin(x, z, RAIL_FENCE_ROAD) && !tramWithin(x, z, RAIL_MAST_TRAM) &&
+    !railWithin(x, z, 3);
   const runs = []; // [{ railIndex, side, pts: [{ x, z }], solid: [0|1 per segment], s0 }]
   for (const tr of tracks) {
     const { geo, kept } = trackGeo.get(tr.railIndex);
@@ -1233,7 +1265,7 @@ function layoutRailInfrastructure(network) {
           for (const t of [0.5, 0, 1]) {
             const x = a.x + (b.x - a.x) * t + nx * 3;
             const z = a.z + (b.z - a.z) * t + nz * 3;
-            if (railDist(x, z, 5.5) < 5.5) ok = false;
+            if (railWithin(x, z, 5.5)) ok = false;
             if (!ok) break;
           }
           for (const t of [0, 0.25, 0.5, 0.75, 1]) {
@@ -1249,7 +1281,7 @@ function layoutRailInfrastructure(network) {
               const x = mx + nx * d;
               const z = mz + nz * d;
               if (!isLand(x, z)) continue;
-              if (roadDist(x, z) < 0 || blockAt(x, z) || inPlaza(x, z) || (d >= 6 && railDist(x, z, 6) >= 6)) solid = 1;
+              if (roadWithin(x, z, 0) || blockAt(x, z) || inPlaza(x, z) || (d >= 6 && !railWithin(x, z, 6))) solid = 1;
               if (solid) break;
             }
             if (!run) {
@@ -1305,7 +1337,7 @@ function layoutRailInfrastructure(network) {
       const x = a.x + (b.x - a.x) * t;
       const z = a.z + (b.z - a.z) * t;
       // the stub may touch its own ends' beds only as close as the runs themselves do
-      ok = isLand(x, z) && roadDist(x, z) >= RAIL_FENCE_ROAD && tramDist(x, z) >= RAIL_MAST_TRAM && railDist(x, z) >= 3;
+      ok = isLand(x, z) && !roadWithin(x, z, RAIL_FENCE_ROAD) && !tramWithin(x, z, RAIL_MAST_TRAM) && !railWithin(x, z, 3);
     }
     if (!ok) continue;
     stubbed.add(pair);
@@ -1341,15 +1373,15 @@ function layoutRailInfrastructure(network) {
     const a = (k * Math.PI) / 4;
     return !blockAt(x + Math.cos(a) * 3.5, z + Math.sin(a) * 3.5);
   });
-  const clear = (x, z) => isLand(x, z) && !underDeck(x, z) && roadDist(x, z) >= RAIL_MAST_ROAD && tramDist(x, z) >= RAIL_MAST_TRAM &&
-    railDist(x, z) >= RAIL_KEEP && fenceDist(x, z) >= 0.4 && offLots(x, z);
+  const clear = (x, z) => isLand(x, z) && !underDeck(x, z) && !roadWithin(x, z, RAIL_MAST_ROAD) && !tramWithin(x, z, RAIL_MAST_TRAM) &&
+    !railWithin(x, z, RAIL_KEEP) && !fenceGrid.within(x, z, 0.4) && offLots(x, z);
   // A support line a-b must not reach over a roadway or a tram track
   const spanClear = (ax, az, bx, bz) => {
     if (tramGrid.crossing(ax, az, bx, bz).length) return false;
     const L = Math.hypot(bx - ax, bz - az);
     for (let d = 0; d <= L; d += 1) {
       const t = d / (L || 1);
-      if (roadDist(ax + (bx - ax) * t, az + (bz - az) * t) < 0.5) return false;
+      if (roadWithin(ax + (bx - ax) * t, az + (bz - az) * t, 0.5)) return false;
     }
     return true;
   };
@@ -1503,7 +1535,7 @@ function layoutRailInfrastructure(network) {
         for (let o = RAIL_KEEPOUT; o <= reach && ok; o += 1) {
           const x = px + nx * o;
           const z = pz + nz * o;
-          ok = isLand(x, z) && roadDist(x, z) >= 3 && tramDist(x, z) >= 2.5;
+          ok = isLand(x, z) && !roadWithin(x, z, 3) && !tramWithin(x, z, 2.5);
         }
         if (!ok) continue;
         bands++;
@@ -1549,7 +1581,7 @@ function layoutRailInfrastructure(network) {
       for (let ix = Math.floor(cx - 10); ix <= Math.floor(cx + 10); ix++) {
         const x = ix + 0.5;
         const z = iz + 0.5;
-        if (Math.hypot(x - cx, z - cz) <= 10 && roadDist(x, z) < 3.0) {
+        if (Math.hypot(x - cx, z - cz) <= 10 && roadWithin(x, z, 3.0)) {
           clearCell(ix, iz);
         }
       }

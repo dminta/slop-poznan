@@ -102,10 +102,12 @@ function createFootprintIndex(rects, flagOf) {
   const cells = new Map();
   const buckets = [];
   for (let i = 0; i < rects.length; i++) {
+    const f = flagOf(rects[i]);
+    if (!f) continue;
     const r = rects[i];
     const o = i * 4;
     bounds[o] = r.minX; bounds[o + 1] = r.maxX; bounds[o + 2] = r.minZ; bounds[o + 3] = r.maxZ;
-    flags[i] = flagOf(r);
+    flags[i] = f;
     for (let ix = Math.floor(r.minX / CELL); ix <= Math.floor(r.maxX / CELL); ix++) {
       for (let iz = Math.floor(r.minZ / CELL); iz <= Math.floor(r.maxZ / CELL); iz++) {
         const key = (ix + 1024) * 2048 + iz + 1024;

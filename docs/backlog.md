@@ -185,14 +185,17 @@ share are not thinned; [central-density record](observations/central-density-202
      route/collider/guide indexes and shader NodeData (~38 MB) dominate. Use real-device measurements to justify
      further exact packing or geometry deduplication; shader-cache release needs a renderer-supported lifecycle.
      Post-upload attribute release remains unsafe in the pinned three.js; keep GEO/BLOCKS late-reader inputs.
-  4. **Remaining boot work** after seven passes: boot part 7 ([record](observations/perf-boot-7-2026-11-14.md)) reuses
-     `supportCells` in `wireSupportClear`, adds threshold-only `railWithin`/`railBoxHasSegs` and `segmentGrid`
-     `nearestDist`/`within` with deferred result allocation, and checks `flags` first in `createFootprintIndex`
-     (headless Node build 14.91 → 13.56 s median / −9.1%, `signalHeads` −26.5%, `streetDetails` −3.0%, 24/24 output
-     hashes identical, unchanged retained heap; browser 1×/6× measurement pending). Remaining larger budgets in Node
-     `--cpu-prof` are `tram-infra` `nearestDist` + `nearest` (0.81 + 0.21 s self), `outlineDist` (0.68 s),
-     `railWithin` (0.64 s), `road-network` footprint index (0.59 s), `nearSegment` (0.44 s) and `pointInPolyIndexed`
-     (0.33 s); 12 m `laneGrid` cells and flat `Int32Array` grids for `railWithin`/`createFootprintIndex` regressed.
+  4. **Remaining boot work** after eight passes: boot part 8 ([record](observations/perf-boot-8-2026-11-14.md)) routes
+     threshold-only `tram-infra.js` callers (`clearSpot`, `shelterClear`, `platformClear`, `roadWithin`, `tramWithin`,
+     `railWithin`, `fenceGrid.within`) through `within` with a single-cell fast path, precomputes flat typed edge
+     arrays in `outlineDist` (`buildings.js`), adds a lazy 64 m `segmentsNear` grid and `laneClear` centre-rail reuse
+     (`pedestrian-routes.js`), and skips `flags === 0` rectangles in `createFootprintIndex` (headless Node build
+     13.68 → 12.24 s median / −10.55%, `blocks` −21.4%, `railLayout` −21.8%, `signalHeads` −18.0%, 24/24 output hashes
+     identical, +2.40 MiB retained heap; browser 1×/6× measurement pending). Remaining larger budgets in Node
+     `--cpu-prof` are `railWithin` (0.70 s self), `road-network` footprint index (0.62 s), `tram-infra` `within` +
+     `nearest` (0.43 + 0.21 s), `roadClearance` (0.33 s) and `pointInPolyIndexed` (0.32 s); 12 m `laneGrid` cells, flat
+     `Int32Array` grids for `railWithin`/`createFootprintIndex`, and extra `segmentGrid` edge fields (+30.1 MiB heap)
+     regressed.
      Workers or deferral would need
      pure layout/buffer boundaries (cityGrid + traffic: 17.64 s upper-bound budget), justified by real-device reports.
      The [worker boundary study](observations/perf-workers-2026-11-12.md) stopped at Stage 1: production remains

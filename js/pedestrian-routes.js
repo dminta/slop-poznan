@@ -212,6 +212,7 @@ function createPedestrianRoutes(
   // A side of a track stays walkable and on the same block at LANE_INSET, so traffic.js may keep that direction on
   // its own side. A two-way sidewalk usually has both; a corner link between different curb blocks may have room on
   // its travel side only, which is enough because it is walked one way. Tracks shorter than the inset keep no lane.
+  let laneCenterRail = new Uint8Array(512);
   function laneClear(a, b, block) {
     if (!block) return 0;
     const dx = b.x - a.x, dz = b.z - a.z;
@@ -228,6 +229,8 @@ function createPedestrianRoutes(
       Math.min(a.x, b.x) - LANE_INSET - RAIL_KEEP, Math.max(a.x, b.x) + LANE_INSET + RAIL_KEEP,
       Math.min(a.z, b.z) - LANE_INSET - RAIL_KEEP, Math.max(a.z, b.z) + LANE_INSET + RAIL_KEEP
     ));
+    if (checkRails && steps + 1 > laneCenterRail.length) laneCenterRail = new Uint8Array(steps + 1);
+    let maxCenter = -1;
     let lanes = 0;
     for (const side of [-1, 1]) {
       let clearSide = true;
@@ -242,9 +245,18 @@ function createPedestrianRoutes(
           clearSide = false;
           break;
         }
-        if (checkRails && !railWithin(cx, cz, RAIL_KEEP) && railWithin(x, z, RAIL_KEEP)) {
-          clearSide = false;
-          break;
+        if (checkRails) {
+          let onRail;
+          if (i <= maxCenter) onRail = laneCenterRail[i] === 1;
+          else {
+            onRail = railWithin(cx, cz, RAIL_KEEP);
+            laneCenterRail[i] = onRail ? 1 : 0;
+            maxCenter = i;
+          }
+          if (!onRail && railWithin(x, z, RAIL_KEEP)) {
+            clearSide = false;
+            break;
+          }
         }
         if (swept) { px = x; pz = z; }
       }
@@ -1371,6 +1383,47 @@ function createPedestrianRoutes(
   // Only tracks whose geometry or a possible corner link can reach the search area are needed by the
   // post-network signal placement. Cache by junction: the configured network and its stop lines do not move.
   const nearSegmentCache = new WeakMap();
+  let segNearGrid = null;
+  function getSegNearGrid() {
+    if (segNearGrid) return segNearGrid;
+    const CELL = 64;
+    const edgeCells = new Map();
+    const cwCells = new Map();
+    const edgeBx = new Float64Array(edges.length);
+    const edgeBz = new Float64Array(edges.length);
+    const file = (map, idx, minX, maxX, minZ, maxZ) => {
+      const ix0 = Math.floor(minX / CELL), ix1 = Math.floor(maxX / CELL);
+      const iz0 = Math.floor(minZ / CELL), iz1 = Math.floor(maxZ / CELL);
+      for (let ix = ix0; ix <= ix1; ix++) {
+        const row = (ix + 1024) * 2048 + 1024;
+        for (let iz = iz0; iz <= iz1; iz++) {
+          const k = row + iz;
+          let list = map.get(k);
+          if (!list) { list = []; map.set(k, list); }
+          list.push(idx);
+        }
+      }
+    };
+    for (let i = 0; i < edges.length; i++) {
+      const e = edges[i];
+      const bx = e.sx + e.dx * e.len, bz = e.sz + e.dz * e.len;
+      edgeBx[i] = bx; edgeBz[i] = bz;
+      const pad = e.half + 2.8 + 1e-7;
+      file(edgeCells, i, Math.min(e.sx, bx) - pad, Math.max(e.sx, bx) + pad, Math.min(e.sz, bz) - pad, Math.max(e.sz, bz) + pad);
+    }
+    for (let i = 0; i < crosswalks.length; i++) {
+      const c = crosswalks[i];
+      const pad = 3 + 1e-7;
+      file(cwCells, i, Math.min(c.ax, c.bx) - pad, Math.max(c.ax, c.bx) + pad, Math.min(c.az, c.bz) - pad, Math.max(c.az, c.bz) + pad);
+    }
+    segNearGrid = {
+      CELL, edgeCells, cwCells, edgeBx, edgeBz,
+      edgeStamp: new Int32Array(edges.length),
+      cwStamp: new Int32Array(crosswalks.length),
+      q: 0
+    };
+    return segNearGrid;
+  }
   function segmentsNear(x, z, radius, nodeKey = null) {
     if (nodeKey && nearSegmentCache.has(nodeKey)) return nearSegmentCache.get(nodeKey);
     const tracks = new Set();
@@ -1387,14 +1440,45 @@ function createPedestrianRoutes(
     // A corner link can have two 20 m legs. Include its source track even if the track itself is farther from
     // the candidate; a long track can otherwise bring a corner into the area from a distant junction.
     const reach = radius + 40;
-    for (const edge of edges) {
-      const bx = edge.sx + edge.dx * edge.len, bz = edge.sz + edge.dz * edge.len;
-      if (!nearSegment(edge.sx, edge.sz, bx, bz, reach + edge.half + 2.8)) continue;
-      for (const track of along(edge)) tracks.add(track);
+    const g = getSegNearGrid();
+    const q = ++g.q;
+    const ix0 = Math.floor((x - reach) / g.CELL), ix1 = Math.floor((x + reach) / g.CELL);
+    const iz0 = Math.floor((z - reach) / g.CELL), iz1 = Math.floor((z + reach) / g.CELL);
+    const hitEdges = [];
+    const hitCws = [];
+    for (let ix = ix0; ix <= ix1; ix++) {
+      const row = (ix + 1024) * 2048 + 1024;
+      for (let iz = iz0; iz <= iz1; iz++) {
+        const k = row + iz;
+        const el = g.edgeCells.get(k);
+        if (el) {
+          for (let j = 0; j < el.length; j++) {
+            const i = el[j];
+            if (g.edgeStamp[i] === q) continue;
+            g.edgeStamp[i] = q;
+            const edge = edges[i];
+            if (nearSegment(edge.sx, edge.sz, g.edgeBx[i], g.edgeBz[i], reach + edge.half + 2.8)) hitEdges.push(i);
+          }
+        }
+        const cl = g.cwCells.get(k);
+        if (cl) {
+          for (let j = 0; j < cl.length; j++) {
+            const i = cl[j];
+            if (g.cwStamp[i] === q) continue;
+            g.cwStamp[i] = q;
+            const c = crosswalks[i];
+            if (nearSegment(c.ax, c.az, c.bx, c.bz, reach + 3)) hitCws.push(i);
+          }
+        }
+      }
     }
-    for (const c of crosswalks) {
-      if (!nearSegment(c.ax, c.az, c.bx, c.bz, reach + 3)) continue;
-      for (const track of across(c.node)) tracks.add(track);
+    hitEdges.sort((a, b) => a - b);
+    hitCws.sort((a, b) => a - b);
+    for (let j = 0; j < hitEdges.length; j++) {
+      for (const track of along(edges[hitEdges[j]])) tracks.add(track);
+    }
+    for (let j = 0; j < hitCws.length; j++) {
+      for (const track of across(crosswalks[hitCws[j]].node)) tracks.add(track);
     }
     const result = new Set(tracks);
     for (const track of tracks) for (const dir of [-1, 1]) {

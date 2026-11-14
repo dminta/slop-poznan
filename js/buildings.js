@@ -3836,13 +3836,30 @@ function buildCityBlocks(scene) {
   function outlineDistanceTree(idx) {
     if (idx.distanceTree) return idx.distanceTree;
     const poly = idx.poly;
+    const n = poly.length;
+    const eAx = new Float64Array(n);
+    const eAz = new Float64Array(n);
+    const eDx = new Float64Array(n);
+    const eDz = new Float64Array(n);
+    const eL2 = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const a = poly[i ? i - 1 : n - 1];
+      const c = poly[i];
+      const dx = c.x - a.x;
+      const dz = c.z - a.z;
+      eAx[i] = a.x;
+      eAz[i] = a.z;
+      eDx[i] = dx;
+      eDz[i] = dz;
+      eL2[i] = dx * dx + dz * dz;
+    }
     const nodes = [];
     const build = (ids) => {
       const at = nodes.length;
       const node = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity, ids: null, left: -1, right: -1 };
       nodes.push(node);
       for (const i of ids) {
-        const a = poly[i ? i - 1 : poly.length - 1], b = poly[i];
+        const a = poly[i ? i - 1 : n - 1], b = poly[i];
         node.x0 = Math.min(node.x0, a.x, b.x);
         node.x1 = Math.max(node.x1, a.x, b.x);
         node.z0 = Math.min(node.z0, a.z, b.z);
@@ -3851,11 +3868,11 @@ function buildCityBlocks(scene) {
       // A little outward slack keeps the lower bound conservative against projection round-off at an endpoint.
       node.x0 -= 1e-7; node.x1 += 1e-7;
       node.z0 -= 1e-7; node.z1 += 1e-7;
-      if (ids.length <= 8) node.ids = ids;
+      if (ids.length <= 8) node.ids = Int32Array.from(ids);
       else {
         node.axis = node.x1 - node.x0 > node.z1 - node.z0 ? 'x' : 'z';
         const axis = node.axis;
-        const centre = (i) => poly[i][axis] + poly[i ? i - 1 : poly.length - 1][axis];
+        const centre = (i) => poly[i][axis] + poly[i ? i - 1 : n - 1][axis];
         ids.sort((a, b) => centre(a) - centre(b));
         const mid = ids.length >> 1;
         node.split = centre(ids[mid]) * 0.5;
@@ -3864,38 +3881,37 @@ function buildCityBlocks(scene) {
       }
       return at;
     };
-    build(Array.from({ length: poly.length }, (_, i) => i));
-    idx.distanceTree = { nodes, stack: new Int32Array(nodes.length) };
+    build(Array.from({ length: n }, (_, i) => i));
+    idx.distanceTree = { nodes, stack: new Int32Array(nodes.length), eAx, eAz, eDx, eDz, eL2 };
     return idx.distanceTree;
   }
   function outlineDist(x, z) {
     const idx = outlineEdgeGrid();
-    const poly = idx.poly;
-    const { nodes, stack } = outlineDistanceTree(idx);
+    const { nodes, stack, eAx, eAz, eDx, eDz, eL2 } = outlineDistanceTree(idx);
     let top = 0;
     stack[top++] = 0;
     let best = Infinity;
     while (top) {
       const node = nodes[stack[--top]];
-      const bx = Math.max(0, node.x0 - x, x - node.x1);
-      const bz = Math.max(0, node.z0 - z, z - node.z1);
+      const bx = x < node.x0 ? node.x0 - x : x > node.x1 ? x - node.x1 : 0;
+      const bz = z < node.z0 ? node.z0 - z : z > node.z1 ? z - node.z1 : 0;
       if (bx * bx + bz * bz > best) continue;
-      if (!node.ids) {
+      const ids = node.ids;
+      if (!ids) {
         const nearLeft = (node.axis === 'x' ? x : z) < node.split;
         stack[top++] = nearLeft ? node.right : node.left;
         stack[top++] = nearLeft ? node.left : node.right;
         continue;
       }
-      for (const i of node.ids) {
-        const a = poly[i ? i - 1 : poly.length - 1];
-        const c = poly[i];
-        const dx = c.x - a.x;
-        const dz = c.z - a.z;
-        const L2 = dx * dx + dz * dz;
-        let t = L2 > 0 ? ((x - a.x) * dx + (z - a.z) * dz) / L2 : 0;
+      for (let k = 0, len = ids.length; k < len; k++) {
+        const i = ids[k];
+        const ax = eAx[i], az = eAz[i];
+        const dx = eDx[i], dz = eDz[i];
+        const L2 = eL2[i];
+        let t = L2 > 0 ? ((x - ax) * dx + (z - az) * dz) / L2 : 0;
         t = t < 0 ? 0 : t > 1 ? 1 : t;
-        const ex = a.x + t * dx - x;
-        const ez = a.z + t * dz - z;
+        const ex = ax + t * dx - x;
+        const ez = az + t * dz - z;
         const d = ex * ex + ez * ez;
         if (d < best) best = d;
       }
