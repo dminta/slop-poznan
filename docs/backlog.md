@@ -192,7 +192,7 @@ share are not thinned; [central-density record](observations/central-density-202
      single-cell fast path in `createFootprintIndex` (`road-network.js`), and skips empty cells / defers fallback /
      halves bucket lookups in `clearOfCrosswalks`, `nearestCurbFrame` and `file` (`street-details.js`) (headless Node
      build 12.05 → 11.62 s median / −3.52%, `signalHeads` −11.8%, `cityGrid` −7.0%, 24/24 output hashes identical,
-     +0.53 MiB retained heap; browser 1×/6× measurement pending). Remaining larger budgets in Node `--cpu-prof` are
+     +0.53 MiB retained heap). Browser precompile `[init]` for passes 8 + 9 together (headless Chrome WebGPU, `?quality=high`, interleaved against a revert of both): 6.77 → 6.59 s at 1× (−2.7 %, 3 pairs) and 44.26 → 41.65 s at 6× (−5.9 %, 2 pairs); passes 6–7 are not separately revertible now that later commits use `railWithin`. Remaining larger budgets in Node `--cpu-prof` are
      `road-network` footprint index (0.59 s self), `railWithin` (0.47 s), `tram-infra` `within` + `nearest`
      (0.42 + 0.19 s), `roadClearance` (0.32 s) and `pointInPolyIndexed` (0.32 s); 12 m `laneGrid` cells, flat
      `Int32Array` grids for `railWithin`/`createFootprintIndex`, and extra `segmentGrid` edge fields (+30.1 MiB heap)
