@@ -40,31 +40,26 @@ test('street trees carry player colliders, including Rybaki', async () => {
   const liveGrid = { ...gridModule, ...gridModule.snapshot() };
   const bld = loadModule(source('buildings'), { imports: { ...rendering, './balconies.js': stub, './roofs.js': stub,
     './city-config.js': config, './geodata.js': { GEO }, './city-grid.js': liveGrid }, globals }).buildCityBlocks(stub);
+  const tram = loadModule(source('tram-infra'), { imports: { ...rendering, './city-config.js': config,
+    './geodata.js': { GEO }, './road-network.js': road, './city-grid.js': liveGrid }, globals });
   let sites;
   const details = loadModule(source('street-details'), { imports: { ...rendering, './city-config.js': config,
     './road-network.js': road, './city-grid.js': liveGrid,
     './trees.js': { createTreeField: (_scene, trees) => { sites = trees; return { group: stub }; } } }, globals
-  }).buildStreetDetails(stub, { buildingColliders: bld.colliders, grid });
+  }).buildStreetDetails(stub, { buildingColliders: bld.colliders, grid, layoutTramInfrastructure: tram.layoutTramInfrastructure });
 
   // Street trees are the tree sites on the raised sidewalks. The colliders array now carries their trunk boxes.
   // Before 2026-11-04 all of these had no player collider; now every one does, including the 7,207 surveyed OSM
   // positions that stand in a curb row. This fixture omits landmark and bridge walls; the default clearance audit
   // uses the same scope.
   const streetTrees = sites.filter((t) => t.tier === 2 || t.tier === 1 && t.pitRot !== undefined);
-  // 34,503 before the 2026-11-10 legacy layout gate: the restored 4d14df9 frontages move a few curb-row sites.
-  // The Teatr Polski site (2026-11-12) adds 13 planted plane-row sites on the 27 Grudnia promenade and three of its
-  // nine west-lawn/garden crowns stand within 6 m of the block curb, so the curb-row count is 34,493 -> 34,509.
-  assert.equal(streetTrees.length, 34509, 'street trees in the headless build');
+  // Pole-overlap fix (2026-11-14): drops 42 overlapping OSM street trees (+1 procedural gap filler) -> 34,468.
+  assert.equal(streetTrees.length, 34468, 'street trees in the headless build');
   // Surveyed OSM park trees have no city-grid site of their own, so street-details.js adds their trunk boxes to the
   // same player list as the street rows; count them separately rather than letting them hide a missing street trunk.
   const osmParkTrees = sites.filter((t) => t.source === 'osm' && t.tier === 0).length;
-  // 25,771 before the 2026-11-10 legacy gate (310 surveyed park trees now under its courtyard buildings); 25,461 before
-  // a mapped tree within 4 m of a plaza planter yielded to the planter's own tree (Wilda, (-396.2, 1068.6)); 25,460
-  // until the Teatr Polski forecourt freed one lawn tree at (-617.3, 20.6) from a generic frontage wall. The nine
-  // surveyed site trees carry source 'site', so they stay out of this OSM count.
-  // Piotrowo's reserves reshape local generic parts; this fixture omits the replacement landmark walls.
-  // Removing fictional campus houses frees 177 mapped trees in this fixture without landmark walls.
-  assert.equal(osmParkTrees, 25631, 'surveyed OSM park trees');
+  // Pole-overlap fix (2026-11-14) drops 1 overlapping OSM park tree -> 25,630.
+  assert.equal(osmParkTrees, 25630, 'surveyed OSM park trees');
 
   const siteParkTrees = sites.filter((t) => t.source === 'site' && t.tier === 0).length;
   const colliders = details.colliders;

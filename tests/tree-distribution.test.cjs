@@ -46,19 +46,22 @@ test('seeded species assignment preserves the full built city tree sites and col
   const liveGrid = { ...gridModule, ...gridModule.snapshot() };
   const bld = loadModule(source('buildings'), { imports: { ...rendering, './balconies.js': stub, './roofs.js': stub,
     './city-config.js': config, './geodata.js': { GEO }, './city-grid.js': liveGrid }, globals }).buildCityBlocks(stub);
+  const tram = loadModule(source('tram-infra'), { imports: { ...rendering, './city-config.js': config,
+    './geodata.js': { GEO }, './road-network.js': road, './city-grid.js': liveGrid }, globals });
   let sites;
   const details = loadModule(source('street-details')
     .replace('const TREE_SP = 15;', 'captureTreeAudit(clearOfCrosswalks); const TREE_SP = 15;')
     .replace('treePlacement.moved++;', 'treePlacement.moved++; captureTreeAudit(null, { x, z });'), { imports: { ...rendering, './city-config.js': config,
     './road-network.js': road, './city-grid.js': liveGrid,
     './trees.js': { createTreeField: (_scene, trees) => { sites = trees; return { group: stub }; } } }, globals
-  }).buildStreetDetails(stub, { buildingColliders: bld.colliders, grid });
+  }).buildStreetDetails(stub, { buildingColliders: bld.colliders, grid, layoutTramInfrastructure: tram.layoutTramInfrastructure });
   const { auditStreetTrees } = await import('../tools/audit-street-tree-clearance.mjs');
   const routes = loadModule(source('pedestrian-routes'), { imports: { './road-network.js': road } })
     .createPedestrianRoutes(details.roadNetwork, config.blockAt, gridModule.railClearance);
   const clearance = auditStreetTrees({ sites, network: details.roadNetwork, routes, config,
-    clearOfCrosswalks: crosswalkClearance, grid, details, movedSites });
+    clearOfCrosswalks: crosswalkClearance, grid, details, movedSites, tram, tramLayout: details.tramLayout });
   assert.deepEqual(clearance.counts, { landing: 0, zebra: 0, lane: 0, island: 0 });
+  assert.equal(clearance.extraCounts.tramPoleOverlap, 0, 'no street tree overlaps a tram traction pole');
   assert.ok(clearance.minMovedTreeDistance >= 3.5, 'moved trees keep clear of every other street tree');
   // The west expansion adds a 0.331 m pair at a tight new-street corner; Etap 2 adds another at 0.325 m.
   assert.ok(clearance.minTreeDistance >= 0.325, 'no new pair closer than the west-extension minimum');
@@ -108,15 +111,17 @@ test('seeded species assignment preserves the full built city tree sites and col
   // Round 2 removes campus housing: 177 sites return, updating species/field meshes and street collider pins.
   // Exact 0.5 m rail clearance in buildings.js removes/trims buildings on tracks in blocks 326, 849 and 1257,
   // updating siteHash (e.g. street-tree pitRot facing nearest walls) while counts and colliders stay unchanged.
-  assert.deepEqual(before, [45769, 49628, 22025, 1986]);
-  assert.deepEqual(after, [43893, 47566, 21112, 6837]); // Local Piotrowo sites change the assigned species mix.
-  assert.equal(siteHash, 'ac4805f5ed9bcc4f8f87d9cd1c4854923fc8b725aea61b679006d508880336c5'); // Campus house removal + building-rail clearance.
+  // Pole-overlap fix (2026-11-14): drops 43 overlapping OSM trees (42 street + 1 park) and moves 48 procedural street
+  // trees clear of tram poles (+1 procedural gap filler where an OSM tree dropped), with all other trees unchanged.
+  assert.deepEqual(before, [45754, 49611, 22020, 1981]);
+  assert.deepEqual(after, [43879, 47550, 21106, 6831]);
+  assert.equal(siteHash, '79d7ad424f33443756bfbf9345e96e9c4f20e52cc290ead6b93e29e19354f257');
   // The local replacement also changes which park-tree trunk colliders remain in the grid.
   assert.equal(digest(grid.propColliders), '8028ff784a7f8a2151411a43bb96e4ffbd5843392144a2f0d54f23de7586ea3d');
-  // Street-details receives the same local clearance changes; outside affected blocks its colliders are identical.
-  assert.equal(digest(details.colliders), '2586abbe455c32500ac752ea7220bd521b3faeb07be449121f7b98db610dfa11');
-  assert.equal(meshCount((t) => t.species || 0), 25480);
-  assert.equal(meshCount(treeSpecies), 30368);
+  // Street-details receives the same pole-overlap removals/relocations; outside affected sites colliders are identical.
+  assert.equal(digest(details.colliders), '0ff3aa4efd65a2733e68bf4ae3a748b0bd257b971399f845862338a97acb45cd');
+  assert.equal(meshCount((t) => t.species || 0), 25473);
+  assert.equal(meshCount(treeSpecies), 30363);
   // Every surveyed node the clearance rules accept reaches the field exactly at its OSM position. The rest are dropped
   // where a wall, lane, track, water or building doorway leaves no room, or within 4 m of a plaza planter whose own tree
   // stands for them, rather than moved off the surveyed point.
@@ -125,7 +130,7 @@ test('seeded species assignment preserves the full built city tree sites and col
   // 331 surveyed trees (a dropped node is never moved, see above). The promenade acceptance adds 14 row trees, one of
   // which the wall/lane checks still reject; the nine garden crowns are source 'site' and stay out of this count:
   // 32,742 -> 32,755.
-  assert.equal(osm.length, 32925); // Campus house removal frees 177 mapped park sites in this fixture without landmark walls.
+  assert.equal(osm.length, 32882); // 43 OSM trees overlapping poles (0.28 * scale + poleR + 0.15 m) dropped.
   // The garden, car-park and promenade sites the task restored are planted, not merely configured.
   const westLawnTrees = sites.filter((t) => t.source === 'site' && t.x > -740 && t.x < -711 && t.z > 12 && t.z < 42);
   assert.ok(westLawnTrees.length >= 6, `the west lawn keeps its surveyed trees: ${westLawnTrees.length}`);

@@ -218,7 +218,7 @@ async function initApp() {
   ];
 
   // the building walls carry the street name plates at the signalised corners
-  const streetDetails = buildStreetDetails(scene, { buildingColliders: allColliders, grid: cityGrid });
+  const streetDetails = buildStreetDetails(scene, { buildingColliders: allColliders, grid: cityGrid, layoutTramInfrastructure });
   markInit('streetDetails');
   // Buildings turned along non-grid streets have oriented colliders whose world bounds reach past their lots: they stay
   // inside the property line anyway, so the road network (lanes & sidewalks) doesn't need them.
@@ -230,7 +230,7 @@ async function initApp() {
   ], streetDetails.roadNetwork, buildingColliders, {
     population: qualitySettings.population
   });
-  const tramLayout = layoutTramInfrastructure(trafficSystem.network);
+  const tramLayout = streetDetails.tramLayout || layoutTramInfrastructure(trafficSystem.network);
   const railLayout = layoutRailInfrastructure(trafficSystem.network);
   const signalSupports = [...tramLayout.poles, ...railLayout.masts];
   streetDetails.addRuntimeSignalHeads(trafficSystem.network, trafficSystem.pedestrianRoutes, signalSupports);

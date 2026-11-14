@@ -20,3 +20,22 @@ test('street-tree audit distinguishes landing, zebra, lane and off-island violat
     assert.equal(result.violations[kind][0], sites[i], `${kind} reports the offending trunk`);
   }
 });
+
+test('street-tree audit catches trunk overlap with tram traction poles', () => {
+  const block = {};
+  const config = { blockAt: () => block };
+  const sites = [
+    { x: 10, z: 10, scale: 1, tier: 2 }, // 0.30 m from pole (< 0.28 + 0.16 + 0.15 = 0.59 m)
+    { x: 20, z: 20, scale: 1, tier: 2 }  // 1.00 m from pole (clear)
+  ];
+  const result = auditStreetTrees({ sites, config,
+    network: { nodes: [], edges: [] },
+    routes: { crosswalks: [] },
+    clearOfCrosswalks: () => true,
+    grid: { footprints: [] }, details: { footprints: [] },
+    helpers: {},
+    tram: { platformPieceRects: () => [], shelterRect: () => ({}) },
+    tramLayout: { tracks: [], stops: [], poles: [{ x: 10.3, z: 10 }, { x: 21.0, z: 20 }] }
+  });
+  assert.equal(result.extraCounts.tramPoleOverlap, 1);
+});

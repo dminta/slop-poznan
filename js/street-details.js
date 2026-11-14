@@ -216,7 +216,7 @@ function createWalkSignalMaterial(clock, isAvenue, figureTex, stateTexture) {
 }
 
 function buildStreetDetails(scene, opts = {}) {
-  const { buildingColliders = [], grid, propColliders = grid?.propColliders } = opts;
+  const { buildingColliders = [], grid, propColliders = grid?.propColliders, layoutTramInfrastructure = null } = opts;
   const group = new THREE.Group();
   group.name = 'StreetDetails';
 
@@ -641,7 +641,7 @@ function buildStreetDetails(scene, opts = {}) {
   const armQuat = new THREE.Quaternion();
 
   function addSignalPole(p) {
-    addPole(p);
+    addPole({ ...p, r: 0.08 });
     addFootprint(p.x, p.z, 0.3, 0.3, 'signal');
     addCollider(p.x, p.z, 0.08, 0.08, 0.1 + SIGNAL_POLE_H);
     dummy.position.set(p.x, 0.1 + SIGNAL_POLE_H / 2, p.z);
@@ -653,7 +653,7 @@ function buildStreetDetails(scene, opts = {}) {
   // Thicker mast for an overhead head: the same footprint/collider machinery, a taller shaft and a horizontal arm
   // reaching over the arriving lane. Only the foot is a player obstacle; the arm and head clear all road users.
   function addOverheadPole(p, height = OVERHEAD_MAST_H) {
-    addPole(p);
+    addPole({ ...p, r: 0.1 });
     addFootprint(p.x, p.z, 0.36, 0.36, 'signal');
     addCollider(p.x, p.z, 0.1, 0.1, 0.1 + height);
     dummy.position.set(p.x, 0.1 + height / 2, p.z);
@@ -1135,7 +1135,7 @@ function buildStreetDetails(scene, opts = {}) {
         }
         if (!placed) continue;
         const { px, pz } = placed;
-        addPole({ x: px, z: pz });
+        addPole({ x: px, z: pz, r: 0.18 });
         addFootprint(px, pz, 0.4, 0.4, 'gas');
         addCollider(px, pz, 0.18, 0.18, 4.36);
         dummy.position.set(px, 0.18, pz);
@@ -1226,7 +1226,7 @@ function buildStreetDetails(scene, opts = {}) {
       }
       if (!placed) continue;
       const { lx, lz, headX, headZ } = placed;
-      addPole({ x: lx, z: lz });
+      addPole({ x: lx, z: lz, r: 0.14 });
       addFootprint(lx, lz, 0.45, 0.45, 'led');
       addCollider(lx, lz, 0.14, 0.14, 0.1 + 8.6 * scale);
       dummy.position.set(lx, 0.1, lz);
@@ -1317,7 +1317,7 @@ function buildStreetDetails(scene, opts = {}) {
       !clearOfRails(p.x, p.z, w * 0.71) ||
       // Keep curbside furniture clear of chord cut where a dual-carriageway lane sweeps close to curb (Park Rataje border)
       Math.hypot(p.x - 2027.8, p.z - 1970.1) < 3) return false;
-    addPole(p);
+    addPole({ ...p, r: FURNITURE_TOP[kind][0] });
     addFootprint(p.x, p.z, w, w, kind);
     addCollider(p.x, p.z, FURNITURE_TOP[kind][0], FURNITURE_TOP[kind][0], FURNITURE_TOP[kind][1]);
     dummy.position.set(p.x, 0.2, p.z);
@@ -1455,7 +1455,7 @@ function buildStreetDetails(scene, opts = {}) {
       }
       if (!ok) continue;
       bigSites.push({ x, z, kind });
-      addPole({ x, z });
+      addPole({ x, z, r: Math.hypot(halfW, halfD) });
       const w = Math.abs(ux) * halfW * 2 + Math.abs(inx) * halfD * 2;
       const d = Math.abs(uz) * halfW * 2 + Math.abs(inz) * halfD * 2;
       addFootprint(x, z, w, d, kind);
@@ -1580,6 +1580,41 @@ function buildStreetDetails(scene, opts = {}) {
     ...(grid?.footprints || []), ...footprints,
     ...buildingColliders.filter((c) => !c.obb && (c.minY ?? 0) < 3.5)
   ]);
+  const tramLayout = layoutTramInfrastructure ? layoutTramInfrastructure(treeNetwork) : null;
+  const tramPoleCells = new Map();
+  if (tramLayout) {
+    for (const p of tramLayout.poles) {
+      const k = poleKey(Math.floor(p.x / POLE_CELL), Math.floor(p.z / POLE_CELL));
+      const list = tramPoleCells.get(k);
+      if (list) list.push(p);
+      else tramPoleCells.set(k, [p]);
+    }
+  }
+  const clearOfTramPoles = (x, z, scale) => {
+    if (!tramLayout) return true;
+    const minD2 = (0.28 * scale + 0.16 + 0.15) ** 2;
+    const ix = Math.floor(x / POLE_CELL), iz = Math.floor(z / POLE_CELL);
+    for (let i = ix - 1; i <= ix + 1; i++) for (let j = iz - 1; j <= iz + 1; j++) {
+      for (const p of tramPoleCells.get(poleKey(i, j)) || []) {
+        const dx = p.x - x, dz = p.z - z;
+        if (dx * dx + dz * dz < minD2) return false;
+      }
+    }
+    return true;
+  };
+  const clearOfOsmPoleOverlap = (x, z, scale) => {
+    if (!clearOfTramPoles(x, z, scale)) return false;
+    const base = 0.28 * scale + 0.15;
+    const ix = Math.floor(x / POLE_CELL), iz = Math.floor(z / POLE_CELL);
+    for (let i = ix - 1; i <= ix + 1; i++) for (let j = iz - 1; j <= iz + 1; j++) {
+      for (const p of poleCells.get(poleKey(i, j)) || []) {
+        const minD = base + (p.r ?? 0.18);
+        const dx = p.x - x, dz = p.z - z;
+        if (dx * dx + dz * dz < minD * minD) return false;
+      }
+    }
+    return true;
+  };
   const treeKeepouts = new Map();
   const TREE_LANE_CELL = 64;
   const fileTreeKeepout = (s, pad) => {
@@ -1627,6 +1662,7 @@ function buildStreetDetails(scene, opts = {}) {
       if (treeBlockAt(x + ox, z + oz) !== b) return false;
     }
     if (!clearOfCrosswalks(x, z, r * Math.SQRT2)) return false;
+    if (!clearOfTramPoles(x, z, scale)) return false;
     for (const s of treeKeepouts.get(Math.floor(x / TREE_LANE_CELL) * 100000 + Math.floor(z / TREE_LANE_CELL)) || []) {
       const dx = s.bx - s.ax, dz = s.bz - s.az, len = Math.hypot(dx, dz);
       const along = ((x - s.ax) * dx + (z - s.az) * dz) / len;
@@ -1807,9 +1843,11 @@ function buildStreetDetails(scene, opts = {}) {
     const y = promenade ? 0.238 : street ? SIDEWALK_Y : (b.park > 0.6 ? 0.41 : (plaza ? 0.24 : SIDEWALK_Y));
     if (promenade) {
       if (!clearOfRails(x, z, 0.4 * scale) || !isClearOfWalls(x, z, scale, species, 0.3, y, 1) ||
+          !clearOfOsmPoleOverlap(x, z, scale) ||
           roadClearance(x, z) < 0.5 + 0.28 * scale ||
           !clearOfCrosswalks(x, z, 0.28 * scale * Math.SQRT2)) { osmPlacement.dropped++; continue; }
     } else if (!clearStreetTree(x, z, scale) || !clearOfRails(x, z, 0.4 * scale) ||
+        !clearOfOsmPoleOverlap(x, z, scale) ||
         !isClearOfWalls(x, z, scale, species, 0.3, y, 1)) { osmPlacement.dropped++; continue; }
     const site = { x, y, z, scale, species, source: t.site ? 'site' : 'osm', ...(promenade ? { promenade: true } : {}) };
     // A mapped courtyard or back-garden tree keeps its exact point but gets park treatment: no street pit and the wide
@@ -2725,7 +2763,7 @@ function buildStreetDetails(scene, opts = {}) {
   plazaIndexes = new WeakMap();
   ringGrids = new WeakMap();
   const result = { group, footprints, colliders, signalClock, audioSignals, treePlacement, roadNetwork: treeNetwork,
-    vehicleHeads: s1Matrices.length, runtimeHeads: [], addRuntimeSignalHeads, auditRuntimeSignalHeads, update };
+    tramLayout, vehicleHeads: s1Matrices.length, runtimeHeads: [], addRuntimeSignalHeads, auditRuntimeSignalHeads, update };
   return result;
 }
 

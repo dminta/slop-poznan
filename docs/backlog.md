@@ -211,12 +211,14 @@ the checks below; each remaining bullet is the part that is still open.
   [Hall-roof evidence, 2026-11-13](observations/kit-roofs-2026-11-13.md#hall-weather-roof-review-2026-11-13).
 - Continue landmark-placement and scenic-camera checks, panel-material shimmer, balcony LOD transitions and
   platform/slab flicker where surfaces are only 1 cm apart.
-- Check relocated street trees near landings, zebras, lanes and island edges; walk the surveyed OSM rows in Stare Miasto
-  and around Park Cytadela, compare a few pits with the OSM points, and measure frame rate and draw calls at street level
-  and from the drone (the 88,479-site scene allocates about 21 MB of tree instance buffers). The Rybaki collision was
-  checked 2026-11-11: the player deflected 0.57 m around a tree with a player collider at `(-285.9, 874.5)`.
+- Browser check: visually compare a few street-tree pits against OSM points in Stare Miasto and around Park Cytadela,
+  and measure frame rate and draw calls at street level and from the drone (the 119,366/119,245-site scene; the
+  2026-11-14 headless audit + pole-overlap fix confirmed 0 landing/zebra/lane/island/rail/wall/water/platform/shelter/pole-overlap
+  violations and 0 moved OSM nodes). The Rybaki collision was checked 2026-11-11: the player deflected 0.57 m around a
+  tree with a player collider at `(-285.9, 874.5)`.
   [Tree-placement audit and pins](observations/street-tree-clearance-2026-11-06.md),
-  [OSM tree record](observations/osm-street-trees-2026-11-08.md).
+  [OSM tree record](observations/osm-street-trees-2026-11-08.md),
+  [2026-11-14 headless audit](observations/street-tree-audit-2026-11-14.md).
 - Walk and drive around the named diagonal tram shelters at Dworzec Zachodni and Żniwna, checking collision against
   their back glass and ends; a shelter at `(-1552.6, 229.7)` stopped the walking player at 3.84 m on 2026-11-11.
   [Furniture geometry](world.md#tram-infrastructure).

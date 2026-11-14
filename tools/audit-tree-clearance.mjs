@@ -211,14 +211,20 @@ async function runAudit({ worldOnly = false, streetSource = source('street-detai
     'addStreetTree(x, z, scale, species, acrossX, { tier, pitRot, grate: !narrow, pitS: narrow ? 0.7 : 1, squeeze, source: narrow ? "street trees narrow" : "street trees wide" });'
   );
 
+  const roadMod = loadModule(source('road-network'), {
+    imports: { './city-config.js': config, './geodata.js': { GEO } }
+  });
+  const tramMod = loadModule(source('tram-infra'), {
+    imports: { ...gridRendering, './city-config.js': config, './geodata.js': { GEO },
+      './road-network.js': roadMod, './city-grid.js': liveGrid },
+    globals
+  });
   const streetStart = Date.now();
   const details = loadModule(streetSrc, {
     imports: {
       ...gridRendering,
       './city-config.js': config,
-      './road-network.js': loadModule(source('road-network'), {
-        imports: { './city-config.js': config, './geodata.js': { GEO } }
-      }),
+      './road-network.js': roadMod,
       './city-grid.js': liveGrid,
       './trees.js': {
         ...treesMod,
@@ -226,7 +232,8 @@ async function runAudit({ worldOnly = false, streetSource = source('street-detai
       }
     },
     globals: { ...globals, document: stub }
-  }).buildStreetDetails(stub, { buildingColliders: allBuildingColliders, grid: cityGridBuilt });
+  }).buildStreetDetails(stub, { buildingColliders: allBuildingColliders, grid: cityGridBuilt,
+    layoutTramInfrastructure: tramMod.layoutTramInfrastructure });
 
   if (worldOnly) return { sites, details, grid: cityGridBuilt, gridModule, liveGrid,
     buildingColliders: allBuildingColliders, routeColliders: [...landmarkColliders, ...blockColliders],
