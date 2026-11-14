@@ -1570,10 +1570,9 @@ function instanced(name, geo, mat, matrices, attrs = {}, shadow = true) {
 
 // Player colliders for the stop furniture. The shelter, sign and machine stand turned with the track, so each is an
 // oriented box: the old world AABB flattened the shelter's local depth to hx + hz at 45°, reaching up to 2.28 m past
-// the glass on the real stops. The shelter's back face keeps 0.08 m behind the glass at z = -0.62; its front stops at
-// +0.7 m, just past the 0.655 m front posts and inside the 0.8 m roof edge (the bench fills the back half, so the open
-// side stays blocked under the roof), and its ends match the end panel / advert at hx = len / 2 (2.2 m at 4.4 m); the
-// longer roof is above player height.
+// the glass on the real stops, and a single solid shelter box blocked the open front. Each shelter now gets four OBBs
+// matching its ground-level visuals (back glass + back posts, left end glass + posts, right advert + posts, and the
+// bench), leaving the open front (+z) enterable under the 2.5 m roof.
 function stopFurnitureColliders(stops) {
   const colliders = [];
   const box = (x, z, hx, hz, yaw, maxY) => {
@@ -1586,7 +1585,14 @@ function stopFurnitureColliders(stops) {
   for (const st of stops) {
     if (st.shelter) {
       const { x, y, z, yaw, len } = st.shelter;
-      box(x, z, len / 2, 0.7, yaw, y + 2.6);
+      const s = len / 4.4;
+      const cs = Math.cos(yaw);
+      const sn = Math.sin(yaw);
+      const part = (lx, lz, hx, hz, maxY) => box(x + lx * cs + lz * sn, z - lx * sn + lz * cs, hx, hz, yaw, maxY);
+      part(0, -0.62, 2.185 * s, 0.035, y + 2.6); // back glass + back posts
+      part(-2.15 * s, 0, 0.035 * s, 0.655, y + 2.6); // left end glass + left posts
+      part(2.15 * s, 0, 0.05 * s, 0.655, y + 2.6); // right advert box + right posts
+      part(0, -0.38, 1.2 * s, 0.2, y + 0.5); // bench
     }
     if (st.sign) {
       const { x, y, z } = st.sign;

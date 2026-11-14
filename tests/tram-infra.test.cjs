@@ -172,9 +172,13 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
         assert.ok(!blocked('person', 0.01, bx, y, bz), `${st.name}: 0.3 m behind the glass is free`);
         const [gx, gz] = W(lx, -0.62);
         assert.ok(blocked('person', 0.01, gx, y, gz), `${st.name}: the glass plane blocks`);
-        const [ix, iz] = W(lx, -0.3);
-        assert.ok(blocked('person', 0.01, ix, y, iz), `${st.name}: the shelter inside blocks`);
+        const [fx, fz] = W(lx, 0.3);
+        assert.ok(!blocked('person', 0.01, fx, y, fz), `${st.name}: the open front inside the shelter is free`);
       }
+      const [benchX, benchZ] = W(0, -0.38);
+      assert.ok(blocked('person', 0.01, benchX, y, benchZ), `${st.name}: the bench blocks`);
+      const [openX, openZ] = W(0, 0.31);
+      assert.ok(!blocked('person', 0.48, openX, y, openZ), `${st.name}: a walker can enter from the open front`);
       // A person's 0.48 m radius whose body edge is 0.3 m off the glass stays free.
       const [qx, qz] = W(0, -0.62 - 0.3 - 0.48);
       assert.ok(!blocked('person', 0.48, qx, y, qz), `${st.name}: a walker 0.3 m off the glass is free`);
@@ -232,16 +236,26 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
         `${st.tag}: the collider's AABB is its OBB's world bounds`);
       }
       if (st.shelter) {
-        const c = one(st, 'shelter');
-        const { x, z, yaw, len } = st.shelter;
-        assert.ok(Math.abs(c.obb.cx - x) < 1e-9 && Math.abs(c.obb.cz - z) < 1e-9, `${st.tag}: centred on the shelter`);
-        assert.ok(Math.abs(c.obb.cs - Math.cos(yaw)) < 1e-9 && Math.abs(c.obb.sn - Math.sin(yaw)) < 1e-9,
-          `${st.tag}: turned with the shelter`);
-        const halfLen = len / 2;
-        assert.ok(Math.abs(c.obb.hx - halfLen) < 0.01, `${st.tag}: ends match the ${(2 * halfLen).toFixed(2)} m end panel`);
-        const back = c.obb.hz + GLASS_BACK;
-        assert.ok(back >= 0.05 && back <= 0.1, `${st.tag}: back ${back.toFixed(2)} m behind the glass`);
-        assert.ok(c.obb.hz <= ROOF_FRONT + 1e-9, `${st.tag}: front stays under the roof`);
+        const parts = stopFurnitureColliders([{ ...st, sign: null, machine: null }]);
+        assert.equal(parts.length, 4, `${st.tag}: 4 OBBs (back, left, right, bench)`);
+        const { x, y, z, yaw, len } = st.shelter;
+        const s = len / 4.4;
+        const cs = Math.cos(yaw), sn = Math.sin(yaw);
+        const W = (lx, lz) => [x + lx * cs + lz * sn, z - lx * sn + lz * cs];
+        const expected = [
+          { lx: 0, lz: -0.62, hx: 2.185 * s, hz: 0.035, maxY: y + 2.6 },
+          { lx: -2.15 * s, lz: 0, hx: 0.035 * s, hz: 0.655, maxY: y + 2.6 },
+          { lx: 2.15 * s, lz: 0, hx: 0.05 * s, hz: 0.655, maxY: y + 2.6 },
+          { lx: 0, lz: -0.38, hx: 1.2 * s, hz: 0.2, maxY: y + 0.5 }
+        ];
+        parts.forEach((c, idx) => {
+          const e = expected[idx];
+          const [ex, ez] = W(e.lx, e.lz);
+          assert.ok(Math.abs(c.obb.cx - ex) < 1e-9 && Math.abs(c.obb.cz - ez) < 1e-9, `${st.tag} part ${idx}: centre`);
+          assert.ok(Math.abs(c.obb.cs - cs) < 1e-9 && Math.abs(c.obb.sn - sn) < 1e-9, `${st.tag} part ${idx}: yaw`);
+          assert.ok(Math.abs(c.obb.hx - e.hx) < 1e-9 && Math.abs(c.obb.hz - e.hz) < 1e-9, `${st.tag} part ${idx}: half extents`);
+          assert.ok(Math.abs(c.maxY - e.maxY) < 1e-9, `${st.tag} part ${idx}: maxY`);
+        });
       }
       if (st.sign) {
         const c = one(st, 'sign');

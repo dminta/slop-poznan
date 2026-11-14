@@ -224,6 +224,11 @@ the checks below; each remaining bullet is the part that is still open.
   [2026-11-14 headless audit](observations/street-tree-audit-2026-11-14.md).
 - Walk and drive around the named diagonal tram shelters at Dworzec Zachodni and Żniwna, checking collision against
   their back glass and ends; a shelter at `(-1552.6, 229.7)` stopped the walking player at 3.84 m on 2026-11-11.
+  The 2026-11-14 headless geometric + controller audit ([record](observations/stop-furniture-colliders-2026-11-14.md))
+  found a `0.880 m` invisible wall on the open front of all 225 shelters (`stopFurnitureColliders` used one solid OBB),
+  split each shelter into 4 OBBs (back glass/posts, left glass/posts, right advert/posts, bench) reducing max excess to
+  `0.035 m`, and verified entering from the open front and stopping at glass/ends/bench on all Dworzec Zachodni, Żniwna
+  and Bałtyk diagonal shelters (browser check still open for visual framing).
   [Furniture geometry](world.md#tram-infrastructure).
 - Browser check: visually inspect park lamps on Za Cytadelą and lamps stepped onto lawns in narrow-walk parks (e.g.
   block 212 near `−953, −1928`), plus Park Nad Wartą and Park Jana Kasprowicza. The 2026-11-14 headless audit
