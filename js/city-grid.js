@@ -18,6 +18,7 @@ import {
   TEATR_POLSKI_SITE,
   TEATR_POLSKI_LAWNS,
   SPECIES_CROWN_R,
+  RAIL_BED_W,
   createPolygonIndex,
   pointInPolyIndexed,
   pointInBlockPoly,
@@ -826,7 +827,7 @@ function railClearance(x, z, r = 8) {
 }
 
 /** Is a prop whose footprint reaches `radius` from (x, z) at least RAIL_PROP_KEEP from every track? */
-function railWithin(x, z, d) {
+function railWithin(x, z, d, mainlineOnly = false) {
   const cells = railCells();
   const d2 = d * d;
   const lo2 = d2 * (1 - 1e-12), hi2 = d2 * (1 + 1e-12);
@@ -835,6 +836,7 @@ function railWithin(x, z, d) {
       const list = cells.get(ix * 100003 + iz);
       if (!list) continue;
       for (const s of list) {
+        if (mainlineOnly && s.kind === 'tram') continue;
         if (x < s.x0 - d || x > s.x1 + d || z < s.z0 - d || z > s.z1 + d) continue;
         const ex = s.bx - s.ax, ez = s.bz - s.az;
         const L2 = ex * ex + ez * ez;
@@ -866,8 +868,22 @@ function railBoxHasSegs(minX, maxX, minZ, maxZ) {
 railClearance.within = railWithin;
 railClearance.boxHasRails = railBoxHasSegs;
 
-function clearOfRails(x, z, radius) {
-  return !railWithin(x, z, RAIL_PROP_KEEP + radius);
+// Trees additionally clear the full mainline ballast bed with their circular crown envelope. Keep the existing
+// tram/prop rule; one squeezed axis still leaves the other crown axis at full size. Match trees.js's seeded species.
+function clearOfRails(x, z, radius, tree = null) {
+  if (railWithin(x, z, RAIL_PROP_KEEP + radius)) return false;
+  if (!tree) return true;
+  const h = Math.sin(x * 127.1 + 19.7 * 311.7 + z * 74.7) * 43758.5453;
+  const species = h - Math.floor(h) < 0.04 ? 3 : Math.min(3, Math.max(0, tree.species || 0));
+  const hash = (a, b, c) => {
+    const v = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453;
+    return v - Math.floor(v);
+  };
+  // Include the same seeded instance scale variation as createTreeField, even for squeezed street crowns.
+  const r1 = hash(x, 1.3, z), r2 = hash(z, 7.1, x), r3 = hash(x + z, 3.3, 0.7);
+  const crown = SPECIES_CROWN_R[species] * tree.scale * (0.9 + r1 * 0.2) *
+    Math.max((0.9 + r3 * 0.2) * (tree.sx || 1), (0.9 + r2 * 0.2) * (tree.sz || 1));
+  return !railWithin(x, z, RAIL_BED_W / 2 + 0.01 + Math.max(radius, crown), true);
 }
 
 /**
@@ -1839,7 +1855,8 @@ function buildCityGrid(scene, opts = {}) {
   const { isClearOfWalls } = createTreeWallChecker(buildingColliders, SPECIES_CROWN_R);
 
   function addPlanterTree(x, z, species = 1, scale = 0.85) {
-    if (!railClear(x, z, 1.7)) return false; // the 2.4 m planter's corner
+    // Reject the planter's 2.4 m box and its tree before creating either geometry or colliders.
+    if (!railClear(x, z, 1.7) || !clearOfRails(x, z, 0.4 * scale, { scale, species })) return false;
     if (!isClearOfWalls(x, z, scale, species, 1.0, PLAZA_Y + 0.55, 1)) return false;
     addPlanter(x, z, 2.4, 2.4);
     treeSites.push({ x, y: PLAZA_Y + 0.55, z, scale, species, planter: true }); // street-details.js keeps it over OSM
@@ -2396,7 +2413,7 @@ function buildCityGrid(scene, opts = {}) {
   // trunk's flared root (trees.js trunk radii 0.25-0.36 m, scaled), tall enough that a jump off a planter can't clear it.
   // The park and lawn trees on a track's way are dropped first (planter trees were checked with their planters).
   let kept = 0;
-  for (const s of treeSites) if (railClear(s.x, s.z, 0.4 * s.scale)) treeSites[kept++] = s;
+  for (const s of treeSites) if (clearOfRails(s.x, s.z, 0.4 * s.scale, s)) treeSites[kept++] = s;
   treeSites.length = kept;
   for (const s of treeSites) {
     const c = addPropCollider(s.x, s.z, 0.28 * s.scale, 0.28 * s.scale, s.y + 3.0);

@@ -1559,8 +1559,13 @@ function buildStreetDetails(scene, opts = {}) {
     return !!b && !(b.park > 0.6) && !b.median;
   };
   // Street trees turn in 90° steps with the crown squeezed across the sidewalk, away from the facades
+  function streetTreeShape(x, z, scale, species, acrossX, squeeze) {
+    const q = Math.floor(hashPos(x, 8.8, z) * 3.999);
+    return { scale, species, ...(acrossX === (q % 2 === 0) ? { sx: squeeze } : { sz: squeeze }) };
+  }
   function addStreetTree(x, z, scale, species, acrossX, extra = {}) {
-    if (!onSidewalk(x, z) || inPlaza(x, z, 1.5) || !isClearOfPoles(x, z, 2.2) || !clearOfRails(x, z, 0.4 * scale)) return;
+    if (!onSidewalk(x, z) || inPlaza(x, z, 1.5) || !isClearOfPoles(x, z, 2.2) ||
+        !clearOfRails(x, z, 0.4 * scale, streetTreeShape(x, z, scale, species, acrossX, extra.squeeze || 0.82))) return;
     const q = Math.floor(hashPos(x, 8.8, z) * 3.999);
     const t = { x, y: SIDEWALK_Y, z, scale, species, yaw: q * Math.PI * 0.5, tier: 1, ...extra };
     if (acrossX === (q % 2 === 0)) t.sx = extra.squeeze || 0.82;
@@ -1872,10 +1877,13 @@ function buildStreetDetails(scene, opts = {}) {
       });
       if (frame.acrossX === (q % 2 === 0)) site.sx = frame.squeeze;
       else site.sz = frame.squeeze;
-      sidewalkTreePositions.push(site);
-      osmPlacement.street++;
     } else {
       site.tier = 0;
+    }
+    if (!clearOfRails(x, z, 0.4 * scale, site)) { osmPlacement.dropped++; continue; }
+    if (site.tier > 0) {
+      sidewalkTreePositions.push(site);
+      osmPlacement.street++;
     }
     treePositions.push(site);
     reserveTree(site);
@@ -1892,7 +1900,8 @@ function buildStreetDetails(scene, opts = {}) {
   for (const s of parkTreeSites || []) {
     if (nearOsmTree(s.x, s.z)) {
       parkCollider(s);
-    } else if (isClearOfWalls(s.x, s.z, s.scale, s.species, 1.0, s.y || 0.41, s.tier || 1)) {
+    } else if (clearOfRails(s.x, s.z, 0.4 * s.scale, s) &&
+        isClearOfWalls(s.x, s.z, s.scale, s.species, 1.0, s.y || 0.41, s.tier || 1)) {
       treePositions.push(s);
     } else {
       parkCollider(s);
@@ -1925,7 +1934,7 @@ function buildStreetDetails(scene, opts = {}) {
       const squeeze = narrow ? 0.7 : 0.82;
 
       if (!onSidewalk(x, z) || inPlaza(x, z, 1.5) || !isClearOfPoles(x, z, 2.2) ||
-          nearOsmTree(x, z) || !clearOfRails(x, z, 0.4 * scale)) continue;
+          nearOsmTree(x, z) || !clearOfRails(x, z, 0.4 * scale, streetTreeShape(x, z, scale, species, acrossX, squeeze))) continue;
 
       if (!isClearOfWalls(x, z, scale, species, squeeze, SIDEWALK_Y, tier)) {
         let placed = false;
@@ -1935,7 +1944,7 @@ function buildStreetDetails(scene, opts = {}) {
           const sx = p0.x + dx * su + inx * inset;
           const sz = p0.z + dz * su + inz * inset;
           if (!onSidewalk(sx, sz) || inPlaza(sx, sz, 1.5) || !isClearOfPoles(sx, sz, 2.2) ||
-              nearOsmTree(sx, sz) || !clearOfRails(sx, sz, 0.4 * scale)) continue;
+              nearOsmTree(sx, sz) || !clearOfRails(sx, sz, 0.4 * scale, streetTreeShape(sx, sz, scale, species, acrossX, squeeze))) continue;
           if (!isClearOfWalls(sx, sz, scale, species, squeeze, SIDEWALK_Y, tier)) continue;
           x = sx;
           z = sz;
@@ -1967,7 +1976,7 @@ function buildStreetDetails(scene, opts = {}) {
         const sx = p0.x + dx * su + inx * inset;
         const sz = p0.z + dz * su + inz * inset;
         if (!clearOfTrees(sx, sz) || !clearStreetTree(sx, sz, scale) || !onSidewalk(sx, sz) || inPlaza(sx, sz, 1.5) ||
-            nearOsmTree(sx, sz) || !isClearOfPoles(sx, sz, 2.2) || !clearOfRails(sx, sz, 0.4 * scale) ||
+            nearOsmTree(sx, sz) || !isClearOfPoles(sx, sz, 2.2) || !clearOfRails(sx, sz, 0.4 * scale, streetTreeShape(sx, sz, scale, species, acrossX, squeeze)) ||
             !isClearOfWalls(sx, sz, scale, species, squeeze, SIDEWALK_Y, tier)) continue;
         x = sx;
         z = sz;

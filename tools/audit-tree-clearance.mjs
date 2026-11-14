@@ -37,7 +37,8 @@ function inert() {
   });
 }
 
-async function runAudit({ worldOnly = false, gridSource = source('city-grid'), streetSource = source('street-details'), capture = () => {} } = {}) {
+async function runAudit({ worldOnly = false, gridSource = source('city-grid'), streetSource = source('street-details'),
+  buildingSource = source('buildings'), capture = () => {} } = {}) {
   const startTime = Date.now();
   console.log('1. Loading configurations and building world models...');
   const config = await import('../js/city-config.js');
@@ -119,10 +120,12 @@ async function runAudit({ worldOnly = false, gridSource = source('city-grid'), s
 
   // Step 3: Generic city blocks (buildings)
   console.log('3. Building city blocks with building colliders...');
-  let bldSrc = source('buildings');
+  let bldSrc = buildingSource;
   // Tag leftover slabs if any
   bldSrc = bldSrc.replace('sites.push({ x, y: 0.22, z, scale: 0.8 + h * 0.3, species: h < 0.55 ? 1 : 0, tier: 1 });',
     'sites.push({ x, y: 0.22, z, scale: 0.8 + h * 0.3, species: h < 0.55 ? 1 : 0, tier: 1, source: "leftover slabs" });');
+  bldSrc = bldSrc.replace('if (clearOfRails(x, z, 0.4 * tree.scale, tree)) sites.push(tree);',
+    'if (clearOfRails(x, z, 0.4 * tree.scale, tree)) sites.push({ ...tree, source: "leftover slabs" });');
   // Record profile on blockDetail
   bldSrc = bldSrc.replace(
     'const profile = steerProfile(blockProfile(blockDetail, district), srcBlock);',
@@ -237,7 +240,7 @@ async function runAudit({ worldOnly = false, gridSource = source('city-grid'), s
 
   if (worldOnly) return { sites, details, grid: cityGridBuilt, gridModule, liveGrid,
     buildingColliders: allBuildingColliders, routeColliders: [...landmarkColliders, ...blockColliders],
-    footprintsByBlock: cityBlocksBuilt.footprintsByBlock, roadMod, treesMod, config, GEO,
+    footprintsByBlock: cityBlocksBuilt.footprintsByBlock, roadMod, tramMod, treesMod, config, GEO,
     buildMs: Date.now() - streetStart };
 
   const keptColliders = new Set(sites.map((s) => s.collider).filter(Boolean));

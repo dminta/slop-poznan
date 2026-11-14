@@ -116,15 +116,18 @@ test('seeded species assignment preserves the full built city tree sites and col
   // trees clear of tram poles (+1 procedural gap filler where an OSM tree dropped), with all other trees unchanged.
   // Park-lamp/walk fix (2026-11-14): drops 6 OSM park trees overlapping parkLampSites (0.28 * scale + 0.20 + 0.15 m)
   // and 5 procedural park trees on walks/pond paths (29 in full-world build with building-split rings).
-  assert.deepEqual(before, [45762, 49589, 22023, 1981]);
-  assert.deepEqual(after, [43887, 47528, 21109, 6831]);
-  assert.equal(siteHash, '474fb97b3af564e59d33c3f99b53fa42217c4d1c6e7c21cb23008b332984880d');
-  // Dropping 81 duplicate park/plaza lamps (< 6 m apart) and 32 on-walk park trees updates propColliders only.
-  assert.equal(digest(grid.propColliders), '6e27b564425d648f0452ef0e9dc97cc13a7b3694e3eabcfaf45f68c09bc1a29f');
-  // Street-details receives the same pole-overlap removals/relocations; outside affected sites colliders are identical.
-  assert.equal(digest(details.colliders), '911857fc36cd105663842b725b3deb24e23ab485472490c6e87cc089718e4970');
-  assert.equal(meshCount((t) => t.species || 0), 25479);
-  assert.equal(meshCount(treeSpecies), 30369);
+  // Mainline bed/crown fix (2026-11-14): this reduced fixture loses 942 overlapping trees (909 street including 4 mapped,
+  // 33 grid park); species totals, site/collider hashes and occupied species/variant/cell mesh slots follow that
+  // removal. The full-world audit loses 939; this fixture omits landmark/bridge walls and park building cutouts.
+  assert.deepEqual(before, [45659, 48825, 21948, 1981]);
+  assert.deepEqual(after, [43792, 46791, 21035, 6795]);
+  assert.equal(siteHash, 'db1bd4efe99f0d6767688106ce62b46d55753ebefb4b7061a4ede76dd8c6a718');
+  // The rail crown filter drops grid park trunk colliders before construction; lamps and other props stay fixed.
+  assert.equal(digest(grid.propColliders), '17d37d0731f0825dc8d596d5fddbeb4d9912dbab49495e24b0904cac30c5f2ae');
+  // Street-details loses only the rejected street/mapped trunk colliders; surviving colliders stay identical.
+  assert.equal(digest(details.colliders), 'cae2ec1714cb4cdde4fdb2067d4f604c88ffdcbf2226850d2073b85355444830');
+  assert.equal(meshCount((t) => t.species || 0), 25323);
+  assert.equal(meshCount(treeSpecies), 30155);
   // Every surveyed node the clearance rules accept reaches the field exactly at its OSM position. The rest are dropped
   // where a wall, lane, track, water or building doorway leaves no room, or within 4 m of a plaza planter whose own tree
   // stands for them, rather than moved off the surveyed point.
@@ -133,7 +136,7 @@ test('seeded species assignment preserves the full built city tree sites and col
   // 331 surveyed trees (a dropped node is never moved, see above). The promenade acceptance adds 14 row trees, one of
   // which the wall/lane checks still reject; the nine garden crowns are source 'site' and stay out of this count:
   // 32,742 -> 32,755.
-  assert.equal(osm.length, 32875); // 49 OSM trees overlapping poles/park lamps (0.28 * scale + poleR + 0.15 m) dropped.
+  assert.equal(osm.length, 32871); // Four additional mapped street trees fail mainline crown clearance.
   // The garden, car-park and promenade sites the task restored are planted, not merely configured.
   const westLawnTrees = sites.filter((t) => t.source === 'site' && t.x > -740 && t.x < -711 && t.z > 12 && t.z < 42);
   assert.ok(westLawnTrees.length >= 6, `the west lawn keeps its surveyed trees: ${westLawnTrees.length}`);

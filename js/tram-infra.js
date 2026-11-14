@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import { Fn, attribute, color, float, vec2, mix, smoothstep, step, abs, fract, floor, fwidth, max, clamp, normalGeometry, positionGeometry, screenCoordinate, texture, uv } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GEO } from './geodata.js';
-import { BRIDGES, RAIL_BRIDGES, PLAZAS, blockAt, isLand, isWater, roadClearance } from './city-config.js';
+import { BRIDGES, RAIL_BRIDGES, RAIL_BED_W, PLAZAS, blockAt, isLand, isWater, roadClearance } from './city-config.js';
 import { cityUniforms, createCurbMaterial, transparentEffectMRT } from './tsl-materials.js';
 
 // js/tram-infra.js
@@ -49,7 +49,7 @@ const OLD_TOWN_R = 900; // wall rosettes instead of poles on narrow streets this
 // Mainline railway. The world is flat: every track lies at grade, dropped over open water (rail bridges have no deck)
 // and wherever it meets a road or a tram line (see RAIL_ROAD_KEEP).
 const RAIL_PIECE = 8; // straight pieces up to 8 m: a 300 m curve is 27 mm off the chord
-const RAIL_BED_W = 5; // ballast bed at the foot; its top is 4 m (RAIL_BED_TOP_W), so 4.5 m track centres close up
+// The shared RAIL_BED_W is the ballast foot; the 4 m top leaves a gap between 4.5 m track centres.
 const RAIL_BED_TOP_W = 4;
 const RAIL_SLEEPER = 2.6; // PS-94 concrete sleeper length
 const RAIL_BED_TOP = 0.3;

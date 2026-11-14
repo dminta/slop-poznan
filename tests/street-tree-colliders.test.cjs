@@ -55,7 +55,8 @@ test('street trees carry player colliders, including Rybaki', async () => {
   // uses the same scope.
   const streetTrees = sites.filter((t) => t.tier === 2 || t.tier === 1 && t.pitRot !== undefined);
   // Pole-overlap fix (2026-11-14): drops 42 overlapping OSM street trees (+1 procedural gap filler) -> 34,468.
-  assert.equal(streetTrees.length, 34469, 'street trees in the headless build');
+  // Mainline bed/crown clearance removes 909 street trees in this reduced fixture; every survivor still collides.
+  assert.equal(streetTrees.length, 33560, 'street trees in the headless build');
   // Surveyed OSM park trees have no city-grid site of their own, so street-details.js adds their trunk boxes to the
   // same player list as the street rows; count them separately rather than letting them hide a missing street trunk.
   const osmParkTrees = sites.filter((t) => t.source === 'osm' && t.tier === 0).length;

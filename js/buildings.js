@@ -53,7 +53,7 @@ import {
 } from './tsl-materials.js';
 import { createRoofs, ROOF_MATERIALS } from './roofs.js';
 import { GEO } from './geodata.js';
-import { pavedPlazaRects, parkTreeSites, railClearance, railRectClear, sidewalkBlocks } from './city-grid.js';
+import { pavedPlazaRects, parkTreeSites, clearOfRails, railClearance, railRectClear, sidewalkBlocks } from './city-grid.js';
 
 // js/buildings.js
 // Generates the city's generic blocks of buildings (city-config.js BLOCKS), indexed by a spatial 2D quadtree that
@@ -4711,7 +4711,8 @@ function buildCityBlocks(scene) {
           const x = alongX ? s.cx + u : s.cx + o;
           const z = alongX ? s.cz + o : s.cz + u;
           const h = Math.abs(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1;
-          sites.push({ x, y: 0.22, z, scale: 0.8 + h * 0.3, species: h < 0.55 ? 1 : 0, tier: 1 });
+          const tree = { x, y: 0.22, z, scale: 0.8 + h * 0.3, species: h < 0.55 ? 1 : 0, tier: 1 };
+          if (clearOfRails(x, z, 0.4 * tree.scale, tree)) sites.push(tree);
         }
       }
     }

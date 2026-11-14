@@ -106,6 +106,8 @@ const WATER = GEO.water.map((w) => ({ name: w.name, kind: w.kind, ring: toPts(w.
 /** Low-detail land from the detail box out to the city boundary, and the lakes in it ([{ outer, ring }]) */
 const OUTSKIRTS = GEO.outskirts.map(toPts);
 const OUTSKIRTS_HOLES = GEO.outskirtsHoles.map((h) => ({ outer: h.outer, ring: toPts(h.ring) }));
+// Mainline ballast foot width, shared by rendering and tree placement.
+const RAIL_BED_W = 5;
 /** Tram & rail track centrelines: [{ kind: 'tram'|'rail', street: 1 if street-running, tracks, pts }] */
 const RAIL = GEO.rail.map((r) => ({ kind: r.kind, street: r.street, tracks: r.tracks, pts: toPts(r.pts) }));
 /** Pedestrian areas & squares: [{ name, ring, holes }] (holes are the buildings standing on them) */
@@ -2180,6 +2182,7 @@ export {
   OUTSKIRTS,
   OUTSKIRTS_HOLES,
   RAIL,
+  RAIL_BED_W,
   PLAZAS,
   OSM_TREES,
   DISTRICTS,

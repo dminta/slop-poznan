@@ -172,6 +172,21 @@ furnished-network lanes, furniture footprints and crossing endpoints. Generated 
 - Taxi markings are per-vehicle decals, not world geometry: `actor-models.js` `poznanCrestTexture()` and `taxiNumberTexture()` paint the Poznań arms and the side number on every street taxi, and `controllers.js` `createTaxiStripeTexture()` draws the player's front-door crest, "TAXI"/"POZNAŃ" and rear-door number panel. Both read the same `drawPoznanCrest()` vector routine; keep the crest and the marking rules (Statut Miasta Poznania, uchwała XX/342/VIII/2019 § 10) together when changing either.
 - `tram-infra.js` `buildTramInfrastructure(scene, network)` → `{ group, colliders, stops }`: the static tram infrastructure, see [Tram infrastructure](#tram-infrastructure).
 
+## Mainline railway tree clearance (2026-11-14)
+
+Tree placement shares the rendered mainline ballast foot width, `RAIL_BED_W = 5 m`, from `city-config.js` with
+`tram-infra.js`. Pass the tree record as the fourth argument of `clearOfRails(x, z, radius, tree)`: in addition to
+the existing 2 m prop/tram keep-out, mainline tracks require half the ballast width plus the larger horizontal
+canopy envelope (including seeded species reassignment, instance scale variation and crown squeeze), with 1 cm for
+the bed's end extension. The rule follows complete geodata track corridors, including road cuts, as the existing
+rail keep-outs do. Three-argument calls for other props keep their old meaning.
+
+Planters are checked before their boxes are emitted; park trees before trunk colliders; leftover-slab trees before
+appending; mapped trees after assigning their curb frame; procedural street trees at each candidate and final site.
+Street-details also checks imported park sites defensively. `tools/audit-rail-trees.mjs` independently checks all
+collected tree envelopes against both geodata corridors and actual emitted ballast rectangles. See
+[the scope, before/after measurements and regression pins](observations/rail-trees-2026-11-14.md).
+
 ## Build order (main.js `initApp`) and why it is fixed
 1. `buildLandmarks(scene)` builds landmark models and gathers their oriented colliders.
 2. `buildCityBlocks(scene)` generates building footprints and colliders, keeping buildings off `BRIDGES` decks (+3 m, 4 m past each end). It records `footprintsByBlock` for ground-level footprints.
