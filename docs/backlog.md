@@ -62,6 +62,12 @@ Implementation details and completed measurements live in the [topic docs](../AG
   `(-1136, 127)` (`waitMax 142 s`, `#11` `153 s`) is a real capacity + physical tram-queue interaction (`18 s / 65 s`
   `g0` split plus two missed greens from trams queueing out of `(-1066.3, 137.2)` and trapping `#68` in the box),
   so no game code was changed. [Seed 1 queue trace](observations/kaponiera-seed1-queue-2026-11-14.md).
+  Seed 5's `145 s` hold (`91%` `merge`) at `(-1497, 198)` is likewise downstream capacity (`10 m` 2-lane exit `2367`
+  into `(-1503, 224)`'s `16 s / 60 s` green, with `tram 6` and pedestrians taking the first green so `#8` holds `l1`
+  for `114 s`) combined with `accelerate()`'s `mergingAhead` braking holding cars `6–10 m` short of the stop line;
+  three `accelerate()` guards (`go &&`, `o.v.speed >= 0.5`, `!go && v.held === 'merge'`) regressed seed 2
+  (`14.1 → 12.3–13.2 km/h`) and added `boxStuck` on seeds 3/5/7, so no game code was changed
+  ([`(-1497, 198)` merge trace](observations/kaponiera-merge-1497-2026-11-14.md)).
   Rejected in this pass:
   1.2 m/s for every plan (173 plans re-timed, two Kaponiera deadlocks over eight seeds), green1 12–15 s at this site
   (audit 38–39, a deadlock, or mean speed lower), keeping the 1 m/s split and moving the offset (seed 2 still had
