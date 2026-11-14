@@ -30,8 +30,9 @@ function physicalLine(track) {
 // people wait on a split crossing's strip clear of the trams; without it every strip has room.
 function createPedestrianRoutes(
   { nodes = [], edges = [], walkable, configureCrosswalks }, blockAt, railClearance = null, buildingColliders = null,
-  pedestrianWays = []
+  pedestrianWays = [], isBlockAt = null
 ) {
+  const sameBlockAt = isBlockAt || ((x, z, b) => blockAt(x, z) === b);
   const sidewalks = new Map(), crossings = new Map(), junctions = new Map(), connections = new WeakMap();
   const islandPorts = new Map(), curbPorts = new Map();
   const point = (track, end) => ({ x: track.ax + track.ux * track.len * end, z: track.az + track.uz * track.len * end });
@@ -191,7 +192,7 @@ function createPedestrianRoutes(
     for (let i = 0; i <= steps; i++) {
       const nx = a.x + (b.x - a.x) * i / steps, nz = a.z + (b.z - a.z) * i / steps;
       if (!walkable(Math.min(x, nx) - 0.4, Math.max(x, nx) + 0.4, Math.min(z, nz) - 0.4, Math.max(z, nz) + 0.4)) return false;
-      if (block && blockAt(nx, nz) !== block) return false;
+      if (block && !sameBlockAt(nx, nz, block)) return false;
       if (anyBlock && !blockAt(nx, nz)) return false;
       x = nx; z = nz;
     }
@@ -221,7 +222,7 @@ function createPedestrianRoutes(
         const t = i / steps, cx = a.x + dx * t, cz = a.z + dz * t;
         const x = cx + rx * side * LANE_INSET, z = cz + rz * side * LANE_INSET;
         const swept = i % 2 === 0 || i === steps;
-        if (blockAt(x, z) !== block ||
+        if (!sameBlockAt(x, z, block) ||
             (swept && !walkable(Math.min(px, x) - LANE_BODY, Math.max(px, x) + LANE_BODY,
               Math.min(pz, z) - LANE_BODY, Math.max(pz, z) + LANE_BODY))) {
           clearSide = false;
@@ -313,7 +314,6 @@ function createPedestrianRoutes(
         for (let trim = 0; trim <= 2 && end - start >= 3; trim++) {
           const runStart = start + trim, runEnd = end - trim;
           const p0 = at(runStart), p1 = at(runEnd);
-          if (blockAt(p0.x, p0.z) !== block || blockAt(p1.x, p1.z) !== block) continue;
           if (Math.hypot(p1.x - p0.x, p1.z - p0.z) < CURB_RUN_MIN) break;
           if (!clear(p0, p1, block)) continue;
           // `from`/`to` stay geometric (null on a fragment); the graph node is carried separately, and only the run
@@ -330,7 +330,7 @@ function createPedestrianRoutes(
       };
       for (let i = i0; i <= i1; i++) {
         const p = at(i);
-        const ok = blockAt(p.x, p.z) === block && laneClearPoint(p.x, p.z) &&
+        const ok = laneClearPoint(p.x, p.z) &&
           walkable(p.x - 0.4, p.x + 0.4, p.z - 0.4, p.z + 0.4);
         if (ok) {
           if (start < 0) start = i;
@@ -395,7 +395,7 @@ function createPedestrianRoutes(
     const step = 0.25;
     const walkableAt = (t) => {
       const x = a.x + dx * t, z = a.z + dz * t;
-      if (blockAt(x, z) !== block) return false;
+      if (!sameBlockAt(x, z, block)) return false;
       return !railClearance || railClearance(x, z, LANDING_RAIL_KEEP + 1) >= LANDING_RAIL_KEEP;
     };
     if (!walkableAt(0)) return null;
@@ -822,7 +822,10 @@ function createPedestrianRoutes(
       const x = a.x + (b.x - a.x) * i / steps, z = a.z + (b.z - a.z) * i / steps;
       let distance = Infinity;
       for (let j = 0, k = block.poly.length - 1; j < block.poly.length; k = j++) {
-        const p = block.poly[j], q = block.poly[k], dx = q.x - p.x, dz = q.z - p.z;
+        const p = block.poly[j], q = block.poly[k];
+        if (x < (p.x < q.x ? p.x : q.x) - 4.000001 || x > (p.x > q.x ? p.x : q.x) + 4.000001 ||
+            z < (p.z < q.z ? p.z : q.z) - 4.000001 || z > (p.z > q.z ? p.z : q.z) + 4.000001) continue;
+        const dx = q.x - p.x, dz = q.z - p.z;
         const t = Math.max(0, Math.min(1, ((x - p.x) * dx + (z - p.z) * dz) / (dx * dx + dz * dz || 1)));
         distance = Math.min(distance, Math.hypot(x - p.x - dx * t, z - p.z - dz * t));
         // Only membership in the 4 m curb band is read; later edges cannot invalidate an accepting distance.
@@ -1072,7 +1075,7 @@ function createPedestrianRoutes(
       const next = port.track, nextDir = port.end ? -1 : 1;
       if (next === track || (track.arm && next.arm === track.arm)) continue;
       const b = point(next, port.end), distance = Math.hypot(b.x - a.x, b.z - a.z);
-      if (distance > 32 || blockAt(b.x, b.z) !== block) continue;
+      if (distance > 32 || !sameBlockAt(b.x, b.z, block)) continue;
       const linkKey = `corner:${physicalLine(next)}`;
       const path = [];
       if (distance > 0.01) {
@@ -1226,7 +1229,7 @@ function createPedestrianRoutes(
     for (const list of byTrack.values()) {
       list.sort((p, q) => p.distance - q.distance);
       for (const { port, b } of list) {
-        if (blockAt(b.x, b.z) !== block || !clear(a, b, block)) continue;
+        if (!sameBlockAt(b.x, b.z, block) || !clear(a, b, block)) continue;
         if (!clearHazards(a, b, false)) continue;
         const next = port.track;
         result.push([

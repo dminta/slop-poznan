@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import { buildRoadNetwork, CROSSWALK } from './road-network.js';
 import { createPedestrianRoutes, LANE_INSET } from './pedestrian-routes.js';
 import {
-  updateSignal, requestWalkSignal, configurePedestrianSignal, configureSignalClearance, blockAt, PEDESTRIAN_WAYS
+  updateSignal, requestWalkSignal, configurePedestrianSignal, configureSignalClearance, blockAt, isBlockAt, PEDESTRIAN_WAYS
 } from './city-config.js';
 import { cityUniforms, createContactShadowMaterial } from './tsl-materials.js';
 import { HEADLIGHTS, createVehicleHeadlight, placeVehicleHeadlight } from './vehicle-lights.js';
@@ -2388,7 +2388,7 @@ function createTrafficSystem(
   // 7. PEDESTRIANS
   // =========================================================================
   const KERB = 1.6; // how far along a crosswalk track pedestrians wait to cross (the curb is 2 m along)
-  const pedRoutes = createPedestrianRoutes(network, blockAt, railClearance, buildingColliders, PEDESTRIAN_WAYS);
+  const pedRoutes = createPedestrianRoutes(network, blockAt, railClearance, buildingColliders, PEDESTRIAN_WAYS, isBlockAt);
   // Decide demand-only crossings after the real walking routes are known: a dropped OSM arm can leave a road
   // stopping for nobody. Use the curb-to-curb walk, not crosswalk.span (the approach road's length), for clearance.
   function configureSignals() {

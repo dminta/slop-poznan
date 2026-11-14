@@ -986,7 +986,12 @@ function blockLots(b) {
           if (x1 - x0 < minLot || z1 - z0 < minLot) continue;
           const [cx, cz] = toWorld((x0 + x1) * 0.5, (z0 + z1) * 0.5);
           const hx = (x1 - x0) * 0.5, hz = (z1 - z0) * 0.5;
-          lots.push({ xf, x0, x1, z0, z1, cx, cz, hx, hz, cs: xf ? xf.cs : 1, sn: xf ? xf.sn : 0 });
+          const cs = xf ? xf.cs : 1, sn = xf ? xf.sn : 0;
+          lots.push({
+            xf, x0, x1, z0, z1, cx, cz, hx, hz, cs, sn,
+            bx: Math.abs(cs) * hx + Math.abs(sn) * hz,
+            bz: Math.abs(sn) * hx + Math.abs(cs) * hz
+          });
         }
       }
     }
@@ -1008,8 +1013,9 @@ function blockLots(b) {
       [x0, x1, z0, z1] = facilityEnvelope(f);
     }
     if (x1 - x0 < 5 || z1 - z0 < 5) continue;
+    const hx = (x1 - x0) * 0.5, hz = (z1 - z0) * 0.5;
     lots.push({ xf: null, x0, x1, z0, z1, cx: (x0 + x1) * 0.5, cz: (z0 + z1) * 0.5,
-      hx: (x1 - x0) * 0.5, hz: (z1 - z0) * 0.5, cs: 1, sn: 0 });
+      hx, hz, cs: 1, sn: 0, bx: hx, bz: hz });
   }
   return lots;
 }
@@ -1026,6 +1032,20 @@ function distToLots(tx, tz, lots) {
     if (d < minDist) minDist = d;
   }
   return minDist;
+}
+
+/** True when (tx, tz) lies strictly closer than `r` m to any lot rectangle in `lots` */
+function lotsWithin(tx, tz, lots, r) {
+  const lim = r + 1e-9;
+  for (const lot of lots) {
+    const ox = tx - lot.cx, oz = tz - lot.cz;
+    if (Math.abs(ox) > lot.bx + lim || Math.abs(oz) > lot.bz + lim) continue;
+    const ax = Math.abs(ox * lot.cs - oz * lot.sn);
+    const az = Math.abs(ox * lot.sn + oz * lot.cs);
+    if (ax <= lot.hx && az <= lot.hz) return true;
+    if (Math.hypot(Math.max(0, ax - lot.hx), Math.max(0, az - lot.hz)) < r) return true;
+  }
+  return false;
 }
 // Curb islands and medians crossing tram tracks: cut empty islands/medians and built blocks whose perimeter
 // intersects tram tracks to keep tracks clear of 0.22 m slabs.
@@ -1363,38 +1383,59 @@ function underpassBlockAt(x, z) {
   return null;
 }
 
+function blockCutAt(b, x, z) {
+  if (b.roadCut) {
+    for (const [ax, az, bx, bz, half] of b.roadCut) {
+      const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
+      if (len < 1e-6) continue;
+      const along = ((x - ax) * dx + (z - az) * dz) / len;
+      const across = ((z - az) * dx - (x - ax) * dz) / len;
+      if (along >= -half && along <= len + half && Math.abs(across) <= half) return true;
+    }
+  }
+  if (b.tramCut) {
+    for (const [ax, az, bx, bz] of b.tramCut.segs) {
+      const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
+      if (len < 1e-6) continue;
+      const along = ((x - ax) * dx + (z - az) * dz) / len;
+      const across = ((z - az) * dx - (x - ax) * dz) / len;
+      // cutSlab extends the corridor by `half` at both ends, closing the gaps at track bends.
+      if (along >= -b.tramCut.half && along <= len + b.tramCut.half && Math.abs(across) <= b.tramCut.half) return true;
+    }
+  }
+  return false;
+}
+
 /** The block (curb island) under (x, z), or null on the roadway / in the water */
 function blockAt(x, z) {
   const list = BLOCK_GRID.get(Math.floor(x / BLOCK_CELL) * 100000 + Math.floor(z / BLOCK_CELL));
   if (list) {
     for (const b of list) {
       if (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ) continue;
-      if (b.roadCut && b.roadCut.some(([ax, az, bx, bz, half]) => {
-        const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
-        if (len < 1e-6) return false;
-        const along = ((x - ax) * dx + (z - az) * dz) / len;
-        const across = ((z - az) * dx - (x - ax) * dz) / len;
-        return along >= -half && along <= len + half && Math.abs(across) <= half;
-      })) continue;
-      if (b.tramCut) {
-        let cut = false;
-        for (const [ax, az, bx, bz] of b.tramCut.segs) {
-          const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
-          if (len < 1e-6) continue;
-          const along = ((x - ax) * dx + (z - az) * dz) / len;
-          const across = ((z - az) * dx - (x - ax) * dz) / len;
-          // cutSlab extends the corridor by `half` at both ends, closing the gaps at track bends.
-          if (along >= -b.tramCut.half && along <= len + b.tramCut.half && Math.abs(across) <= b.tramCut.half) {
-            cut = true;
-            break;
-          }
-        }
-        if (cut) continue;
-      }
+      if (blockCutAt(b, x, z)) continue;
       if (b.rect || pointInBlockPoly(b, x, z)) return b;
     }
   }
   return underpassBlockAt(x, z);
+}
+
+/** True when `blockAt(x, z) === block`, testing `block` first so callers skip unrelated blocks */
+function isBlockAt(x, z, block) {
+  if (!block) return blockAt(x, z) === null;
+  if (x < block.minX || x > block.maxX || z < block.minZ || z > block.maxZ) return false;
+  if (block.underpass) return blockAt(x, z) === block;
+  if (blockCutAt(block, x, z)) return false;
+  if (!block.rect && !pointInBlockPoly(block, x, z)) return false;
+  const list = BLOCK_GRID.get(Math.floor(x / BLOCK_CELL) * 100000 + Math.floor(z / BLOCK_CELL));
+  if (list) {
+    for (const b of list) {
+      if (b === block) return true;
+      if (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ) continue;
+      if (blockCutAt(b, x, z)) continue;
+      if (b.rect || pointInBlockPoly(b, x, z)) return false;
+    }
+  }
+  return true;
 }
 /** Blocks whose bounds overlap a rectangle */
 function blocksInRect(minX, maxX, minZ, maxZ) {
@@ -2104,6 +2145,7 @@ export {
   BLOCKS,
   UNDERPASS_SIDEWALKS,
   blockAt,
+  isBlockAt,
   blocksInRect,
   districtAt,
   LANDMARK_SITES,
@@ -2145,6 +2187,7 @@ export {
   splitDeep,
   blockLots,
   distToLots,
+  lotsWithin,
   SPECIES_CROWN_R,
   createTreeWallChecker
 };

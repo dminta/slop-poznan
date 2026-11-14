@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { Fn, float, color, uniform, mod, fract, step, smoothstep, mix, uv, texture, attribute, vec2, floor, sin, positionWorld } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { SIGNAL_SITES, SIGNAL_PLANS, updateSignal, JUNCTIONS, blockAt, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES, createTreeWallChecker, OSM_TREES, isWater, createPolygonIndex, pointInPolyIndexed, TEATR_POLSKI_PROMENADE, TEATR_POLSKI_SITE, TEATR_POLSKI_GARDEN_TREES } from './city-config.js';
+import { SIGNAL_SITES, SIGNAL_PLANS, updateSignal, JUNCTIONS, blockAt, isBlockAt, BLOCKS, nearestRoads, roadClearance, LANDMARK_SITES, createTreeWallChecker, OSM_TREES, isWater, createPolygonIndex, pointInPolyIndexed, TEATR_POLSKI_PROMENADE, TEATR_POLSKI_SITE, TEATR_POLSKI_GARDEN_TREES } from './city-config.js';
 import { buildRoadNetwork, CROSSWALK, CROSSWALK_REACH, STOP_SETBACK } from './road-network.js';
 import { cityUniforms, createTreeGrateMaterial } from './tsl-materials.js';
 import { createTreeField, SPECIES_CROWN_R } from './trees.js';
@@ -1451,7 +1451,7 @@ function buildStreetDetails(scene, opts = {}) {
         if (!ok) break;
         const qx = x + ux * halfW * a + inx * (halfD + 0.3) * c;
         const qz = z + uz * halfW * a + inz * (halfD + 0.3) * c;
-        ok = blockAt(qx, qz) === b && !inLot(b, qx, qz, 0.3) && !inPlaza(qx, qz, 0.5);
+        ok = isBlockAt(qx, qz, b) && !inLot(b, qx, qz, 0.3) && !inPlaza(qx, qz, 0.5);
       }
       if (!ok) continue;
       bigSites.push({ x, z, kind });
@@ -1671,7 +1671,7 @@ function buildStreetDetails(scene, opts = {}) {
     // Every trunk corner must stay on the centre's block: a different island can take priority at a corner even
     // inside this block's bounds (overlapping blocks), so the check runs for every candidate.
     for (const ox of [-r, r]) for (const oz of [-r, r]) {
-      if (treeBlockAt(x + ox, z + oz) !== b) return false;
+      if (!isBlockAt(x + ox, z + oz, b)) return false;
     }
     if (!clearOfCrosswalks(x, z, r * Math.SQRT2)) return false;
     if (!clearOfTramPoles(x, z, scale)) return false;

@@ -9,9 +9,10 @@ import {
   BLOCKS,
   UNDERPASS_SIDEWALKS,
   blockAt,
+  isBlockAt,
   distToWater,
   blockLots,
-  distToLots,
+  lotsWithin,
   createTreeWallChecker,
   TEATR_POLSKI_SITE,
   TEATR_POLSKI_LAWNS,
@@ -1947,7 +1948,7 @@ function buildCityGrid(scene, opts = {}) {
           bedHoles.some((h) => polygonIn(h, tx, tz)) || distToWater(tx, tz) < 4) continue;
         if (prand(tx, tz, 9) < 0.3) continue; // glades (pure hash: after the cheap rejects)
         const scale = 0.9 + prand(tx, tz, 3) * 0.4;
-        if (bLots.length > 0 && distToLots(tx, tz, bLots) < Math.max(1.2, 6.07 * scale)) continue;
+        if (bLots.length > 0 && lotsWithin(tx, tz, bLots, Math.max(1.2, 6.07 * scale))) continue;
         const r = prand(tx, tz, 2);
         treeSites.push({ x: tx, y: BED_Y, z: tz, scale, species: r < 0.55 ? 0 : (r < 0.75 ? 1 : 2) });
       }
@@ -1968,7 +1969,7 @@ function buildCityGrid(scene, opts = {}) {
       return along < -half - 0.7 || along > len + half + 0.7 || Math.abs(across) > half + 0.7;
     });
     const clearOf = (rings, x, z) => rings.every((h) => !polygonIn(h, x, z) && ringDist(h, x, z, 1) >= 1);
-    const onLawn = (x, z) => blockAt(x, z) === b && ringDist(b.poly, x, z, 0.95) >= 0.95 &&
+    const onLawn = (x, z) => isBlockAt(x, z, b) && ringDist(b.poly, x, z, 0.95) >= 0.95 &&
       lawns.some((p) => polygonIn(p, x, z) && ringDist(p, x, z, 0.7) >= 0.7) &&
       beds.every((p) => ringDist(p, x, z, 1) >= 1) && clearOf(bedHoles, x, z) && clearOf(ponds, x, z) &&
       distToWater(x, z) >= 2 && cutClear(x, z);
@@ -2093,7 +2094,7 @@ function buildCityGrid(scene, opts = {}) {
           if (![[0, 0], [E, 0], [-E, 0], [0, E], [0, -E]].every(([dx, dz]) => polygonIn(ring, tx + dx, tz + dz))) continue;
           if (prand(tx, tz, 9) < 0.3) continue; // glades (a pure hash: order does not change the kept sites)
           const scale = 0.9 + prand(tx, tz, 3) * 0.4;
-          if (bLots.length > 0 && distToLots(tx, tz, bLots) < Math.max(1.2, 6.07 * scale)) continue;
+          if (bLots.length > 0 && lotsWithin(tx, tz, bLots, Math.max(1.2, 6.07 * scale))) continue;
           const r = prand(tx, tz, 2);
           treeSites.push({ x: tx, y: SW_TOP, z: tz, scale, species: r < 0.55 ? 0 : (r < 0.75 ? 1 : 2) });
         }
