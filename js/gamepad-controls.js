@@ -114,6 +114,7 @@ class GamepadControls {
     const toggleMap = edge(9), closeMap = edge(1);
     const cycleMode = Number(Boolean(edge(5))) - Number(Boolean(edge(4)));
     const cycleCamera = edge(3), recenter = edge(11);
+    const signalLeft = edge(14), signalRight = edge(15);
     this.previousButtons = pressed;
 
     const target = document.activeElement;
@@ -144,6 +145,10 @@ class GamepadControls {
 
     const movement = stick(pad, 0), look = stick(pad, 2);
     const mode = this.controller.activeMode;
+    if (mode === 'car') {
+      if (signalLeft) this.controller.toggleCarSignal(1);
+      if (signalRight) this.controller.toggleCarSignal(-1);
+    }
     let drive = -movement.y;
     let vertical = 0;
     if (mode === 'car' || mode === 'cyclist') {

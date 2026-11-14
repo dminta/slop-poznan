@@ -1845,6 +1845,7 @@ function createLoftedCarMaterial(spec, fixedColorHex = null) {
   const fixed = fixedColorHex !== null;
   const stateUniform = fixed ? uniform(new THREE.Vector4(0, 0, 0, 0)) : null;
   const state = fixed ? stateUniform : attribute('carState', 'vec4');
+  const reverseLight = fixed ? uniform(0) : null;
   const paint = fixed ? color(fixedColorHex) : attribute('paintColor', 'vec3');
 
   const axleZ = float(spec.wheelZ);
@@ -2330,12 +2331,21 @@ function createLoftedCarMaterial(spec, fixedColorHex = null) {
   const sign = color(0xffe28a).mul(signFace.mul(one.sub(signGlyph.mul(0.9))).mul(1.65));
 
   const mat = new THREE.MeshStandardNodeMaterial();
-  if (fixed) mat.userData.carState = stateUniform;
+  if (fixed) {
+    mat.userData.carState = stateUniform;
+    mat.userData.reverseLight = reverseLight;
+  }
   mat.colorNode = col;
   mat.roughnessNode = rough;
   mat.metalnessNode = metal;
   mat.emissiveNode = headlamps.add(tail).add(stop).add(turn).add(sign)
     .add(createPlateLampNode(platePaint).mul(plateRear));
+
+  // Compile reverse emission only into fixed-colour materials; traffic keeps its original graph and vec4 layout.
+  if (fixed) {
+    const reverse = color(0xffffff).mul(tailLens.mul(reverseRearSection).mul(reverseLight).mul(2.2));
+    mat.emissiveNode = mat.emissiveNode.add(reverse);
+  }
 
   _carMaterialCache.set(cacheKey, mat);
   return mat;

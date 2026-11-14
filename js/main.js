@@ -460,7 +460,7 @@ async function initApp() {
   // Keyboard guide for each mode: [keys, action]
   const controlHints = {
     person: [[['W', 'S'], 'Chód'], [['A', 'D'], 'Obrót'], [['Shift'], 'Sprint'], [['Spacja'], 'Skok'], [['Mysz'], 'Obrót kamery']],
-    car: [[['W', 'S'], 'Gaz / Wsteczny'], [['A', 'D'], 'Sterowanie'], [['Shift'], 'Turbo'], [['B'], 'Klakson'], [['Mysz'], 'Obrót kamery']],
+    car: [[['W', 'S'], 'Gaz / Wsteczny'], [['A', 'D'], 'Sterowanie'], [['Shift'], 'Turbo'], [['B'], 'Klakson'], [['Z', 'X'], 'Kierunkowskazy'], [['Mysz'], 'Obrót kamery']],
     cyclist: [[['W', 'S'], 'Pedałowanie / Hamowanie'], [['A', 'D'], 'Przechył i skręt'], [['Shift'], 'Sprint'], [['Mysz'], 'Obrót kamery']],
     helicopter: [[['W', 'S'], 'Przód / tył'], [['A', 'D'], 'Obrót'], [['Spacja', 'E'], 'W górę'], [['Q', 'C'], 'W dół'], [['Shift'], 'Turbo']]
   };

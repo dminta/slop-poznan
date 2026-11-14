@@ -375,6 +375,12 @@ class ThirdPersonControllerManager {
     this._gamepadKeys = {};
 
     const onKey = (e, isDown) => {
+      if (e.code === 'KeyZ' || e.code === 'KeyX') {
+        if (isDown && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && !isTypingInField(e)) {
+          this.toggleCarSignal(e.code === 'KeyZ' ? 1 : -1);
+        }
+        return;
+      }
       const action = actionsByCode.get(e.code);
       if (!action || (isDown && isTypingInField(e))) return;
       if (isDown) this._pressedCodes.add(e.code);
@@ -432,10 +438,101 @@ class ThirdPersonControllerManager {
     this._touchKeys = {};
     this._gamepadKeys = {};
     for (const action of Object.keys(this.keys)) this.keys[action] = false;
+    const car = this.entities?.car;
+    if (car) {
+      car.autoSignalDirection = 0;
+      car.autoSignalElapsed = 0;
+      car.autoSignalSuppressed = 0;
+    }
+  }
+
+  toggleCarSignal(direction, automatic = false) {
+    if (this.activeMode !== 'car') return;
+    const c = this.entities.car;
+    c.signalDirection = c.signalDirection === direction ? 0 : direction;
+    c.signalAutomatic = Boolean(c.signalDirection && automatic);
+    c.signalHeading = c.heading;
+    c.signalTurnReached = false;
+    c.signalElapsed = 0;
+    c.signalCentreElapsed = 0;
+    c.autoSignalSuppressed = c.signalDirection ? 0 : direction;
+  }
+
+  clearCarLights() {
+    const c = this.entities.car;
+    c.autoSignalDirection = 0;
+    c.autoSignalElapsed = 0;
+    c.autoSignalSuppressed = 0;
+    c.signalCentreElapsed = 0;
+    c.signalDirection = 0;
+    c.signalAutomatic = false;
+    c.signalTurnReached = false;
+    c.signalElapsed = 0;
+    if (c.carState) c.carState.value.y = c.carState.value.z = 0;
+    if (c.reverseLight) c.reverseLight.value = 0;
+  }
+
+  updateCarLights(c, dt, throttle, braking) {
+    const steering = Number(this.keys.left) - Number(this.keys.right);
+    const direction = steering >= 0.25 ? 1 : steering <= -0.25 ? -1 : 0;
+    // At 60 Hz full lock crosses 0.08 rad on frame one; 25% input takes ~0.1 s. Add 0.45 s of continuous
+    // steering after that: corrections/wobble reset the timer, and neither standing nor reversing can arm it.
+    const eligible = direction && c.speed > 0.5 && c.steerAngle * direction >= 0.08 &&
+      (!c.signalDirection || c.signalAutomatic);
+    if (direction !== c.autoSignalSuppressed) c.autoSignalSuppressed = 0;
+    if (!eligible || direction !== c.autoSignalDirection) c.autoSignalElapsed = 0;
+    c.autoSignalDirection = eligible ? direction : 0;
+    if (eligible && direction !== c.autoSignalSuppressed) {
+      c.autoSignalElapsed += dt;
+      if (c.autoSignalElapsed >= 0.45 && c.signalDirection !== direction) {
+        if (c.signalDirection) {
+          // A sustained correction cancels an automatic signal. Start a fresh delay on the next frame before
+          // considering the opposite side, so a lane-change counter-steer cannot flip indicators in one step.
+          c.signalDirection = 0;
+          c.signalAutomatic = false;
+          c.autoSignalElapsed = 0;
+          c.autoSignalDirection = 0;
+        } else {
+          this.toggleCarSignal(direction, true);
+        }
+      }
+    }
+    if (c.signalDirection) {
+      // 45° is halfway through a right-angle junction: lane corrections must not arm cancellation.
+      // Headings are unbounded, so take the signed shortest angle across the +/-pi boundary.
+      const delta = Math.atan2(Math.sin(c.heading - c.signalHeading), Math.cos(c.heading - c.signalHeading));
+      if (delta * c.signalDirection >= Math.PI / 4) c.signalTurnReached = true;
+      // 0.05 rad (2.9°) is <10% of the 0.52 rad steering lock; require released analog steering too.
+      if (Math.abs(c.steerAngle) < 0.05 && Math.abs(steering) < 0.1) {
+        c.signalCentreElapsed += dt;
+      } else {
+        c.signalCentreElapsed = 0;
+      }
+      c.signalElapsed = (c.signalElapsed + dt) % 0.8;
+      // Completed turns keep the 0.2 s hold. For shallow automatic turns, 1.2 s (1.5 blink periods) allows
+      // the lane-change steering to settle without leaving a forgotten indicator on after a gentle bend.
+      const centreHold = c.signalTurnReached ? 0.2 : c.signalAutomatic ? 1.2 : Infinity;
+      if (c.signalCentreElapsed >= centreHold && c.signalElapsed >= 0.4) {
+        c.signalDirection = 0;
+        c.signalAutomatic = false;
+        c.autoSignalElapsed = 0;
+        c.autoSignalDirection = 0;
+      }
+    }
+    const flash = c.signalElapsed < 0.4 ? 1 : 0;
+    if (c.carState) {
+      c.carState.value.x = braking || (c.speed === 0 && !throttle) ? 1 : 0;
+      c.carState.value.y = c.signalDirection === 1 ? flash : 0;
+      c.carState.value.z = c.signalDirection === -1 ? flash : 0;
+    }
+    // driveSpeed snaps to exact zero: keep reverse on through a backwards coast, and at rest only with reverse
+    // throttle held. Opposing throttle while still rolling forwards is braking, not reverse gear.
+    if (c.reverseLight) c.reverseLight.value = c.speed < 0 || (c.speed === 0 && throttle < 0) ? 1 : 0;
   }
 
   setMode(mode) {
     if (!this.entities[mode]) return;
+    if (this.activeMode === 'car' && mode !== 'car') this.clearCarLights();
     this.activeMode = mode;
   }
 
@@ -464,6 +561,7 @@ class ThirdPersonControllerManager {
       ent.crowd.add(ent.rig, 0);
       ent.crowd.end();
     } else if (this.activeMode === 'car') {
+      this.clearCarLights();
       ent.vx = ent.vz = ent.angularVel = ent.steerAngle = 0;
       ent.pitchVel = ent.rollVel = ent.heaveY = ent.heaveVel = 0;
       ent.chassisPivot.rotation.x = ent.chassisPivot.rotation.z = 0;
@@ -690,6 +788,16 @@ class ThirdPersonControllerManager {
       mesh: root,
       chassisPivot,
       carState,
+      reverseLight: taxiLoftMat.userData.reverseLight,
+      signalDirection: 0,
+      signalAutomatic: false,
+      signalHeading: SPAWN.heading,
+      signalTurnReached: false,
+      signalElapsed: 0,
+      signalCentreElapsed: 0,
+      autoSignalDirection: 0,
+      autoSignalElapsed: 0,
+      autoSignalSuppressed: 0,
       headLights,
       wheels,
       position: spawnPoint(-3.6, 12, 0),
@@ -1298,9 +1406,7 @@ class ThirdPersonControllerManager {
     c.heaveY = Math.max(-0.08, Math.min(0.14, c.heaveY + c.heaveVel * dt));
     c.chassisPivot.position.y = c.heaveY;
 
-    if (c.carState) {
-      c.carState.value.x = braking || (c.speed === 0 && !throttle) ? 1 : 0;
-    }
+    this.updateCarLights(c, dt, throttle, braking);
 
     const forwardDist = (c.position.x - prevX) * Math.sin(c.heading) + (c.position.z - prevZ) * Math.cos(c.heading);
     const rawWheelStep = forwardDist / 0.35;
