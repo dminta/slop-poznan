@@ -723,10 +723,12 @@ function railCells() {
   for (const r of GEO.rail || []) {
     const p = r.pts;
     for (let i = 0; i + 3 < p.length; i += 2) {
+      const ax = p[i], az = p[i + 1], bx = p[i + 2], bz = p[i + 3];
+      const ex = bx - ax, ez = bz - az;
       const seg = {
-        kind: r.kind, ax: p[i], az: p[i + 1], bx: p[i + 2], bz: p[i + 3],
-        x0: Math.min(p[i], p[i + 2]), x1: Math.max(p[i], p[i + 2]),
-        z0: Math.min(p[i + 1], p[i + 3]), z1: Math.max(p[i + 1], p[i + 3])
+        kind: r.kind, ax, az, bx, bz, ex, ez, L2: ex * ex + ez * ez,
+        x0: Math.min(ax, bx), x1: Math.max(ax, bx),
+        z0: Math.min(az, bz), z1: Math.max(az, bz)
       };
       for (let ix = Math.floor(seg.x0 / RAIL_CELL); ix <= Math.floor(seg.x1 / RAIL_CELL); ix++) {
         for (let iz = Math.floor(seg.z0 / RAIL_CELL); iz <= Math.floor(seg.z1 / RAIL_CELL); iz++) {
@@ -831,15 +833,32 @@ function railWithin(x, z, d, mainlineOnly = false) {
   const cells = railCells();
   const d2 = d * d;
   const lo2 = d2 * (1 - 1e-12), hi2 = d2 * (1 + 1e-12);
-  for (let ix = Math.floor((x - d) / RAIL_CELL); ix <= Math.floor((x + d) / RAIL_CELL); ix++) {
-    for (let iz = Math.floor((z - d) / RAIL_CELL); iz <= Math.floor((z + d) / RAIL_CELL); iz++) {
-      const list = cells.get(ix * 100003 + iz);
+  const ix0 = Math.floor((x - d) / RAIL_CELL), ix1 = Math.floor((x + d) / RAIL_CELL);
+  const iz0 = Math.floor((z - d) / RAIL_CELL), iz1 = Math.floor((z + d) / RAIL_CELL);
+  if (ix0 === ix1 && iz0 === iz1) {
+    const list = cells.get(ix0 * 100003 + iz0);
+    if (!list) return false;
+    for (const s of list) {
+      if (mainlineOnly && s.kind === 'tram') continue;
+      if (x < s.x0 - d || x > s.x1 + d || z < s.z0 - d || z > s.z1 + d) continue;
+      const ex = s.ex, ez = s.ez, L2 = s.L2;
+      const t = L2 > 0 ? Math.min(1, Math.max(0, ((x - s.ax) * ex + (z - s.az) * ez) / L2)) : 0;
+      const dx = s.ax + ex * t - x, dz = s.az + ez * t - z;
+      const dist2 = dx * dx + dz * dz;
+      if (dist2 < lo2) return true;
+      if (dist2 <= hi2 && Math.hypot(dx, dz) < d) return true;
+    }
+    return false;
+  }
+  for (let ix = ix0; ix <= ix1; ix++) {
+    const row = ix * 100003;
+    for (let iz = iz0; iz <= iz1; iz++) {
+      const list = cells.get(row + iz);
       if (!list) continue;
       for (const s of list) {
         if (mainlineOnly && s.kind === 'tram') continue;
         if (x < s.x0 - d || x > s.x1 + d || z < s.z0 - d || z > s.z1 + d) continue;
-        const ex = s.bx - s.ax, ez = s.bz - s.az;
-        const L2 = ex * ex + ez * ez;
+        const ex = s.ex, ez = s.ez, L2 = s.L2;
         const t = L2 > 0 ? Math.min(1, Math.max(0, ((x - s.ax) * ex + (z - s.az) * ez) / L2)) : 0;
         const dx = s.ax + ex * t - x, dz = s.az + ez * t - z;
         const dist2 = dx * dx + dz * dz;
@@ -2188,8 +2207,14 @@ function buildCityGrid(scene, opts = {}) {
       if (!ring.some((p) => p.x > b.minX && p.x < b.maxX && p.z > b.minZ && p.z < b.maxZ)) continue;
       // A ring mostly inside (Park Dąbrowskiego: 37 of 38 vertices) has the stray vertices pulled onto the block's
       // outline 1 m in
-      const inside = ring.filter((p) => pointInBlockPoly(b, p.x, p.z)).length;
-      if (inside >= ring.length * 0.8) {
+      const need = ring.length * 0.8;
+      let inside = 0;
+      for (let i = 0; i < ring.length; i++) {
+        if (inside + (ring.length - i) < need) break;
+        const p = ring[i];
+        if (pointInBlockPoly(b, p.x, p.z)) inside++;
+      }
+      if (inside >= need) {
         const edge = inside < ring.length ? offsetPolygonInward(b.poly, 1) : null;
         const pts = edge ? ring.map((p) => (polygonIn(edge, p.x, p.z) ? p : nearestOnRing(edge, p.x, p.z))) : ring;
         // Projecting this narrow mapped strip onto its block pulls one end across Milczańska. Its original

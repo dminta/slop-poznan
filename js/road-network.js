@@ -129,6 +129,17 @@ function createFootprintIndex(rects, flagOf) {
   return (minX, maxX, minZ, maxZ, mask) => {
     const ix0 = Math.floor(minX / CELL), ix1 = Math.floor(maxX / CELL);
     const iz0 = Math.floor(minZ / CELL), iz1 = Math.floor(maxZ / CELL);
+    if (ix0 === ix1 && iz0 === iz1) {
+      const bucket = cells.get((ix0 + 1024) * 2048 + iz0 + 1024);
+      if (bucket === undefined) return false;
+      for (let k = starts[bucket], end = starts[bucket + 1]; k < end; k++) {
+        const id = ids[k];
+        if (!(flags[id] & mask)) continue;
+        const o = id * 4;
+        if (bounds[o] < maxX && bounds[o + 1] > minX && bounds[o + 2] < maxZ && bounds[o + 3] > minZ) return true;
+      }
+      return false;
+    }
     for (let ix = ix0; ix <= ix1; ix++) {
       const row = (ix + 1024) * 2048 + 1024;
       for (let iz = iz0; iz <= iz1; iz++) {

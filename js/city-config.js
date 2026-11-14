@@ -44,10 +44,12 @@ function polygonSlot(z0, slots, v) {
 
 function createPolygonIndex(poly) {
   if (!poly || poly.length < 2) {
-    return { z0: 0, z1: 0, slots: 0, offsets: new Int32Array(1), edges: new Int32Array(0) };
+    return { x0: 0, x1: 0, z0: 0, z1: 0, slots: 0, offsets: new Int32Array(1), edges: new Int32Array(0) };
   }
-  let z0 = Infinity, z1 = -Infinity;
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const p of poly) {
+    if (p.x < x0) x0 = p.x;
+    if (p.x > x1) x1 = p.x;
     if (p.z < z0) z0 = p.z;
     if (p.z > z1) z1 = p.z;
   }
@@ -71,12 +73,14 @@ function createPolygonIndex(poly) {
     const s0 = polygonSlot(z0, slots, lo), s1 = polygonSlot(z0, slots, hi);
     for (let s = s0; s <= s1; s++) edges[cursor[s]++] = i;
   }
-  return { z0, z1, slots, offsets, edges };
+  return { x0, x1, z0, z1, slots, offsets, edges };
 }
 
 function pointInPolyIndexed(poly, index, x, z) {
-  if (!(index.slots > 0) || !(z >= index.z0 && z <= index.z1)) return false;
-  const s = polygonSlot(index.z0, index.slots, z);
+  if (!(index.slots > 0) || !(z >= index.z0 && z <= index.z1) || x < index.x0 || x > index.x1 + 1e-9) return false;
+  let s = Math.floor((z - index.z0) / POLY_SLOT);
+  if (s < 0) s = 0;
+  else if (s >= index.slots) s = index.slots - 1;
   let inside = false;
   for (let k = index.offsets[s], end = index.offsets[s + 1]; k < end; k++) {
     const i = index.edges[k];
@@ -1441,8 +1445,7 @@ function inTramSurfaceCut(x, z) {
   return false;
 }
 
-function blockCutAt(b, x, z) {
-  if (inTramSurfaceCut(x, z)) return true;
+function blockOwnCutAt(b, x, z) {
   if (b.roadCut) {
     for (const [ax, az, bx, bz, half] of b.roadCut) {
       const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
@@ -1465,6 +1468,11 @@ function blockCutAt(b, x, z) {
   return false;
 }
 
+function blockCutAt(b, x, z) {
+  if (inTramSurfaceCut(x, z)) return true;
+  return (b.roadCut || b.tramCut) ? blockOwnCutAt(b, x, z) : false;
+}
+
 /** The block (curb island) under (x, z), or null on the roadway / in the water */
 function blockAt(x, z) {
   if (inTramSurfaceCut(x, z)) return null;
@@ -1472,7 +1480,7 @@ function blockAt(x, z) {
   if (list) {
     for (const b of list) {
       if (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ) continue;
-      if (blockCutAt(b, x, z)) continue;
+      if ((b.roadCut || b.tramCut) && blockOwnCutAt(b, x, z)) continue;
       if (b.rect || pointInBlockPoly(b, x, z)) return b;
     }
   }
@@ -1485,14 +1493,14 @@ function isBlockAt(x, z, block) {
   if (!block) return blockAt(x, z) === null;
   if (x < block.minX || x > block.maxX || z < block.minZ || z > block.maxZ) return false;
   if (block.underpass) return blockAt(x, z) === block;
-  if (blockCutAt(block, x, z)) return false;
+  if ((block.roadCut || block.tramCut) && blockOwnCutAt(block, x, z)) return false;
   if (!block.rect && !pointInBlockPoly(block, x, z)) return false;
   const list = BLOCK_GRID.get(Math.floor(x / BLOCK_CELL) * 100000 + Math.floor(z / BLOCK_CELL));
   if (list) {
     for (const b of list) {
       if (b === block) return true;
       if (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ) continue;
-      if (blockCutAt(b, x, z)) continue;
+      if ((b.roadCut || b.tramCut) && blockOwnCutAt(b, x, z)) continue;
       if (b.rect || pointInBlockPoly(b, x, z)) return false;
     }
   }

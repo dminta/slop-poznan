@@ -576,8 +576,11 @@ function buildStreetDetails(scene, opts = {}) {
     const ix0 = Math.floor(x / LANDING_CELL);
     const iz0 = Math.floor(z / LANDING_CELL);
     for (let ix = ix0 - 1; ix <= ix0 + 1; ix++) {
+      const row = ix * 100000;
       for (let iz = iz0 - 1; iz <= iz0 + 1; iz++) {
-        for (const l of landingGrid.get(ix * 100000 + iz) || []) {
+        const list = landingGrid.get(row + iz);
+        if (!list) continue;
+        for (const l of list) {
           const ox = x - l.x;
           const oz = z - l.z;
           const along = ox * l.ux + oz * l.uz;
@@ -1730,9 +1733,6 @@ function buildStreetDetails(scene, opts = {}) {
   // Nearest edge of the block under a mapped tree: its orientation turns the pit and squeezes the crown across the
   // sidewalk, exactly as for the procedural rows.
   const nearestCurbFrame = (b, x, z) => {
-    const fallback = {
-      dist: Infinity, acrossX: true, narrow: false, pitRot: 0, squeeze: 0.82, tier: 1, grate: true, pitS: 1
-    };
     const idx = curbEdgeIndex(b);
     const poly = idx.poly;
     const n = poly.length;
@@ -1776,7 +1776,11 @@ function buildStreetDetails(scene, opts = {}) {
         }
       }
     }
-    if (bestI < 0) return fallback;
+    if (bestI < 0) {
+      return {
+        dist: Infinity, acrossX: true, narrow: false, pitRot: 0, squeeze: 0.82, tier: 1, grate: true, pitS: 1
+      };
+    }
     const p0 = poly[bestI];
     const p1 = poly[(bestI + 1) % n];
     const dx = p1.x - p0.x, dz = p1.z - p0.z;
@@ -2234,11 +2238,17 @@ function buildStreetDetails(scene, opts = {}) {
     const key = (x, z) => Math.floor(x / cell) * 100000 + Math.floor(z / cell);
     const index = () => new Map();
     const file = (map, item, minX, maxX, minZ, maxZ) => {
-      for (let ix = Math.floor(minX / cell); ix <= Math.floor(maxX / cell); ix++) {
-        for (let iz = Math.floor(minZ / cell); iz <= Math.floor(maxZ / cell); iz++) {
+      const ix0 = Math.floor(minX / cell), ix1 = Math.floor(maxX / cell);
+      const iz0 = Math.floor(minZ / cell), iz1 = Math.floor(maxZ / cell);
+      for (let ix = ix0; ix <= ix1; ix++) {
+        for (let iz = iz0; iz <= iz1; iz++) {
           const k = ix * 100000 + iz;
-          if (!map.has(k)) map.set(k, []);
-          map.get(k).push(item);
+          let list = map.get(k);
+          if (!list) {
+            list = [];
+            map.set(k, list);
+          }
+          list.push(item);
         }
       }
     };
