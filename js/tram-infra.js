@@ -2006,9 +2006,13 @@ function buildTramInfrastructure(scene, network, layouts = null) {
     wireM.push(beam(a.bx, yElev + RAIL_WIRE_Y, a.bz, a.bx, yElev + RAIL_MESSENGER_Y, a.bz + 0.0001, 0.012, 0.012));
   }
   for (const p of rail.portals) {
-    armM.push(beam(p.ax, 8.9, p.az, p.bx, 8.9, p.bz, 0.35, 0.5));
+    const yElev = rail.elevationAt ? Math.max(rail.elevationAt(p.ax, p.az), rail.elevationAt(p.bx, p.bz)) : 0;
+    armM.push(beam(p.ax, yElev + 8.9, p.az, p.bx, yElev + 8.9, p.bz, 0.35, 0.5));
   }
-  for (const d of rail.droppers) wireM.push(beam(d.x, RAIL_WIRE_Y, d.z, d.x, 8.65, d.z + 0.0001, 0.015, 0.015));
+  for (const d of rail.droppers) {
+    const yElev = rail.elevationAt ? rail.elevationAt(d.x, d.z) : 0;
+    wireM.push(beam(d.x, yElev + RAIL_WIRE_Y, d.z, d.x, yElev + 8.65, d.z + 0.0001, 0.015, 0.015));
+  }
   const railBedGeo = unitBox.clone();
   {
     // trapezoid: the top face narrowed to RAIL_BED_TOP_W, flat normals per face (BoxGeometry shares no vertices)

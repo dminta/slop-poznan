@@ -25,7 +25,7 @@
 // and columns a flat world [x, z, ...] list (0.4 m square posts).
 import { DETAIL_BOX, load, log, toWorld } from './poz-base.mjs';
 import { elemRings, ringArea } from './geo-util.mjs';
-import { rail, tramStops } from './poz-roads.mjs';
+import { rail, pieces as roadPieces, tramStops } from './poz-roads.mjs';
 
 const MIN_AREA = 60; // m²; below this a roof is a bin lid, a kiosk awning or a bus-shelter top
 const RECT_MAX = 2.4; // drop generic shapes whose minimum rectangle overbuilds their outline by more than this
@@ -93,6 +93,66 @@ function railDistance(x, z, reach = 26, mainline = null) {
     }
   }
   return best;
+}
+
+const ROAD_CELL = 32;
+const roadCells = new Map();
+for (const r of roadPieces) {
+  const p = r.pts;
+  const hw = (r.w || 6) * 0.5 + 1.5;
+  for (let i = 0; i + 1 < p.length; i++) {
+    const s = { ax: p[i][0], az: p[i][1], bx: p[i + 1][0], bz: p[i + 1][1], hw };
+    const ix0 = Math.floor((Math.min(s.ax, s.bx) - hw) / ROAD_CELL), ix1 = Math.floor((Math.max(s.ax, s.bx) + hw) / ROAD_CELL);
+    const iz0 = Math.floor((Math.min(s.az, s.bz) - hw) / ROAD_CELL), iz1 = Math.floor((Math.max(s.az, s.bz) + hw) / ROAD_CELL);
+    for (let ix = ix0; ix <= ix1; ix++) {
+      for (let iz = iz0; iz <= iz1; iz++) {
+        const k = `${ix},${iz}`;
+        if (!roadCells.has(k)) roadCells.set(k, []);
+        roadCells.get(k).push(s);
+      }
+    }
+  }
+}
+
+function roadClear(x, z) {
+  const ix = Math.floor(x / ROAD_CELL), iz = Math.floor(z / ROAD_CELL);
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dz = -1; dz <= 1; dz++) {
+      for (const s of roadCells.get(`${ix + dx},${iz + dz}`) || []) {
+        const ex = s.bx - s.ax, ez = s.bz - s.az;
+        const L2 = ex * ex + ez * ez;
+        const t = L2 > 0 ? Math.min(1, Math.max(0, ((x - s.ax) * ex + (z - s.az) * ez) / L2)) : 0;
+        if (Math.hypot(s.ax + ex * t - x, s.az + ez * t - z) < s.hw) return false;
+      }
+    }
+  }
+  return true;
+}
+
+function rectOverlapsTram(rect) {
+  const cs = Math.cos(rect.ang), sn = Math.sin(rect.ang);
+  const hx = rect.w * 0.5, hz = rect.d * 0.5;
+  const ex = Math.abs(cs) * hx + Math.abs(sn) * hz + 1.5;
+  const ez = Math.abs(sn) * hx + Math.abs(cs) * hz + 1.5;
+  const seen = new Set();
+  for (let ix = Math.floor((rect.cx - ex) / RAIL_CELL); ix <= Math.floor((rect.cx + ex) / RAIL_CELL); ix++) {
+    for (let iz = Math.floor((rect.cz - ez) / RAIL_CELL); iz <= Math.floor((rect.cz + ez) / RAIL_CELL); iz++) {
+      for (const s of railCells.get(`${ix},${iz}`) || []) {
+        if (s.mainline || seen.has(s)) continue;
+        seen.add(s);
+        const len = Math.hypot(s.bx - s.ax, s.bz - s.az);
+        const steps = Math.max(2, Math.ceil(len / 0.5));
+        for (let k = 0; k <= steps; k++) {
+          const t = k / steps;
+          const x = s.ax + (s.bx - s.ax) * t - rect.cx;
+          const z = s.az + (s.bz - s.az) * t - rect.cz;
+          const u = x * cs + z * sn, v = -x * sn + z * cs;
+          if (Math.hypot(Math.max(0, Math.abs(u) - hx), Math.max(0, Math.abs(v) - hz)) < 1.3) return true;
+        }
+      }
+    }
+  }
+  return false;
 }
 
 function nearTramStop(x, z, reach = 20) {
@@ -189,6 +249,7 @@ function canopyColumns(rect, kind) {
     const x = cx + u * cs - v * sn;
     const z = cz + u * sn + v * cs;
     if (railDistance(x, z, RAIL_COLUMN_KEEP + 1) < RAIL_COLUMN_KEEP) continue;
+    if (!roadClear(x, z)) continue;
     const key = `${Math.round(x * 10)},${Math.round(z * 10)}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -246,10 +307,14 @@ for (const e of osm.elements) {
     // useful approximation and the alternative is no canopy at all. Ordinary irregular pergolas are dropped.
     if (rect.area > area * RECT_MAX && kind === 'roof') { tooIrregular++; continue; }
     const spec = SPEC[kind];
-    const height = Math.min(6.5, Math.max(4.8, spec.h));
-    const clearance = Math.min(height - 0.35, Math.max(4.5, spec.clearance));
+    let height = Math.min(6.5, Math.max(4.8, spec.h));
+    let clearance = Math.min(height - 0.35, Math.max(4.5, spec.clearance));
+    if (clearance - 0.28 < 5.82 && rectOverlapsTram(rect)) {
+      clearance = 6.1;
+      height = 6.5;
+    }
     const columns = canopyColumns(rect, kind);
-    if (!columns.length) { noColumns++; continue; }
+    if (columns.length < 4) { noColumns++; continue; }
     const cs = Math.cos(rect.ang), sn = Math.sin(rect.ang);
     const hw = rect.w * 0.5, hd = rect.d * 0.5;
     const xs = [0, 1, 2, 3].map((i) => {

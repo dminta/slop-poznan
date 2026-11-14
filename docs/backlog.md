@@ -205,8 +205,11 @@ the checks below; each remaining bullet is the part that is still open.
 - Walk into the EC Garbary chimney and cooling-tower colliders; the non-residential silhouettes (Posnania, Castorama,
   ZNTK, EC Garbary, Główna halls) were framed at street level and from the air on WebGPU and WebGL2 2026-11-14
   ([record](observations/browser-checks-2026-11-14.md)). [Profiles record](observations/building-profiles-nonres-2026-11-08.md).
-- Check a train or car passing under the Główny platform decks; Dworzec Letni and the Garbary canopy were framed from
-  their platforms on 2026-11-14 ([record](observations/browser-checks-2026-11-14.md)).
+- Visual framing check of the overhead clearance fixes (Rynek Łazarski road-cleared canopy columns, raised `6.1 m` tram
+  canopies and elevated viaduct catenary portals); the 2026-11-14 headless geometric audit
+  ([record](observations/overhead-clearance-2026-11-14.md)) resolved all `rail-portal`, `tram_panto` and
+  `canopy-column` road clashes (`0` road-vehicle clashes) and documented the Główny 2012 hall / Garbary ramp
+  track overlaps (`browser-checks-2026-11-14` framed Dworzec Letni and Garbary from their platforms).
   [Canopy record](observations/platform-canopies-2026-11-08.md).
 - Calibrate Collegium Maius hall weather-cover elevations and outer panel specification if a measured section or
   dated refurbishment record becomes available. Its narrow gabled exterior above curved interior glazing is now
