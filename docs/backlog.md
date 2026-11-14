@@ -242,9 +242,12 @@ the checks below; each remaining bullet is the part that is still open.
   masts) and 27 span heads (25 new 10 m masts), stay height and sag above the tram wires and portals, and the Górna
   Wilda head hanging from the two 7.6 m traction poles (stays at 7.2 m). Check visibility through the queue and that
   no mast, stay or head clips a tram. [Measurements](observations/missing-signal-heads-2026-11-08.md).
-- Check overhead signal visibility for the 15 stop-line fallback heads (13 at 1.75 m past P-14, two reused poles at
-  0.03 and −0.82 m) through the whole queue; two were seen over the car in front from 20 m back on 2026-11-14
-  ([record](observations/browser-checks-2026-11-14.md)). Move them back or add a gantry if they are not visible.
+- Check overhead signal visibility for the 8 stop-line fallback heads (7 cantilever, 1 span; down from 15 after the
+  2026-11-08 span pass): two (`-3242, 1727` and `-2722, 2057`) were seen over the car in front from 20 m back on
+  2026-11-14 ([record](observations/browser-checks-2026-11-14.md)), and the 2026-11-14 geometric audit
+  ([record](observations/fallback-head-sight-2026-11-14.md)) confirms all 8 are visible from position 1 and through a
+  6-car queue in the `pov` camera (`eyeY = 1.52 m`; blocked behind a 3.0 m bus directly in front). Browser visual
+  checks of the remaining 6 fallback heads remain open.
 - Watch a tram pass a car stopped at a crossing and a left-turner complete through the Kaponiera box; check for
   visible clipping or stopping within the approximately 1 s forecast gap. A six-frame twilight watch on 2026-11-11 saw
   no clipping, but not the named pair.
