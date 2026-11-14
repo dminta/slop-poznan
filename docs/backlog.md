@@ -183,9 +183,10 @@ share are not thinned; [central-density record](observations/central-density-202
 ## Browser checks still outstanding
 
 The 2026-11-11 headless Chrome pass is recorded in
-[observations/browser-checks-2026-11-11.md](observations/browser-checks-2026-11-11.md); coverage transitions and
-Ławica airport draw-call / shadow costs across both backends were measured 2026-11-14 in
-[observations/perf-transitions-2026-11-14.md](observations/perf-transitions-2026-11-14.md). It covered part or all of
+[observations/browser-checks-2026-11-11.md](observations/browser-checks-2026-11-11.md) and the 2026-11-14 pass in
+[observations/browser-checks-2026-11-14.md](observations/browser-checks-2026-11-14.md); coverage transitions and
+Ławica draw-call / shadow costs were measured 2026-11-14 in
+[observations/perf-transitions-2026-11-14.md](observations/perf-transitions-2026-11-14.md). They covered part or all of
 the checks below; each remaining bullet is the part that is still open.
 
 ### Interface and performance
@@ -198,21 +199,11 @@ the checks below; each remaining bullet is the part that is still open.
 
 ### Geometry, materials and collisions
 
-- Inspect the new non-residential silhouettes from a free camera and street level: Posnania (#953, 11–16 m mall with
-  rooflights), Castorama (#21, 7.6 m retail park), ZNTK (#846, 11.4 m halls), EC Garbary (#266, utility halls plus the
-  fallback 65 m chimney and 55 m cooling tower) and the Główna halls (blocks 36/78/95), on WebGPU and WebGL2, including
-  yard/apron joins, tower colliders and any z-fighting. Aerial views of Posnania, Castorama and the Główna 78/95 halls
-  were checked 2026-11-11; the EC Garbary chimney/cooling tower, the ZNTK halls, street level and WebGL2 remain open.
-  [Profiles record](observations/building-profiles-nonres-2026-11-08.md).
-- Continue the landmark checks for the views that were obstructed on 2026-11-11: the Muzeum old front at night, the
-  Ratusz from the east at night, Pałac Działyńskich's full silhouette, Hotel Bazar from Paderewskiego, the Zamek
-  Królewski main block behind the museum, and Kościół Franciszkanów from the street. Fara, Biblioteka Raczyńskich,
-  Bernardynów, Boże Ciało, Collegium Maius, NMP in Summo and św. Wojciech were framed on WebGPU; Fara, Biblioteka,
-  Bernardynów and Boże Ciało were repeated on WebGL2.
-  [Landmark measurements](observations/landmarks-2026-11-05.md).
-- Check Dworzec Letni and the Garbary canopy from a train/car, and a train or car passing under the Główny platform
-  decks; the Główny platform underside/beams, Kaponiera tram canopy, a fuel forecourt and a pergola were checked
-  2026-11-11, with no post in a track and no clipping seen.
+- Walk into the EC Garbary chimney and cooling-tower colliders; the non-residential silhouettes (Posnania, Castorama,
+  ZNTK, EC Garbary, Główna halls) were framed at street level and from the air on WebGPU and WebGL2 2026-11-14
+  ([record](observations/browser-checks-2026-11-14.md)). [Profiles record](observations/building-profiles-nonres-2026-11-08.md).
+- Check a train or car passing under the Główny platform decks; Dworzec Letni and the Garbary canopy were framed from
+  their platforms on 2026-11-14 ([record](observations/browser-checks-2026-11-14.md)).
   [Canopy record](observations/platform-canopies-2026-11-08.md).
 - Check every courtyard along Podgórna, Strzelecka, Plac Wiosny Ludów and around Kupiec Poznański (no lawn within
   4.6 m of the roadway or over a track); the Podgórna/Strzelecka aerial and the Wilda near-balcony pool
@@ -224,8 +215,6 @@ the checks below; each remaining bullet is the part that is still open.
   [Hall-roof evidence, 2026-11-13](observations/kit-roofs-2026-11-13.md#hall-weather-roof-review-2026-11-13).
 - Continue landmark-placement and scenic-camera checks, panel-material shimmer, balcony LOD transitions and
   platform/slab flicker where surfaces are only 1 cm apart.
-- Check Most Świętego Rocha and Most Królowej Jadwigi from the bank; Most Chrobrego, Most Mieszka I and the 13 m Most
-  Dworcowy approach were checked 2026-11-11.
 - Check relocated street trees near landings, zebras, lanes and island edges; walk the surveyed OSM rows in Stare Miasto
   and around Park Cytadela, compare a few pits with the OSM points, and measure frame rate and draw calls at street level
   and from the drone (the 88,479-site scene allocates about 21 MB of tree instance buffers). The Rybaki collision was
@@ -240,16 +229,16 @@ the checks below; each remaining bullet is the part that is still open.
   [Tree/building clearance](observations/tree-building-clearance-2026-11-03.md).
 - Check the corrected heights of Iglica, Delta, Brama Poznania and Zamek Królewski, and the refined Teatr Wielki
   portico/Pegasus from street level and above; the Fara front gable/cross reads from Świętosławska.
-- Check mainline railway sleepers remain visible; the tram rails without a track bed were checked flush on the road at
-  Kaponiera on WebGPU and WebGL2 2026-11-11.
-- Inspect black locust foliage, bark, LOD and wind. [Tree models](world.md).
+- Watch black locust wind motion; its foliage, bark and LOD were framed on 2026-11-14
+  ([record](observations/browser-checks-2026-11-14.md)). [Tree models](world.md).
 
 ### Signals, traffic and audio
 
-- Continue signal checks at Most Teatralny and Głogowska/Hetmańska, including visible head orientation/colour
-  correspondence and WebGL2; the Kaponiera heads were checked day/twilight 2026-11-11. Extend NPC demand-request
-  coverage beyond node `2422` and test the full rendered Św. Marcin green-wave corridor and crossing ticks against
-  displayed heads. [Previous coverage and limits](observations/signals-2026-10-30.md).
+- Check the Most Teatralny pole-mounted heads (orientation and colour against the signal state, WebGPU + WebGL2); the
+  node has no overhead head, and Głogowska/Hetmańska was checked 2026-11-14
+  ([record](observations/browser-checks-2026-11-14.md)). Extend NPC demand-request coverage beyond node `2422` and test
+  the full rendered Św. Marcin green-wave corridor and crossing ticks against displayed heads.
+  [Previous coverage and limits](observations/signals-2026-10-30.md).
 - Check Dworzec's connected refuge route, signals and pedestrian/vehicle interactions on WebGL2; record a full
   rendered interaction with a naturally approaching bus, including rear clearance.
   [Dworzec checks](observations/dworzec-2026-10-30.md), [bus population check](observations/bus-population-2026-10-30.md).
@@ -257,10 +246,9 @@ the checks below; each remaining bullet is the part that is still open.
   masts) and 27 span heads (25 new 10 m masts), stay height and sag above the tram wires and portals, and the Górna
   Wilda head hanging from the two 7.6 m traction poles (stays at 7.2 m). Check visibility through the queue and that
   no mast, stay or head clips a tram. [Measurements](observations/missing-signal-heads-2026-11-08.md).
-- Check overhead signal visibility: 10 of the 26 overhead heads stand at least 10.5 m before the stop line and one
-  more at least 8 m, while 15 use the stop-line fallback (13 at 1.75 m past P-14, two reused poles at 0.03 and
-  −0.82 m). Verify the fallback heads are visible through the whole queue and move them back or add a gantry if they
-  are not.
+- Check overhead signal visibility for the 15 stop-line fallback heads (13 at 1.75 m past P-14, two reused poles at
+  0.03 and −0.82 m) through the whole queue; two were seen over the car in front from 20 m back on 2026-11-14
+  ([record](observations/browser-checks-2026-11-14.md)). Move them back or add a gantry if they are not visible.
 - Watch a tram pass a car stopped at a crossing and a left-turner complete through the Kaponiera box; check for
   visible clipping or stopping within the approximately 1 s forecast gap. A six-frame twilight watch on 2026-11-11 saw
   no clipping, but not the named pair.
