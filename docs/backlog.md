@@ -205,9 +205,11 @@ the checks below; each remaining bullet is the part that is still open.
 - Check a train or car passing under the Główny platform decks; Dworzec Letni and the Garbary canopy were framed from
   their platforms on 2026-11-14 ([record](observations/browser-checks-2026-11-14.md)).
   [Canopy record](observations/platform-canopies-2026-11-08.md).
-- Check every courtyard along Podgórna, Strzelecka, Plac Wiosny Ludów and around Kupiec Poznański (no lawn within
-  4.6 m of the roadway or over a track); the Podgórna/Strzelecka aerial and the Wilda near-balcony pool
-  (262 instances, five complete storeys, nearest 38 m) were checked 2026-11-11.
+- Courtyard slab over the Zajezdnia Głogowska depot tracks: block 1257 at `(-2757.6, 2309.3)` (11 × 17 m) is crossed
+  by three tracks that pass between `yardFitsBlock`'s 2 m probes (nearest probe 0.51 m). The exact audit
+  (`node tools/audit-courtyards.mjs`) finds no other courtyard within 4.6 m of a roadway, 0.5 m of a track or
+  pedestrian corridor, or outside its curb island (19,581 slabs; 617 along Podgórna, Strzelecka, Plac Wiosny Ludów and
+  Kupiec Poznański). [Courtyard audit](observations/courtyard-audit-2026-11-14.md),
   [Alignment record](observations/street-alignment-2026-11-09.md).
 - Calibrate Collegium Maius hall weather-cover elevations and outer panel specification if a measured section or
   dated refurbishment record becomes available. Its narrow gabled exterior above curved interior glazing is now
