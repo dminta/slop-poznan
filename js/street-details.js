@@ -1712,7 +1712,7 @@ function buildStreetDetails(scene, opts = {}) {
       const pad = r * (Math.abs(dx) + Math.abs(dz)) / len;
       if (s.zebra) {
         if (along > -pad && along < len + pad && side < CROSSWALK / 2 + pad) return false;
-      } else if (Math.hypot(Math.max(0, -along, along - len), side) < Math.max(1.2, 0.9 + pad)) return false;
+      } else if (Math.hypot(Math.max(0, -along, along - len), side) < Math.max(1.2, 0.9 + r * Math.SQRT2)) return false;
     }
     return true;
   };

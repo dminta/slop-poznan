@@ -15,34 +15,34 @@ function audit(...args) {
 test('the furnished audit classifies historical approaches before and after runtime placement', async () => {
   const config = await import('../js/city-config.js');
   const before = audit('--before'), after = audit();
-  assert.equal(before.rows.length, 201);
-  assert.equal(after.rows.length, 201);
-  assert.deepEqual(before.summary.counts, { A: 21, B: 75, C: 94, D: 11 });
-  assert.deepEqual(after.summary.counts, { A: 190, B: 0, C: 0, D: 11 });
-  // 49 static S-1 heads and 72 poles on 25 disabled 2-arm-without-crossings plans are dropped at runtime pruning;
-  // two active approaches that previously reused a disabled pole now place their own pole (112 -> 114).
-  assert.equal(before.summary.vehicleHeads, 1071);
-  assert.equal(after.summary.vehicleHeads, 1242);
+  assert.equal(before.rows.length, 210);
+  assert.equal(after.rows.length, 210);
+  assert.deepEqual(before.summary.counts, { A: 21, B: 83, C: 100, D: 6 });
+  assert.deepEqual(after.summary.counts, { A: 204, B: 0, C: 0, D: 6 });
+  // 41 static S-1 heads on 21 disabled 2-arm-without-crossings plans are dropped at runtime pruning;
+  // underpass-sidewalk AABB fix (2026-11-15) restores 4 signal plans including Most Teatralny (plan 381).
+  assert.equal(before.summary.vehicleHeads, 1079);
+  assert.equal(after.summary.vehicleHeads, 1264);
   assert.equal(after.summary.pedestrianHeads, 1935);
-  assert.equal(after.summary.runtimePoles, 114);
-  assert.equal(after.summary.reusedPoles, 57);
-  assert.equal(after.summary.overheadHeads, 95);
-  assert.equal(after.summary.overheadPoles, 43);
-  assert.equal(after.summary.overheadReused, 52);
-  assert.equal(after.summary.overheadStrict, 87);
-  assert.equal(after.summary.overheadBand, 88);
+  assert.equal(after.summary.runtimePoles, 122);
+  assert.equal(after.summary.reusedPoles, 63);
+  assert.equal(after.summary.overheadHeads, 101);
+  assert.equal(after.summary.overheadPoles, 44);
+  assert.equal(after.summary.overheadReused, 57);
+  assert.equal(after.summary.overheadStrict, 93);
+  assert.equal(after.summary.overheadBand, 94);
   assert.equal(after.summary.overheadException, 6);
   assert.deepEqual(after.summary.overheadFallbackAlong, [1.75, 1.75, 0.031, 1.75, 1.75, 1.75]);
-  assert.equal(after.summary.spanHeads, 33);
-  assert.equal(after.summary.spanPoles, 33);
-  assert.equal(after.summary.spanReused, 32);
+  assert.equal(after.summary.spanHeads, 38);
+  assert.equal(after.summary.spanPoles, 32);
+  assert.equal(after.summary.spanReused, 41);
   assert.equal(after.summary.spanNewHeads, 24);
-  assert.equal(after.summary.spanExistingHeads, 9);
-  assert.equal(after.summary.spanTractionHeads, 1);
-  assert.equal(after.summary.spanTractionAnchors, 2);
-  assert.equal(after.summary.cantileverPoles, 19);
-  assert.equal(after.summary.spanStrict, 31);
-  assert.equal(after.summary.spanBand, 32);
+  assert.equal(after.summary.spanExistingHeads, 14);
+  assert.equal(after.summary.spanTractionHeads, 3);
+  assert.equal(after.summary.spanTractionAnchors, 6);
+  assert.equal(after.summary.cantileverPoles, 20);
+  assert.equal(after.summary.spanStrict, 36);
+  assert.equal(after.summary.spanBand, 37);
   assert.equal(after.summary.spanException, 1);
   assert.deepEqual(after.summary.spanFallbackAlong, [1.75]);
   assert.ok(after.summary.spanLengthMax > 54 && after.summary.spanLengthMax <= 55,
@@ -56,7 +56,7 @@ test('the furnished audit classifies historical approaches before and after runt
     'the longest overhead arm stays within the 12 m reach');
   assert.ok(after.summary.pedestrianApproaches.every((row) => row.class === 'A'),
     'every active pedestrian approach has an A head');
-  for (const [x, z] of [[-359.7, -887.7], [2848.05, -1512.5], [1169.4, -2431.9],
+  for (const [x, z] of [[2848.05, -1512.5], [1169.4, -2431.9],
     [-7965.85, -537.55], [2024.63, 1666.8]]) {
     const row = after.summary.pedestrianApproaches.find((r) =>
       Math.hypot(r.node[0] - x, r.node[1] - z) < 0.01);
@@ -67,7 +67,7 @@ test('the furnished audit classifies historical approaches before and after runt
     typeof v === 'number' ? Number(v.toFixed(3)) : v));
   // Two active approaches previously reused poles from disabled plans and now place new poles.
   assert.equal(createHash('sha256').update(JSON.stringify(placements)).digest('hex'),
-    '246087b6cc3ac17ecbb63fe85b0359f10f84811f014fab174486489443a9134c');
+    'de1a22a04f372b67bb977951c0420f09a1d83b02aaee0ddd06d1ee9c003d2208');
   const gorna = after.rows.find((r) => Math.hypot(r.node[0] + 448.825, r.node[1] - 947.425) < 0.01 &&
     r.direction[0] > 0.4 && r.direction[1] < -0.8);
   assert.ok(gorna, 'the Górna Wilda approach is still audited');

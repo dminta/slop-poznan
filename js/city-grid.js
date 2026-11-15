@@ -1726,14 +1726,15 @@ function buildCityGrid(scene, opts = {}) {
     }
   }
 
-  // Extrude sidewalk strips under railway viaducts to bridge curb islands across the railway land
+  // Extrude sidewalk strips under railway viaducts to bridge curb islands across the railway land.
+  // Do not push their AABBs to roadSidewalks: these 2.8 m strips are rotated along diagonal underpasses
+  // and extend 2 m past corridor ends, so their axis-aligned boxes span carriageways and prune real links.
   for (const s of UNDERPASS_SIDEWALKS || []) {
     curbGeos.push(createExtrudedPolygonMesh(s.poly, 0.0, 0.18, curbMat, true, false).geometry);
     const inner = offsetPolygonInward(s.poly, 0.25);
     if (inner) {
       slabGeos.push(createExtrudedPolygonMesh(inner, 0.03, SW_TOP - 0.03, sidewalkMat, true, false).geometry);
     }
-    roadSidewalks.push({ minX: s.minX, maxX: s.maxX, minZ: s.minZ, maxZ: s.maxZ });
   }
 
   const mergeInto = (geos, mat, cast = false) => {

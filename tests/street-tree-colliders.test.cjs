@@ -56,13 +56,16 @@ test('street trees carry player colliders, including Rybaki', async () => {
   const streetTrees = sites.filter((t) => t.tier === 2 || t.tier === 1 && t.pitRot !== undefined);
   // Pole-overlap fix (2026-11-14): drops 42 overlapping OSM street trees (+1 procedural gap filler) -> 34,468.
   // Mainline bed/crown clearance removes 909 street trees in this reduced fixture; every survivor still collides.
-  assert.equal(streetTrees.length, 33560, 'street trees in the headless build');
+  // Underpass sidewalk AABB fix (2026-11-15) restores 197 edges (dropping 3 street trees on restored carriageways)
+  // and matches the 0.9 + r * Math.SQRT2 lane clearance audit (dropping 1 OSM tree at -1434.3, -586.6) -> 33,556.
+  assert.equal(streetTrees.length, 33556, 'street trees in the headless build');
   // Surveyed OSM park trees have no city-grid site of their own, so street-details.js adds their trunk boxes to the
   // same player list as the street rows; count them separately rather than letting them hide a missing street trunk.
   const osmParkTrees = sites.filter((t) => t.source === 'osm' && t.tier === 0).length;
   // Pole-overlap fix (2026-11-14) drops 1 overlapping OSM park tree -> 25,630;
-  // park-lamp overlap fix (2026-11-14) drops 6 more OSM park trees -> 25,624.
-  assert.equal(osmParkTrees, 25623, 'surveyed OSM park trees');
+  // park-lamp overlap fix (2026-11-14) drops 6 more OSM park trees -> 25,624;
+  // lane-clearance SQRT2 match (2026-11-15) drops 1 more -> 25,622.
+  assert.equal(osmParkTrees, 25622, 'surveyed OSM park trees');
 
   const siteParkTrees = sites.filter((t) => t.source === 'site' && t.tier === 0).length;
   const colliders = details.colliders;

@@ -428,8 +428,10 @@ Built before the road network, so everything that stands near a lane is checked 
   ≈27 s (≈23 s before the span fallback; the two tram/rail layouts add ≈6 s), and the runtime placement stays
   within the earlier 3.5–4.7 s range because the support grid replaces the all-pairs test. `addRuntimeSignalHeads` also
   compacts out static poles, S-1/pedestrian heads, backplates, and pole colliders belonging to plans that
-  `configureSignals` disabled (49 S-1 heads and 72 poles across 24 of 25 disabled plans, including Most Teatralny plan
-  381; `tools/audit-dark-heads.mjs`, [2026-11-15 record](observations/dark-heads-2026-11-15.md)), while keeping
+  `configureSignals` disabled (`tools/audit-dark-heads.mjs`, [2026-11-15 record](observations/dark-heads-2026-11-15.md);
+  removing `UNDERPASS_SIDEWALKS` AABBs from `roadSidewalks` in `city-grid.js` subsequently restored 197 road edges
+  (5.630 km) and re-enabled 4 plans including Most Teatralny plan 381, leaving 21 disabled plans,
+  [pruned-roads record](observations/pruned-roads-2026-11-15.md)), while keeping
   footprints unchanged. New poles carry S-1
   heads only; their footprints and player colliders are registered before controllers are built and their shafts
   get a runtime instanced mesh. The furnished-grid regression rebuilds the road and pedestrian networks with the

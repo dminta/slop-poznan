@@ -319,7 +319,9 @@ for full matrices, the production recheck and the accepted tradeoff.
 Two-arm nodes with crossings stay road-green until a walker requests a phase (2 s request delay, at least 20 s road
 green); their red clearance allows a 1 m/s walker to finish the measured crossing. Two-arm nodes without crossings are disabled,
 and `addRuntimeSignalHeads` drops their static poles, heads, and pole colliders so no dark heads remain
-([2026-11-15 record](observations/dark-heads-2026-11-15.md)).
+([2026-11-15 record](observations/dark-heads-2026-11-15.md)); removing `UNDERPASS_SIDEWALKS` AABBs from `grid.sidewalks`
+subsequently restored 197 edges (5.630 km) and re-enabled 4 plans including Most Teatralny plan 381, leaving 21 disabled
+plans ([pruned-roads record](observations/pruned-roads-2026-11-15.md)).
 The Phase 16 benchmark variant (no grid sidewalks) has 311 regular plans, 22 demand crossings and
 12 disabled signals (2026-10-29); these are not counts for the static snapshot above.
 
