@@ -158,6 +158,14 @@ Implementation details and completed measurements live in the [topic docs](../AG
   the per-seed 0.1 km/h limit. The `8947 -> 4659` bus encounter reaches both rendered sections after the initial
   rigid-rectangle false positive; it cannot be dismissed as an audit artefact. Neither variant justifies retrying
   the rejected broad guards or bus-only reservations.
+  [4660 fresh-seed storage trial](observations/car-tram-jezyce-4660-2026-11-15.md): a geometry-selected
+  instantaneous downstream-room/box admission guard is rejected on all 20 default fresh seeds. Jeżyce pairs
+  `41 → 20`, city-wide `74 → 62` (within noise), but holds `>120 s` `28 → 118` and mean per-seed maximum wait
+  `109.75 → 172.00 s` both read `worse`; Jeżyce mean `14.370 → 14.030 km/h`, Kaponiera `13.135 → 12.210 km/h`.
+  The trial still leaves a stopped car on 4660 and a stopped bus on its incoming connector at seed 61. A clear
+  exit at admission does not reserve passage over the 25.97 m incoming connector and downstream junction;
+  do not revive this instantaneous guard as proof of safe storage. A controlled-box/body-path reservation
+  remains untested. No game change is retained.
   [2026-11-15 Jeżyce record](observations/car-tram-jezyce-2026-11-15.md),
   [Kaponiera and Stare diagnosis](observations/car-tram-kaponiera-stare-2026-11-10.md),
   [Jeżyce traces and follower fix](observations/car-tram-jezyce-2026-11-10.md),
