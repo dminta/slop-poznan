@@ -438,3 +438,14 @@ over the full plan cycle (pedestrian plans included), facing, setbacks, reused p
 rail clearance (`>= 2.22 m`), the 8 m/10.5 m visibility bands, foot rail clearance (`>= 3.1 m`), colliders and audio
 registrations. It also builds the tram/rail catenary layouts and checks every overhead arm, foot and head against
 every pole and mast (`>= 0.5 m`).
+
+## Demand-crossing audit
+
+`node tools/audit-demand-crossings.mjs [--seeds 4242,77] [--minutes 5] [--fps 15] [--only id1,id2] [--json]`
+builds the headless benchmark world (`tools/bench-world.mjs`), lists all 23 two-arm demand-crossing signals, groups
+them into 200 m focus batches (offsetting single-node or close batches by 100 m so `spawnPed` can place crossers in its
+60–280 m ring), and simulates traffic + pedestrians. Per node it reports NPC requests, phases served, request-to-WALK
+latency (min/p50/max), minimum road green (>= 20 s), 2 s request delay, red clearance (>= crossing width / 1 m/s),
+curb-wait starvation (> 60 s without a request), road-green crossing violations, and unvisited nodes.
+`tests/demand-crossings.test.mjs` runs a 1.5-minute seed `4242` subset on nodes `2634` (`(415.5, 523)`), `139` and
+`1662` ([record](observations/demand-crossings-2026-11-15.md)).

@@ -320,8 +320,10 @@ the checks below; each remaining bullet is the part that is still open.
 
 - Check the Most Teatralny pole-mounted heads (orientation and colour against the signal state, WebGPU + WebGL2); the
   node has no overhead head, and Głogowska/Hetmańska was checked 2026-11-14
-  ([record](observations/browser-checks-2026-11-14.md)). Extend NPC demand-request coverage beyond node `2422` and test
-  the full rendered Św. Marcin green-wave corridor and crossing ticks against displayed heads.
+  ([record](observations/browser-checks-2026-11-14.md)). Headless NPC demand-request coverage now spans all 23
+  demand-crossing nodes (`tools/audit-demand-crossings.mjs`,
+  [2026-11-15 audit](observations/demand-crossings-2026-11-15.md)); browser checks of rendered demand crossings beyond
+  node `2422`, the full rendered Św. Marcin green-wave corridor, and crossing ticks against displayed heads remain open.
   [Previous coverage and limits](observations/signals-2026-10-30.md).
 - Check Dworzec's connected refuge route, signals and pedestrian/vehicle interactions on WebGL2; record a full
   rendered interaction with a naturally approaching bus, including rear clearance.

@@ -2962,7 +2962,7 @@ function createTrafficSystem(
       // room to walk before standing: up to the curb unless p may cross (or crosses on from a strip with no room to
       // wait), and up to the back of whoever is ahead
       const s = curbProgress(p);
-      room = s <= KERB && !p.through && !mayCross(p) ? KERB - s : Infinity;
+      room = s <= KERB + 1e-6 && !p.through && !mayCross(p) ? Math.max(0, KERB - s) : Infinity;
       roomCause = room === Infinity ? '' : 'curb';
       for (const q of p.node.curb) {
         if (q === p || q.node !== p.node || q.side !== p.side || q.dir !== p.dir || Math.abs(q.line - p.line) > 0.55) continue;
@@ -3007,7 +3007,7 @@ function createTrafficSystem(
     const movement = Math.min(p.v * dt, room);
     if (p.v * dt > room) p.v = 0;
     let t = p.t + p.dir * movement;
-    const reachesCurb = !!p.node && curbProgress(p) <= KERB && (p.dir > 0 ? t : p.len - t) >= KERB - 1e-6;
+    const reachesCurb = !!p.node && curbProgress(p) <= KERB + 1e-6 && (p.dir > 0 ? t : p.len - t) >= KERB - 1e-6;
     p.waiting = reachesCurb && !p.through && !mayCross(p);
     if (p.waiting) {
       t = p.dir > 0 ? Math.min(t, KERB) : Math.max(t, p.len - KERB);
