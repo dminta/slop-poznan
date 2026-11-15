@@ -1,6 +1,6 @@
 # Poznań backlog
 
-Updated 2026-11-12. Only remaining work, open decisions and outstanding browser checks are listed below.
+Updated 2026-11-15. Only remaining work, open decisions and outstanding browser checks are listed below.
 Implementation details and completed measurements live in the [topic docs](../AGENTS.md#docs) and
 [observation records](observations/). Original phase references refer to the [archived port plan](archive/poznan-plan.md).
 
@@ -11,7 +11,10 @@ Implementation details and completed measurements live in the [topic docs](../AG
   Vault profiles, tagged pitch surfaces/markings and the circular lecture forecourt are implemented. See [world](world.md#piotrowo-campus-landmarks-2026-11-12-round-2) and
   [height evidence](geodata.md#piotrowo-campus-snapshot-2026-11-12).
 
-- **Pedestrian overlap residual:** at `5e6a68e` the eight-district audit (seeds 4242/77, 3 min) has no cluster
+- **Pedestrian overlap residual:** **current (`a49181b`, 2026-11-15):** 0 clusters, 5.60 overlapping pairs/s,
+  106.9 crosswalk entries/min, `--ped-rooms` 23,580 ped-s (Centrum 14,075) after the Pasaż Różowy stub rule and the
+  shared twin-lane link keys of 2026-11-14; the 16–24 s single pairs (Poznańskie Krzyże crosswalk start, Św. Marcin,
+  Most Dworcowy U-turns) remain, and every candidate tried for them is listed below. History: at `5e6a68e` the eight-district audit (seeds 4242/77, 3 min) has no cluster
   (0 clusters, 5.43 overlapping pairs/s, 105.3 crosswalk entries/min); `564975e` cleared the Pasaż Różowy cluster the
   `42329c3` layout restore had created (10 clusters, longest 26 s). The traffic fixes since then do not touch
   pedestrians. Open: Most Dworcowy / Głogowska corner-link pairs of 16–19 s at `(-1558, 575)`, both seeds. The 19 s
@@ -52,7 +55,11 @@ Implementation details and completed measurements live in the [topic docs](../AG
   [Taczaka cluster fix](observations/ped-taczaka-clusters-2026-11-14.md),
   [Centrum pair fixes](observations/ped-centrum-pairs-2026-11-14.md),
   [mechanisms](observations/ped-overlap-remnants-2026-11-08.md).
-- **Kaponiera long holds and the last deadlock:** at `8c41595` (8 seeds × 7 districts, 5 min) every hold > 120 s and
+- **Kaponiera long holds and the last deadlock:** **current (2026-11-14/15):** 0 deadlocks over 8 seeds × 7
+  districts; Kaponiera keeps 11 holds > 120 s (seed 5: 6, seed 1: 3). The two traced cases are signal capacity, not
+  rule faults: seed 1's queue at `(-1136, 127)` (18 s of 65 s green, tram queue) and seed 5's 3→2 merge at
+  `(-1497, 198)` into a 16 s / 60 s green. A further gain needs a signal-plan change at those two junctions. History:
+  at `8c41595` (8 seeds × 7 districts, 5 min) every hold > 120 s and
   every deadlock is in Kaponiera: 12.6 km/h, 51.3 % stopped, worst wait 145 s, held > 60 s 133, > 120 s **13**,
   **1** deadlock, 2 box-stuck seeds (from 12.3 km/h, 52.2 %, 155 s, 167 / 21 / 5 / 3 at `3279f75`). `6d70c71` broke
   the tram → car → (car →) own proxy → tram cycles (seeds 1, 7, 99 and one of seed 5's): the tram's road-car gate now
@@ -108,7 +115,9 @@ Implementation details and completed measurements live in the [topic docs](../AG
   [2026-11-08 trace and rejected variants](observations/kaponiera-traffic-2026-11-08.md),
   [Centrum trace](observations/merge-starvation-2026-11-07.md),
   [per-second left-turn/tram trace](observations/left-turn-tram-2026-11-04.md).
-- **Car–tram body overlaps:** re-measured at `5199713`: **37 pairs** over eight seeds (Jeżyce 23,
+- **Car–tram body overlaps:** **current (`a49181b`, 2026-11-15): 27 pairs** over eight seeds (Jeżyce 15, Kaponiera
+  6, Centrum 3, Rataje 2, Stare Miasto 1); remaining Jeżyce pairs are the 10 m stub `4660`, the `8947 -> 4659` bus
+  clearance and 2 connector entries. History: re-measured at `5199713`: **37 pairs** over eight seeds (Jeżyce 23,
   Kaponiera 8, Stare Miasto 5, Centrum 1; 19 moving / 18 stopped), one car held over 120 s and no deadlock.
   [Section-sweep audit and city-wide list](observations/car-tram-sweep-2026-11-12.md): 176 intruding lane ends,
   only 37 able to retreat clear while retaining six metres. The named Jeżyce 10 m stubs need 24.75 / 10.25 m
