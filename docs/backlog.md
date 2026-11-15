@@ -320,12 +320,11 @@ signs and dusk/night spot colours were checked 2026-11-11.
 
 ### Signals, traffic and audio
 
-- Check the Most Teatralny pole-mounted heads (orientation and colour against the signal state, WebGPU + WebGL2); the
-  node has no overhead head, and Głogowska/Hetmańska was checked 2026-11-14
-  ([record](observations/browser-checks-2026-11-14.md)). Headless NPC demand-request coverage now spans all 23
-  demand-crossing nodes (`tools/audit-demand-crossings.mjs`,
-  [2026-11-15 audit](observations/demand-crossings-2026-11-15.md)); browser checks of rendered demand crossings beyond
-  node `2422`, the full rendered Św. Marcin green-wave corridor, and crossing ticks against displayed heads remain open.
+- Check rendered demand crossings beyond node `2422`, the full rendered Św. Marcin green-wave corridor, and
+  crossing ticks against displayed heads (headless NPC demand-request coverage now spans all 23 demand-crossing nodes,
+  `tools/audit-demand-crossings.mjs`, [2026-11-15 audit](observations/demand-crossings-2026-11-15.md); Most Teatralny
+  pole-mounted heads and Głogowska/Hetmańska were checked on WebGPU and WebGL2 in
+  [2026-11-14](observations/browser-checks-2026-11-14.md) and [2026-11-15](observations/browser-checks-2026-11-15.md)).
   [Previous coverage and limits](observations/signals-2026-10-30.md).
 - Check Dworzec's connected refuge route, signals and pedestrian/vehicle interactions on WebGL2; record a full
   rendered interaction with a naturally approaching bus, including rear clearance.
@@ -337,12 +336,6 @@ signs and dusk/night spot colours were checked 2026-11-11.
   `tools/audit-signal-tram-clearance.mjs`) confirms 0 clashes against the articulated tram swept envelope and catenary
   wires (min lateral 0.508 m on cantilever heads, 0.775 m on span heads, 0.873 m on ordinary poles; min stay vertical
   clearance +1.382 m above 5.8 m contact wire at Górna Wilda, +4.182 m elsewhere). [Measurements](observations/missing-signal-heads-2026-11-08.md).
-- Check overhead signal visibility for the 8 stop-line fallback heads (7 cantilever, 1 span; down from 15 after the
-  2026-11-08 span pass): two (`-3242, 1727` and `-2722, 2057`) were seen over the car in front from 20 m back on
-  2026-11-14 ([record](observations/browser-checks-2026-11-14.md)), and the 2026-11-14 geometric audit
-  ([record](observations/fallback-head-sight-2026-11-14.md)) confirms all 8 are visible from position 1 and through a
-  6-car queue in the `pov` camera (`eyeY = 1.52 m`; blocked behind a 3.0 m bus directly in front). Browser visual
-  checks of the remaining 6 fallback heads remain open.
 - Watch a tram pass a car stopped at a crossing and a left-turner complete through the Kaponiera box; check for
   visible clipping or stopping within the approximately 1 s forecast gap. A six-frame twilight watch on 2026-11-11 saw
   no clipping, but not the named pair.
