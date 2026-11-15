@@ -327,12 +327,156 @@ const KIND_BY_NAME = {
   'Most Uniwersytecki': 'overpass'
 };
 
+// How far a link's polyline may stray from its chord (or a curved structure's axis from one straight section) before
+// the structure follows it in sections. One straight axis through a curved link put Krzywoustego's balustrade across
+// its own carriageways: the 551 m westbound link bows 29.3 m off its chord (the 467 m eastbound one 21.4 m), so the
+// parapet line ran diagonally over both roadways at its ends. 0.5 m is under a third of the 1.65 m between a 9.8 m
+// one-way link's outer lane envelope (5.4 m off its centreline) and the overpass balustrade (7.05 m).
+const CURVE_TOL = 0.5;
+
+function chordDeviation(pts) {
+  const a = pts[0];
+  const b = pts[pts.length - 1];
+  const L = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+  let dev = 0;
+  for (const p of pts) dev = Math.max(dev, Math.abs((p.x - a.x) * (b.z - a.z) - (p.z - a.z) * (b.x - a.x)) / L);
+  return dev;
+}
+
+// Douglas-Peucker: the indices of the points that keep every other point within tol of the straight sections between
+function straightStations(pts, tol) {
+  const keep = [0, pts.length - 1];
+  const split = (i, j) => {
+    const a = pts[i];
+    const b = pts[j];
+    const L = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+    let worst = -1;
+    let dev = tol;
+    for (let k = i + 1; k < j; k++) {
+      const d = Math.abs((pts[k].x - a.x) * (b.z - a.z) - (pts[k].z - a.z) * (b.x - a.x)) / L;
+      if (d > dev) {
+        dev = d;
+        worst = k;
+      }
+    }
+    if (worst < 0) return;
+    keep.push(worst);
+    split(i, worst);
+    split(worst, j);
+  };
+  split(0, pts.length - 1);
+  return keep.sort((p, q) => p - q);
+}
+
+/**
+ * A curved group as straight sections along its axis link's polyline (straightStations at CURVE_TOL). Every link of the
+ * group is sampled every 2 m and each sample goes to the section nearest it, so a section's corridor [smin, smax] holds
+ * all of both carriageways beside it (tram strips moved to their side as in bridgeStructures); only the first and last
+ * sections reach past the axis link's ends. Sections meeting at a joint carry joinStart / joinEnd and the tangent of
+ * half their turn (miterStart / miterEnd), so the parapets run on through the joint instead of stopping short of it.
+ */
+function curvedSections(group, axis) {
+  const st = straightStations(axis.pts, CURVE_TOL);
+  const secs = [];
+  for (let k = 0; k + 1 < st.length; k++) {
+    const p = axis.pts[st[k]];
+    const q = axis.pts[st[k + 1]];
+    const len = Math.hypot(q.x - p.x, q.z - p.z);
+    if (len < 1e-3) continue;
+    secs.push({ o: p, ux: (q.x - p.x) / len, uz: (q.z - p.z) / len, len, tmin: 0, tmax: len, smin: Infinity, smax: -Infinity });
+  }
+  const last = secs.length - 1;
+  for (const l of group) {
+    for (let i = 0; i + 1 < l.pts.length; i++) {
+      const p = l.pts[i];
+      const q = l.pts[i + 1];
+      const segLen = Math.hypot(q.x - p.x, q.z - p.z);
+      if (segLen < 1e-3) continue;
+      const n = Math.max(1, Math.ceil(segLen / 2));
+      for (let j = 0; j <= n; j++) {
+        const x = p.x + ((q.x - p.x) * j) / n;
+        const z = p.z + ((q.z - p.z) * j) / n;
+        let best = null;
+        let bestD = Infinity;
+        for (const sec of secs) {
+          const t = (x - sec.o.x) * sec.ux + (z - sec.o.z) * sec.uz;
+          const s = (x - sec.o.x) * -sec.uz + (z - sec.o.z) * sec.ux;
+          const d = Math.hypot(s, Math.max(0, -t, t - sec.len));
+          if (d < bestD) {
+            bestD = d;
+            best = { sec, t, s };
+          }
+        }
+        const { sec, t, s } = best;
+        if (sec === secs[0]) sec.tmin = Math.min(sec.tmin, t);
+        if (sec === secs[last]) sec.tmax = Math.max(sec.tmax, t);
+        const aligned = (q.x - p.x) * sec.ux + (q.z - p.z) * sec.uz >= 0 ? 1 : -1;
+        const sc = s + (l.tramSide ? aligned * l.tramSide * TRAM_WIDTH * 0.5 : 0);
+        sec.smin = Math.min(sec.smin, sc - l.width * 0.5);
+        sec.smax = Math.max(sec.smax, sc + l.width * 0.5);
+      }
+    }
+  }
+  const halfTurn = (s0, s1) => Math.tan(Math.acos(Math.max(-1, Math.min(1, s0.ux * s1.ux + s0.uz * s1.uz))) * 0.5);
+  return secs.map((sec, k) => {
+    const sc = (sec.smin + sec.smax) * 0.5;
+    const { o, ux, uz } = sec;
+    return {
+      a: { x: o.x + ux * sec.tmin - uz * sc, z: o.z + uz * sec.tmin + ux * sc },
+      b: { x: o.x + ux * sec.tmax - uz * sc, z: o.z + uz * sec.tmax + ux * sc },
+      W: sec.smax - sec.smin,
+      joinStart: k > 0,
+      joinEnd: k < last,
+      miterStart: k > 0 ? halfTurn(secs[k - 1], sec) : 0,
+      miterEnd: k < last ? halfTurn(sec, secs[k + 1]) : 0
+    };
+  });
+}
+
+// One structure on the straight axis a -> b, W wide: the stretch over water and its kind. `sec` is a curved group's
+// section (curvedSections), null for a straight structure.
+function structureSpec(br, group, a, b, W, sec) {
+  const L = Math.hypot(b.x - a.x, b.z - a.z);
+  const ux = (b.x - a.x) / (L || 1);
+  const uz = (b.z - a.z) / (L || 1);
+  // Water along the axis, on the centre line and both carriageway edges, in 1 m steps
+  const runs = [];
+  let run = null;
+  for (let t = 0; t <= L; t += 1) {
+    let wet = false;
+    for (const s of [-W * 0.5, 0, W * 0.5]) {
+      if (waterAt(a.x + ux * t - uz * s, a.z + uz * t + ux * s)) wet = true;
+    }
+    if (wet && !run) runs.push((run = { t0: t, t1: t }));
+    else if (wet) run.t1 = t;
+    else run = null;
+  }
+  const water = runs.length ? { w0: runs[0].t0, w1: runs[runs.length - 1].t1, runs } : null;
+  const kind = KIND_BY_NAME[br.name] || (water ? 'girder' : 'overpass');
+  return {
+    name: br.name || 'Bridge',
+    kind,
+    a,
+    b,
+    L,
+    width: W,
+    tram: group.some((l) => l.tram),
+    water,
+    footbridge: !!(br.footbridge || group.some((l) => l.footbridge)),
+    joinStart: !!sec?.joinStart,
+    joinEnd: !!sec?.joinEnd,
+    miterStart: sec?.miterStart || 0,
+    miterEnd: sec?.miterEnd || 0
+  };
+}
+
 /**
  * The bridge structures: each name's links merged where they are parallel and side by side or end to end (dual
  * carriageways, a bridge split into pieces by junction nodes). Each structure is one straight axis a -> b through the
  * middle of its links with the carriageway width W across all of them, plus the stretch of the axis over water
  * ([w0, w1] in metres from a; null over land) sampled from the water polygons: city-config's isWater is false on deck
- * cells, so waterAt is the test.
+ * cells, so waterAt is the test. A group with a curved link becomes several such structures, one per straight section
+ * of its axis (curvedSections).
  */
 function bridgeStructures() {
   const out = [];
@@ -365,6 +509,12 @@ function bridgeStructures() {
     });
     for (const group of groups.values()) {
       const axis = group.reduce((m, l) => (l.len > m.len ? l : m), group[0]);
+      // A group whose links all keep within CURVE_TOL of their chords is one straight structure through the link
+      // midpoints, as it always was; a curved one follows the axis link in straight sections (curvedSections)
+      if (group.some((l) => chordDeviation(l.pts) > CURVE_TOL)) {
+        for (const sec of curvedSections(group, axis)) out.push(structureSpec(br, group, sec.a, sec.b, sec.W, sec));
+        continue;
+      }
       const ux = axis.ux;
       const uz = axis.uz;
       const o = axis.a;
@@ -389,33 +539,7 @@ function bridgeStructures() {
       const sc = (smin + smax) * 0.5;
       const a = { x: o.x + ux * tmin - uz * sc, z: o.z + uz * tmin + ux * sc };
       const b = { x: o.x + ux * tmax - uz * sc, z: o.z + uz * tmax + ux * sc };
-      const L = tmax - tmin;
-      const W = smax - smin;
-      // Water along the axis, on the centre line and both carriageway edges, in 1 m steps
-      const runs = [];
-      let run = null;
-      for (let t = 0; t <= L; t += 1) {
-        let wet = false;
-        for (const s of [-W * 0.5, 0, W * 0.5]) {
-          if (waterAt(a.x + ux * t - uz * s, a.z + uz * t + ux * s)) wet = true;
-        }
-        if (wet && !run) runs.push((run = { t0: t, t1: t }));
-        else if (wet) run.t1 = t;
-        else run = null;
-      }
-      const water = runs.length ? { w0: runs[0].t0, w1: runs[runs.length - 1].t1, runs } : null;
-      const kind = KIND_BY_NAME[br.name] || (water ? 'girder' : 'overpass');
-      out.push({
-        name: br.name || 'Bridge',
-        kind,
-        a,
-        b,
-        L,
-        width: W,
-        tram: group.some((l) => l.tram),
-        water,
-        footbridge: !!(br.footbridge || group.some((l) => l.footbridge))
-      });
+      out.push(structureSpec(br, group, a, b, smax - smin, null));
     }
   }
   return out;
@@ -472,10 +596,112 @@ const defaultRailTracks = () => {
   return [];
 };
 
+// The interval of t where p + d·t (d a unit vector) lies within r of the segment a-b, or null
+function lineCapsule(p, d, a, b, r) {
+  let lo = Infinity;
+  let hi = -Infinity;
+  const ex = b.x - a.x;
+  const ez = b.z - a.z;
+  const el = Math.hypot(ex, ez);
+  const ux = ex / el;
+  const uz = ez / el;
+  // Inside the rectangle |lateral| <= r, 0 <= along <= el: both linear in t
+  let r0 = -Infinity;
+  let r1 = Infinity;
+  for (const [c0, c1, min, max] of [
+    [(p.x - a.x) * ux + (p.z - a.z) * uz, d.x * ux + d.z * uz, 0, el],
+    [(p.x - a.x) * -uz + (p.z - a.z) * ux, d.x * -uz + d.z * ux, -r, r]
+  ]) {
+    if (Math.abs(c1) < 1e-12) {
+      if (c0 < min || c0 > max) r1 = -Infinity;
+      continue;
+    }
+    const ta = (min - c0) / c1;
+    const tb = (max - c0) / c1;
+    r0 = Math.max(r0, Math.min(ta, tb));
+    r1 = Math.min(r1, Math.max(ta, tb));
+  }
+  if (r0 <= r1) {
+    lo = r0;
+    hi = r1;
+  }
+  // ...and the discs round both ends
+  for (const c of [a, b]) {
+    const qx = p.x - c.x;
+    const qz = p.z - c.z;
+    const bq = qx * d.x + qz * d.z;
+    const disc = bq * bq - (qx * qx + qz * qz - r * r);
+    if (disc < 0) continue;
+    const sq = Math.sqrt(disc);
+    lo = Math.min(lo, -bq - sq);
+    hi = Math.max(hi, -bq + sq);
+  }
+  return lo <= hi ? [lo, hi] : null;
+}
+
+// The streets a parapet line must leave open, as segments { a, b, half }: the city-grid roadways (ROADS) and the
+// road-graph links the network lays its lanes on, which differ where OSM's roadway pieces do. Under Wiadukt Dolna Wilda
+// the Rondo Józefa Vogla link runs from (-783.4, 2808) to (-772.5, 2762.8) right across both balustrades, while its
+// ROADS piece there is a single point, so 16 m of balustrade stood over its two lanes. A link's half reach includes
+// its tram strip, which lies beside the points (docs/geodata.md).
+// Bucketed in STREET_CELL cells: scanning every segment for each parapet line made the headless bridge build 316 ms
+// (203 ms with the ROADS scan alone, before the road-graph links joined it); indexed it takes 121 ms (2026-11-15).
+const STREET_CELL = 64;
+let streetIndex = null;
+function streetSegments() {
+  if (streetIndex) return streetIndex;
+  const segs = [];
+  for (const r of ROADS) {
+    for (let i = 0; i + 1 < r.pts.length; i++) segs.push({ a: r.pts[i], b: r.pts[i + 1], half: (r.w || 6) * 0.5, seen: 0 });
+  }
+  const g = GEO.roadGraph;
+  const node = (i) => ({ x: g.nodes[i * 2], z: g.nodes[i * 2 + 1] });
+  for (const [ia, ib, , w, , , inner, flags] of g.links) {
+    const pts = [node(ia)];
+    for (let k = 0; k + 1 < (inner || []).length; k += 2) pts.push({ x: inner[k], z: inner[k + 1] });
+    pts.push(node(ib));
+    const half = (w || 6) * 0.5 + (flags & 24 ? TRAM_WIDTH * 0.5 : 0);
+    for (let i = 0; i + 1 < pts.length; i++) segs.push({ a: pts[i], b: pts[i + 1], half, seen: 0 });
+  }
+  const cells = new Map();
+  for (const sg of segs) {
+    const r = sg.half + 3;
+    const i0 = Math.floor((Math.min(sg.a.x, sg.b.x) - r) / STREET_CELL);
+    const i1 = Math.floor((Math.max(sg.a.x, sg.b.x) + r) / STREET_CELL);
+    const j0 = Math.floor((Math.min(sg.a.z, sg.b.z) - r) / STREET_CELL);
+    const j1 = Math.floor((Math.max(sg.a.z, sg.b.z) + r) / STREET_CELL);
+    for (let i = i0; i <= i1; i++) {
+      for (let j = j0; j <= j1; j++) {
+        const key = i * 65536 + j;
+        let list = cells.get(key);
+        if (!list) cells.set(key, (list = []));
+        list.push(sg);
+      }
+    }
+  }
+  let stamp = 0;
+  // The segments whose roadway (plus 3 m) may reach the box, each once
+  streetIndex = (x0, x1, z0, z1) => {
+    stamp++;
+    const out = [];
+    for (let i = Math.floor(x0 / STREET_CELL); i <= Math.floor(x1 / STREET_CELL); i++) {
+      for (let j = Math.floor(z0 / STREET_CELL); j <= Math.floor(z1 / STREET_CELL); j++) {
+        for (const sg of cells.get(i * 65536 + j) || []) {
+          if (sg.seen === stamp) continue;
+          sg.seen = stamp;
+          out.push(sg);
+        }
+      }
+    }
+    return out;
+  };
+  return streetIndex;
+}
+
 // The pieces of a parapet line (lateral offset s, over [t0, t1] in metres from a) left between the streets that cross
-// it: a road joining the bridge from the side (a junction inside the merged structure) gets a gap of its half width
-// plus 3 m on either side. Roads within ~20° of the bridge axis are its own carriageways and never cut it.
-// Tram tracks get a clearance margin of min 2.0 m from track centerline; railway tracks get min 2.4 m.
+// it (streetSegments): a road joining the bridge from the side (a junction inside the merged structure) gets a gap of
+// its half width plus 3 m on either side. Roads within ~20° of the bridge axis are its own carriageways and never cut
+// it. Tram tracks get a clearance margin of min 2.0 m from track centerline; railway tracks get min 2.4 m.
 function parapetPieces(f, s, t0, t1, { tramTracks = null, railTracks = null } = {}) {
   const p0 = f.at(t0 / f.L, s);
   const p1 = f.at(t1 / f.L, s);
@@ -486,27 +712,23 @@ function parapetPieces(f, s, t0, t1, { tramTracks = null, railTracks = null } = 
   const z0 = Math.min(p0.z, p1.z) - 1;
   const z1 = Math.max(p0.z, p1.z) + 1;
   const cuts = [];
-  for (const r of ROADS) {
-    for (let i = 0; i + 1 < r.pts.length; i++) {
-      const a = r.pts[i];
-      const b = r.pts[i + 1];
-      if (Math.max(a.x, b.x) < x0 || Math.min(a.x, b.x) > x1 || Math.max(a.z, b.z) < z0 || Math.min(a.z, b.z) > z1) continue;
-      const ex = b.x - a.x;
-      const ez = b.z - a.z;
-      const el = Math.hypot(ex, ez);
-      if (el < 1e-3) continue;
-      const sinA = Math.abs(ex * f.dir.z - ez * f.dir.x) / el;
-      if (sinA < 0.34) continue;
-      // p0 + u·(dx, dz) = a + v·(ex, ez)
-      const den = dx * ez - dz * ex;
-      if (Math.abs(den) < 1e-9) continue;
-      const u = ((a.x - p0.x) * ez - (a.z - p0.z) * ex) / den;
-      const v = ((a.x - p0.x) * dz - (a.z - p0.z) * dx) / den;
-      if (u < -0.05 || u > 1.05 || v < 0 || v > 1) continue;
-      const t = t0 + u * (t1 - t0);
-      const half = (r.w || 6) * 0.5 / sinA + 3;
-      cuts.push([t - half, t + half]);
-    }
+  for (const { a, b, half: hw } of streetSegments()(x0, x1, z0, z1)) {
+    const r = hw + 3;
+    if (Math.max(a.x, b.x) + r < x0 || Math.min(a.x, b.x) - r > x1 || Math.max(a.z, b.z) + r < z0 ||
+      Math.min(a.z, b.z) - r > z1) continue;
+    const ex = b.x - a.x;
+    const ez = b.z - a.z;
+    const el = Math.hypot(ex, ez);
+    if (el < 1e-3) continue;
+    const sinA = Math.abs(ex * f.dir.z - ez * f.dir.x) / el;
+    if (sinA < 0.34) continue;
+    // The stretch of the line inside the street's roadway (a capsule of its half width round the segment), 3 m more
+    // on either side. Through the middle of a street that is its width over sinA as before; it also catches a street
+    // that ends at a junction just beside the line, as a slip road's parent carriageway does at its mouth (Dworcowa
+    // off Most Uniwersytecki at -1425, 117): the old crossing test needed the centrelines to meet on the line.
+    const span = lineCapsule(p0, f.dir, a, b, hw);
+    if (!span) continue;
+    cuts.push([t0 + span[0] - 3, t0 + span[1] + 3]);
   }
 
   const cutTracks = (tracks, margin) => {
@@ -525,9 +747,12 @@ function parapetPieces(f, s, t0, t1, { tramTracks = null, railTracks = null } = 
         if (Math.abs(den) < 1e-9) continue;
         const u = ((a.x - p0.x) * ez - (a.z - p0.z) * ex) / den;
         const v = ((a.x - p0.x) * dz - (a.z - p0.z) * dx) / den;
-        if (u < -0.05 || u > 1.05 || v < 0 || v > 1) continue;
+        if (v < 0 || v > 1) continue;
         const t = t0 + u * (t1 - t0);
         const half = Math.max(margin, Math.min(8.0, margin / sinA));
+        // A track crossing the line just past its end still cuts the end within its margin: the 4.8 m second section
+        // of the curved Dworcowa slip (-1408, 130) ends 1 m short of a rail crossing and kept its collider 1.88 m off it
+        if (t < t0 - half || t > t1 + half) continue;
         cuts.push([t - half, t + half]);
       }
     }
@@ -802,7 +1027,7 @@ function buildCoveredFootbridge(group, spec, mats, colliders) {
  * under a coping) and its lamps.
  */
 function buildOverpass(group, spec, mats, colliders, panelGeo, options = {}) {
-  if (spec.L < 15) return;
+  if (spec.L < 15 && !spec.joinStart && !spec.joinEnd) return;
   const B = createBeamSet();
   const parts = createPartCollector();
   const f = bridgeFrame(spec);
@@ -810,8 +1035,12 @@ function buildOverpass(group, spec, mats, colliders, panelGeo, options = {}) {
   const s = spec.width * 0.5 + 2.15;
   const UP = new THREE.Vector3(0, 1, 0);
   const across = new THREE.Vector3().crossVectors(dir, UP);
+  // 2 m short of the structure's ends; through a joint between the sections of a curved structure, out to the mitre
+  // (at a 3° joint of the 33 m Krzywoustego corridor the outer lines' 1.0 m gap closes, the inner ones overlap as much)
+  const tA = spec.joinStart ? -spec.miterStart * s : 2;
+  const tB = spec.joinEnd ? L + spec.miterEnd * s : L - 2;
   for (const sg of [-1, 1]) {
-    for (const [t0, t1] of parapetPieces(f, sg * s, 2, L - 2, options)) {
+    for (const [t0, t1] of parapetPieces(f, sg * s, tA, tB, options)) {
       const n = Math.max(1, Math.round((t1 - t0) / BALUSTRADE_PANEL));
       const scale = (t1 - t0) / (n * BALUSTRADE_PANEL);
       for (let k = 0; k < n; k++) {

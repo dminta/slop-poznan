@@ -226,6 +226,19 @@ overlaps; the browser build matched (38 moved, 3 dropped, 225 shelters). The Ron
 moved, and runs the `--before` audit to check the new predicate still catches the pre-fix 0.08 m overhang and the
 pole shelter. The audit uses the headless fixture, not the browser's full collider set.
 
+## Bridge parapet audit
+
+`node tools/audit-bridge-parapets.mjs [--before <rev>] [--boot] [--json] [--top N] [--name <substring>]` builds
+`js/bridges.js` with the shared three.js stub, records every instanced member and balustrade panel
+(`tests/helpers/bridge-parapets.cjs`), keeps those standing on the street (parapet parts within 0.25–2.5 m, lamp posts
+over 5 m tall and under 0.3 m across, taller hangers as `structure`) and every parapet collider, and samples each along
+its long axis every 0.25 m against the 3.6 m lane envelopes of the painted network (straight lanes, lane shifts and
+8-chord junction turning curves). The default network is `buildRoadNetwork([], [])` (~3 s); `--boot` builds the boot
+network over the city grid and street furniture (~9 s) and measured the same rows on 2026-11-15. `--before` loads
+`js/bridges.js` from a revision (`84a1443` is the pre-fix structure). It exits non-zero while anything overlaps.
+`tests/bridge-parapets.test.cjs` pins 0 on Krzywoustego and the 4-member Dworcowa / Most Dworcowy residual
+([record](observations/bridge-parapets-2026-11-15.md)).
+
 ## Pedestrian overlap audit
 
 `node tools/audit-ped-overlaps.mjs` runs the real pedestrians, traffic and trams headless with the camera parked at
