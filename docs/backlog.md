@@ -11,50 +11,36 @@ Implementation details and completed measurements live in the [topic docs](../AG
   Vault profiles, tagged pitch surfaces/markings and the circular lecture forecourt are implemented. See [world](world.md#piotrowo-campus-landmarks-2026-11-12-round-2) and
   [height evidence](geodata.md#piotrowo-campus-snapshot-2026-11-12).
 
-- **Pedestrian overlap residual:** **current (`a49181b`, 2026-11-15):** 0 clusters, 5.60 overlapping pairs/s,
-  106.9 crosswalk entries/min, `--ped-rooms` 23,580 ped-s (Centrum 14,075) after the Pasaż Różowy stub rule and the
-  shared twin-lane link keys of 2026-11-14; the 16–24 s single pairs (Poznańskie Krzyże crosswalk start, Św. Marcin,
-  Most Dworcowy U-turns) remain, and every candidate tried for them is listed below. History: at `5e6a68e` the eight-district audit (seeds 4242/77, 3 min) has no cluster
-  (0 clusters, 5.43 overlapping pairs/s, 105.3 crosswalk entries/min); `564975e` cleared the Pasaż Różowy cluster the
-  `42329c3` layout restore had created (10 clusters, longest 26 s). The traffic fixes since then do not touch
-  pedestrians. Open: Most Dworcowy / Głogowska corner-link pairs of 16–19 s at `(-1558, 575)`, both seeds. The 19 s
-  pair is a head-on entrance cycle, not a red-light wait: an isolated 4.78 m split sidewalk has its two painted lane
-  lines (inset 1.7 / 2.8 m) joined by a 1.1 m U-turn at each end, so the two lines form a closed 4.8 × 1.1 m
-  racetrack and the two directions of one U-turn link meet head-on. A world scan finds 332 such closed twin-lane
-  tracks (249 split, 83 full; 67 under 6 m); Św. Marcin, Taczaka, Wilda and Rataje show the same 16–20 s stand-off
-  that the 20 s recovery ends. Centrum's Pasaż Różowy
-  pocket is a 1.87 m pedestrian way whose four lines form a clique of 1.1–5.6 m links with no through exit; it still
-  freezes walkers routed into it (`--ped-rooms` 22,550 of ~93,700 ped-s, longest 20.1 s; 7-district total 40,271
-  ped-s). The 2026-11-10 twin-lane pass root-caused both and tried route-build traps, dead-end sink guards, spawn
-  filters, one-direction-at-a-time short links, a length-scaled lane ramp and a delayed entrance swap. It killed the
-  named pair and improved the overlap rate (full audit 5.24 pairs/s, 110.0 entries/min) but left one 5 s Pasaż
-  cluster and raised rooms to 43,399 ped-s (Centrum 22,949); every other variant moved a cluster or made the room
-  total worse. All were reverted, so the baseline is unchanged. Do not revive the length-weighted goal pick
-  (Centrum 22,111 → 24,189 ped-s), a one-person minimum capacity on short links (the hold moved, pairs/s 6.2 → 7.6),
-  a world-grid body-clearance check at short-link entrances (new 19 s pairs at Głogowska / Zachodnia), ignoring an
-  oncoming blocker on the same route key (no effect), matching the reversed link by its endpoints (pairs/s up in both
-  seeds, ~19 %), the same after 5 s stuck (hold persists), dropping dead-end twin U-turns (pairs/s 7.1 → 9.1), or a
-  one-direction-at-a-time rule on tracks under 3 m (rooms +1,914 ped-s at Centrum alone). On `3b6ec32` (2026-11-14
-  recheck), the eight-district audit had 3 clusters (all in Centrum at Stanisława Taczaka, longest 14 s, biggest 5),
-  5.82 overlap pairs/s, 107.5 crosswalk entries/min, and 25,811 ped-s in `--ped-rooms` (Centrum 16,608, longest
-  20.1 s); do not revive segment-exact `onNext` on corner links, `stuck > 1` oncoming-exit swaps, or `< 2 * QUEUE_GAP`
-  short-link box guards (each regresses Centrum `--ped-rooms` or `pairs/s` / clusters). On `agy-taczaka`
-  (`ped-taczaka-clusters-2026-11-14.md`), bisecting to `59ee496` showed a sequence shift exposing the `way:88` Pasaż
-  Różowy 1.87 m dead-end pocket; `next()` now skips entering dead-end `way` stubs under 3 m, clearing all **3 → 0** clusters (6.02 pairs/s, 106.7 entries/min) and cutting Centrum `--ped-rooms`
-  **16,608 → 14,588** ped-s (7-district total **25,811 → 23,791**). On `agy-ped-marcin`
-  (`ped-centrum-pairs-2026-11-14.md`), ablation of the four Centrum longest-pair fixes kept only shared same-way
-  `wayLinks` keys (`js/pedestrian-routes.js`), cutting eight-district overlap **6.02 → 5.60** pairs/s (Centrum `4242`
-  **17.7 → 13.9**, `77` **12.1 → 10.6**), entries/min **106.7 → 106.9**, and `--ped-rooms` **23,791 → 23,580**
-  (Centrum **14,588 → 14,075**) with **0** clusters and **0** deadlocks / **0** cars held > 120 s across all 8
-  Jeżyce/Centrum seeds; `spawnPed` `pedNear` retry, `entrance` guards, and `curbLane` 2nd column were dropped (see
-  observation record for per-change ablation).
-  [Corner-link record](observations/ped-corner-links-2026-11-10.md),
-  [twin-lane and Pasaż pass](observations/ped-twin-lane-loops-2026-11-10.md),
-  [Pasaż record](observations/ped-overlap-pasaz-2026-11-10.md),
-  [2026-11-14 stand-off follow-up](observations/ped-twin-lane-standoff-2026-11-14.md),
-  [Taczaka cluster fix](observations/ped-taczaka-clusters-2026-11-14.md),
-  [Centrum pair fixes](observations/ped-centrum-pairs-2026-11-14.md),
-  [mechanisms](observations/ped-overlap-remnants-2026-11-08.md).
+- **Pedestrian overlap residual:** **current (`637105e`, 2026-11-15 remeasurement):** eight districts,
+  3 min, seeds 4242/77: **0 clusters**, **5.56875 pairs/s**, **106.35625 crosswalk entries/min**; longest pair
+  **19 s in each seed**. Seven-district `--ped-rooms`: **24,958 / 23,264 ped-s** (Centrum **15,158 / 12,326**).
+  The historical 24 s Poznańskie Krzyże pair does not recur; Św. Marcin, Dworzec U-turns and separate curb/approach
+  pairs remain. The isolated 4.78 m split sidewalk at `(-1558, 575)` has its two lane lines joined by 1.1 m
+  U-turns at both ends; the 2026-11-10 scan found 332 closed twin tracks (249 split, 83 full; 67 under 6 m).
+  The Pasaż Różowy under-3 m dead-end stub exclusion and shared same-way link keys remain the kept fixes;
+  their historical measurements are in the linked records. The 2026-11-15 pass tests a latched head-on sidestep
+  and physical retreat to the original approach; neither shortens the overall longest pair, so neither is kept.
+  At the western Dworzec link only one inset side is validated; retreat makes both walkers request the same
+  occupied sidewalk entrance. A new design must account for landing space and the independent curb/approach pairs.
+  **Do not revive:** length-weighted goal picks; one-person minimum short-link capacity; world-grid body-clearance
+  checks at short-link entrances; ignoring oncoming blockers by route key; reversed-endpoint entrance exemptions
+  (immediate or after 5 s); dropping all or only dead-end twin U-turns; one-direction-at-a-time on tracks under 3 m;
+  route-build twin-loop traps / one-step sink guards / spawn filters (including their combinations);
+  universal length-scaled lane ramps; immediate or delayed entrance swaps; segment-exact `onNext` on all or short
+  corner links; `stuck > 1` oncoming-exit swaps (including exit-only variants); `< 2 * QUEUE_GAP` short-link box
+  guards (with or without capacity checks, alone or with exit swaps); removing way twin U-turns or all same-way
+  internal links; blanket under-2 m way exclusions; `spawnPed` `pedNear` retries; the combined short/corner
+  `entrance` guards; `curbLane` second columns; latched two-sided head-on sidesteps; physical short-link retreats
+  to the original approach. These raise pairs, clusters, room seconds or traffic deadlocks, or fail to shorten
+  the longest pair; per-variant numbers remain in the records.
+  [Corner links](observations/ped-corner-links-2026-11-10.md),
+  [twin loops and rejected routing](observations/ped-twin-lane-loops-2026-11-10.md),
+  [Pasaż spawn weighting](observations/ped-overlap-pasaz-2026-11-10.md),
+  [2026-11-14 stand-off variants](observations/ped-twin-lane-standoff-2026-11-14.md),
+  [Taczaka stub fix](observations/ped-taczaka-clusters-2026-11-14.md),
+  [Centrum ablations](observations/ped-centrum-pairs-2026-11-14.md),
+  [2026-11-15 measurements and new mechanisms](observations/ped-twin-lane-standoff-2026-11-15.md),
+  [earlier mechanisms](observations/ped-overlap-remnants-2026-11-08.md).
 - **Rataje seed-4 car–tram deadlock (separate finding, 2026-11-15):** the five-minute seed-4 baseline reports
   one deadlock at T300, minimum member wait 58 s: tram 13 at `(1021, 1690)` and car 49 in the `(1026, 1671)` box.
   Its complete Rataje benchmark row is bit-identical with +15 s offsets at both Kaponiera sites. Seed 4 is outside

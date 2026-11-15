@@ -243,6 +243,17 @@ length; a uniform pick put 24+ bodies into the 1.87 m fragments of Pasaż Różo
 26 → 0 s; ped-rooms total is unchanged within noise (40,056 → 40,271). See
 [the record](observations/ped-overlap-pasaz-2026-11-10.md).
 
+**Closed twin-lane stand-offs (2026-11-15).** The current `637105e` furnished benchmark, including the Kaponiera
+signal offsets, has 0 clusters, 5.56875 mean overlapping pairs/s and 106.35625 crosswalk entries/min across eight
+districts, seeds 4242/77, three minutes. The longest pair is 19 s in each seed; seven-district room totals are
+24,958 / 23,264 ped-s (Centrum 15,158 / 12,326). The isolated 4.78 m Dworzec sidewalk's twin lines still form a
+closed loop through 1.1 m U-turns, but the longest list also includes independent curb and approach overlaps.
+A latched full-inset sidestep for an already blocked exact head-on pair and a physical retreat to the original
+approach were tested and rejected; **no movement or routing rule changed**. The western U-turn validates only one
+inset side, and retreat puts both walkers against the same occupied sidewalk entrance. The original lane fade,
+entrance/capacity checks and 20 s recovery remain. See
+[measurements and traces](observations/ped-twin-lane-standoff-2026-11-15.md).
+
 ## Population around the camera (spawn/despawn)
 - Pools have a fixed size, and nothing is created or destroyed. **Only as many vehicles drive as the lanes around the focus carry at `VEHICLE_DENSITY`** (12 per km of lane, both ways counted, at least `MIN_VEHICLES` 30, at most the pool of 212): `refreshNear` sums the lane length within `NEAR_RADIUS` (`nearLanes`) and sets `nearTarget`. A vehicle retired beyond `VEHICLE_RADIUS` is placed again only while fewer than that drive; otherwise it is parked (`park()`: no edge, moved to 1e6 so the radar draws no stale blip; everything that reads `cars` skips `!v.edge` or draws off-map). A camera jump parks the excess at once. Until 2026-10 the whole pool filled whatever the network: the sparse single-lane grids (2.9–5 lane-km within 350 m at Wilda, Łazarz, Jeżyce, Stare Miasto) carried 40–70 vehicles per lane-km, a jam, and 62% of the cars stood even with no pedestrians, trams or signals (`tools/bench-traffic.mjs --no-peds --no-trams`). Now 28–80 vehicles drive within 300 m (37 at Stare Miasto, 61 at Kaponiera, 79 at Rataje). A rotating cursor scans the pool each frame with an **attempt** budget (4 vehicles, 6 pedestrians), so awkward spots can't monopolize a frame.
 - `nearBusTarget` reserves `ceil(nearTarget × 12 / 212)` places for buses (2 at the minimum population), with the
