@@ -257,13 +257,15 @@ The 2026-11-11 headless Chrome pass is recorded in
 [observations/perf-transitions-2026-11-14.md](observations/perf-transitions-2026-11-14.md). They covered part or all of
 the checks below; each remaining bullet is the part that is still open.
 
+Shop-sign atlas grazing mip bleed was verified and fixed 2026-11-15 on WebGPU and WebGL2, at 20–80 m / 75–85°
+in midday and midnight views. An 8 px gutter and isotropic LOD capped at 4 isolate cells while retaining one atlas
+and draw; [footprint proof, screenshots and costs](observations/shop-sign-mips-2026-11-15.md). Cell selection, chain
+signs and dusk/night spot colours were checked 2026-11-11.
+
 ### Interface and performance
 
 - Confirm the loading-screen credit link hover/focus and external navigation in a real (non-headless) browser; its
   colours, contrast, dark-mode independence and credit layout at 1280 × 720 and 390 × 844 were checked 2026-11-11.
-- Verify shop-sign atlas mip bleed at grazing angles on WebGPU and WebGL2; per-instance cell selection, the two chain
-  signs and the dusk/night spot colours were checked 2026-11-11 (all 28 cells in the live pool, `ŻABKA`/`BIEDRONKA`
-  legible day, twilight and midnight).
 
 ### Geometry, materials and collisions
 

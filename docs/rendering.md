@@ -188,7 +188,7 @@
   mipmaps); the plaque and mural cameras showed no visible change at street distance. Keep `generateMipmaps` on: every
   one of these is minified at distance, and the mip chain is already included in those sizes (×4/3).
 - Keep `texture.image` (the canvas) after upload. three.js WebGPU reads it again when `texture.version` changes or the device is re-created; dropping it logs "Renderer: Texture marked for update but image is undefined" and leaves the texture blank on re-upload. The saving comes from the pixel size, not from releasing the source. The three downscaled canvases retain about 7 MB of CPU-side pixels instead of about 29 MB.
-- The 3612 × 400 shop-sign atlas (512 × 96 px tiles), the 2048 × 1024 tree leaf atlas and the street name-plate atlases
+- The shop-sign artwork (512 × 96 px tiles), the 2048 × 1024 tree leaf atlas and the street name-plate atlases
   (1440 × 1764 / 2048 × 536) are deliberately unchanged: storefront words, leaf silhouettes and plate lettering are
   read up close, and the halved plates were visibly blurred in a 1.4 m close-up (user decision, 2026-11-11).
 
@@ -224,14 +224,18 @@
   geometry. `street-details.update` refreshes changed state from `updateSignal` even in daylight or without a camera.
   This keeps dynamic pedestrian requests and disabled signals in sync after chunking, with one extra vertex buffer
   and `4 × SIGNAL_PLANS.length` bytes per changed upload. The shader only decodes the phase and flashes green at 1 Hz.
-- Storefront signs are one `InstancedMesh` (`ShopSigns`) with one 3612 × 400 canvas atlas: 28 designs in a 7 × 4 grid
-  of 512 × 96 px tiles with a 2 px background gutter. The per-instance `signCell` attribute is copied by the streamed
-  refill (`buildings.js` `update`), and the TSL `colorNode` maps `uv()` into the chosen tile, sampling 2 px inside the
-  tile so the gutter absorbs mip bleed. The former 26 per-design meshes and textures cost 26 draw calls and 26 texture
-  bindings. Each sign steps 0.75 m back from its awning centre along the block's turned wall normal, so it stays 0.15 m
+- Storefront signs are one `InstancedMesh` (`ShopSigns`) with one 3696 × 448 canvas atlas: 28 designs in a 7 × 4 grid
+  of 528 × 112 px cells, each with 512 × 96 px artwork and an 8 px background gutter. The per-instance `signCell`
+  attribute is copied by the streamed refill (`buildings.js` `update`), and the TSL `colorNode` maps `uv()` into the chosen tile. The sampler uses
+  explicit derivative-based LOD capped at 4 with anisotropy 1: both trilinear levels have aligned cell boundaries
+  and at least half a mip texel of padding, so no tap reaches another cell. Automatic coarser mips would mix cells.
+  This retains the artwork resolution, adds 14.6% atlas area and makes grazing lettering softer through isotropic
+  filtering; beyond level 4 the cap trades minification quality for exact cell isolation. The former 26 per-design
+  meshes and textures cost 26 draw calls and 26 texture bindings. Each sign steps 0.75 m back from its awning centre along the block's turned wall normal, so it stays 0.15 m
   proud of the facade on angled frontage frames. The pool is `frustumCulled = false` like the other streamed detail
   meshes, so it stays out of chunking.
-  [Measurement record](observations/shop-signs-atlas-2026-11-08.md).
+  [Atlas measurement](observations/shop-signs-atlas-2026-11-08.md),
+  [grazing mip check](observations/shop-sign-mips-2026-11-15.md).
 
 ## Static and dynamic transforms
 

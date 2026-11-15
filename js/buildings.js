@@ -4960,12 +4960,13 @@ function buildCityBlocks(scene) {
   // Storefront fascia signs: one texture atlas and one InstancedMesh for all 28 Polish shop/brand designs (PIEKARNIA,
   // APTEKA, ŻABKA, …). The former code created one canvas texture and one instanced mesh per design, so the whole city
   // paid 26 draw calls and 26 texture bindings for the same ~1,800 signs. A per-instance `signCell` attribute picks
-  // the tile inside the sign shader; 7 x 4 cells of 512 x 96 px with a 2 px gutter keep the street-level text crisp.
+  // the tile inside the sign shader. Keep cell boundaries aligned through the last sampled mip (level 4).
   const SIGN_ATLAS_COLS = 7;
   const SIGN_ATLAS_ROWS = Math.ceil(signThemes.length / SIGN_ATLAS_COLS);
   const SIGN_TILE_W = 512;
   const SIGN_TILE_H = 96;
-  const SIGN_GUTTER = 2;
+  const SIGN_GUTTER = 8;
+  const SIGN_MAX_LOD = 4;
   const SIGN_CELL_W = SIGN_TILE_W + SIGN_GUTTER * 2;
   const SIGN_CELL_H = SIGN_TILE_H + SIGN_GUTTER * 2;
   const signCanvas = document.createElement('canvas');
@@ -4975,7 +4976,7 @@ function buildCityBlocks(scene) {
   signThemes.forEach((st, i) => {
     const x0 = (i % SIGN_ATLAS_COLS) * SIGN_CELL_W + SIGN_GUTTER;
     const y0 = Math.floor(i / SIGN_ATLAS_COLS) * SIGN_CELL_H + SIGN_GUTTER;
-    // The gutter repeats the tile's background so mip levels fade into the same colour instead of a neighbour.
+    // Half a level-4 texel of background on each edge keeps every selectable mip's bilinear taps in this cell.
     signCtx.fillStyle = st.bg;
     signCtx.fillRect(x0 - SIGN_GUTTER, y0 - SIGN_GUTTER, SIGN_CELL_W, SIGN_CELL_H);
     signCtx.strokeStyle = st.border;
@@ -4989,7 +4990,7 @@ function buildCityBlocks(scene) {
   });
   const signAtlas = new THREE.CanvasTexture(signCanvas);
   signAtlas.colorSpace = THREE.SRGBColorSpace;
-  signAtlas.anisotropy = 4;
+  signAtlas.anisotropy = 1;
   const signMat = new THREE.MeshBasicNodeMaterial();
   const signCell = attribute('signCell', 'vec2');
   // Canvas row 0 is the texture's top (flipY), so a cell row counts up from the bottom of the atlas.
@@ -4998,7 +4999,11 @@ function buildCityBlocks(scene) {
     .add(vec2(signCell.x, float(SIGN_ATLAS_ROWS - 1).sub(signCell.y))
       .mul(vec2(SIGN_CELL_W / signCanvas.width, SIGN_CELL_H / signCanvas.height)))
     .add(vec2(SIGN_GUTTER / signCanvas.width, SIGN_GUTTER / signCanvas.height));
-  signMat.colorNode = texture(signAtlas, signUv);
+  // Automatic coarse mips mix unrelated cells. Explicit LOD bounds both trilinear levels; anisotropy must stay 1
+  // so extra taps cannot cross the gutter. fwidth is conservative at diagonal screen orientations.
+  const signFootprint = fwidth(uv().mul(vec2(SIGN_TILE_W, SIGN_TILE_H)));
+  const signLod = max(signFootprint.x, signFootprint.y).max(1).log2().min(SIGN_MAX_LOD);
+  signMat.colorNode = texture(signAtlas, signUv).level(signLod);
   const signGeo = new THREE.BoxGeometry(1, 1, 1);
   const signCellAttr = new THREE.InstancedBufferAttribute(new Float32Array(MAX_AWNINGS * 2), 2);
   signGeo.setAttribute('signCell', signCellAttr);
