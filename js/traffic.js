@@ -1689,7 +1689,8 @@ function createTrafficSystem(
     let targetDl = 0;
     if (!v.conn && v.edge && (!v.edge.lanes || v.edge.lanes.length === 1)) {
       if (v.move && v.move.turn === 'L' && v.edge.opposite && v.edge.len - v.s < 30) {
-        targetDl = -Math.min(0.85, Math.max(0, v.edge.lanes[0] - v.halfWidth - 0.12));
+        const tramCap = v.edge._tramLeftGap < Infinity ? Math.max(0, v.edge._tramLeftGap - v.halfWidth - 1.3) : 0.85;
+        targetDl = -Math.min(0.85, tramCap, Math.max(0, v.edge.lanes[0] - v.halfWidth - 0.12));
       } else if (v.move && v.move.turn !== 'L') {
         const o = ahead(v.edge.occ[0], v.s, v);
         if (o && o.v.move && o.v.move.turn === 'L' && o.v.speed < 1.5 && (o.v.yielding || o.v.waitReason === 'oncoming' || o.v.held === 'oncoming' || o.v.waitReason === 'turn')) {
@@ -1974,6 +1975,54 @@ function createTrafficSystem(
     trams = system ? system.trams : [];
     tramGraph = system ? system.graph : null;
     for (const t of (system ? system.pool || trams : trams)) t._followerProxy = { tram: t, speed: 0 };
+    if (!tramGraph || !tramGraph.edges) return;
+    // Precompute minimum distance from each 1-lane edge's lane centre to any tram track on its left, so left-turners
+    // edging toward the road centreline do not shift into an opposing or adjacent tram envelope.
+    const CELL = 40;
+    const grid = new Map();
+    for (const te of tramGraph.edges) {
+      const p = te.pts;
+      if (!p) continue;
+      for (let k = 0; k + 3 < p.length; k += 2) {
+        const x0 = Math.min(p[k], p[k + 2]) - 6, x1 = Math.max(p[k], p[k + 2]) + 6;
+        const z0 = Math.min(p[k + 1], p[k + 3]) - 6, z1 = Math.max(p[k + 1], p[k + 3]) + 6;
+        for (let cx = Math.floor(x0 / CELL); cx <= Math.floor(x1 / CELL); cx++) {
+          for (let cz = Math.floor(z0 / CELL); cz <= Math.floor(z1 / CELL); cz++) {
+            const key = (cx + 32768) * 65536 + (cz + 32768);
+            let bucket = grid.get(key);
+            if (!bucket) grid.set(key, (bucket = []));
+            bucket.push(p[k], p[k + 1], p[k + 2], p[k + 3]);
+          }
+        }
+      }
+    }
+    for (const e of edges) {
+      if (!e.opposite || !e.lanes || e.lanes.length !== 1) continue;
+      let minGap = Infinity;
+      const start = Math.max(0, e.len - 30);
+      for (let s = start; s <= e.len + 0.01; s = Math.min(e.len, s + 2)) {
+        const off = laneAt(e, 0, s);
+        const lx = e.sx + e.dx * s + e.rx * off;
+        const lz = e.sz + e.dz * s + e.rz * off;
+        const bucket = grid.get((Math.floor(lx / CELL) + 32768) * 65536 + (Math.floor(lz / CELL) + 32768));
+        if (bucket) {
+          for (let k = 0; k < bucket.length; k += 4) {
+            const ax = bucket[k], az = bucket[k + 1];
+            const sx = bucket[k + 2] - ax, sz = bucket[k + 3] - az;
+            const l2 = sx * sx + sz * sz;
+            const u = l2 > 0 ? Math.max(0, Math.min(1, ((lx - ax) * sx + (lz - az) * sz) / l2)) : 0;
+            const qx = ax + sx * u, qz = az + sz * u;
+            // Only tracks to the left of the lane centreline (same-lane tracks under the car are >= 0)
+            if ((qx - lx) * (-e.rx) + (qz - lz) * (-e.rz) > 0.3) {
+              const d = Math.hypot(qx - lx, qz - lz);
+              if (d < minGap) minGap = d;
+            }
+          }
+        }
+        if (s >= e.len) break;
+      }
+      e._tramLeftGap = minGap;
+    }
   }
 
   // A tram waiting for a car must release that car's lane, but the nearest follower still needs its rear as a leader.

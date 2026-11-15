@@ -123,6 +123,15 @@ Implementation details and completed measurements live in the [topic docs](../AG
   clipping, gate standoff, projected entry speed, unheld-curve forecast, `enter` hard stop, broad stand test,
   feeder two-step, unrestricted sibling lane, moving-queue rear-gap rule or below-5 m residual hiding without a
   new geometric reason. Keep `tramStandsAt`'s "tram waits for me" exemption.
+  On 2026-11-15 (8 seeds: `32 → 27` pairs, `10 → 10` moving / `22 → 17` stopped; Jeżyce `19 → 15`, Stare Miasto `2 → 1`,
+  other five districts unchanged), `setTrams`/`drive()` in `js/traffic.js` (`_tramLeftGap`) now clamp a left-turner's
+  leftward shift (`targetDl < 0`) so its left edge keeps `1.3 m` clear of any tram track to its left, removing all 4
+  Dąbrowskiego (`8947`/`6237`) stopped left-turner contacts with 6/7 districts bit-identical and 7/8 Jeżyce seeds
+  bit-identical (`seed 7` `15.2 → 14.5 km/h` with higher top-5 junction throughput and `maxWait 85 → 84 s`; 0 deadlocks,
+  0 holds `> 120 s`). Do not revive `BUS_OVERLAP = 2.6` (`busOnly` junction conflicts in `mapTramsToRoads`: cut overlaps
+  `32 → 24` but raised Kaponiera `6 → 11` and caused 4 Jeżyce deadlocks). Remaining Jeżyce pairs are the 10 m stub
+  `4660` (10 stopped), `8947 -> 4659` bus clearance (3 moving), and 2 connector entries.
+  [2026-11-15 Jeżyce record](observations/car-tram-jezyce-2026-11-15.md),
   [Kaponiera and Stare diagnosis](observations/car-tram-kaponiera-stare-2026-11-10.md),
   [Jeżyce traces and follower fix](observations/car-tram-jezyce-2026-11-10.md),
   [2026-11-10 baseline](observations/car-tram-overlaps-2026-11-10.md),

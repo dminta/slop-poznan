@@ -1421,3 +1421,41 @@ test('articulated bus places exactly three wheel instances per bus without dupli
   // Trailer axle at z = 4.8 - 0.85 = 3.95
   assert.ok(Math.abs(leftWrites[2].pos.z - 3.95) < 1e-4);
 });
+
+test('left-turner lateral shift stays clear of a tram track on its left', () => {
+  const matchSetTrams = source.match(/  function setTrams\([^]*?\n  \}/)[0];
+  const matchDrive = source.match(/  function drive\([^]*?\n  \}/)[0];
+  const edge = {
+    sx: 0, sz: 0, dx: 0, dz: 1, rx: -1, rz: 0, len: 20, lanes: [3.25], half: 4.9,
+    opposite: {}, occ: [[]], to: { signal: null }
+  };
+  const ctx = {
+    Math, Map, Infinity,
+    trams: [], tramGraph: null, edges: [edge],
+    laneAt: (e, i, s) => e.lanes[i],
+    changeLanes() {}, accelerate() {}, enter() {}, leave() {},
+    ahead: () => null,
+    clamp: (x, lo, hi) => Math.max(lo, Math.min(hi, x))
+  };
+  const { setTrams, drive } = vm.runInNewContext(`${matchSetTrams.trim()}\n${matchDrive.trim()}\n({ setTrams, drive })`, ctx);
+  // Opposing track 2.7 m to the left of lane 0 (at x = -3.25 + 2.7 = -0.55), plus a same-lane track directly under x = -3.25
+  setTrams({
+    trams: [],
+    pool: [],
+    graph: {
+      edges: [
+        { pts: new Float64Array([-0.55, 25, -0.55, -5]) },
+        { pts: new Float64Array([-3.25, -5, -3.25, 25]) }
+      ]
+    }
+  });
+  assert.ok(Math.abs(edge._tramLeftGap - 2.7) < 1e-6, `expected 2.7 m left-side gap, got ${edge._tramLeftGap}`);
+  const car = {
+    edge, lane: 0, s: 16, conn: null, move: { turn: 'L' },
+    half: 2.3, halfWidth: 0.88, axle: 1.35, speed: 0, acc: 0, gap: 10, leaderSpeed: 0,
+    wait: 0, pedWait: 0, waitReason: 'tram', laneTimer: 1, dl: 0, dlv: 0
+  };
+  for (let i = 0; i < 60; i++) drive(car, 1 / 15);
+  // Max safe leftward shift: 2.7 - 0.88 - 1.3 = 0.52 m (never -0.85 m into the tram sweep)
+  assert.ok(car.dl >= -0.521 && car.dl < -0.2, `expected clamped leftward shift in [-0.52, -0.2), got ${car.dl}`);
+});
