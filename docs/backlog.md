@@ -55,10 +55,25 @@ Implementation details and completed measurements live in the [topic docs](../AG
   [Taczaka cluster fix](observations/ped-taczaka-clusters-2026-11-14.md),
   [Centrum pair fixes](observations/ped-centrum-pairs-2026-11-14.md),
   [mechanisms](observations/ped-overlap-remnants-2026-11-08.md).
-- **Kaponiera long holds and the last deadlock:** **current (2026-11-14/15):** 0 deadlocks over 8 seeds × 7
-  districts; Kaponiera keeps 11 holds > 120 s (seed 5: 6, seed 1: 3). The two traced cases are signal capacity, not
-  rule faults: seed 1's queue at `(-1136, 127)` (18 s of 65 s green, tram queue) and seed 5's 3→2 merge at
-  `(-1497, 198)` into a 16 s / 60 s green. A further gain needs a signal-plan change at those two junctions. History:
+- **Rataje seed-4 car–tram deadlock (separate finding, 2026-11-15):** the five-minute seed-4 baseline reports
+  one deadlock at T300, minimum member wait 58 s: tram 13 at `(1021, 1690)` and car 49 in the `(1026, 1671)` box.
+  Its complete Rataje benchmark row is bit-identical with +15 s offsets at both Kaponiera sites. Seed 4 is outside
+  the corrected historical acceptance set `1 2 3 5 7 11 99 4242`; this pre-existing cycle is not a new-deadlock
+  regression of the Kaponiera variant. Diagnose it independently; no Rataje rule or plan was changed.
+  [Capacity investigation](observations/kaponiera-signal-capacity-2026-11-15.md).
+- **Kaponiera long holds and the last deadlock:** **current (2026-11-15, round 3):** +12 s at the two local
+  signal sites is retained (`SIGNAL_OFFSET_OVERRIDES`), with **4 holds > 120 s**, 0 new deadlocks and **28 car–tram
+  pairs** over historical seeds `1 2 3 5 7 11 99 4242` × 7 districts. Holds fall 11 → 4; the worst district mean
+  change is −0.0625 km/h (Kaponiera), within 0.1 km/h. The user accepts the extra overlap pair (27 → 28) as a
+  known cost. Production Kaponiera runs reproduce the experimental rows; only the two offsets change, with all
+  other 491 plans identical. Splits, cycles, WALK durations and design walking speeds are unchanged.
+  +15/+15 is rejected: holds 11 → 2 and pairs 27 → 26, but three new deadlock cycles (Centrum seed 11: two;
+  Jeżyce seed 99: one) and Centrum mean −0.7625 km/h. +15/+12 screening gives 18 holds. The unchanged Rataje
+  seed-4 cycle is a separate finding above. [Capacity record](observations/kaponiera-signal-capacity-2026-11-15.md).
+  Previous baseline (2026-11-14/15): Kaponiera keeps 11 holds > 120 s (seed 5: 6, seed 1: 3). The two traced cases
+  are signal capacity, not rule faults: seed 1's queue at `(-1136, 127)` (18 s of 65 s green, tram queue) and
+  seed 5's 3→2 merge at `(-1497, 198)` into a 16 s / 60 s green. A further gain needs a signal-plan change passing the capacity
+  investigation's gates. History:
   at `8c41595` (8 seeds × 7 districts, 5 min) every hold > 120 s and
   every deadlock is in Kaponiera: 12.6 km/h, 51.3 % stopped, worst wait 145 s, held > 60 s 133, > 120 s **13**,
   **1** deadlock, 2 box-stuck seeds (from 12.3 km/h, 52.2 %, 155 s, 167 / 21 / 5 / 3 at `3279f75`). `6d70c71` broke
@@ -115,15 +130,18 @@ Implementation details and completed measurements live in the [topic docs](../AG
   [2026-11-08 trace and rejected variants](observations/kaponiera-traffic-2026-11-08.md),
   [Centrum trace](observations/merge-starvation-2026-11-07.md),
   [per-second left-turn/tram trace](observations/left-turn-tram-2026-11-04.md).
-- **Car–tram body overlaps:** **current (`a49181b`, 2026-11-15): 27 pairs** over eight seeds (Jeżyce 15, Kaponiera
-  6, Centrum 3, Rataje 2, Stare Miasto 1); remaining Jeżyce pairs are the 10 m stub `4660`, the `8947 -> 4659` bus
-  clearance and 2 connector entries. History: re-measured at `5199713`: **37 pairs** over eight seeds (Jeżyce 23,
+- **Car–tram body overlaps:** **current (2026-11-15, round 3): 28 pairs** over eight historical seeds
+  (Jeżyce 16, Kaponiera 7, Centrum 2, Rataje 2, Stare Miasto 1). The user accepts the extra pair from the two
+  Kaponiera +12 s signal offsets (27 → 28) in exchange for reducing long holds 11 → 4 without new deadlocks.
+  [Capacity tradeoff](observations/kaponiera-signal-capacity-2026-11-15.md). Previous baseline (`a49181b`):
+  27 pairs (Jeżyce 15, Kaponiera 6, Centrum 3, Rataje 2, Stare Miasto 1); Jeżyce includes the 10 m stub `4660`,
+  the `8947 -> 4659` bus clearance and 2 connector entries. History: re-measured at `5199713`: **37 pairs** over eight seeds (Jeżyce 23,
   Kaponiera 8, Stare Miasto 5, Centrum 1; 19 moving / 18 stopped), one car held over 120 s and no deadlock.
   [Section-sweep audit and city-wide list](observations/car-tram-sweep-2026-11-12.md): 176 intruding lane ends,
   only 37 able to retreat clear while retaining six metres. The named Jeżyce 10 m stubs need 24.75 / 10.25 m
   retreat; Kaponiera 6522 needs 2.25 / 6.25 / 9.50 m across its three lanes on a 9.41 m edge. A whole-edge
-  setback cannot clear these while storing a car. All current Kaponiera contacts start moving; the feeder race
-  remains outside this pass. Stare Miasto 8503/8504 have lateral room, but the measured +3.70 / +4.60 m offset
+  setback cannot clear these while storing a car. The earlier Kaponiera investigation identified moving contacts
+  from the feeder race, which remained outside that pass. Stare Miasto 8503/8504 have lateral room, but the measured +3.70 / +4.60 m offset
   candidate leaves the eight-seed total at 37 and is rejected: seed 2 mean 18.4 → 17.3 km/h, stopped 6.5 → 10.2%;
   seed 7 off-stop tram holds >60 s 1 → 3, against zero measured repeat noise. No runtime geometry change is retained.
   Connector queues and the Jeżyce shared-lane body contacts remain; the new tool is a sampled section envelope, not a continuous collision proof.

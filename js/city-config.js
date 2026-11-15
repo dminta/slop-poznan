@@ -1875,6 +1875,14 @@ const SIGNAL_CORRIDORS = [
 // deadlocks back over the eight seeds.
 const SIGNAL_WALK_SPEEDS = [{ x: -1496.1, z: 232.3, speed: 1.2 }];
 const signalWalkSpeed = (x, z) => (SIGNAL_WALK_SPEEDS.find((s) => Math.hypot(x - s.x, z - s.z) <= 2)?.speed || 1);
+// Delay only these Kaponiera stages until the traced tram queues clear. Eight historical seeds: holds >120 s
+// 11 -> 4, 0 new deadlocks, worst district mean -0.06 km/h; car-tram pairs 27 -> 28 (accepted cost).
+// Keep the crossing-clearance splits and corridor cycles; apply the local shift after their offset is rebuilt.
+const SIGNAL_OFFSET_OVERRIDES = [
+  { x: -1134.8, z: 118.4, seconds: 12 },
+  { x: -1496.1, z: 232.3, seconds: 12 }
+];
+const signalOffsetOverrides = new Map();
 const SIGNAL_PLANS = [];
 const signalJunctions = new Map();
 const signalNodes = new Set(GEO.roadGraph.signals);
@@ -1927,6 +1935,8 @@ for (const site of SIGNAL_SITES) {
   timing.baseGreen0 = green0;
   timing.demandRatio = green0 / (cycle - 10);
   timing.basePedestrian = timing.pedestrian;
+  const offsetOverride = SIGNAL_OFFSET_OVERRIDES.find((s) => Math.hypot(site.x - s.x, site.z - s.z) <= 2);
+  if (offsetOverride) signalOffsetOverrides.set(timing, offsetOverride.seconds);
   site.timing = timing;
   signalJunctions.set(site.junction, timing);
   SIGNAL_PLANS.push(timing);
@@ -2029,6 +2039,8 @@ function configureSignalClearance(widths) {
       ? t.distance / (40 / 3.6) - (t.corridorGroup === 0 ? 0 : t.start1)
       : t.offsetFraction * t.cycle;
     t.offset = ((offset % t.cycle) + t.cycle) % t.cycle;
+    const shift = signalOffsetOverrides.get(t);
+    if (shift !== undefined) t.offset = (t.offset + shift) % t.cycle;
     t.time = NaN;
   }
 }

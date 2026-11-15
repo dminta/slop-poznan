@@ -78,7 +78,7 @@ test('all furnished regular crossings clear the last WALK entrant at their desig
   }
   // The one 1.2 m/s plan: the 37.8 m span over Kaponiera's tram corridor. At 1 m/s its 40 s pedestrian stage left
   // the 10 m give-way link only 10 s (seed 2 held 10 cars over 120 s); 1.2 m/s clears the last WALK entrant in 32 s
-  // (green0 - 2) and gives the link 16 s. Pin the split, start1 and the corridor offset so it cannot regress.
+  // (green0 - 2) and gives the link 16 s. Pin the split, start1 and the corridor offset plus its accepted local shift.
   const kaponiera = first.pedRoutes.crosswalks.filter((c) => Math.hypot(c.node.x + 1503.3, c.node.z - 224) < 1);
   assert.equal(kaponiera.length, 1, 'one crossing at Kaponiera (-1503, 224)');
   const wide = Math.max(...kaponiera[0].tracks.map((t) => t.len - 3.2));
@@ -86,7 +86,10 @@ test('all furnished regular crossings clear the last WALK entrant at their desig
   const kap = kaponiera[0].node.signalTiming;
   assert.equal(kap.walkSpeed, 1.2);
   assert.deepEqual([kap.cycle, kap.green0, kap.green1, kap.start1], [60, 34, 16, 39]);
-  assert.ok(Math.abs(kap.offset - 27.6998) < 0.01);
+  assert.ok(Math.abs(kap.offset - 39.6998) < 0.01);
+  const east = first.network.nodes.find((n) => Math.hypot(n.x + 1135.54, n.z - 127.34) < 1).signalTiming;
+  assert.deepEqual([east.cycle, east.green0, east.green1, east.start1], [65, 18, 37, 23]);
+  assert.ok(Math.abs(east.offset - 29.9248) < 0.01);
   assert.ok(7 + wide / 1.2 <= kap.start1, 'the 1.2 m/s walk clears before group 1 gets green');
   assert.ok(config.SIGNAL_PLANS.filter((p) => p.walkSpeed > 1).length === 1,
     'the faster design speed is limited to the one exceptional span');
@@ -97,7 +100,8 @@ test('all furnished regular crossings clear the last WALK entrant at their desig
   assert.ok(marcin.length >= 2 && marcin.every((p) => p.cycle === 65));
   for (const p of config.SIGNAL_PLANS) {
     if (p.pedestrian || p.disabled || !Number.isFinite(p.distance)) continue;
-    const phaseTime = ((p.distance / (40 / 3.6) - p.offset) % p.cycle + p.cycle) % p.cycle;
+    const shift = p === kap || p === east ? 12 : 0;
+    const phaseTime = ((p.distance / (40 / 3.6) + shift - p.offset) % p.cycle + p.cycle) % p.cycle;
     assert.ok(Math.abs(phaseTime - (p.corridorGroup === 0 ? 0 : p.start1)) < 1e-8 || Math.abs(phaseTime - p.cycle) < 1e-8);
   }
   const plans = () => config.SIGNAL_PLANS.map((p) => [p.cycle, p.green0, p.green1, p.offset, p.disabled]);
@@ -108,4 +112,41 @@ test('all furnished regular crossings clear the last WALK entrant at their desig
   assert.equal(second.details.audioSignals.length, first.details.audioSignals.length);
   assert.equal(second.network.edges.length, first.network.edges.length);
   assert.deepEqual(plans(), initial, 'width and demand adjustments never accumulate between graph builds');
+});
+
+test('Kaponiera site offsets shift only the two measured plans and survive graph rebuilds', async () => {
+  const { GEO } = await import('../js/geodata.js');
+  const source = read('city-config.js');
+  const table = source.match(/const SIGNAL_OFFSET_OVERRIDES = \[[^]*?\n\];/);
+  assert.ok(table, 'the measured exceptions remain an explicit per-site table');
+  const load = (text) => loadModule(text, { imports: { './geodata.js': { GEO } } });
+  const config = load(source);
+  const control = load(source.replace(table[0], 'const SIGNAL_OFFSET_OVERRIDES = [];'));
+  furnished(config, GEO);
+  furnished(control, GEO);
+  const overrides = new Map();
+  for (const [x, z, offset] of [[-1134.8, 118.4, 12], [-1496.1, 232.3, 12]]) {
+    const site = config.SIGNAL_SITES.find((s) => Math.hypot(s.x - x, s.z - z) <= 2);
+    assert.ok(site, `signal site (${x}, ${z}) exists`);
+    overrides.set(site.timing.index, offset);
+  }
+  assert.equal(overrides.size, 2);
+  const plain = (p) => JSON.parse(JSON.stringify(p));
+  assert.equal(config.SIGNAL_PLANS.length, control.SIGNAL_PLANS.length);
+  for (const p of config.SIGNAL_PLANS) {
+    const before = plain(control.SIGNAL_PLANS[p.index]);
+    const after = plain(p);
+    const seconds = overrides.get(p.index);
+    if (seconds !== undefined) {
+      assert.equal(p.offset, (before.offset + seconds) % p.cycle);
+      after.offset = before.offset;
+    }
+    assert.deepEqual(after, before, `plan ${p.index}: only the two local offsets may change`);
+  }
+  // Furniture can leave stale cached display states until the next signal update; compare the rebuilt schedule.
+  const schedules = () => config.SIGNAL_PLANS.map((p) =>
+    [p.cycle, p.green0, p.start1, p.green1, p.offset, p.distance, p.walkSpeed, p.disabled]);
+  const initial = schedules();
+  furnished(config, GEO);
+  assert.deepEqual(schedules(), initial, 'local shifts never accumulate on rebuild');
 });

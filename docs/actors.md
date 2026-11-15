@@ -288,6 +288,22 @@ starts; a cycle grows only when both minima cannot fit. Named corridor signals s
 and offsets from road distance at 40 km/h; other offsets are deterministic. Each transition has 3 s amber followed by
 2 s clearance including the next group's red+amber. WALK admits new entrants for 7 s, then displays flashing green for
 3 s.
+
+The 2026-11-15 capacity change adds +12 s to the offsets of sites `(-1134.8, 118.4)` and `(-1496.1, 232.3)`
+(nodes `(-1136, 127)` and `(-1503, 224)`) through `SIGNAL_OFFSET_OVERRIDES`. Matches use the same 2 m site radius
+as `SIGNAL_WALK_SPEEDS`; a private map resolves the two plan objects once. `configureSignalClearance` reapplies
+the shift after rebuilding the corridor offset, so graph rebuilds do not accumulate it. The resulting offsets
+are 29.92475177 s and 39.69980691 s. All other 491 plans remain identical; no per-frame lookup is added.
+The 34.217 m crossing at `(-1136, 127)` keeps its opposing 37 s stage at 1 m/s, and the 37.774 m crossing at
+`(-1503, 224)` keeps 34 s at 1.2 m/s: cycles, splits, WALK windows and pedestrian clearance are unchanged.
+
+Eight historical seeds × seven districts: Kaponiera holds >120 s 11 → 4, 0 new deadlocks, worst district mean
+change −0.0625 km/h (Kaponiera). The user accepts car–tram pairs 27 → 28 as the known cost of this signal plan;
+**4 holds / 28 pairs** is the current baseline. +15/+15 was rejected for three new Centrum/Jeżyce deadlock cycles
+and Centrum mean −0.7625 km/h; +15/+12 gives 18 holds. The pre-existing Rataje seed-4 cycle remains a separate
+backlog finding outside the historical seed set. See [the capacity measurements](observations/kaponiera-signal-capacity-2026-11-15.md)
+for full matrices, the production recheck and the accepted tradeoff.
+
 Two-arm nodes with crossings stay road-green until a walker requests a phase (2 s request delay, at least 20 s road
 green); their red clearance allows a 1 m/s walker to finish the measured crossing. Two-arm nodes without crossings are disabled.
 The Phase 16 benchmark variant (no grid sidewalks) has 311 regular plans, 22 demand crossings and
