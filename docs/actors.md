@@ -321,7 +321,10 @@ green); their red clearance allows a 1 m/s walker to finish the measured crossin
 and `addRuntimeSignalHeads` drops their static poles, heads, and pole colliders so no dark heads remain
 ([2026-11-15 record](observations/dark-heads-2026-11-15.md)); removing `UNDERPASS_SIDEWALKS` AABBs from `grid.sidewalks`
 subsequently restored 197 edges (5.630 km) and re-enabled 4 plans including Most Teatralny plan 381, leaving 21 disabled
-plans ([pruned-roads record](observations/pruned-roads-2026-11-15.md)).
+plans ([pruned-roads record](observations/pruned-roads-2026-11-15.md)). Making park block footprints `walkable = true`
+(`city-grid.js`), adding `'L'`/`'R'` lane-pair fallback before `serveEveryLane` (`road-network.js`), and keeping five LED
+poles and a Wiejska hydrant off lane chords that bow past `roadClearance` (`street-details.js`) then cut dropped edges from 67 (3.441 km) to 4
+(0.056 km) and disabled plans from 21 to 10 (re-enabling 11 plans including 63 Szelągowska and 140 Księcia Mieszka I).
 The Phase 16 benchmark variant (no grid sidewalks) has 311 regular plans, 22 demand crossings and
 12 disabled signals (2026-10-29); these are not counts for the static snapshot above.
 

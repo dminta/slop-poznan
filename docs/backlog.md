@@ -6,6 +6,13 @@ Implementation details and completed measurements live in the [topic docs](../AG
 
 ## Known gaps and follow-up investigations
 
+- **Remaining SCC-dropped edges and disabled signal plans (2026-11-15):** After making park footprints walkable, adding
+  `'L'`/`'R'` turn lane-pair fallback, and filtering curbside furniture against carriageway lanes, 4 dropped edges
+  (0.056 km: `Osiedle Stare Żegrze` curb-rect graze, 2 `Piłsudskiego -> (unnamed)` edges blocked by a signal pole, and
+  1 unnamed `Górecka` slip blocked by a signal pole) and 4 newly disabled signal plans (`115 Górecka`, `136 Krucza`,
+  `194 Bałtycka`, `347 Mogileńska`, where restored signal poles still block the slip turn or crosswalk landing) remain
+  alongside the 6 bare-disabled 2-arm plans.
+
 - **Piotrowo heights:** confirm the new rectorate against a post-completion survey; its 16.5 m model height now
   follows the documented 16.31 m above-ground portion. A28/A29 use 2024 elevation data; A30 uses PP’s 11.80 m dimension.
   Vault profiles, tagged pitch surfaces/markings and the circular lecture forecourt are implemented. See [world](world.md#piotrowo-campus-landmarks-2026-11-12-round-2) and
@@ -240,7 +247,7 @@ share are not thinned; [central-density record](observations/central-density-202
      for passes 8 + 9: 6.77 → 6.59 s at 1× / 44.26 → 41.65 s at 6×; passes 6–7 are not separately revertible now that later commits use `railWithin`). Remaining larger budgets in Node `--cpu-prof` are
      `road-network` footprint index (0.53 s self), `railWithin` (0.44 s), `tram-infra` `within` + `nearest`
      (0.36 + 0.11 s), `nearestCurbFrame` (0.27 s), `pointInPolyIndexed` (0.21 s) and `roadClearance` (0.19 s);
-     do not retry 12 m `laneGrid` cells, flat `Int32Array` grids for `railWithin`/`createFootprintIndex`, extra
+     do not retry 12 m `laneGrid` cells, a flat `Int32Array` grid for `railWithin`, extra
      `segmentGrid` edge fields (+30.1 MiB heap), duplicated per-bucket `bounds` in `createFootprintIndex`, per-edge
      `x`-range branches in `pointInPolyIndexed`, or a separate `_mainlineCells` map in `railWithin`.
      Workers or deferral would need

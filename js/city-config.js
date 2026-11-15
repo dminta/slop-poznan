@@ -1479,24 +1479,28 @@ function inTramSurfaceCut(x, z) {
 }
 
 function blockOwnCutAt(b, x, z) {
-  if (b.roadCut) {
-    for (const [ax, az, bx, bz, half] of b.roadCut) {
-      const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
-      if (len < 1e-6) continue;
-      const along = ((x - ax) * dx + (z - az) * dz) / len;
-      const across = ((z - az) * dx - (x - ax) * dz) / len;
-      if (along >= -half && along <= len + half && Math.abs(across) <= half) return true;
+  let cuts = b._ownCuts;
+  if (!cuts) {
+    cuts = b._ownCuts = [];
+    if (b.roadCut) {
+      for (const [ax, az, bx, bz, half] of b.roadCut) {
+        const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
+        if (len >= 1e-6) cuts.push(ax, az, dx / len, dz / len, len, half);
+      }
+    }
+    if (b.tramCut) {
+      const half = b.tramCut.half;
+      for (const [ax, az, bx, bz] of b.tramCut.segs) {
+        const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
+        // cutSlab extends the corridor by `half` at both ends, closing the gaps at track bends.
+        if (len >= 1e-6) cuts.push(ax, az, dx / len, dz / len, len, half);
+      }
     }
   }
-  if (b.tramCut) {
-    for (const [ax, az, bx, bz] of b.tramCut.segs) {
-      const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
-      if (len < 1e-6) continue;
-      const along = ((x - ax) * dx + (z - az) * dz) / len;
-      const across = ((z - az) * dx - (x - ax) * dz) / len;
-      // cutSlab extends the corridor by `half` at both ends, closing the gaps at track bends.
-      if (along >= -b.tramCut.half && along <= len + b.tramCut.half && Math.abs(across) <= b.tramCut.half) return true;
-    }
+  for (let i = 0; i < cuts.length; i += 6) {
+    const dx = x - cuts[i], dz = z - cuts[i + 1], ux = cuts[i + 2], uz = cuts[i + 3], half = cuts[i + 5];
+    const along = dx * ux + dz * uz;
+    if (along >= -half && along <= cuts[i + 4] + half && Math.abs(dz * ux - dx * uz) <= half) return true;
   }
   return false;
 }

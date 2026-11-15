@@ -543,7 +543,7 @@ function buildStreetDetails(scene, opts = {}) {
 
   // Lanes are laid out along the road graph's runs (road-network.js: from merged junction centres, at the links' own
   // widths), which in places reach past a block's curb outline, most near junctions: a prop of radius r also keeps
-  // outside them (city-config.js roadClearance), with 0.3 m for the runs' shape nodes straying from the real bends
+  // outside them (city-config.js roadClearance), with 0.3 m for the runs' shape nodes straying from the real bends.
   const clearOfRoads = (x, z, r) => roadClearance(x, z) >= r + 0.3;
 
   // Crosswalk landings: pedestrian-routes.js runs each arm's crosswalk 2 m onto both sidewalks (with 0.4 m to spare
@@ -1195,7 +1195,13 @@ function buildStreetDetails(scene, opts = {}) {
           !clearOfRails(lx, lz, 0.32) ||
           Math.hypot(lx - 3191.5, lz - 1609.5) < 3 ||
           Math.hypot(lx - 2522.4, lz - 1006.9) < 3 ||
-          Math.hypot(lx - 2115.2, lz - 1908.0) < 3
+          Math.hypot(lx - 2115.2, lz - 1908.0) < 3 ||
+          // Keep LED poles off straightened chord cuts that bow past roadClearance (Szelągowska, Maczka, Szeherezady, Dąbrowskiego)
+          Math.hypot(lx - 406.1, lz - -980.6) < 3 ||
+          Math.hypot(lx - -1105.5, lz - -1857.5) < 3 ||
+          Math.hypot(lx - -6856.0, lz - -145.3) < 3 ||
+          Math.hypot(lx - -6869.0, lz - -114.8) < 3 ||
+          Math.hypot(lx - -3961.2, lz - -1257.2) < 3
         ) {
           return null;
         }
@@ -1340,8 +1346,9 @@ function buildStreetDetails(scene, opts = {}) {
   const place = (list, p, yaw, w, kind, clear) => {
     if (!isClearOfPoles(p.x, p.z, clear) || !clearOfRoads(p.x, p.z, w / 2 + 0.05) || !clearOfCrosswalks(p.x, p.z, w / 2) ||
       !clearOfRails(p.x, p.z, w * 0.71) ||
-      // Keep curbside furniture clear of chord cut where a dual-carriageway lane sweeps close to curb (Park Rataje border)
-      Math.hypot(p.x - 2027.8, p.z - 1970.1) < 3) return false;
+      // Keep curbside furniture clear of chord cuts where a lane sweeps close to curb (Park Rataje border, Wiejska)
+      Math.hypot(p.x - 2027.8, p.z - 1970.1) < 3 ||
+      Math.hypot(p.x - 2757.0, p.z - -1490.1) < 3) return false;
     addPole({ ...p, r: FURNITURE_TOP[kind][0] });
     addFootprint(p.x, p.z, w, w, kind);
     addCollider(p.x, p.z, FURNITURE_TOP[kind][0], FURNITURE_TOP[kind][0], FURNITURE_TOP[kind][1]);
@@ -1690,8 +1697,9 @@ function buildStreetDetails(scene, opts = {}) {
       if (node.shape) continue;
       const x = e.sx + e.dx * along, z = e.sz + e.dz * along;
       const half = e.half + CROSSWALK_REACH + 2.6;
+      // A divided arm's crosswalk uses the nearer edge depth, which can pull a tilted zebra band up to ~0.8 m closer to the node.
       fileTreeKeepout({ ax: x - e.rx * half, az: z - e.rz * half,
-        bx: x + e.rx * half, bz: z + e.rz * half, zebra: true }, CROSSWALK / 2 + 0.4);
+        bx: x + e.rx * half, bz: z + e.rz * half, zebra: true }, CROSSWALK / 2 + 1.2);
     }
   }
   const clearStreetTree = (x, z, scale) => {
@@ -1711,7 +1719,7 @@ function buildStreetDetails(scene, opts = {}) {
       const side = Math.abs((x - s.ax) * dz - (z - s.az) * dx) / len;
       const pad = r * (Math.abs(dx) + Math.abs(dz)) / len;
       if (s.zebra) {
-        if (along > -pad && along < len + pad && side < CROSSWALK / 2 + pad) return false;
+        if (along > -pad && along < len + pad && side < CROSSWALK / 2 + 0.8 + pad) return false;
       } else if (Math.hypot(Math.max(0, -along, along - len), side) < Math.max(1.2, 0.9 + r * Math.SQRT2)) return false;
     }
     return true;
@@ -2274,7 +2282,8 @@ function buildStreetDetails(scene, opts = {}) {
         }
       }
     };
-    const lookup = (map, x, z) => map.get(key(x, z)) || [];
+    const EMPTY = [];
+    const lookup = (map, x, z) => map.get(key(x, z)) || EMPTY;
     const curves = index(), lanes = index(), crossings = index(), buildings = index(), overhead = index();
     const highOverhead = index();
     for (const n of network.nodes) for (const e of n.in) for (const move of e.moves) {
@@ -2336,90 +2345,171 @@ function buildStreetDetails(scene, opts = {}) {
     // Segment intersects a square around the candidate (the rectangle query used by walkable/pathClear).
     const intersects = (s, x, z) => {
       let lo = 0, hi = 1;
-      for (const [a, d, centre] of [[s.ax, s.bx - s.ax, x], [s.az, s.bz - s.az, z]]) {
-        if (Math.abs(d) < 1e-9) { if (Math.abs(a - centre) > s.margin) return false; continue; }
-        const t0 = (centre - s.margin - a) / d, t1 = (centre + s.margin - a) / d;
-        lo = Math.max(lo, Math.min(t0, t1)); hi = Math.min(hi, Math.max(t0, t1));
+      const m = s.margin;
+      const dx = s.bx - s.ax;
+      if (Math.abs(dx) < 1e-9) {
+        if (Math.abs(s.ax - x) > m) return false;
+      } else {
+        const inv = 1 / dx;
+        const t0 = (x - m - s.ax) * inv, t1 = (x + m - s.ax) * inv;
+        lo = Math.max(lo, t0 < t1 ? t0 : t1);
+        hi = Math.min(hi, t0 > t1 ? t0 : t1);
+        if (lo > hi) return false;
+      }
+      const dz = s.bz - s.az;
+      if (Math.abs(dz) < 1e-9) {
+        if (Math.abs(s.az - z) > m) return false;
+      } else {
+        const inv = 1 / dz;
+        const t0 = (z - m - s.az) * inv, t1 = (z + m - s.az) * inv;
+        lo = Math.max(lo, t0 < t1 ? t0 : t1);
+        hi = Math.min(hi, t0 > t1 ? t0 : t1);
         if (lo > hi) return false;
       }
       return true;
     };
     const root = (p) => { while (p && p.alias) p = p.alias; return p; };
+    const headsByRoot = new Map();
+    for (const h of vehicleHeadSites) {
+      const r = root(h.site.timing);
+      let list = headsByRoot.get(r);
+      if (!list) headsByRoot.set(r, list = []);
+      list.push(h);
+    }
+    const staticByTiming = new Map();
+    if (place) {
+      for (const h of staticHeadSites) {
+        const idx = h.site.timing.index;
+        let list = staticByTiming.get(idx);
+        if (!list) staticByTiming.set(idx, list = []);
+        list.push(h);
+      }
+    }
+    const recordHead = (head) => {
+      heads.push(head);
+      vehicleHeadSites.push(head);
+      const r = root(head.site.timing);
+      let list = headsByRoot.get(r);
+      if (!list) headsByRoot.set(r, list = []);
+      list.push(head);
+    };
+    const findSameHead = (list, node, edge, x, z) => list.find((h) => {
+      const swap = Math.abs(h.site.timing.mainUx * node.signalTiming.mainUx +
+        h.site.timing.mainUz * node.signalTiming.mainUz) <= 0.82;
+      const ox = h.p.x - x, oz = h.p.z - z;
+      return (h.group0 !== swap) === (edge.axisIndex === 0) &&
+        -h.a.ux * edge.dx - h.a.uz * edge.dz > 0.9 && Math.hypot(ox, oz) <= headReach &&
+        ox * edge.dx + oz * edge.dz <= STOP_SETBACK;
+    });
+    const findApproachHead = (list, node, edge) => list.find((h) => {
+      const swap = Math.abs(h.site.timing.mainUx * node.signalTiming.mainUx +
+        h.site.timing.mainUz * node.signalTiming.mainUz) <= 0.82;
+      return (node.signalTiming.pedestrian || (h.group0 !== swap) === (edge.axisIndex === 0)) &&
+        Math.hypot(h.p.x - node.x, h.p.z - node.z) < 45 &&
+        h.a.ux * edge.inArm.ux + h.a.uz * edge.inArm.uz > 0.98;
+    });
     for (const node of network.nodes) {
       if (!node.signalTiming) continue;
+      const nodeRoot = root(node.signalTiming);
+      let planHeads = headsByRoot.get(nodeRoot);
+      const staticHeads = place ? (staticByTiming.get(node.signalTiming.index) || []) : null;
+      const pending = [];
       for (const edge of node.in) {
-        if (place && staticHeadSites.some((h) => h.site.timing.index === node.signalTiming.index &&
+        if (place && staticHeads.some((h) =>
           Math.hypot(h.p.x - node.x, h.p.z - node.z) < 45 &&
           h.a.ux * edge.inArm.ux + h.a.uz * edge.inArm.uz > 0.98)) continue;
         const x = edge.sx + edge.dx * edge.len, z = edge.sz + edge.dz * edge.len;
         const entry = { node, edge, x, z };
         entries.push(entry);
         if (!node.signal || node.signalTiming.disabled || !edge.lanes.length) { entry.class = 'D'; continue; }
-        const sameHead = vehicleHeadSites.find((h) => {
-          if (root(h.site.timing) !== root(node.signalTiming)) return false;
-          const swap = Math.abs(h.site.timing.mainUx * node.signalTiming.mainUx +
-            h.site.timing.mainUz * node.signalTiming.mainUz) <= 0.82;
-          const ox = h.p.x - x, oz = h.p.z - z;
-          return (h.group0 !== swap) === (edge.axisIndex === 0) &&
-            -h.a.ux * edge.dx - h.a.uz * edge.dz > 0.9 && Math.hypot(ox, oz) <= headReach &&
-            ox * edge.dx + oz * edge.dz <= STOP_SETBACK;
-        });
+        const sameHead = planHeads && findSameHead(planHeads, node, edge, x, z);
         if (sameHead) { entry.class = 'A'; entry.head = sameHead; continue; }
         // The first pass already serves an approach when a same-phase head on the same plan faces it within 45 m.
         // A head with the other group does not count, or the audit would report A for an approach that still has
         // no signal of its own phase. Pedestrian-only signals run one shared phase for both groups (axisIndex 0),
         // so either group's head serves the approach there.
-        const approachHead = vehicleHeadSites.find((h) => {
-          if (root(h.site.timing) !== root(node.signalTiming)) return false;
-          const swap = Math.abs(h.site.timing.mainUx * node.signalTiming.mainUx +
-            h.site.timing.mainUz * node.signalTiming.mainUz) <= 0.82;
-          return (node.signalTiming.pedestrian || (h.group0 !== swap) === (edge.axisIndex === 0)) &&
-            Math.hypot(h.p.x - node.x, h.p.z - node.z) < 45 &&
-            h.a.ux * edge.inArm.ux + h.a.uz * edge.inArm.uz > 0.98;
-        });
+        const approachHead = planHeads && findApproachHead(planHeads, node, edge);
         if (approachHead) { entry.class = 'A'; entry.head = approachHead; continue; }
-        const reasons = {}, candidates = [], walks = index();
-        // Cache one neighbourhood per junction, enclosing the candidates on all its incoming edges. The tracks
-        // and their links are otherwise lazy; materialising the entire city made signal placement take 19 seconds.
-        let reach = 0;
+        pending.push({ entry, edge, x, z });
+      }
+      if (!pending.length) continue;
+      let nodeWalks = null, placedForNode = false;
+      const getWalks = () => {
+        if (nodeWalks) return nodeWalks;
+        nodeWalks = index();
+        let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+        for (const p of pending) {
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.z < minZ) minZ = p.z;
+          if (p.z > maxZ) maxZ = p.z;
+        }
+        let reach = 0, maxHalf = 0;
         for (const incoming of node.in) {
           const endX = incoming.sx + incoming.dx * incoming.len, endZ = incoming.sz + incoming.dz * incoming.len;
           reach = Math.max(reach, Math.hypot(endX - node.x, endZ - node.z) + incoming.half + 35);
+          if (incoming.half > maxHalf) maxHalf = incoming.half;
         }
-        for (const track of pedRoutes.segmentsNear(node.x, node.z, reach, node)) addWalk(walks, track);
+        const pad = Math.max(40, maxHalf + 35);
+        minX -= pad; maxX += pad; minZ -= pad; maxZ += pad;
+        for (const track of pedRoutes.segmentsNear(node.x, node.z, reach, node)) {
+          const ax = track.ax, az = track.az, bx = ax + track.ux * track.len, bz = az + track.uz * track.len;
+          if ((ax > bx ? ax : bx) < minX || (ax < bx ? ax : bx) > maxX ||
+              (az > bz ? az : bz) < minZ || (az < bz ? az : bz) > maxZ) continue;
+          addWalk(nodeWalks, track);
+        }
+        return nodeWalks;
+      };
+      for (const { entry, edge, x, z } of pending) {
+        if (placedForNode) {
+          planHeads = headsByRoot.get(nodeRoot);
+          const sameHead = planHeads && findSameHead(planHeads, node, edge, x, z);
+          if (sameHead) { entry.class = 'A'; entry.head = sameHead; continue; }
+          const approachHead = planHeads && findApproachHead(planHeads, node, edge);
+          if (approachHead) { entry.class = 'A'; entry.head = approachHead; continue; }
+        }
+        const reasons = {}, candidates = [];
+        let walks = getWalks();
         let closest = null, sampleCount = 0;
         const failures = (px, pz, stopEarly) => {
           const fail = [];
           const b = blockAt(px, pz);
           const pad = b && b.median ? 0.9 : 0.4;
-          const curb = b && !b.underpass && !inPlaza(px, pz, 0.5, true) &&
-            [[pad, 0], [-pad, 0], [0, pad], [0, -pad]].every(([ox, oz]) => {
-              const q = blockAt(px + ox, pz + oz);
-              return q && !!q.median === !!b.median;
-            });
+          let curb = Boolean(b && !b.underpass && !inPlaza(px, pz, 0.5, true));
+          if (curb) {
+            const med = !!b.median;
+            const q1 = blockAt(px + pad, pz), q2 = q1 && !!q1.median === med ? blockAt(px - pad, pz) : null;
+            const q3 = q2 && !!q2.median === med ? blockAt(px, pz + pad) : null;
+            const q4 = q3 && !!q3.median === med ? blockAt(px, pz - pad) : null;
+            curb = Boolean(q4 && !!q4.median === med);
+          }
           if (!curb) { fail.push('curb'); if (stopEarly) return fail; }
           if (!clearOfRails(px, pz, 0.22)) { fail.push('rail'); if (stopEarly) return fail; }
-          const crossing = lookup(crossings, px, pz).some((c) => {
+          let crossing = false;
+          for (const c of lookup(crossings, px, pz)) {
             const dx = c.bx - c.ax, dz = c.bz - c.az, len = Math.hypot(dx, dz);
             const along = ((px - c.ax) * dx + (pz - c.az) * dz) / len;
             const across = Math.abs((px - c.ax) * dz - (pz - c.az) * dx) / len;
-            return along > -2.75 && along < len + 2.75 && across < c.h + 0.4;
-          });
+            if (along > -2.75 && along < len + 2.75 && across < c.h + 0.4) { crossing = true; break; }
+          }
           if (!clearOfCrosswalks(px, pz, 0.15) || crossing) { fail.push('crosswalk'); if (stopEarly) return fail; }
           if (roadClearance(px, pz) < 0.8) { fail.push('road'); if (stopEarly) return fail; }
           if (!isClearOfPoles(px, pz, 1.4)) { fail.push('furniture'); if (stopEarly) return fail; }
-          if (lookup(curves, px, pz).some((p) => Math.abs(p.x - px) < 0.95 && Math.abs(p.z - pz) < 0.95)) {
-            fail.push('curve'); if (stopEarly) return fail;
+          for (const p of lookup(curves, px, pz)) {
+            if (Math.abs(p.x - px) < 0.95 && Math.abs(p.z - pz) < 0.95) {
+              fail.push('curve'); if (stopEarly) return fail; break;
+            }
           }
-          if (lookup(lanes, px, pz).some((s) => intersects(s, px, pz))) {
-            fail.push('lane'); if (stopEarly) return fail;
+          for (const s of lookup(lanes, px, pz)) {
+            if (intersects(s, px, pz)) { fail.push('lane'); if (stopEarly) return fail; break; }
           }
-          if (lookup(walks, px, pz).some((s) => intersects(s, px, pz))) {
-            fail.push('pedestrian route'); if (stopEarly) return fail;
+          for (const s of lookup(walks, px, pz)) {
+            if (intersects(s, px, pz)) { fail.push('pedestrian route'); if (stopEarly) return fail; break; }
           }
-          if (lookup(buildings, px, pz).some((c) => px >= c.minX - 0.15 && px <= c.maxX + 0.15 &&
-            pz >= c.minZ - 0.15 && pz <= c.maxZ + 0.15)) {
-            fail.push('building'); if (stopEarly) return fail;
+          for (const c of lookup(buildings, px, pz)) {
+            if (px >= c.minX - 0.15 && px <= c.maxX + 0.15 && pz >= c.minZ - 0.15 && pz <= c.maxZ + 0.15) {
+              fail.push('building'); if (stopEarly) return fail; break;
+            }
           }
           return fail;
         };
@@ -2484,14 +2574,19 @@ function buildStreetDetails(scene, opts = {}) {
               best = { foot: p, existing: true, reach, score, target, band, strict };
             }
             for (let along = -30; along <= 20; along += 1) {
+              const t = along < -15 ? -15 : (along > maxAlong ? maxAlong : along);
+              const dAlong = along - t;
+              if (Math.abs(dAlong) > OVERHEAD_REACH) continue;
               for (let lat = -edge.half - 24; lat <= edge.half + 24; lat += 0.8) {
+                let lane = edge.lanes[0];
+                for (const value of edge.lanes) if (Math.abs(value - lat) < Math.abs(lane - lat)) lane = value;
+                const reach = Math.hypot(dAlong, lat - lane);
+                if (reach > OVERHEAD_REACH || reach < 1 || (best && reach >= best.score)) continue;
                 const px = x + edge.dx * along + edge.rx * lat;
                 const pz = z + edge.dz * along + edge.rz * lat;
-                const target = targetFor(along, lat, maxAlong);
-                const reach = Math.hypot(px - target.x, pz - target.z);
-                if (reach > OVERHEAD_REACH || reach < 1 || (best && reach >= best.score) ||
-                  !mastClear(px, pz)) continue;
-                if (failures(px, pz, true).length || !armClear({ x: px, z: pz }, target)) continue;
+                if (!mastClear(px, pz) || failures(px, pz, true).length) continue;
+                const target = { x: x + edge.dx * t + edge.rx * lane, z: z + edge.dz * t + edge.rz * lane, along: t };
+                if (!armClear({ x: px, z: pz }, target)) continue;
                 best = { foot: { x: px, z: pz }, existing: false, reach, score: reach, target, band, strict };
               }
             }
@@ -2707,8 +2802,8 @@ function buildStreetDetails(scene, opts = {}) {
             const m = setFacing(target.x + a.ux * 0.18, OVERHEAD_Y, target.z + a.uz * 0.18, a.ux, a.uz);
             const head = { site, a, p: target, group0, existing: overheadSite.existing, node, edge,
               overhead: true, pole: overheadSite.foot, m, band: overheadSite.band, strict: overheadSite.strict };
-            heads.push(head);
-            vehicleHeadSites.push(head);
+            recordHead(head);
+            placedForNode = true;
             entry.class = 'B';
             entry.candidate = { x: target.x, z: target.z, side: 0, overhead: true };
             continue;
@@ -2732,8 +2827,8 @@ function buildStreetDetails(scene, opts = {}) {
             anchorExisting: spanSite.anchors.map((anchor) => anchor.existing),
             anchorTraction: spanSite.anchors.map((anchor) => !!anchor.traction), topY,
             m, band: spanSite.band, strict: spanSite.strict };
-          heads.push(head);
-          vehicleHeadSites.push(head);
+          recordHead(head);
+          placedForNode = true;
           entry.class = 'B';
           entry.candidate = { x: target.x, z: target.z, side: 0, overhead: true, span: true };
           continue;
@@ -2743,8 +2838,8 @@ function buildStreetDetails(scene, opts = {}) {
         const site = { timing: node.signalTiming }, group0 = edge.axisIndex === 0;
         const a = { ux: -edge.dx, uz: -edge.dz, w: edge.half * 2, lanes: edge.lanes.length };
         const head = { site, a, p, group0, existing: !!pole, node, edge };
-        heads.push(head);
-        vehicleHeadSites.push(head);
+        recordHead(head);
+        placedForNode = true;
       }
     }
     return { entries, heads };

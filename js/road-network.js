@@ -2,6 +2,7 @@ import {
   SIGNAL_SITES,
   resetSignalPlans,
   isLand,
+  distToWater,
   BLOCKS
 } from './city-config.js';
 import { GEO } from './geodata.js';
@@ -104,6 +105,7 @@ function createFootprintIndex(rects, flagOf) {
   const cells = new Map();
   const buckets = [];
   let total = 0;
+  let minIx = Infinity, maxIx = -Infinity, minIz = Infinity, maxIz = -Infinity;
   for (let i = 0; i < rects.length; i++) {
     const f = flagOf(rects[i]);
     if (!f) continue;
@@ -111,8 +113,14 @@ function createFootprintIndex(rects, flagOf) {
     const o = i * 4;
     bounds[o] = r.minX; bounds[o + 1] = r.maxX; bounds[o + 2] = r.minZ; bounds[o + 3] = r.maxZ;
     const slot = f === 1 ? 0 : f === 3 ? 1 : 2;
-    for (let ix = Math.floor(r.minX / FP_CELL); ix <= Math.floor(r.maxX / FP_CELL); ix++) {
-      for (let iz = Math.floor(r.minZ / FP_CELL); iz <= Math.floor(r.maxZ / FP_CELL); iz++) {
+    const x0 = Math.floor(r.minX / FP_CELL), x1 = Math.floor(r.maxX / FP_CELL);
+    const z0 = Math.floor(r.minZ / FP_CELL), z1 = Math.floor(r.maxZ / FP_CELL);
+    if (x0 < minIx) minIx = x0;
+    if (x1 > maxIx) maxIx = x1;
+    if (z0 < minIz) minIz = z0;
+    if (z1 > maxIz) maxIz = z1;
+    for (let ix = x0; ix <= x1; ix++) {
+      for (let iz = z0; iz <= z1; iz++) {
         const key = (ix + 1024) * 2048 + iz + 1024;
         let bucket = cells.get(key);
         if (bucket === undefined) {
@@ -138,6 +146,49 @@ function createFootprintIndex(rects, flagOf) {
     ids.set(b[2], off); off += b[2].length;
   }
   starts[buckets.length * 3] = off;
+
+  const spanX = buckets.length ? maxIx - minIx + 1 : 0;
+  const spanZ = buckets.length ? maxIz - minIz + 1 : 0;
+  if (spanX > 0 && spanZ > 0 && spanX * spanZ <= 2000000) {
+    const grid = new Int32Array(spanX * spanZ).fill(-1);
+    for (const [key, bucket] of cells) {
+      const ix = Math.floor(key / 2048) - 1024;
+      const iz = (key % 2048) - 1024;
+      grid[(ix - minIx) * spanZ + (iz - minIz)] = bucket;
+    }
+    return (minX, maxX, minZ, maxZ, mask) => {
+      const ix0 = Math.floor(minX / FP_CELL), ix1 = Math.floor(maxX / FP_CELL);
+      const iz0 = Math.floor(minZ / FP_CELL), iz1 = Math.floor(maxZ / FP_CELL);
+      if (ix1 < minIx || ix0 > maxIx || iz1 < minIz || iz0 > maxIz) return false;
+      const sOff = mask === 2 ? 1 : 0;
+      const eOff = mask === 1 ? 2 : 3;
+      if (ix0 === ix1 && iz0 === iz1) {
+        const bucket = grid[(ix0 - minIx) * spanZ + (iz0 - minIz)];
+        if (bucket < 0) return false;
+        const bi = bucket * 3;
+        for (let k = starts[bi + sOff], end = starts[bi + eOff]; k < end; k++) {
+          const o = ids[k] * 4;
+          if (bounds[o] < maxX && bounds[o + 1] > minX && bounds[o + 2] < maxZ && bounds[o + 3] > minZ) return true;
+        }
+        return false;
+      }
+      const xStart = ix0 < minIx ? minIx : ix0, xEnd = ix1 > maxIx ? maxIx : ix1;
+      const zStart = iz0 < minIz ? minIz : iz0, zEnd = iz1 > maxIz ? maxIz : iz1;
+      for (let ix = xStart; ix <= xEnd; ix++) {
+        const row = (ix - minIx) * spanZ - minIz;
+        for (let iz = zStart; iz <= zEnd; iz++) {
+          const bucket = grid[row + iz];
+          if (bucket < 0) continue;
+          const bi = bucket * 3;
+          for (let k = starts[bi + sOff], end = starts[bi + eOff]; k < end; k++) {
+            const o = ids[k] * 4;
+            if (bounds[o] < maxX && bounds[o + 1] > minX && bounds[o + 2] < maxZ && bounds[o + 3] > minZ) return true;
+          }
+        }
+      }
+      return false;
+    };
+  }
 
   return (minX, maxX, minZ, maxZ, mask) => {
     const ix0 = Math.floor(minX / FP_CELL), ix1 = Math.floor(maxX / FP_CELL);
@@ -1486,6 +1537,19 @@ function buildRoadNetwork(sidewalks, obstacles) {
         for (let i = 0; i < n; i++) link(e, m, i, i + best);
       }
     }
+    // If a turn's outer-to-outer curve grazes a curb or signal pole, try its other clear lane pairs before dropping it.
+    for (const m of e.moves) {
+      if (m.turn === 'S' || m.out.some((j) => j >= 0)) continue;
+      const f = m.to;
+      const step = m.turn === 'L' ? 1 : -1;
+      for (let i = step > 0 ? 0 : n - 1; i >= 0 && i < n; i += step) {
+        let linked = false;
+        for (let j = step > 0 ? 0 : f.lanes.length - 1; j >= 0 && j < f.lanes.length; j += step) {
+          if (link(e, m, i, j)) { linked = true; break; }
+        }
+        if (linked) break;
+      }
+    }
     serveEveryLane(e);
   }
 
@@ -1776,6 +1840,12 @@ function buildRoadNetwork(sidewalks, obstacles) {
   streetTracks.length = 0;
 
   const isRoadClear = (x, z, clear = 0.15) => !blockedOnStreet(x, z, clear);
+  walkable.box = (minX, maxX, minZ, maxZ) => {
+    if (!isLand(minX, minZ, SHORE_MARGIN) || !isLand(maxX, maxZ, SHORE_MARGIN)) return false;
+    const halfDiag = Math.hypot(maxX - minX, maxZ - minZ) * 0.5;
+    return distToWater((minX + maxX) * 0.5, (minZ + maxZ) * 0.5) > halfDiag + SHORE_MARGIN + 4 &&
+      !blocked(minX, maxX, minZ, maxZ, 1);
+  };
   const network = { nodes, edges, paintEdges, connector, curvePoint, laneOffset, laneShiftAt, walkable, isRoadClear };
   network.configureCrosswalks = (crosswalks) => configureCompoundCrossings(network, crosswalks);
   return network;

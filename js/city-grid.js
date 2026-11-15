@@ -2066,7 +2066,7 @@ function buildCityGrid(scene, opts = {}) {
       group.add(top);
     }
     pavedRects.push({ minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ, ring: b.poly });
-    addFootprint((b.minX + b.maxX) * 0.5, (b.minZ + b.maxZ) * 0.5, b.maxX - b.minX, b.maxZ - b.minZ);
+    addFootprint((b.minX + b.maxX) * 0.5, (b.minZ + b.maxZ) * 0.5, b.maxX - b.minX, b.maxZ - b.minZ, true);
     const bed = offsetPolygonInward(parkBedOutline(b), parkBedInset(b, roadCuts));
     if (!bed) continue;
     // the lawn keeps a 2 m paved path round each pond (or meets the water where the pond comes too close to the walk)

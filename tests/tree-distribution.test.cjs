@@ -121,15 +121,17 @@ test('seeded species assignment preserves the full built city tree sites and col
   // removal. The full-world audit loses 939; this fixture omits landmark/bridge walls and park building cutouts.
   // Underpass sidewalk AABB fix (2026-11-15): restores 197 edges (dropping 3 street trees on restored carriageways)
   // and matches 0.9 + r * Math.SQRT2 lane clearance (dropping 1 street + 1 park OSM tree).
-  assert.deepEqual(before, [45659, 48820, 21948, 1981]);
-  assert.deepEqual(after, [43792, 46786, 21035, 6795]);
-  assert.equal(siteHash, '2dd5886f3cc12c34ad0c0579499459d8a6bebc298ab4039f0e2892ec2e5e8cf2');
+  // SCC chord-cut guards & dual-edge zebra keepout fix (2026-11-15):
+  // -92 trees inside the 0.8 m tilted-zebra margin, and walkable parks update park-block footprints.
+  assert.deepEqual(before, [45640, 48751, 21936, 1979]);
+  assert.deepEqual(after, [43771, 46723, 21022, 6790]);
+  assert.equal(siteHash, '393ef6928b1a6638b1d96c061cd09d81c8a0239b8496864e67bb24bd21a043a9');
   // The rail crown filter drops grid park trunk colliders before construction; lamps and other props stay fixed.
-  assert.equal(digest(grid.propColliders), '17d37d0731f0825dc8d596d5fddbeb4d9912dbab49495e24b0904cac30c5f2ae');
+  assert.equal(digest(grid.propColliders), '40be654e880d47d4d9f05d78cb6dc7e3c7b01775ed877d91b435cfd5441875c6');
   // Street-details loses only the rejected street/mapped trunk colliders; surviving colliders stay identical.
-  assert.equal(digest(details.colliders), 'ceaf0ce63d38231679da1b8e847cdc68f9f230b2b00b538bbbf9040e625be971');
-  assert.equal(meshCount((t) => t.species || 0), 25323);
-  assert.equal(meshCount(treeSpecies), 30155);
+  assert.equal(digest(details.colliders), '17a956318e7d181847d6d05b5efbbcc81e479dc751ca5b08b7cbef989669c828');
+  assert.equal(meshCount((t) => t.species || 0), 25321);
+  assert.equal(meshCount(treeSpecies), 30158);
   // Every surveyed node the clearance rules accept reaches the field exactly at its OSM position. The rest are dropped
   // where a wall, lane, track, water or building doorway leaves no room, or within 4 m of a plaza planter whose own tree
   // stands for them, rather than moved off the surveyed point.
@@ -138,7 +140,8 @@ test('seeded species assignment preserves the full built city tree sites and col
   // 331 surveyed trees (a dropped node is never moved, see above). The promenade acceptance adds 14 row trees, one of
   // which the wall/lane checks still reject; the nine garden crowns are source 'site' and stay out of this count:
   // 32,742 -> 32,755.
-  assert.equal(osm.length, 32868); // Three additional mapped trees fail restored/SQRT2 lane clearance.
+  // Restored SCC roads + 0.8 m tilted-zebra keepout margin drop 68 mapped trees (32,868 -> 32,800).
+  assert.equal(osm.length, 32800);
   // The garden, car-park and promenade sites the task restored are planted, not merely configured.
   const westLawnTrees = sites.filter((t) => t.source === 'site' && t.x > -740 && t.x < -711 && t.z > 12 && t.z < 42);
   assert.ok(westLawnTrees.length >= 6, `the west lawn keeps its surveyed trees: ${westLawnTrees.length}`);

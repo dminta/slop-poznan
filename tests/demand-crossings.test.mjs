@@ -12,7 +12,7 @@ const audit = fileURLToPath(new URL('../tools/audit-demand-crossings.mjs', impor
 test('demand crossings serve NPC requests within bound and never release walkers on road green', () => {
   const run = spawnSync(
     process.execPath,
-    [audit, '--seeds', '4242', '--minutes', '1.5', '--only', '2634,139,1662', '--json'],
+    [audit, '--seeds', '4242', '--minutes', '1.5', '--only', '2653,139,1667', '--json'],
     { encoding: 'utf8' }
   );
   assert.equal(run.status, 0, run.stderr);

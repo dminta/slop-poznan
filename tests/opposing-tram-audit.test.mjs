@@ -44,7 +44,7 @@ test('opposing-lane audit lists used street runs and counts off-street and unuse
   const allRows = all.stdout.trim().split('\n').map(JSON.parse);
   const allTotal = JSON.parse(all.stderr.trim());
   assert.equal(allRows.length, total.segments + total.skipped.segments);
-  assert.ok(allRows.some((row) => [3389, 3390, 3391, 6770, 8798].includes(row.road)), '--all restores off-street rows');
+  assert.ok(allRows.some((row) => [3407, 3408, 3409, 6799, 8839].includes(row.road)), '--all restores off-street rows');
   assert.deepEqual([allTotal.segments, allTotal.lanes, allTotal.length], [55, 51, 498]);
 });
 
