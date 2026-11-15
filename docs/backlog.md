@@ -55,7 +55,7 @@ Implementation details and completed measurements live in the [topic docs](../AG
   controls are in the
   [Rataje investigation](observations/rataje-seed4-deadlock-2026-11-15.md). The original
   [capacity finding](observations/kaponiera-signal-capacity-2026-11-15.md) predates the curb fix.
-- **Kaponiera long holds and the last deadlock:** **current (2026-11-15, round 3):** +12 s at the two local
+- **Kaponiera long holds and the last deadlock:** **seed-noise caveat (2026-11-15):** after the curb fix (`9798737`) the eight historical seeds read 15 holds, but 12 fresh seeds read 12 vs 19 pre-fix and all 20 seeds 27 vs 23, with no deadlock increase; the rise is resampling noise, not a rule fault ([record](observations/curb-fix-traffic-2026-11-15.md)). Compare pedestrian-affecting changes on the 20-seed set. **Round 3 baseline (pre-fix random stream):** +12 s at the two local
   signal sites is retained (`SIGNAL_OFFSET_OVERRIDES`), with **4 holds > 120 s**, 0 new deadlocks and **28 car–tram
   pairs** over historical seeds `1 2 3 5 7 11 99 4242` × 7 districts. Holds fall 11 → 4; the worst district mean
   change is −0.0625 km/h (Kaponiera), within 0.1 km/h. The user accepts the extra overlap pair (27 → 28) as a
@@ -124,7 +124,7 @@ Implementation details and completed measurements live in the [topic docs](../AG
   [2026-11-08 trace and rejected variants](observations/kaponiera-traffic-2026-11-08.md),
   [Centrum trace](observations/merge-starvation-2026-11-07.md),
   [per-second left-turn/tram trace](observations/left-turn-tram-2026-11-04.md).
-- **Car–tram body overlaps:** **current (2026-11-15, round 3): 28 pairs** over eight historical seeds
+- **Car–tram body overlaps:** **seed-noise caveat (2026-11-15):** the curb fix (`9798737`) reads 44 pairs on the eight historical seeds but 46 vs 56 pre-fix on twelve fresh seeds (all 20: 90 vs 84, 4.5 vs 4.2 per seed); it is resampling noise, no rule change ([record](observations/curb-fix-traffic-2026-11-15.md)). **Round 3 baseline (pre-fix random stream): 28 pairs** over eight historical seeds
   (Jeżyce 16, Kaponiera 7, Centrum 2, Rataje 2, Stare Miasto 1). The user accepts the extra pair from the two
   Kaponiera +12 s signal offsets (27 → 28) in exchange for reducing long holds 11 → 4 without new deadlocks.
   [Capacity tradeoff](observations/kaponiera-signal-capacity-2026-11-15.md). Previous baseline (`a49181b`):

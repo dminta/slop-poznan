@@ -437,6 +437,15 @@ the [archived Phase 16 report](archive/poznan-plan.md#phase-16-signal-timing-and
 - `tests/traffic-performance.test.cjs` budgets are **exact write/upload counts, not timings**: idle sparks produce 0 matrix writes and 0 uploads after warm-up, frames 1–2 keep exactly one degenerate visible instance, the live-spark update range is `count * 16` floats, and `renderPed` adds to the crowd only when drawn.
 - `tools/benchmark-pedestrians.mjs` (usage in [`testing.md`](testing.md)) is the correctness check after `PersonRig` changes; it string-replaces `if (updatePose) this.solve();`, so keep that exact text.
 
+## Comparing traffic changes: the random stream is shared
+
+Traffic, pedestrians and trams draw from one seeded `Math.random`, so a change that alters even a few pedestrians
+(e.g. the curb-epsilon fix `9798737`) decorrelates every vehicle trajectory. The eight historical seeds were tuned on,
+so a re-roll reads worse by regression to the mean (28 → 44 car–tram pairs, 4 → 15 holds on them; on twelve fresh seeds
+56 → 46 and 19 → 12). For changes that touch pedestrian behaviour, compare on 20 seeds (the historical eight plus
+`13 17 19 23 29 31 37 41 43 47 53 59`) against a pre-change run
+([record](observations/curb-fix-traffic-2026-11-15.md)).
+
 ## Test-harness coupling (gotcha)
 `traffic.test.cjs` and `traffic-performance.test.cjs` extract inner functions of `traffic.js` by regex: from a line starting `  function name(` up to the first line that is exactly `  }`. They then run each function in a `vm` with a hand-written context of its free variables. `traffic.test.cjs` also cuts out `courtesy` and runs `mayEnter` with its own context (the courtesy test). The extracted functions are `mayEnter, signalAhead, canStop, yieldToCrossTraffic, yieldOncoming, nearView, refreshNear, spawnVehicle, spawnPed, renderPed, updateSparks, flagRange, occupyTrams, tramBlocks, heldByTram, tramClose, tramHoldsClose, inTramLane, overlapWithPlayer, collideWithTram, tramRoom, tramCrossings, tramNear` (`mayEnter` needs `tramBlocks`, `tramRefusedClose`, `refuse` and `PED_COURTESY`; `spawnVehicle` a `nearTram` stub; `refreshNear` `vehicles`, `VEHICLE_DENSITY` and `MIN_VEHICLES`). Keep them as 2-space-indented `function` declarations. When a change adds a free variable or helper to one of them, add a stub to the matching test context.
 
