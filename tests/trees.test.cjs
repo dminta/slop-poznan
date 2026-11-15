@@ -104,3 +104,36 @@ test('rectangular atlas mipmaps preserve tile coverage and end at 1 by 1', () =>
   assert.deepEqual(Array.from({ length: 8 }, (_, i) => levels[1].data[i * 4 + 3]), [128, 0, 0, 0, 0, 0, 128, 0]);
   assert.ok(levels[2].data[3] >= 128 && levels[2].data[7] >= 128);
 });
+
+test('slot lists keep LOD 2 members dense under random adds and swap-removes', () => {
+  const { createSlotLists } = loadTrees([]);
+  const lists = createSlotLists([5, 3, 0]);
+  assert.equal(lists.members.length, 3);
+  assert.deepEqual([...lists.counts], [0, 0, 0]);
+  // Reference model: per list, the set of ids, and every id's slot as the tree field tracks it (farSlot).
+  const slotOf = new Map();
+  const inList = [new Set(), new Set()];
+  let seed = 12345;
+  const rnd = (n) => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed % n; };
+  for (let step = 0; step < 4000; step++) {
+    const list = rnd(2);
+    const cap = list === 0 ? 5 : 3;
+    const id = rnd(cap + 4) + list * 100;
+    if (inList[list].has(id)) {
+      const slot = slotOf.get(id);
+      const moved = lists.remove(list, slot);
+      inList[list].delete(id);
+      slotOf.delete(id);
+      // the last member fills the freed slot (or the slot was the last one)
+      if (moved >= 0) assert.equal(lists.members[list][slot], moved);
+    } else if (lists.counts[list] < cap) {
+      slotOf.set(id, lists.add(list, id));
+      inList[list].add(id);
+    }
+    // After every step the list is dense, holds exactly the reference ids once each, and slotOf can be rebuilt
+    const live = [...lists.members[list].subarray(0, lists.counts[list])];
+    assert.equal(live.length, inList[list].size);
+    assert.deepEqual(new Set(live), inList[list]);
+    live.forEach((member, slot) => slotOf.set(member, slot));
+  }
+});

@@ -14,7 +14,8 @@ import { createTreeMaterial } from './tsl-materials.js';
 // - Crown-shell normals, interior occlusion & sway weights baked per vertex (attributes: createTreeMaterial in
 //   tsl-materials.js)
 // - Three levels of detail (two variants per species up close), picked per tree from the camera distance and
-//   regrouped per spatial cell / species / variant / level whenever the camera has moved a few metres
+//   regrouped per spatial cell / species / variant / level whenever the camera has moved a few metres (levels 0-1 repack
+//   their 200 m cell; whole-crown level 2 keeps one mesh per species in 400 m cells and moves single instances)
 
 const V3 = THREE.Vector3;
 
@@ -948,6 +949,11 @@ function buildTreeGeometries(speciesIndex, variant, tileMeters) {
 // 5. TREE FIELD: per-tree level of detail, with spatial cells culled separately in the view and shadow passes
 // =====================================================================================================================
 const TREE_CELL_SIZE = 200;
+// Whole-crown LOD 2 trees live in coarser cells: a crown is only ~100-140 triangles, so the instances of a cell that
+// half leaves the view cost less than the draw calls of 200 m cells (wp5 on High: 593 -> 83 LOD 2 draws at 800 m, 264
+// tree draws in all at 400 m, and the cell's static bounding sphere also lets more far-cell instances into the shadow
+// passes). 400 m keeps submitted triangles within +3 % at the measured views; docs/observations/perf-tree-vistas-2026-11-15.md.
+const TREE_FAR_CELL_SIZE = 400;
 const LOD_HYSTERESIS = 6;
 
 // The historical (high) profile. Every distance is in metres: full detail within lodNear, coarse cards & branches within
@@ -1002,6 +1008,30 @@ function treeSpecies(t) {
   return hashPos(t.x, 19.7, t.z) < 0.04 ? 3 : Math.min(3, Math.max(0, t.species || 0));
 }
 
+// Dense membership lists with O(1) add and swap-remove, one list per instanced mesh. The tree field keeps its LOD 2
+// meshes this way: a tree that changes level moves one instance instead of repacking a whole cell.
+function createSlotLists(capacities) {
+  const members = capacities.map((capacity) => new Int32Array(capacity));
+  const counts = new Int32Array(capacities.length);
+  return {
+    members,
+    counts,
+    add(list, id) {
+      const slot = counts[list]++;
+      members[list][slot] = id;
+      return slot;
+    },
+    // Frees `slot` by moving the last member into it; returns that member's id, or -1 when the slot was the last one
+    remove(list, slot) {
+      const last = --counts[list];
+      if (slot === last) return -1;
+      const moved = members[list][last];
+      members[list][slot] = moved;
+      return moved;
+    }
+  };
+}
+
 /**
  * Builds the instanced tree field for `sites` ({ x, y, z, scale, species, yaw?, sx?, sz?, tier? }) and keeps each
  * tree's level of detail up to date from the camera of every view pass (scene.onBeforeRender). Returns
@@ -1026,6 +1056,7 @@ function createTreeField(scene, sites) {
   const pz = new Float32Array(N);
   const meshOf = new Int32Array(N * 3); // mesh index per level
   const cellOf = new Array(N);
+  const farSlot = new Int32Array(N).fill(-1); // slot of the tree in its whole-crown mesh, -1 = not drawn at LOD 2
   const tier = new Uint8Array(N);
   const lod = new Uint8Array(N).fill(255);
 
@@ -1051,6 +1082,7 @@ function createTreeField(scene, sites) {
     l2: sharedFar || makeType(geos[s][0][2], `Trees_${sp.name}_lod2`)
   }));
   const cells = new Map();
+  const farCells = new Map();
   const meshes = [];
   const counts = [];
 
@@ -1086,15 +1118,26 @@ function createTreeField(scene, sites) {
     }
     cell.trees.push(i);
     cellOf[i] = cell;
+    const farKey = Math.floor(t.x / TREE_FAR_CELL_SIZE) + ',' + Math.floor(t.z / TREE_FAR_CELL_SIZE);
+    let farCell = farCells.get(farKey);
+    if (!farCell) {
+      const farGroup = new THREE.Group();
+      farGroup.name = `TreeFarCell_${farKey}`;
+      farGroup.visible = false;
+      group.add(farGroup);
+      farCell = { group: farGroup, meshes: new Map() };
+      farCells.set(farKey, farCell);
+    }
     const mi = meshIndex[sp];
     const treeTypes = [mi.l0[variant], mi.l1[variant === 1 && profile.lod1Variants === 1 ? 0 : variant], mi.l2];
     for (let l = 0; l < 3; l++) {
       const type = treeTypes[l];
-      let index = cell.meshes.get(type);
+      const home = l === 2 ? farCell : cell;
+      let index = home.meshes.get(type);
       if (index === undefined) {
         index = meshes.length;
-        meshes.push({ type, cell, name: `${type.name}_${key}`, capacity: 0 });
-        cell.meshes.set(type, index);
+        meshes.push({ type, cell: home, name: `${type.name}_${l === 2 ? farKey : key}`, capacity: 0, far: l === 2 });
+        home.meshes.set(type, index);
       }
       meshOf[i * 3 + l] = index;
       meshes[index].capacity++;
@@ -1125,6 +1168,75 @@ function createTreeField(scene, sites) {
     return mesh;
   });
 
+  // Whole-crown meshes: static bounds around every tree that can ever sit in them (no per-change recompute), and one
+  // membership list each. The instance buffers are filled only as trees reach LOD 2 (farAdd).
+  const far = createSlotLists(meshes.map((m) => (m.far ? m.capacity : 0)));
+  const farDirty = new Set(); // far meshes whose list changed since the last flush
+  const farMeshes = [];
+  meshes.forEach((m, mi) => {
+    if (m.far) farMeshes.push(mi);
+  });
+  {
+    const fill = new Int32Array(meshes.length);
+    for (let i = 0; i < N; i++) {
+      const mi = meshOf[i * 3 + 2];
+      instanced[mi].instanceMatrix.array.set(mats.subarray(i * 16, i * 16 + 16), fill[mi]++ * 16);
+    }
+    for (const mi of farMeshes) {
+      const mesh = instanced[mi];
+      mesh.count = fill[mi];
+      mesh.computeBoundingSphere();
+      mesh.boundingSphere.radius += meshes[mi].type.windPadding;
+      mesh.count = 0;
+    }
+  }
+  function farAdd(i) {
+    const mi = meshOf[i * 3 + 2];
+    const mesh = instanced[mi];
+    const slot = far.add(mi, i);
+    farSlot[i] = slot;
+    mesh.instanceMatrix.array.set(mats.subarray(i * 16, i * 16 + 16), slot * 16);
+    mesh.geometry.attributes.aTreeData.array.set(data.subarray(i * 4, i * 4 + 4), slot * 4);
+    farTouch(mi);
+  }
+  function farRemove(i) {
+    const mi = meshOf[i * 3 + 2];
+    const slot = farSlot[i];
+    farSlot[i] = -1;
+    const moved = far.remove(mi, slot);
+    if (moved >= 0) {
+      const mesh = instanced[mi];
+      farSlot[moved] = slot;
+      mesh.instanceMatrix.array.set(mats.subarray(moved * 16, moved * 16 + 16), slot * 16);
+      mesh.geometry.attributes.aTreeData.array.set(data.subarray(moved * 4, moved * 4 + 4), slot * 4);
+    }
+    farTouch(mi);
+  }
+  function farTouch(mi) {
+    farDirty.add(mi);
+  }
+  // three.js uploads an attribute only when its mesh is drawn, and a culled mesh keeps its pending range: replacing it
+  // with just this flush's slots would lose the earlier ones, so every flush re-sends the whole list (<= ~250 trees)
+  function flushFar() {
+    for (const mi of farDirty) {
+      const mesh = instanced[mi];
+      const n = far.counts[mi];
+      mesh.count = n;
+      mesh.visible = n > 0;
+      if (n > 0) {
+        for (const attr of [mesh.instanceMatrix, mesh.geometry.attributes.aTreeData]) {
+          attr.clearUpdateRanges();
+          attr.addUpdateRange(0, n * attr.itemSize);
+          attr.needsUpdate = true;
+        }
+      }
+      let visible = false;
+      for (const other of meshes[mi].cell.meshes.values()) if (instanced[other].visible) visible = true;
+      meshes[mi].cell.group.visible = visible;
+    }
+    farDirty.clear();
+  }
+
   // Repack only cells whose trees changed level; the meshes and their buffer capacities stay fixed.
   const dirtyCells = new Set();
   function rebuild() {
@@ -1132,7 +1244,7 @@ function createTreeField(scene, sites) {
       for (const mi of cell.meshes.values()) counts[mi] = 0;
       for (const i of cell.trees) {
         const l = lod[i];
-        if (l === 255) continue;
+        if (l === 255 || l === 2) continue; // whole crowns live in the far cells (farAdd)
         const mi = meshOf[i * 3 + l];
         const mesh = instanced[mi];
         const c = counts[mi]++;
@@ -1161,6 +1273,7 @@ function createTreeField(scene, sites) {
       cell.group.visible = visible;
     }
     dirtyCells.clear();
+    flushFar();
   }
 
   // Levels from the camera position (3D distance to mid-crown), with hysteresis at every boundary
@@ -1186,9 +1299,13 @@ function createTreeField(scene, sites) {
         if (Math.abs(d - edge) < LOD_HYSTERESIS) nextL = curL;
       }
       const next = nextL === 3 ? 255 : nextL;
-      if (next !== lod[i]) {
+      const prev = lod[i];
+      if (next !== prev) {
         lod[i] = next;
-        dirtyCells.add(cellOf[i]);
+        // Levels 0 and 1 repack their 200 m cell; level 2 moves just this instance in its far mesh
+        if (prev === 2) farRemove(i);
+        if (next === 2) farAdd(i);
+        if (prev < 2 || next < 2) dirtyCells.add(cellOf[i]);
         changed = true;
       }
     }
@@ -1231,6 +1348,7 @@ function createTreeField(scene, sites) {
 
 export {
   createTreeField,
+  createSlotLists,
   createLeafAtlas,
   buildTreeGeometries,
   coverageMips,
