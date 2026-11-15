@@ -158,6 +158,12 @@ Implementation details and completed measurements live in the [topic docs](../AG
   0 holds `> 120 s`). Do not revive `BUS_OVERLAP = 2.6` (`busOnly` junction conflicts in `mapTramsToRoads`: cut overlaps
   `32 → 24` but raised Kaponiera `6 → 11` and caused 4 Jeżyce deadlocks). Remaining Jeżyce pairs are the 10 m stub
   `4660` (10 stopped), `8947 -> 4659` bus clearance (3 moving), and 2 connector entries.
+  [2026-11-15b follow-up](observations/car-tram-jezyce-2026-11-15b.md): no game change retained. Short-run oncoming
+  yielding reduced seed-2 Jeżyce pairs `3 -> 2` but mean speed `15.1 -> 14.0 km/h`; outward connector clearance
+  reduced seed-1 pairs `4 -> 2` but mean `16.5 -> 15.0 km/h` and left the stopped `4660` bus contact. Both fail
+  the per-seed 0.1 km/h limit. The `8947 -> 4659` bus encounter reaches both rendered sections after the initial
+  rigid-rectangle false positive; it cannot be dismissed as an audit artefact. Neither variant justifies retrying
+  the rejected broad guards or bus-only reservations.
   [2026-11-15 Jeżyce record](observations/car-tram-jezyce-2026-11-15.md),
   [Kaponiera and Stare diagnosis](observations/car-tram-kaponiera-stare-2026-11-10.md),
   [Jeżyce traces and follower fix](observations/car-tram-jezyce-2026-11-10.md),

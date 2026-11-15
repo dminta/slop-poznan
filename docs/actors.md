@@ -580,6 +580,17 @@ just ahead of the nose of a tram at the conflict wait too; only `inTramLane` and
 exemption. Over the 8 seeds × 7 districts this removes 13 pairs, 12 of them
 in Stare Miasto, without moving cars held over 60 s / over 120 s (183 / 9) or the deadlock count (0).
 
+**Jeżyce storage and bus clearance follow-up (2026-11-15b).** A car can enter `4660` while the tram is stopped for
+another vehicle, then stop for exit room before the tram resumes. Braking distance fitting the 10 m link does not
+mean its standing body clears the turning section sweep. The oncoming-body exemption in the tram obstacle sweep
+then lets the tram turn through that stationary body. On `8947 -> 4659`, the opposing track is about 2.45 m from
+the connector, outside the 2.2 m car-centre conflict mapping but inside the bus-plus-tram body clearance. The rigid
+18 m audit rectangle reports contact early, but the rendered front and trailer sections subsequently overlap too.
+A harness allowing short-run oncoming cars to clear and another steering toward available right-hand curb space
+both reduced some contacts but failed the required per-seed speed bound; neither is retained. Keep the existing
+`tramStandsAt` obstacle exemption and do not generalise the rejected bus-only conflict reservations.
+[Traces, rejected variants and unchanged-source measurements](observations/car-tram-jezyce-2026-11-15b.md).
+
 **Short-link bus guard.** A bus can be longer than the edge after a connector (18 m on Kaponiera's 10 m link 7343), so
 its front is already at that edge's far stop line when it enters. The connector out of it was never seen before the bus
 was committed. `nextTramHoldsClose` checks the moves out of a short link from the upstream approach, and a committed
