@@ -348,6 +348,50 @@ for all seven districts; `tests/traffic-flow.test.mjs` runs only the five-minute
 Results over eight seeds are in
 [observations/tram-overlaps-2026-11-04.md](observations/tram-overlaps-2026-11-04.md).
 
+## Accepting traffic changes
+
+Eight historical seeds (`1 2 3 5 7 11 99 4242`) were tuned against for several rounds, and `Math.random` is shared by
+traffic, pedestrians and trams, so any change in a walker's behaviour re-rolls every vehicle trajectory. Reading a
+single seed set therefore mislabels noise as regression or gain ([the curb-fix finding](observations/curb-fix-traffic-2026-11-15.md)).
+`tools/accept-traffic.mjs` compares a baseline git ref with the working tree on fresh seeds instead:
+
+```
+node tools/accept-traffic.mjs --base HEAD            # uncommitted edits against the last commit
+node tools/accept-traffic.mjs --base poznan --ped --demand --jobs 6
+```
+
+- **What runs:** per seed and tree, `bench-traffic.mjs` (7 districts, 5 min, 15 fps) and `audit-tram-overlaps.mjs`;
+  `--ped` adds `audit-ped-overlaps.mjs` (3 min, 8 focus points), `--demand` adds `audit-demand-crossings.mjs`. The baseline
+  is `git worktree add --detach` in a temp dir (removed afterwards, also on Ctrl-C); each tree runs its own `tools/`.
+  `--work REF` replaces the working tree with another ref (to re-measure an old commit pair); `--base worktree`
+  compares the working tree with itself.
+- **Seeds:** default `61 67 71 73 79 83 89 97 101 103 107 109 113 127 131 137 139 149 151 157` — none is a historical
+  seed or one of the curb-fix record's twelve (`13 17 19 23 29 31 37 41 43 47 53 59`). `--seeds a,b,c` overrides
+  (positive integers below 2147483647). `--minutes`, `--fps`, `--jobs` (default half the cores), `--json out`.
+- **Cost:** about 3 CPU-minutes per seed and tree for bench + tram; the default 20 seeds × 2 trees ≈ 2 CPU-hours, so
+  roughly 25–30 min at `--jobs 6`. Results are cached per (tree content hash, tool, seed, minutes, fps) in the
+  gitignored `.accept-cache/`: the hash covers `js/` and `tools/` as they are on disk, so a rerun with the same code, and
+  the baseline side of every later comparison against the same ref, cost nothing. `--no-cache` forces a rerun. Identical
+  (tree, seed) jobs are run once.
+- **Reading it:** the table lists, per metric, the baseline and working totals over the seeds, the mean paired
+  difference per seed (working − baseline) and its 95 % paired-bootstrap CI (10 000 resamples over seeds, fixed
+  PRNG). Verdict `better` / `worse` only when the whole interval lies on one side of zero; touching zero is
+  `within noise`. Gates (their `worse` fails the run): car–tram pairs, holds > 120 s, deadlocks, max wait, overall
+  km/h, and with the options ped clusters and the demand audit's road-green counts. Per-district km/h, ped pairs/s and
+  starved requests are `(info)`. A new deadlock pattern also fails: the same district and junction set in ≥ 3 working
+  seeds and in none of the baseline's. Exit status 0 is "no statistically clear regression"; 1 is a gate failure; 2 is a
+  crash.
+- **Limits:** each gate has about a 5 % false-alarm rate (more across the ten gated metrics), and 20 seeds only resolve
+  shifts above the floor in [observations/traffic-noise-2026-11-15.md](observations/traffic-noise-2026-11-15.md).
+  `within noise` means "not shown", not "equal"; a suspected small regression needs more seeds (`--seeds`, the cache keeps
+  the earlier ones). Counts with mostly zeros (deadlocks) are only flagged when the pattern repeats. The same
+  random-stream caveat applies when judging a hand-picked seed: use it for diagnosis, not acceptance.
+- **Noise floor (same code, independent seeds):** `--base worktree --baseline-seed-shift 1000` runs the baseline side on
+  seeds + 1000. Its output should read `within noise` on nearly every metric; numbers are in the observation record.
+
+`tests/accept-traffic.test.mjs` covers the bootstrap, verdicts, exit logic and deadlock patterns of
+`tools/accept-stats.mjs` without a simulation.
+
 ## Tram section sweep and standing-position audit
 
 `node tools/audit-tram-stop-sweeps.mjs [--step 0.25] [--margin 0.1]` prints a summary followed by every non-shape

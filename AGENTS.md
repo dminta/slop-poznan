@@ -10,6 +10,8 @@ migration paths; check `docs/architecture.md` before changing them.
 
 ## Commands
 - Tests: `node --test tests/` (~34 s, mostly the geodata rebuild and traffic regression); quick loop: `node --test tests/*.cjs` (~9 s). Node 22+.
+- Traffic or pedestrian-behaviour changes: judge them with `node tools/accept-traffic.mjs --base <ref>` (20 fresh seeds, paired
+  CIs; `docs/testing.md` "Accepting traffic changes"), never on the eight historical seeds alone.
 - Serve: `python3 -m http.server 8000` from the repo root, then open `http://localhost:8000/` in a WebGPU browser (needs network
   for three.js).
 - Rendered appearance and audible behavior require browser checks; headless tests cover only their math and schedules.
