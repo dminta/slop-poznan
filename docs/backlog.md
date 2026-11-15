@@ -41,12 +41,20 @@ Implementation details and completed measurements live in the [topic docs](../AG
   [Centrum ablations](observations/ped-centrum-pairs-2026-11-14.md),
   [2026-11-15 measurements and new mechanisms](observations/ped-twin-lane-standoff-2026-11-15.md),
   [earlier mechanisms](observations/ped-overlap-remnants-2026-11-08.md).
-- **Rataje seed-4 car–tram deadlock (separate finding, 2026-11-15):** the five-minute seed-4 baseline reports
-  one deadlock at T300, minimum member wait 58 s: tram 13 at `(1021, 1690)` and car 49 in the `(1026, 1671)` box.
-  Its complete Rataje benchmark row is bit-identical with +15 s offsets at both Kaponiera sites. Seed 4 is outside
-  the corrected historical acceptance set `1 2 3 5 7 11 99 4242`; this pre-existing cycle is not a new-deadlock
-  regression of the Kaponiera variant. Diagnose it independently; no Rataje rule or plan was changed.
-  [Capacity investigation](observations/kaponiera-signal-capacity-2026-11-15.md).
+- **Rataje seed-4 car–tram deadlock (rechecked 2026-11-15):** no longer reproduced at `6bc437f`: both the full
+  and isolated five-minute seed-4 runs give 0 Rataje deadlocks, 16.3 km/h and a 46 s longest hold. Restoring only
+  the two pedestrian curb expressions from before `9798737` recreates the exact historical T300 / 58 s cycle:
+  line 13's committed-car road gate → car 49 inside `(1026, 1671)` → that tram's opposing-lane pad.
+  The queued tram release correctly refuses because the oncoming-inclusive body sweep returns 2.5 m, while the
+  car-side pad release only runs before entry. Extending it to connector following with both 20 s waits,
+  verified rear storage and a connector-only latch clears the historical cycle but adds car 49 / tram 13 contact
+  (0 → 1 pair, 17 frames): the car drives into the stopped nose. **Rejected; no game code changed.** Do not
+  retry that bypass merely with different waits/latching: this opposing run needs actual path clearance, not
+  just space to store the rear. The fresh nine-seed × seven-district baseline has 0 deadlocks, 18 holds >120 s
+  (all Kaponiera) and 48 car–tram pairs; it includes seed 4 and the later curb fix. Measurements and source
+  controls are in the
+  [Rataje investigation](observations/rataje-seed4-deadlock-2026-11-15.md). The original
+  [capacity finding](observations/kaponiera-signal-capacity-2026-11-15.md) predates the curb fix.
 - **Kaponiera long holds and the last deadlock:** **current (2026-11-15, round 3):** +12 s at the two local
   signal sites is retained (`SIGNAL_OFFSET_OVERRIDES`), with **4 holds > 120 s**, 0 new deadlocks and **28 car–tram
   pairs** over historical seeds `1 2 3 5 7 11 99 4242` × 7 districts. Holds fall 11 → 4; the worst district mean

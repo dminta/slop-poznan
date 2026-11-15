@@ -310,9 +310,10 @@ The 34.217 m crossing at `(-1136, 127)` keeps its opposing 37 s stage at 1 m/s, 
 
 Eight historical seeds × seven districts: Kaponiera holds >120 s 11 → 4, 0 new deadlocks, worst district mean
 change −0.0625 km/h (Kaponiera). The user accepts car–tram pairs 27 → 28 as the known cost of this signal plan;
-**4 holds / 28 pairs** is the current baseline. +15/+15 was rejected for three new Centrum/Jeżyce deadlock cycles
-and Centrum mean −0.7625 km/h; +15/+12 gives 18 holds. The pre-existing Rataje seed-4 cycle remains a separate
-backlog finding outside the historical seed set. See [the capacity measurements](observations/kaponiera-signal-capacity-2026-11-15.md)
+**4 holds / 28 pairs** was the acceptance baseline before the later `9798737` pedestrian curb fix. +15/+15 was
+rejected for three new Centrum/Jeżyce deadlock cycles and Centrum mean −0.7625 km/h; +15/+12 gives 18 holds.
+The Rataje seed-4 finding was outside that historical seed set; the later recheck below distinguishes its original
+source version from the current tree. See [the capacity measurements](observations/kaponiera-signal-capacity-2026-11-15.md)
 for full matrices, the production recheck and the accepted tradeoff.
 
 Two-arm nodes with crossings stay road-green until a walker requests a phase (2 s request delay, at least 20 s road
@@ -379,6 +380,20 @@ after the lane's real queue and its reservations, at `room`'s return. There is n
 20 s wait on the tram's side of the ordinary `heldByTram` exemption: that one releases the *tram* into a car's path,
 this one releases the *car* while the tram's own sweep still guards it.
 [Release record](observations/kaponiera-tram-pad-release-2026-11-10.md).
+
+**Rataje seed-4 recheck (2026-11-15).** At `6bc437f`, the full and isolated seed-4 Rataje rows both have zero
+cycles and a 46 s longest hold. Restoring only the two pedestrian curb expressions from before `9798737`
+recreates line 13 / car 49's historical 58 s cycle. This changes the seeded encounter, rather than adding a
+car–tram release. The tram's committed-car road gate waits for car 49, which has entered the connector and
+follows the same tram's opposing-lane pad in the 10 m exit. The ordinary sweep ignores the oncoming car
+(heading dot −0.945), but the oncoming-inclusive `queuedBehindTram` safety check finds its body 2.5 m into
+the future sweep and correctly refuses release. `proxyYieldsTo` is not called by connector following.
+A bounded extension there, retaining both 20 s waits, verified rear storage and a connector-only release latch,
+clears the historical wait cycle but drives the car into the stationary tram (0 → 1 overlap pair, 17 frames).
+No runtime change is retained. Do not treat exit storage as proof of a clear connector path through an
+opposing tram run. The fresh nine-seed × seven-district baseline at this source has 0 deadlocks, 18 holds
+over 120 s (all Kaponiera) and 48 car–tram pairs; it includes seed 4 and the later curb fix.
+[Source controls, trace and nine-seed measurements](observations/rataje-seed4-deadlock-2026-11-15.md).
 
 `shortLinkLane` was extended on 2026-11-10 (Centrum `(-1117, 132)`): when the planned lane's front is still moving, a
 car may take the sibling with the same lane index as its own approach lane, so two approach lanes that merge into one
