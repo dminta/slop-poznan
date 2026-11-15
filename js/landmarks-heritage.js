@@ -390,7 +390,16 @@ function buildFara(group, colliders, M) {
   obj.add(niches);
   profileSlab(obj, [[-10.4, 0], [10.4, 0], [0, 4.8]], 2.4, trim, 0, F.frontUpper, fz - 0.2);
   profileSlab(obj, [[-9, 0.5], [9, 0.5], [0, 4]], 1.6, wall, 0, F.frontUpper, fz - 0.6);
-  box(obj, 1, 2.2, 1, M.sandstone, 0, F.frontUpper + 4.8, fz - 0.2);
+  // North-front gable cross (2.2 m tall -> 40.0 m top): dark metal Latin cross on a small gilt base collar with gilt
+  // crossing boss and budded arm-end knobs, sharing the batched darkMetal and niche gilt materials
+  const crossY = F.frontUpper + 4.8;
+  const crossZ = fz - 0.2;
+  box(obj, 0.42, 0.12, 0.26, nicheMaterials.gold, 0, crossY, crossZ);
+  box(obj, 0.18, 2.04, 0.14, M.darkMetal, 0, crossY + 0.08, crossZ);
+  box(obj, 1.56, 0.16, 0.14, M.darkMetal, 0, crossY + 1.3, crossZ);
+  box(obj, 0.34, 0.34, 0.18, nicheMaterials.gold, 0, crossY + 1.21, crossZ);
+  box(obj, 0.26, 0.16, 0.16, nicheMaterials.gold, 0, crossY + 2.04, crossZ);
+  for (const s of [-1, 1]) box(obj, 0.16, 0.26, 0.16, nicheMaterials.gold, s * 0.78, crossY + 1.25, crossZ);
   // Portal and the big window above it
   box(obj, 4.4, 7.5, 0.4, M.wood, 0, 0, fz - 1.1);
   box(obj, 6, 1, 0.8, trim, 0, 7.5, fz - 1.1);

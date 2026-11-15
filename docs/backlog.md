@@ -313,10 +313,6 @@ signs and dusk/night spot colours were checked 2026-11-11.
   buildings across Avenida, Park Nad Wartą, Antoninek block 876 (was 874) and all 44 full park blocks with buildings,
   and verified that all 122 `onLawn` lamps sit 1.0–1.59 m inside narrow 0.2–1.0 m walks where no walk-edge spot exists.
   [Tree/building clearance](observations/tree-building-clearance-2026-11-03.md).
-- Fara front finial: the 40.0 m cross over the north gable is modelled as a `1 × 2.2 × 1 m` sandstone post
-  (`js/landmarks-heritage.js`), not a cruciform cross; the landmark heights (Iglica, Delta, Brama Poznania, Zamek,
-  Teatr Wielki, Fara) were otherwise confirmed on WebGPU and WebGL2
-  ([2026-11-15 record](observations/landmark-heights-2026-11-15.md)).
 - Watch black locust wind motion; its foliage, bark and LOD were framed on 2026-11-14
   ([record](observations/browser-checks-2026-11-14.md)). [Tree models](world.md).
 

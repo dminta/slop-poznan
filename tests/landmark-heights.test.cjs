@@ -325,17 +325,20 @@ test('Fara and Novotel: sourced heights retained (40.0 m and 68.0 m)', () => {
     }
   });
   assert.ok(Math.abs(gableTop - 37.8) < 0.05, `Fara front gable ${gableTop.toFixed(2)} m should be 37.8 m`);
-  const finial = fara.children.find((node) =>
-    node.isMesh && node.geometry?.type === 'BoxGeometry' && node.material === M.sandstone &&
-    node.geometry.parameters.width === 1 && node.geometry.parameters.depth === 1 &&
-    node.geometry.parameters.height === 2.2
-  );
-  assert.ok(finial, 'Identified Fara front cross (1 × 2.2 × 1 m)');
-  const finialBox = new THREE.Box3().setFromObject(finial);
-  assert.ok(Math.abs(finialBox.min.y - 37.8) < 0.05,
-    `Fara cross base ${finialBox.min.y.toFixed(2)} m should stand on the gable at 37.8 m`);
-  assert.ok(Math.abs(finialBox.max.y - 40.0) < 0.05,
-    `Fara cross tip ${finialBox.max.y.toFixed(2)} m should be 40.0 m`);
+  const crossParts = fara.children.filter((node) => {
+    if (!node.isMesh || node.geometry?.type !== 'BoxGeometry') return false;
+    const isCrossMat = node.material === M.darkMetal || node.material?.name === 'FaraNiche-gold';
+    return isCrossMat && new THREE.Box3().setFromObject(node).min.y >= 37.75;
+  });
+  const crossShaft = crossParts.find((n) => n.material === M.darkMetal && n.geometry.parameters.height === 2.04);
+  const crossBar = crossParts.find((n) => n.material === M.darkMetal && n.geometry.parameters.width === 1.56);
+  assert.ok(crossShaft && crossBar, 'Identified Fara front dark-metal cross shaft and crossbar');
+  const crossBox = new THREE.Box3();
+  for (const part of crossParts) crossBox.expandByObject(part);
+  assert.ok(Math.abs(crossBox.min.y - 37.8) < 0.05,
+    `Fara cross base ${crossBox.min.y.toFixed(2)} m should stand on the gable at 37.8 m`);
+  assert.ok(Math.abs(crossBox.max.y - 40.0) < 0.05,
+    `Fara cross tip ${crossBox.max.y.toFixed(2)} m should be 40.0 m`);
 
   // Four lower-tier niche statues, two either side of the portal: the inner pair on the 5.8 m bay centres, the outer
   // pair on the 10.85 m ones and 2.1 m higher over the tall side windows. Each stands on a 0.77 m pedestal inside a
