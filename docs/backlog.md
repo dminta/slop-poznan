@@ -326,6 +326,10 @@ signs and dusk/night spot colours were checked 2026-11-11.
   pole-mounted heads and Głogowska/Hetmańska were checked on WebGPU and WebGL2 in
   [2026-11-14](observations/browser-checks-2026-11-14.md) and [2026-11-15](observations/browser-checks-2026-11-15.md)).
   [Previous coverage and limits](observations/signals-2026-10-30.md).
+- Most Teatralny `(-1373, -213)`: plan 381 is `disabled` after route pruning, yet its two pole-mounted heads
+  (`-1355.5, -217.3` and the left repeater `-1359.6, -201.9`) are still built and stand fully dark next to a working
+  Roosevelta head ([2026-11-15 record](observations/browser-checks-2026-11-15.md)). Decide whether a disabled plan
+  should drop its heads or keep running; dark heads read as a fault.
 - Check Dworzec's connected refuge route, signals and pedestrian/vehicle interactions on WebGL2; record a full
   rendered interaction with a naturally approaching bus, including rear clearance.
   [Dworzec checks](observations/dworzec-2026-10-30.md), [bus population check](observations/bus-population-2026-10-30.md).
