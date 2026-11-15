@@ -208,6 +208,18 @@
   later transform/instance edits require rebuilding them, just as the baked proxies require rebuilding. The original
   spheres remain available for distance culling and other renderer consumers. See
   [perf-culling-2026-11-12](observations/perf-culling-2026-11-12.md) for measurements and rejected smaller chunks.
+- **Far-block merge for the 1 km chunks.** The large static families that `largeMeshes` cuts into 1 km cells (facade
+  boxes, roof pieces, rails and the like) also get coarse 4 km copies (`FAR_CELL`), built once from the same instances and
+  hidden. `updateSceneCulling(cameraPosition, camera)` swaps a 4 km block's 1 km chunks for its coarse copy while the camera
+  is at least `FAR_MERGE_DIST` (1,500 m, 3D) from the block's world bounds, at least two of its chunks are in the view frustum
+  and the coarse copy submits at most `FAR_MERGE_WASTE` (2×) the triangles of the chunks in view. The same instances are drawn
+  either way, so the swap is invisible (verified bit-identical, merge on vs off, across a flight) and needs no hysteresis; it
+  cuts the distant-vista draws (Winogrady, 3–8 km over the basin: scene draws −34 % high / −44 % low). It affects the scene
+  pass only: these meshes do not cast (their stand-ins do). The coarse copies duplicate the instance buffers on the JS
+  heap (about 16 MB of instance data for 232,702 instances; +9–11 MB retained heap and +5–7 MB GPU in the verified
+  views) and a coarse block uploads to the GPU when it first draws. The culling phase of `[init]` grows ~150 ms on high. Only meshes that are chunked at
+  `STATIC_CELL` take part; the distance-culled small props and the trees (their own cells) do not. See
+  [perf-vistas-2026-11-15](observations/perf-vistas-2026-11-15.md).
 - **Heavy street furniture is a vertex budget, not a draw budget.** The LED mast (23,193 instances) and the hydrant
   (5,144) are the largest instanced furniture meshes. Their geometry is deliberately reduced where the detail is
   sub-pixel at street distance (mast 284 → 120 triangles, hydrant 266 → 186, gas lantern 268 → 176, bollard 88 → 56,

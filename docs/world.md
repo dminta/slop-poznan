@@ -810,9 +810,10 @@ were checked on WebGPU and WebGL2 on 2026-11-13; screenshots and measurements ar
 staff contact pages confirm it. A25 at Polanka 3 is a separate site outside this scope.
 
 ## Batching
-- `batchStaticGroupMeshes(root, excludeMaterials)` merges all non-instanced meshes that share a **material object** into one mesh. It keeps only `position`, `normal` and `uv`, and meshes missing any of those are skipped. The originals are removed, so their names, userData and custom attributes are lost.
+- `batchStaticGroupMeshes(root, excludeMaterials, splitShadowFlags)` merges all non-instanced meshes that share a **material object** into one mesh. It keeps only `position`, `normal` and `uv`, and meshes missing any of those are skipped. The originals are removed, so their names, userData and custom attributes are lost.
   - Pass a material in `excludeMaterials` to keep its meshes separate, for example a material with custom attributes, or one whose mesh another module looks up.
-  - city-grid.js batches its group at the end of `buildCityGrid`, and landmarks.js at the end of `buildLandmarks` (the `LandmarksDynamic` root is left out).
+  - `splitShadowFlags = true` also buckets by `castShadow` / `receiveShadow`, so merging cannot turn a non-caster into a caster (the default ORs the flags of a bucket).
+  - city-grid.js batches its group at the end of `buildCityGrid`, and landmarks.js at the end of `buildLandmarks` (the `LandmarksDynamic` root is left out). `buildLandmarks` excludes `M.steel` and `M.gold` from the city-wide merge (one mesh for the whole city could never be culled) and then merges them **per landmark group** with `splitShadowFlags`: ~400 tiny finials, crosses and struts (5 k triangles) were as many draws at every distance, now one per landmark and material, culled with the landmark ([record](observations/perf-vistas-2026-11-15.md)).
 - Share material instances wherever possible. Every distinct node material is another WGSL pipeline to precompile behind the loading screen, which is why landmarks share "canonical" facade materials.
 - landmarks.js re-emits unrotated `BoxGeometry` parts that use a material from `boxLocalTwins` as instanced facade boxes (`createFacadeBoxes`, tsl-materials.js).
 

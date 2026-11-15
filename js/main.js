@@ -950,7 +950,7 @@ async function initApp() {
     lightingSystem.update(cameraSystem.currentPos);
     mapSystem.update();
     audioSystem.update(dt, elapsed, cameraSystem.camera, lightingSystem.activePresetId);
-    if (warmedUp) updateSceneCulling(cameraSystem.camera.position); // the warm-up frame draws every chunk
+    if (warmedUp) updateSceneCulling(cameraSystem.camera.position, cameraSystem.camera); // the warm-up frame draws every chunk
     // The scene graph is frozen (see the freeze above): update the moving roots only, once, for both the shadow and the
     // scene passes that renderPipeline.render() submits
     updateDynamicMatrices(dynamicRoots);

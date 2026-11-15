@@ -54,8 +54,10 @@ const MEDIAN_REFUGE_CORRIDORS = [[-1582.819, 563.234, -1580.760, 558.363]];
 /**
  * Merges static non-instanced THREE.Mesh objects sharing the same material into a single
  * batched BufferGeometry per material to minimize WebGPU render & shadow pass draw calls.
+ * `splitShadowFlags` also separates meshes whose castShadow / receiveShadow differ, so merging never changes which
+ * parts cast or receive shadows (the default ORs the flags of a bucket).
  */
-function batchStaticGroupMeshes(rootGroup, excludeMaterials = null) {
+function batchStaticGroupMeshes(rootGroup, excludeMaterials = null, splitShadowFlags = false) {
   if (!mergeGeometries) return;
   rootGroup.updateMatrixWorld(true);
   const invRoot = new THREE.Matrix4().copy(rootGroup.matrixWorld).invert();
@@ -66,14 +68,16 @@ function batchStaticGroupMeshes(rootGroup, excludeMaterials = null) {
     if (excludeMaterials && excludeMaterials.has(obj.material)) return;
     const attrs = obj.geometry.attributes;
     if (!attrs.position || !attrs.normal || !attrs.uv) return;
-    if (!buckets.has(obj.material)) {
-      buckets.set(obj.material, []);
+    const key = splitShadowFlags ? `${obj.material.uuid}|${obj.castShadow ? 1 : 0}${obj.receiveShadow ? 1 : 0}` : obj.material;
+    if (!buckets.has(key)) {
+      buckets.set(key, []);
     }
-    buckets.get(obj.material).push(obj);
+    buckets.get(key).push(obj);
   });
 
-  for (const [mat, meshes] of buckets.entries()) {
+  for (const meshes of buckets.values()) {
     if (meshes.length < 2) continue;
+    const mat = meshes[0].material;
     const geos = [];
     let anyCast = false;
     let anyReceive = false;

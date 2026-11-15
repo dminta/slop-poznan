@@ -423,17 +423,88 @@ function setupSceneCulling(scene, roots, shadow = null, { propShadowProxies = tr
 
   // Preserve the shadow stand-ins above before splitting their visible geometry.
   // These large objects stay visible at any distance and need no per-frame distance checks.
+  const farMerges = [];
   for (const mesh of largeMeshes) {
-    if (!mesh.castShadow) replaceWithChunks(mesh, STATIC_CELL);
+    if (mesh.castShadow) continue;
+    const parent = mesh.parent;
+    const fine = replaceWithChunks(mesh, STATIC_CELL);
+    addFarMerges(parent, mesh, fine, farMerges);
   }
 
   state.culled = culled;
+  state.farMerges = farMerges;
 }
 
-const state = { culled: [] };
+// A camera far from a whole FAR_CELL block sees its 1 km chunks as a few pixels' worth of distant city, yet each chunk
+// of each material is a draw: at 3 km+ vistas over the city these are ~35 chunks per family. So every large static
+// family also gets coarse FAR_CELL copies of the same instances (same material, geometry and per-instance data, so the
+// pixels are identical). While the camera is at least FAR_MERGE_DIST from a block's bounds and at least two of its
+// 1 km chunks are in view, the 1 km chunks stand down for the coarse copy, unless that would submit more than
+// FAR_MERGE_WASTE times the triangles of the chunks in view (a block seen edge-on at the horizon). Nothing is hidden or
+// simplified, only regrouped, so the switch cannot pop. Cost: a second copy of those instance buffers on the JS heap;
+// the GPU only receives a coarse chunk once it first draws.
+const FAR_CELL = 4 * STATIC_CELL;
+const FAR_MERGE_DIST = 1500;
+const FAR_MERGE_WASTE = 2;
 
-// Per frame (after the warm-up frame, which must see everything): hide the chunks beyond their cull distance
-function updateSceneCulling(cameraPosition) {
+const _pv = new THREE.Matrix4();
+const _frustum = new THREE.Frustum();
+
+function farMergeKey(x, z) {
+  return Math.floor(x / FAR_CELL) + ',' + Math.floor(z / FAR_CELL);
+}
+
+// Distance from the point to an axis-aligned box ({ min, max }), 0 inside it
+function boxDistance(box, x, y, z) {
+  const dx = Math.max(box.min.x - x, 0, x - box.max.x);
+  const dy = Math.max(box.min.y - y, 0, y - box.max.y);
+  const dz = Math.max(box.min.z - z, 0, z - box.max.z);
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+function worldBox(mesh) {
+  mesh.computeBoundingBox();
+  return mesh.boundingBox.clone().applyMatrix4(mesh.matrixWorld);
+}
+
+// Builds the coarse copies of `fine` (the 1 km chunks of `mesh`, already in the scene) and registers them in `out`.
+// A coarse block that would replace fewer than two fine chunks saves nothing and is not built.
+function addFarMerges(parent, mesh, fine, out) {
+  const members = new Map();
+  for (const chunk of fine) {
+    const e = chunk.instanceMatrix.array;
+    const key = farMergeKey(e[12], e[14]);
+    let list = members.get(key);
+    if (!list) members.set(key, (list = []));
+    list.push(chunk);
+  }
+  const triangles = triangleCount(mesh.geometry);
+  for (const coarse of chunkInstancedMesh(mesh, FAR_CELL)) {
+    const e = coarse.instanceMatrix.array;
+    const list = members.get(farMergeKey(e[12], e[14]));
+    if (!list || list.length < 2) continue;
+    coarse.visible = false;
+    coarse.userData.sharesPipelineWith = fine[0].userData.sharesPipelineWith || fine[0];
+    parent.add(coarse);
+    coarse.updateMatrixWorld(true);
+    prepareChunkBounds(coarse);
+    out.push({
+      coarse,
+      fine: list,
+      box: worldBox(coarse),
+      fineBoxes: list.map(worldBox),
+      fineTriangles: list.map((chunk) => chunk.count * triangles),
+      coarseTriangles: coarse.count * triangles,
+      merged: false
+    });
+  }
+}
+
+const state = { culled: [], farMerges: [] };
+
+// Per frame (after the warm-up frame, which must see everything): hide the chunks beyond their cull distance and swap
+// the 1 km chunks of far blocks for their coarse copy. `camera` supplies the view frustum for the latter.
+function updateSceneCulling(cameraPosition, camera = null) {
   const { x, y, z } = cameraPosition;
   for (const c of state.culled) {
     const dx = c.x - x;
@@ -441,6 +512,36 @@ function updateSceneCulling(cameraPosition) {
     const dz = c.z - z;
     c.mesh.visible = Math.sqrt(dx * dx + dy * dy + dz * dz) - c.r < c.d;
   }
+  if (!state.farMerges.length) return;
+  let frustum = null;
+  if (camera) {
+    _pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    frustum = _frustum.setFromProjectionMatrix(_pv, camera.coordinateSystem, camera.reversedDepth);
+  }
+  updateFarMerges(state.farMerges, x, y, z, frustum);
 }
 
-export { setupSceneCulling, updateSceneCulling, chunkCellScale, prepareChunkBounds, SHADOW_PROXY_LAYER };
+function updateFarMerges(farMerges, x, y, z, frustum = null) {
+  for (const f of farMerges) {
+    let merged = boxDistance(f.box, x, y, z) >= FAR_MERGE_DIST;
+    if (merged && frustum) {
+      let inView = 0;
+      let triangles = 0;
+      for (let i = 0; i < f.fine.length; i++) {
+        if (!frustum.intersectsBox(f.fineBoxes[i])) continue;
+        inView++;
+        triangles += f.fineTriangles[i];
+      }
+      merged = inView >= 2 && triangles * FAR_MERGE_WASTE >= f.coarseTriangles;
+    }
+    if (merged === f.merged) continue;
+    f.merged = merged;
+    f.coarse.visible = merged;
+    for (const chunk of f.fine) chunk.visible = !merged;
+  }
+}
+
+export {
+  setupSceneCulling, updateSceneCulling, updateFarMerges, boxDistance, farMergeKey, chunkCellScale, prepareChunkBounds,
+  FAR_CELL, FAR_MERGE_DIST, FAR_MERGE_WASTE, SHADOW_PROXY_LAYER
+};

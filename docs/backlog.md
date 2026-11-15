@@ -251,7 +251,12 @@ share are not thinned; [central-density record](observations/central-density-202
      use real-device reports to justify a conservative hierarchy/range approach, measuring per-pass CPU and buffer
      uploads. Smaller heavy-mesh cells added 52–232 draws for only 0.7–2.6% extra triangle savings and were rejected.
   6. Tree LOD / draw distance for the high tier (low already has its own profile), only if real devices need it.
-  7. **High-altitude panoramic vistas** (e.g. Winogrady overlooking the city center) peak at 2,314 scene draws on High / 1,714 on Low as frustum depth accumulates chunks across open estate setbacks ([record](observations/perf-transitions-2026-11-14.md)).
+  7. **High-altitude panoramic vistas** were the draw peak (Winogrady `wp5`: 2,039 scene draws on High / 1,584 on Low from
+     chunk accumulation across 3–8 km of city, ~600 far 1 km chunks plus ~400 steel/gold landmark meshes). Done: a far-block
+     merge for the 1 km static chunks and per-landmark steel/gold batching cut wp5 scene draws −34 % high / −44 % low on WebGPU
+     and WebGL2 with merge on/off bit-identical ([record](observations/perf-vistas-2026-11-15.md)). Left from that breakdown:
+     tree LOD 2 cells (542 draws at wp5 on High; merging them to 400–600 m would leave 213–109 but repacks larger cells on
+     every level change, so measure a flight first), Bridges (138) and Outskirts chunks (98).
   [Ranked opportunities](observations/perf-older-devices-2026-11-11.md).
 - Road levels and richer road-priority classification; revisit only with a runtime consumer.
 - Additional height sources (nDSM/LoD1/LoD2) and GEOPOZ machine-readable data: research candidates.

@@ -42,6 +42,12 @@ function buildLandmarks(scene) {
   if (grounds) group.remove(grounds);
   emitFacadeBoxes(group, M.boxLocalTwins);
   batchStaticGroupMeshes(group, new Set([M.steel, M.gold]));
+  // Steel and gold stay out of that city-wide merge (one mesh could never be culled), but left alone they are ~400
+  // tiny meshes (finials, crosses, struts: 5 k triangles in all), each a draw wherever its landmark is in view. Merge
+  // them per landmark instead: the same meshes and materials, culled together with their landmark.
+  for (const child of group.children) {
+    if (child.isGroup) batchStaticGroupMeshes(child, null, true);
+  }
   if (grounds) {
     batchStaticGroupMeshes(grounds);
     group.add(grounds);

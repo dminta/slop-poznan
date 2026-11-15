@@ -14,7 +14,8 @@ class Vector3 {
   fromBufferAttribute() { return this; }
   applyMatrix4() { return this; }
 }
-const THREE = { Matrix4, Vector3 };
+class Frustum {}
+const THREE = { Matrix4, Vector3, Frustum };
 const { chunkCellScale } = loadModule(readFileSync(join(__dirname, '../js/scene-culling.js'), 'utf8'), {
   imports: { 'three/webgpu': THREE },
   globals: { Math, Float32Array, Map },
@@ -130,4 +131,89 @@ test('shader-displaced chunks keep the existing conservative renderer path', () 
     assert.equal(mesh.intersectsFrustum, original);
     assert.equal(mesh._cullingBox, undefined);
   }
+});
+
+// Far blocks: the coarse copy and the 1 km chunks of one block are mutually exclusive and hold the same instances, so
+// the swap only regroups draws. The camera's distance to the block's bounds decides it.
+const { updateFarMerges, boxDistance, farMergeKey, FAR_CELL, FAR_MERGE_DIST, FAR_MERGE_WASTE } = loadModule(
+  readFileSync(join(__dirname, '../js/scene-culling.js'), 'utf8'), {
+    imports: { 'three/webgpu': THREE },
+    filename: 'scene-culling.js'
+  });
+
+test('box distance is the Euclidean distance to the box and zero inside it', () => {
+  const box = { min: { x: 0, y: 0, z: 0 }, max: { x: 10, y: 5, z: 20 } };
+  assert.equal(boxDistance(box, 5, 2, 10), 0);
+  assert.equal(boxDistance(box, 10, 5, 20), 0);
+  assert.equal(boxDistance(box, 13, 2, 10), 3);
+  assert.equal(boxDistance(box, 13, 9, 10), 5);
+  assert.equal(boxDistance(box, -3, 9, 24), Math.sqrt(9 + 16 + 16));
+});
+
+test('coarse far cells nest the 1 km chunk cells, including negative coordinates', () => {
+  assert.equal(FAR_CELL % 1000, 0);
+  for (const x of [-12345.5, -4000, -3999.9, -1, 0, 999.9, 1000, 3999.9, 4000, 7777]) {
+    for (const z of [-5000.1, -1, 0, 2500, 4000.5]) {
+      const fineX = Math.floor(x / 1000);
+      const fineZ = Math.floor(z / 1000);
+      const k = FAR_CELL / 1000;
+      assert.equal(farMergeKey(x, z), Math.floor(fineX / k) + ',' + Math.floor(fineZ / k));
+    }
+  }
+});
+
+function farBlock(fineBoxes, fineTriangles, coarseTriangles) {
+  const fine = fineBoxes.map(() => ({ visible: true }));
+  return {
+    coarse: { visible: false },
+    fine,
+    box: { min: { x: 0, y: 0, z: 0 }, max: { x: 4000, y: 80, z: 4000 } },
+    fineBoxes,
+    fineTriangles,
+    coarseTriangles,
+    merged: false
+  };
+}
+const visibleState = (block) => [block.coarse.visible, ...block.fine.map((c) => c.visible)].join();
+const swapped = (block, merged) => visibleState(block) === [merged, ...block.fine.map(() => !merged)].join();
+
+test('far blocks swap their fine chunks for the coarse copy past FAR_MERGE_DIST and back', () => {
+  const block = farBlock([{}, {}, {}], [10, 10, 10], 30);
+  updateFarMerges([block], 2000, 10, -(FAR_MERGE_DIST - 1));
+  assert.equal(block.merged, false);
+  assert.ok(swapped(block, false));
+  updateFarMerges([block], 2000, 10, -FAR_MERGE_DIST);
+  assert.equal(block.merged, true);
+  assert.ok(swapped(block, true));
+  updateFarMerges([block], 2000, 10, -(FAR_MERGE_DIST + 3000));
+  assert.ok(swapped(block, true));
+  updateFarMerges([block], 2000, 700, 2000); // above the block's footprint: the 3D distance decides
+  assert.equal(block.merged, boxDistance(block.box, 2000, 700, 2000) >= FAR_MERGE_DIST);
+  updateFarMerges([block], 1000, 40, 1000);
+  assert.equal(block.merged, false);
+  assert.ok(swapped(block, false));
+});
+
+test('far blocks stay fine-chunked when the view needs few chunks or the coarse copy would submit too much', () => {
+  // Four fine chunks of 100 triangles, coarse copy 400 triangles; only the boxes the frustum accepts are in view
+  const boxes = [0, 1, 2, 3].map((i) => ({ id: i }));
+  const frustumSeeing = (...ids) => ({ intersectsBox: (box) => ids.includes(box.id) });
+  const camera = [2000, 10, -2000];
+  const run = (frustum, tris = [100, 100, 100, 100]) => {
+    const block = farBlock(boxes, tris, 400);
+    updateFarMerges([block], ...camera, frustum);
+    return block;
+  };
+  assert.equal(run(frustumSeeing(0, 1, 2, 3)).merged, true);
+  assert.equal(run(frustumSeeing(0, 1)).merged, true); // 200 x FAR_MERGE_WASTE(2) reaches the coarse 400
+  assert.equal(FAR_MERGE_WASTE, 2);
+  assert.equal(run(frustumSeeing(0, 1), [90, 90, 100, 100]).merged, false); // coarse would draw > 2x what is in view
+  assert.equal(run(frustumSeeing(2)).merged, false); // a single chunk in view: the coarse copy only adds triangles
+  assert.equal(run(frustumSeeing()).merged, false);
+  // Once merged, a view that no longer needs the coarse copy hands back the fine chunks
+  const block = farBlock(boxes, [100, 100, 100, 100], 400);
+  updateFarMerges([block], ...camera, frustumSeeing(0, 1, 2, 3));
+  assert.ok(swapped(block, true));
+  updateFarMerges([block], ...camera, frustumSeeing(3));
+  assert.ok(swapped(block, false));
 });
