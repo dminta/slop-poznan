@@ -274,18 +274,53 @@ function segmentGrid(cell = 24, walk = false) {
       let bestD = r;
       let bestD2 = r * r;
       let bestT = 0, bestQx = 0, bestQz = 0;
+      let lim = bestD + 1e-9;
+      let bestD2Lim = bestD2 * (1 + 1e-12);
+      const ix0 = Math.floor((x - r) / cell), ix1 = Math.floor((x + r) / cell);
+      const iz0 = Math.floor((z - r) / cell), iz1 = Math.floor((z + r) / cell);
+      if (ix0 === ix1 && iz0 === iz1) {
+        const list = cells.get(ix0 * 100003 + iz0);
+        if (!list) return null;
+        for (let i = 0; i < list.length; i++) {
+          const sg = list[i];
+          if (accept && !accept(sg)) continue;
+          // a cell holds every segment whose bbox meets it, most of them farther than the best found so far: the
+          // bbox grown by bestD rejects those without the segment arithmetic (laneGrid: 8.16 M candidates for 215 k
+          // queries in the 2026-11-11 headless tram layout, 38 per query)
+          if (x < sg.x0 - lim || x > sg.x1 + lim || z < sg.z0 - lim || z > sg.z1 + lim) continue;
+          const ex = sg.bx - sg.ax;
+          const ez = sg.bz - sg.az;
+          const t = Math.max(0, Math.min(1, ((x - sg.ax) * ex + (z - sg.az) * ez) / (ex * ex + ez * ez || 1)));
+          const qx = sg.ax + ex * t;
+          const qz = sg.az + ez * t;
+          const dx = qx - x, dz = qz - z;
+          const d2 = dx * dx + dz * dz;
+          if (d2 > bestD2Lim) continue;
+          const d = Math.hypot(dx, dz);
+          if (d < bestD) {
+            bestD = d;
+            bestD2 = d * d;
+            lim = d + 1e-9;
+            bestD2Lim = bestD2 * (1 + 1e-12);
+            bestSeg = sg;
+            bestT = t;
+            bestQx = qx;
+            bestQz = qz;
+          }
+        }
+        return bestSeg ? { seg: bestSeg, d: bestD, t: bestT, qx: bestQx, qz: bestQz } : null;
+      }
       const q = ++stamp;
-      for (let ix = Math.floor((x - r) / cell); ix <= Math.floor((x + r) / cell); ix++) {
-        for (let iz = Math.floor((z - r) / cell); iz <= Math.floor((z + r) / cell); iz++) {
-          const list = cells.get(key(ix, iz));
+      for (let ix = ix0; ix <= ix1; ix++) {
+        const row = ix * 100003;
+        for (let iz = iz0; iz <= iz1; iz++) {
+          const list = cells.get(row + iz);
           if (!list) continue;
-          for (const sg of list) {
+          for (let i = 0; i < list.length; i++) {
+            const sg = list[i];
             if (sg._q === q) continue;
             sg._q = q;
             if (accept && !accept(sg)) continue;
-            // a cell holds every segment whose bbox meets it, most of them farther than the best found so far: the
-            // bbox grown by bestD rejects those without the segment arithmetic (laneGrid: 8.16 M candidates for 215 k
-            // queries in the 2026-11-11 headless tram layout, 38 per query)
             const lim = bestD + 1e-9;
             if (x < sg.x0 - lim || x > sg.x1 + lim || z < sg.z0 - lim || z > sg.z1 + lim) continue;
             const ex = sg.bx - sg.ax;
@@ -295,11 +330,12 @@ function segmentGrid(cell = 24, walk = false) {
             const qz = sg.az + ez * t;
             const dx = qx - x, dz = qz - z;
             const d2 = dx * dx + dz * dz;
-            if (d2 > bestD2 * (1 + 1e-12)) continue;
+            if (d2 > bestD2Lim) continue;
             const d = Math.hypot(dx, dz);
             if (d < bestD) {
               bestD = d;
               bestD2 = d * d;
+              bestD2Lim = bestD2 * (1 + 1e-12);
               bestSeg = sg;
               bestT = t;
               bestQx = qx;
@@ -313,12 +349,42 @@ function segmentGrid(cell = 24, walk = false) {
     nearestDist(x, z, r, accept) {
       let bestD = r;
       let bestD2 = r * r;
+      let lim = bestD + 1e-9;
+      let bestD2Lim = bestD2 * (1 + 1e-12);
+      const ix0 = Math.floor((x - r) / cell), ix1 = Math.floor((x + r) / cell);
+      const iz0 = Math.floor((z - r) / cell), iz1 = Math.floor((z + r) / cell);
+      if (ix0 === ix1 && iz0 === iz1) {
+        const list = cells.get(ix0 * 100003 + iz0);
+        if (!list) return bestD;
+        for (let i = 0; i < list.length; i++) {
+          const sg = list[i];
+          if (accept && !accept(sg)) continue;
+          if (x < sg.x0 - lim || x > sg.x1 + lim || z < sg.z0 - lim || z > sg.z1 + lim) continue;
+          const ex = sg.bx - sg.ax;
+          const ez = sg.bz - sg.az;
+          const t = Math.max(0, Math.min(1, ((x - sg.ax) * ex + (z - sg.az) * ez) / (ex * ex + ez * ez || 1)));
+          const dx = sg.ax + ex * t - x;
+          const dz = sg.az + ez * t - z;
+          const d2 = dx * dx + dz * dz;
+          if (d2 > bestD2Lim) continue;
+          const d = Math.hypot(dx, dz);
+          if (d < bestD) {
+            bestD = d;
+            bestD2 = d * d;
+            lim = d + 1e-9;
+            bestD2Lim = bestD2 * (1 + 1e-12);
+          }
+        }
+        return bestD;
+      }
       const q = ++stamp;
-      for (let ix = Math.floor((x - r) / cell); ix <= Math.floor((x + r) / cell); ix++) {
-        for (let iz = Math.floor((z - r) / cell); iz <= Math.floor((z + r) / cell); iz++) {
-          const list = cells.get(key(ix, iz));
+      for (let ix = ix0; ix <= ix1; ix++) {
+        const row = ix * 100003;
+        for (let iz = iz0; iz <= iz1; iz++) {
+          const list = cells.get(row + iz);
           if (!list) continue;
-          for (const sg of list) {
+          for (let i = 0; i < list.length; i++) {
+            const sg = list[i];
             if (sg._q === q) continue;
             sg._q = q;
             if (accept && !accept(sg)) continue;
@@ -330,11 +396,12 @@ function segmentGrid(cell = 24, walk = false) {
             const dx = sg.ax + ex * t - x;
             const dz = sg.az + ez * t - z;
             const d2 = dx * dx + dz * dz;
-            if (d2 > bestD2 * (1 + 1e-12)) continue;
+            if (d2 > bestD2Lim) continue;
             const d = Math.hypot(dx, dz);
             if (d < bestD) {
               bestD = d;
               bestD2 = d * d;
+              bestD2Lim = bestD2 * (1 + 1e-12);
             }
           }
         }
@@ -344,15 +411,17 @@ function segmentGrid(cell = 24, walk = false) {
     within(x, z, r, accept) {
       const r2 = r * r;
       const lo2 = r2 * (1 - 1e-12), hi2 = r2 * (1 + 1e-12);
-      const lim = r + 1e-9;
+      const lim = r + 2e-9;
+      const xLo = x - lim, xHi = x + lim, zLo = z - lim, zHi = z + lim;
       const ix0 = Math.floor((x - r) / cell), ix1 = Math.floor((x + r) / cell);
       const iz0 = Math.floor((z - r) / cell), iz1 = Math.floor((z + r) / cell);
       if (ix0 === ix1 && iz0 === iz1) {
-        const list = cells.get(key(ix0, iz0));
+        const list = cells.get(ix0 * 100003 + iz0);
         if (!list) return false;
-        for (const sg of list) {
+        for (let i = 0; i < list.length; i++) {
+          const sg = list[i];
+          if (sg.x0 > xHi || sg.x1 < xLo || sg.z0 > zHi || sg.z1 < zLo) continue;
           if (accept && !accept(sg)) continue;
-          if (x < sg.x0 - lim || x > sg.x1 + lim || z < sg.z0 - lim || z > sg.z1 + lim) continue;
           const ex = sg.bx - sg.ax;
           const ez = sg.bz - sg.az;
           const t = Math.max(0, Math.min(1, ((x - sg.ax) * ex + (z - sg.az) * ez) / (ex * ex + ez * ez || 1)));
@@ -366,14 +435,16 @@ function segmentGrid(cell = 24, walk = false) {
       }
       const q = ++stamp;
       for (let ix = ix0; ix <= ix1; ix++) {
+        const row = ix * 100003;
         for (let iz = iz0; iz <= iz1; iz++) {
-          const list = cells.get(key(ix, iz));
+          const list = cells.get(row + iz);
           if (!list) continue;
-          for (const sg of list) {
+          for (let i = 0; i < list.length; i++) {
+            const sg = list[i];
             if (sg._q === q) continue;
             sg._q = q;
+            if (sg.x0 > xHi || sg.x1 < xLo || sg.z0 > zHi || sg.z1 < zLo) continue;
             if (accept && !accept(sg)) continue;
-            if (x < sg.x0 - lim || x > sg.x1 + lim || z < sg.z0 - lim || z > sg.z1 + lim) continue;
             const ex = sg.bx - sg.ax;
             const ez = sg.bz - sg.az;
             const t = Math.max(0, Math.min(1, ((x - sg.ax) * ex + (z - sg.az) * ez) / (ex * ex + ez * ez || 1)));

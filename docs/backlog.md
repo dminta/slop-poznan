@@ -221,18 +221,20 @@ share are not thinned; [central-density record](observations/central-density-202
      route/collider/guide indexes and shader NodeData (~38 MB) dominate. Use real-device measurements to justify
      further exact packing or geometry deduplication; shader-cache release needs a renderer-supported lifecycle.
      Post-upload attribute release remains unsafe in the pinned three.js; keep GEO/BLOCKS late-reader inputs.
-  4. **Remaining boot work** after nine passes: boot part 9 ([record](observations/perf-boot-9-2026-11-14.md)) adds
-     `x0`/`x1` polygon-index bounds, inlines `polygonSlot`, and splits `blockOwnCutAt` so `blockAt`/`isBlockAt` do
-     not re-run `inTramSurfaceCut` per candidate (`city-config.js`), adds a single-cell fast path and precomputed
-     `ex`/`ez`/`L2` vectors in `railWithin` plus an early-exit partial-park ring vertex loop (`city-grid.js`), adds a
-     single-cell fast path in `createFootprintIndex` (`road-network.js`), and skips empty cells / defers fallback /
-     halves bucket lookups in `clearOfCrosswalks`, `nearestCurbFrame` and `file` (`street-details.js`) (headless Node
-     build 12.05 → 11.62 s median / −3.52%, `signalHeads` −11.8%, `cityGrid` −7.0%, 24/24 output hashes identical,
-     +0.53 MiB retained heap). Browser precompile `[init]` for passes 8 + 9 together (headless Chrome WebGPU, `?quality=high`, interleaved against a revert of both): 6.77 → 6.59 s at 1× (−2.7 %, 3 pairs) and 44.26 → 41.65 s at 6× (−5.9 %, 2 pairs); passes 6–7 are not separately revertible now that later commits use `railWithin`. Remaining larger budgets in Node `--cpu-prof` are
-     `road-network` footprint index (0.59 s self), `railWithin` (0.47 s), `tram-infra` `within` + `nearest`
-     (0.42 + 0.19 s), `roadClearance` (0.32 s) and `pointInPolyIndexed` (0.32 s); 12 m `laneGrid` cells, flat
-     `Int32Array` grids for `railWithin`/`createFootprintIndex`, and extra `segmentGrid` edge fields (+30.1 MiB heap)
-     regressed.
+  4. **Remaining boot work** after ten passes: boot part 10 ([record](observations/perf-boot-10-2026-11-15.md)) precomputes
+     `LANE_GUIDE` segment records and adds bbox/squared-distance rejection in `roadClearance`, packs `px`/`pz`
+     `Float64Array` vertex coordinates in `createPolygonIndex`/`pointInPolyIndexed` (`city-config.js`), switches
+     `createFootprintIndex` to 32 m cells with flag-partitioned `ids` (`road-network.js`), and adds single-cell
+     fast paths, hoisted limits and bbox-before-`accept` in `segmentGrid` (`tram-infra.js`) (headless Node build
+     10.08 → 9.95 s median / −1.29%, min 10.04 → 9.80 s / −2.37%, 5/5 interleaved pairs faster, `streetDetails` −3.3%,
+     `blocks` −4.5%, `railLayout` −8.2%, 24/24 output hashes identical, +3.80 MiB retained heap). Earlier, boot part 9
+     ([record](observations/perf-boot-9-2026-11-14.md)) cut 12.05 → 11.62 s median / −3.52% (browser precompile `[init]`
+     for passes 8 + 9: 6.77 → 6.59 s at 1× / 44.26 → 41.65 s at 6×; passes 6–7 are not separately revertible now that later commits use `railWithin`). Remaining larger budgets in Node `--cpu-prof` are
+     `road-network` footprint index (0.53 s self), `railWithin` (0.44 s), `tram-infra` `within` + `nearest`
+     (0.36 + 0.11 s), `nearestCurbFrame` (0.27 s), `pointInPolyIndexed` (0.21 s) and `roadClearance` (0.19 s);
+     do not retry 12 m `laneGrid` cells, flat `Int32Array` grids for `railWithin`/`createFootprintIndex`, extra
+     `segmentGrid` edge fields (+30.1 MiB heap), duplicated per-bucket `bounds` in `createFootprintIndex`, per-edge
+     `x`-range branches in `pointInPolyIndexed`, or a separate `_mainlineCells` map in `railWithin`.
      Workers or deferral would need
      pure layout/buffer boundaries (cityGrid + traffic: 17.64 s upper-bound budget), justified by real-device reports.
      The [worker boundary study](observations/perf-workers-2026-11-12.md) stopped at Stage 1: production remains

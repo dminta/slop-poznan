@@ -47,18 +47,24 @@ function createPolygonIndex(poly) {
     return { x0: 0, x1: 0, z0: 0, z1: 0, slots: 0, offsets: new Int32Array(1), edges: new Int32Array(0) };
   }
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
-  for (const p of poly) {
-    if (p.x < x0) x0 = p.x;
-    if (p.x > x1) x1 = p.x;
-    if (p.z < z0) z0 = p.z;
-    if (p.z > z1) z1 = p.z;
+  const n = poly.length;
+  const px = new Float64Array(n), pz = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const p = poly[i];
+    const x = p.x, z = p.z;
+    px[i] = x; pz[i] = z;
+    if (x < x0) x0 = x;
+    if (x > x1) x1 = x;
+    if (z < z0) z0 = z;
+    if (z > z1) z1 = z;
   }
   const slots = Math.max(1, Math.ceil((z1 - z0) / POLY_SLOT));
   // First pass counts the edge entries each slot owns, then the prefix sum turns the counts into offsets.
   const offsets = new Int32Array(slots + 1);
-  for (let i = 0; i < poly.length; i++) {
-    const a = poly[i], b = poly[i ? i - 1 : poly.length - 1];
-    const lo = Math.min(a.z, b.z), hi = Math.max(a.z, b.z);
+  for (let i = 0; i < n; i++) {
+    const j = i ? i - 1 : n - 1;
+    const az = pz[i], bz = pz[j];
+    const lo = az < bz ? az : bz, hi = az > bz ? az : bz;
     if (!(lo < hi)) continue; // horizontal edges never cross the ray
     const s0 = polygonSlot(z0, slots, lo), s1 = polygonSlot(z0, slots, hi);
     for (let s = s0; s <= s1; s++) offsets[s + 1]++;
@@ -66,26 +72,32 @@ function createPolygonIndex(poly) {
   for (let s = 0; s < slots; s++) offsets[s + 1] += offsets[s];
   const edges = new Int32Array(offsets[slots]);
   const cursor = offsets.slice(0, slots);
-  for (let i = 0; i < poly.length; i++) {
-    const a = poly[i], b = poly[i ? i - 1 : poly.length - 1];
-    const lo = Math.min(a.z, b.z), hi = Math.max(a.z, b.z);
+  for (let i = 0; i < n; i++) {
+    const j = i ? i - 1 : n - 1;
+    const az = pz[i], bz = pz[j];
+    const lo = az < bz ? az : bz, hi = az > bz ? az : bz;
     if (!(lo < hi)) continue;
     const s0 = polygonSlot(z0, slots, lo), s1 = polygonSlot(z0, slots, hi);
     for (let s = s0; s <= s1; s++) edges[cursor[s]++] = i;
   }
-  return { x0, x1, z0, z1, slots, offsets, edges };
+  return { x0, x1, z0, z1, slots, offsets, edges, px, pz };
 }
 
-function pointInPolyIndexed(poly, index, x, z) {
+function pointInPolyIndexed(_poly, index, x, z) {
   if (!(index.slots > 0) || !(z >= index.z0 && z <= index.z1) || x < index.x0 || x > index.x1 + 1e-9) return false;
   let s = Math.floor((z - index.z0) / POLY_SLOT);
   if (s < 0) s = 0;
   else if (s >= index.slots) s = index.slots - 1;
   let inside = false;
+  const px = index.px, pz = index.pz, edges = index.edges, n = px.length;
   for (let k = index.offsets[s], end = index.offsets[s + 1]; k < end; k++) {
-    const i = index.edges[k];
-    const a = poly[i], b = poly[i ? i - 1 : poly.length - 1];
-    if ((a.z > z) !== (b.z > z) && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
+    const i = edges[k];
+    const j = i ? i - 1 : n - 1;
+    const az = pz[i], bz = pz[j];
+    if ((az > z) !== (bz > z)) {
+      const ax = px[i], bx = px[j];
+      if (x < ((bx - ax) * (z - az)) / (bz - az) + ax) inside = !inside;
+    }
   }
   return inside;
 }
@@ -652,12 +664,17 @@ const { SIGNAL_SITES, LANE_GUIDE, JUNCTIONS } = (() => {
 const GUIDE_CELL = 32;
 const GUIDE_GRID = new Map(); // each segment in every cell within its half width + 6 m (covers YARD_ROAD_KEEP = 4.6 m)
 for (const s of LANE_GUIDE) {
-  const m = s[4] + 6;
-  for (let ix = Math.floor((Math.min(s[0], s[2]) - m) / GUIDE_CELL); ix <= Math.floor((Math.max(s[0], s[2]) + m) / GUIDE_CELL); ix++) {
-    for (let iz = Math.floor((Math.min(s[1], s[3]) - m) / GUIDE_CELL); iz <= Math.floor((Math.max(s[1], s[3]) + m) / GUIDE_CELL); iz++) {
+  const ax = s[0], az = s[1], bx = s[2], bz = s[3], half = s[4];
+  const dx = bx - ax, dz = bz - az;
+  const x0 = Math.min(ax, bx), x1 = Math.max(ax, bx), z0 = Math.min(az, bz), z1 = Math.max(az, bz);
+  const seg = { ax, az, dx, dz, L2: dx * dx + dz * dz || 1e-9, half, x0, x1, z0, z1 };
+  const m = half + 6;
+  for (let ix = Math.floor((x0 - m) / GUIDE_CELL); ix <= Math.floor((x1 + m) / GUIDE_CELL); ix++) {
+    for (let iz = Math.floor((z0 - m) / GUIDE_CELL); iz <= Math.floor((z1 + m) / GUIDE_CELL); iz++) {
       const k = ix * 100000 + iz;
-      if (!GUIDE_GRID.has(k)) GUIDE_GRID.set(k, []);
-      GUIDE_GRID.get(k).push(s);
+      let list = GUIDE_GRID.get(k);
+      if (!list) GUIDE_GRID.set(k, list = []);
+      list.push(seg);
     }
   }
 }
@@ -665,11 +682,27 @@ for (const s of LANE_GUIDE) {
 // a farther segment or Infinity beyond 6 m). Street furniture keeps its footprint outside, so it closes no lane
 // (docs/world.md obstacle rule).
 function roadClearance(x, z) {
+  const list = GUIDE_GRID.get(Math.floor(x / GUIDE_CELL) * 100000 + Math.floor(z / GUIDE_CELL));
+  if (!list) return Infinity;
   let best = Infinity;
-  for (const [ax, az, bx, bz, half] of GUIDE_GRID.get(Math.floor(x / GUIDE_CELL) * 100000 + Math.floor(z / GUIDE_CELL)) || []) {
-    const dx = bx - ax, dz = bz - az;
-    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1e-9)));
-    best = Math.min(best, Math.hypot(ax + t * dx - x, az + t * dz - z) - half);
+  for (let i = 0; i < list.length; i++) {
+    const s = list[i];
+    const half = s.half;
+    if (best < Infinity) {
+      const b = best + half;
+      if (b <= 0) continue;
+      const lim = b + 1e-9;
+      if (x < s.x0 - lim || x > s.x1 + lim || z < s.z0 - lim || z > s.z1 + lim) continue;
+    }
+    const dx = s.dx, dz = s.dz;
+    const t = Math.max(0, Math.min(1, ((x - s.ax) * dx + (z - s.az) * dz) / s.L2));
+    const px = s.ax + t * dx - x, pz = s.az + t * dz - z;
+    if (best < Infinity) {
+      const b = best + half;
+      if (px * px + pz * pz > b * b * (1 + 1e-12)) continue;
+    }
+    const d = Math.hypot(px, pz) - half;
+    if (d < best) best = d;
   }
   return best;
 }

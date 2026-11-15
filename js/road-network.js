@@ -96,46 +96,60 @@ const laneOffset = (e, i, s = 0) => e.lanes[i] + laneShiftAt(e, s);
 
 // Immutable footprint queries keep exact float64 bounds once per rectangle and CSR bucket ids, rather than
 // retaining arrays of object references in every cell. Flags select the two boolean predicates used by the network.
+// 32 m cells and ids grouped by flag (1, 3, 2) let mask 1 scan [1, 3] and mask 2 scan [3, 2] with no per-id test;
+// the query only asks whether any rectangle overlaps, so the order is free (boot part 10: -1.3 % build).
 function createFootprintIndex(rects, flagOf) {
+  const FP_CELL = 32;
   const bounds = new Float64Array(rects.length * 4);
-  const flags = new Uint8Array(rects.length);
   const cells = new Map();
   const buckets = [];
+  let total = 0;
   for (let i = 0; i < rects.length; i++) {
     const f = flagOf(rects[i]);
     if (!f) continue;
     const r = rects[i];
     const o = i * 4;
     bounds[o] = r.minX; bounds[o + 1] = r.maxX; bounds[o + 2] = r.minZ; bounds[o + 3] = r.maxZ;
-    flags[i] = f;
-    for (let ix = Math.floor(r.minX / CELL); ix <= Math.floor(r.maxX / CELL); ix++) {
-      for (let iz = Math.floor(r.minZ / CELL); iz <= Math.floor(r.maxZ / CELL); iz++) {
+    const slot = f === 1 ? 0 : f === 3 ? 1 : 2;
+    for (let ix = Math.floor(r.minX / FP_CELL); ix <= Math.floor(r.maxX / FP_CELL); ix++) {
+      for (let iz = Math.floor(r.minZ / FP_CELL); iz <= Math.floor(r.maxZ / FP_CELL); iz++) {
         const key = (ix + 1024) * 2048 + iz + 1024;
         let bucket = cells.get(key);
         if (bucket === undefined) {
           bucket = buckets.length;
           cells.set(key, bucket);
-          buckets.push([]);
+          buckets.push([[], [], []]);
         }
-        buckets[bucket].push(i);
+        buckets[bucket][slot].push(i);
+        total++;
       }
     }
   }
-  const starts = new Uint32Array(buckets.length + 1);
-  for (let i = 0; i < buckets.length; i++) starts[i + 1] = starts[i] + buckets[i].length;
-  const ids = new Uint32Array(starts[buckets.length]);
-  for (let i = 0; i < buckets.length; i++) ids.set(buckets[i], starts[i]);
+  const starts = new Uint32Array(buckets.length * 3 + 1);
+  const ids = new Uint32Array(total);
+  let off = 0;
+  for (let i = 0; i < buckets.length; i++) {
+    const b = buckets[i];
+    starts[i * 3] = off;
+    ids.set(b[0], off); off += b[0].length;
+    starts[i * 3 + 1] = off;
+    ids.set(b[1], off); off += b[1].length;
+    starts[i * 3 + 2] = off;
+    ids.set(b[2], off); off += b[2].length;
+  }
+  starts[buckets.length * 3] = off;
 
   return (minX, maxX, minZ, maxZ, mask) => {
-    const ix0 = Math.floor(minX / CELL), ix1 = Math.floor(maxX / CELL);
-    const iz0 = Math.floor(minZ / CELL), iz1 = Math.floor(maxZ / CELL);
+    const ix0 = Math.floor(minX / FP_CELL), ix1 = Math.floor(maxX / FP_CELL);
+    const iz0 = Math.floor(minZ / FP_CELL), iz1 = Math.floor(maxZ / FP_CELL);
+    const sOff = mask === 2 ? 1 : 0;
+    const eOff = mask === 1 ? 2 : 3;
     if (ix0 === ix1 && iz0 === iz1) {
       const bucket = cells.get((ix0 + 1024) * 2048 + iz0 + 1024);
       if (bucket === undefined) return false;
-      for (let k = starts[bucket], end = starts[bucket + 1]; k < end; k++) {
-        const id = ids[k];
-        if (!(flags[id] & mask)) continue;
-        const o = id * 4;
+      const bi = bucket * 3;
+      for (let k = starts[bi + sOff], end = starts[bi + eOff]; k < end; k++) {
+        const o = ids[k] * 4;
         if (bounds[o] < maxX && bounds[o + 1] > minX && bounds[o + 2] < maxZ && bounds[o + 3] > minZ) return true;
       }
       return false;
@@ -145,10 +159,9 @@ function createFootprintIndex(rects, flagOf) {
       for (let iz = iz0; iz <= iz1; iz++) {
         const bucket = cells.get(row + iz);
         if (bucket === undefined) continue;
-        for (let k = starts[bucket], end = starts[bucket + 1]; k < end; k++) {
-          const id = ids[k];
-          if (!(flags[id] & mask)) continue;
-          const o = id * 4;
+        const bi = bucket * 3;
+        for (let k = starts[bi + sOff], end = starts[bi + eOff]; k < end; k++) {
+          const o = ids[k] * 4;
           if (bounds[o] < maxX && bounds[o + 1] > minX && bounds[o + 2] < maxZ && bounds[o + 3] > minZ) return true;
         }
       }
