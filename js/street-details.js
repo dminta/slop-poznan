@@ -372,13 +372,22 @@ function buildStreetDetails(scene, opts = {}) {
   //    other group's traffic (traffic.js walkOn). Poles stand only on curb islands, clear of the lanes.
   // =========================================================================
   const signalPoleMatrices = [];
+  const signalPoleTimings = [];
+  const signalPoleColliders = [];
   const s1Matrices = [];
+  const s1Timings = [];
   const s1AveMatrices = [];
+  const s1AveTimings = [];
   const s1StreetMatrices = [];
+  const s1StreetTimings = [];
   const backplateMatrices = [];
+  const backplateTimings = [];
   const pedHeadMatrices = [];
+  const pedHeadTimings = [];
   const pedAveMatrices = [];
+  const pedAveTimings = [];
   const pedStreetMatrices = [];
+  const pedStreetTimings = [];
   const s1AveIndices = [], s1StreetIndices = [], pedAveIndices = [], pedStreetIndices = [];
   const audioSignals = [];
   const signalArmPoles = new Map();
@@ -643,7 +652,7 @@ function buildStreetDetails(scene, opts = {}) {
   const armUp = new THREE.Vector3(0, 1, 0);
   const armQuat = new THREE.Quaternion();
 
-  function addSignalPole(p) {
+  function addSignalPole(p, timing = null) {
     addPole({ ...p, r: 0.08 });
     addFootprint(p.x, p.z, 0.3, 0.3, 'signal');
     addCollider(p.x, p.z, 0.08, 0.08, 0.1 + SIGNAL_POLE_H);
@@ -652,6 +661,10 @@ function buildStreetDetails(scene, opts = {}) {
     dummy.scale.set(0.055, SIGNAL_POLE_H, 0.055);
     dummy.updateMatrix();
     signalPoleMatrices.push(dummy.matrix.clone());
+    if (timing) {
+      signalPoleTimings.push(timing);
+      signalPoleColliders.push(colliders[colliders.length - 1]);
+    }
   }
   // Thicker mast for an overhead head: the same footprint/collider machinery, a taller shaft and a horizontal arm
   // reaching over the arriving lane. Only the foot is a player obstacle; the arm and head clear all road users.
@@ -701,7 +714,9 @@ function buildStreetDetails(scene, opts = {}) {
     const m = setFacing(x, PED_Y, z, fx, fz);
     const signalIndex = (timing.index + 0.5) / Math.max(1, SIGNAL_PLANS.length);
     pedHeadMatrices.push(m);
+    pedHeadTimings.push(timing);
     (isAvenue ? pedAveMatrices : pedStreetMatrices).push(m);
+    (isAvenue ? pedAveTimings : pedStreetTimings).push(timing);
     (isAvenue ? pedAveIndices : pedStreetIndices).push(signalIndex);
     audioSignals.push({ x, y: PED_Y, z, isAvenue, signalTiming: timing });
   }
@@ -785,18 +800,23 @@ function buildStreetDetails(scene, opts = {}) {
         const p = spot(side);
         if (!p) continue;
         if (side === 1) rightPole = true;
-        addSignalPole(p);
+        addSignalPole(p, site.timing);
         armPoles.push({ side, p });
         // vehicle head facing the arriving traffic: on the right, and on the left as a repeater on wide arms, or as the
         // only head where the right curb has no spot for a pole (a tram track or a crosswalk landing in the way)
         if (a.inbound && (side === 1 || a.w >= 12 || a.lanes >= 3 || !rightPole)) {
           const m = signalHeadMatrix(p, a);
           s1Matrices.push(m);
+          s1Timings.push(site.timing);
           signalArmPoles.get(a).hasHead = true;
           vehicleHeadSites.push({ site, a, p, group0 });
           (group0 ? s1AveMatrices : s1StreetMatrices).push(m);
+          (group0 ? s1AveTimings : s1StreetTimings).push(site.timing);
           (group0 ? s1AveIndices : s1StreetIndices).push(signalIndex);
-          if (big) backplateMatrices.push(m);
+          if (big) {
+            backplateMatrices.push(m);
+            backplateTimings.push(site.timing);
+          }
         }
         // pedestrian head facing across the arm, for the people waiting on the other curb
         const fx = -rx * side;
@@ -822,7 +842,7 @@ function buildStreetDetails(scene, opts = {}) {
   if (dworzec && signalPoleSpot(refugePole.x, refugePole.z)) {
     const dx = -1557.93 - refugePole.x, dz = 579.52 - refugePole.z;
     const length = Math.hypot(dx, dz);
-    addSignalPole(refugePole);
+    addSignalPole(refugePole, dworzec.timing);
     addPedestrianHead(refugePole, dx / length, dz / length, false, dworzec.timing);
   }
 
@@ -1273,15 +1293,17 @@ function buildStreetDetails(scene, opts = {}) {
   }
 
   const signalAttrs = (data) => ({ signalIndex: { size: 1, data } });
-  addMatrixArrayInstanced(unitCyl, signalPoleMat, signalPoleMatrices);
-  addMatrixArrayInstanced(s1HousingGeo, signalHousingMat, s1Matrices);
-  addMatrixArrayInstanced(backplateGeo, signalHousingMat, backplateMatrices);
-  addMatrixArrayInstanced(backplateBorderGeo, backplateBorderMat, backplateMatrices);
-  addMatrixArrayInstanced(s1LensGeo, aveSignalLensMat, s1AveMatrices, false, signalAttrs(s1AveIndices));
-  addMatrixArrayInstanced(s1LensGeo, streetSignalLensMat, s1StreetMatrices, false, signalAttrs(s1StreetIndices));
-  addMatrixArrayInstanced(pedHousingGeo, signalHousingMat, pedHeadMatrices);
-  addMatrixArrayInstanced(pedPanelGeo, aveWalkMat, pedAveMatrices, false, signalAttrs(pedAveIndices));
-  addMatrixArrayInstanced(pedPanelGeo, streetWalkMat, pedStreetMatrices, false, signalAttrs(pedStreetIndices));
+  const staticSignalMeshes = {
+    poles: addMatrixArrayInstanced(unitCyl, signalPoleMat, signalPoleMatrices),
+    s1: addMatrixArrayInstanced(s1HousingGeo, signalHousingMat, s1Matrices),
+    backplate: addMatrixArrayInstanced(backplateGeo, signalHousingMat, backplateMatrices),
+    backplateBorder: addMatrixArrayInstanced(backplateBorderGeo, backplateBorderMat, backplateMatrices),
+    s1Ave: addMatrixArrayInstanced(s1LensGeo, aveSignalLensMat, s1AveMatrices, false, signalAttrs(s1AveIndices)),
+    s1Street: addMatrixArrayInstanced(s1LensGeo, streetSignalLensMat, s1StreetMatrices, false, signalAttrs(s1StreetIndices)),
+    ped: addMatrixArrayInstanced(pedHousingGeo, signalHousingMat, pedHeadMatrices),
+    pedAve: addMatrixArrayInstanced(pedPanelGeo, aveWalkMat, pedAveMatrices, false, signalAttrs(pedAveIndices)),
+    pedStreet: addMatrixArrayInstanced(pedPanelGeo, streetWalkMat, pedStreetMatrices, false, signalAttrs(pedStreetIndices))
+  };
   addMatrixArrayInstanced(mastAndHeadGeo, poleMetalMat, mastMatrices);
   addMatrixArrayInstanced(ledLensGeo, lampBulbGlow, ledHeadMatrices, false);
   addMatrixArrayInstanced(gasPostGeo, castIronMat, gasPostMatrices);
@@ -2736,6 +2758,75 @@ function buildStreetDetails(scene, opts = {}) {
       while (plan && plan.alias) plan = plan.alias;
       return plan;
     };
+    const isPlanDisabled = (timing) => Boolean(planRoot(timing)?.disabled);
+    const compactSignalMeshes = (meshes, list, timings, indices = null) => {
+      let write = 0;
+      for (let i = 0; i < list.length; i++) {
+        if (isPlanDisabled(timings[i])) continue;
+        if (write !== i) {
+          list[write] = list[i];
+          timings[write] = timings[i];
+          if (indices) indices[write] = indices[i];
+        }
+        write++;
+      }
+      if (write === list.length) return 0;
+      const removed = list.length - write;
+      list.length = write;
+      timings.length = write;
+      if (indices) indices.length = write;
+      for (const mesh of meshes) {
+        if (!mesh) continue;
+        mesh.count = write;
+        mesh.visible = write > 0;
+        for (let i = 0; i < write; i++) mesh.setMatrixAt(i, list[i]);
+        if (mesh.instanceMatrix) mesh.instanceMatrix.needsUpdate = true;
+        const attr = indices && mesh.geometry?.getAttribute?.('signalIndex');
+        if (attr) {
+          for (let i = 0; i < write; i++) attr.array[i] = indices[i];
+          attr.needsUpdate = true;
+        }
+        if (mesh.computeBoundingSphere) mesh.computeBoundingSphere();
+      }
+      return removed;
+    };
+    // Drop static heads and poles whose signal plan was disabled by route pruning so no dark heads remain.
+    const droppedColliders = new Set();
+    let writeCollider = 0;
+    for (let i = 0; i < signalPoleColliders.length; i++) {
+      if (isPlanDisabled(signalPoleTimings[i])) {
+        droppedColliders.add(signalPoleColliders[i]);
+      } else {
+        signalPoleColliders[writeCollider++] = signalPoleColliders[i];
+      }
+    }
+    signalPoleColliders.length = writeCollider;
+    if (droppedColliders.size) {
+      let writeC = 0;
+      for (let i = 0; i < colliders.length; i++) {
+        if (!droppedColliders.has(colliders[i])) colliders[writeC++] = colliders[i];
+      }
+      colliders.length = writeC;
+    }
+    compactSignalMeshes([staticSignalMeshes.poles], signalPoleMatrices, signalPoleTimings);
+    const removedS1 = compactSignalMeshes([staticSignalMeshes.s1], s1Matrices, s1Timings);
+    compactSignalMeshes([staticSignalMeshes.backplate, staticSignalMeshes.backplateBorder],
+      backplateMatrices, backplateTimings);
+    compactSignalMeshes([staticSignalMeshes.s1Ave], s1AveMatrices, s1AveTimings, s1AveIndices);
+    compactSignalMeshes([staticSignalMeshes.s1Street], s1StreetMatrices, s1StreetTimings, s1StreetIndices);
+    compactSignalMeshes([staticSignalMeshes.ped], pedHeadMatrices, pedHeadTimings);
+    compactSignalMeshes([staticSignalMeshes.pedAve], pedAveMatrices, pedAveTimings, pedAveIndices);
+    compactSignalMeshes([staticSignalMeshes.pedStreet], pedStreetMatrices, pedStreetTimings, pedStreetIndices);
+    if (removedS1) result.vehicleHeads -= removedS1;
+    for (let i = vehicleHeadSites.length - 1; i >= 0; i--) {
+      if (isPlanDisabled(vehicleHeadSites[i].site.timing)) vehicleHeadSites.splice(i, 1);
+    }
+    for (const record of signalArmPoles.values()) {
+      if (isPlanDisabled(record.site.timing)) {
+        record.poles.length = 0;
+        record.hasHead = false;
+      }
+    }
     for (const node of network.nodes) {
       if (!node.signal || !node.signalTiming || node.signalTiming.disabled) continue;
       const nodePlan = planRoot(node.signalTiming);

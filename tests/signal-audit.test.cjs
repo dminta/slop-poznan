@@ -19,23 +19,25 @@ test('the furnished audit classifies historical approaches before and after runt
   assert.equal(after.rows.length, 201);
   assert.deepEqual(before.summary.counts, { A: 21, B: 75, C: 94, D: 11 });
   assert.deepEqual(after.summary.counts, { A: 190, B: 0, C: 0, D: 11 });
-  assert.equal(before.summary.vehicleHeads, 1120);
-  assert.equal(after.summary.vehicleHeads, 1291);
+  // 49 static S-1 heads and 72 poles on 25 disabled 2-arm-without-crossings plans are dropped at runtime pruning;
+  // two active approaches that previously reused a disabled pole now place their own pole (112 -> 114).
+  assert.equal(before.summary.vehicleHeads, 1071);
+  assert.equal(after.summary.vehicleHeads, 1242);
   assert.equal(after.summary.pedestrianHeads, 1935);
-  assert.equal(after.summary.runtimePoles, 112);
-  assert.equal(after.summary.reusedPoles, 59);
+  assert.equal(after.summary.runtimePoles, 114);
+  assert.equal(after.summary.reusedPoles, 57);
   assert.equal(after.summary.overheadHeads, 95);
-  assert.equal(after.summary.overheadPoles, 42);
-  assert.equal(after.summary.overheadReused, 53);
+  assert.equal(after.summary.overheadPoles, 43);
+  assert.equal(after.summary.overheadReused, 52);
   assert.equal(after.summary.overheadStrict, 87);
   assert.equal(after.summary.overheadBand, 88);
   assert.equal(after.summary.overheadException, 6);
   assert.deepEqual(after.summary.overheadFallbackAlong, [1.75, 1.75, 0.031, 1.75, 1.75, 1.75]);
   assert.equal(after.summary.spanHeads, 33);
-  assert.equal(after.summary.spanPoles, 32);
-  assert.equal(after.summary.spanReused, 33);
-  assert.equal(after.summary.spanNewHeads, 23);
-  assert.equal(after.summary.spanExistingHeads, 10);
+  assert.equal(after.summary.spanPoles, 33);
+  assert.equal(after.summary.spanReused, 32);
+  assert.equal(after.summary.spanNewHeads, 24);
+  assert.equal(after.summary.spanExistingHeads, 9);
   assert.equal(after.summary.spanTractionHeads, 1);
   assert.equal(after.summary.spanTractionAnchors, 2);
   assert.equal(after.summary.cantileverPoles, 19);
@@ -63,7 +65,9 @@ test('the furnished audit classifies historical approaches before and after runt
   }
   const placements = after.summary.placements.map((row) => row.map((v) =>
     typeof v === 'number' ? Number(v.toFixed(3)) : v));
-  assert.equal(createHash('sha256').update(JSON.stringify(placements)).digest('hex'), '2afb0e86edc5a873e5403059e2e877a31468adbd318f50b6c3c10494865415b3');
+  // Two active approaches previously reused poles from disabled plans and now place new poles.
+  assert.equal(createHash('sha256').update(JSON.stringify(placements)).digest('hex'),
+    '246087b6cc3ac17ecbb63fe85b0359f10f84811f014fab174486489443a9134c');
   const gorna = after.rows.find((r) => Math.hypot(r.node[0] + 448.825, r.node[1] - 947.425) < 0.01 &&
     r.direction[0] > 0.4 && r.direction[1] < -0.8);
   assert.ok(gorna, 'the Górna Wilda approach is still audited');

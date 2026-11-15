@@ -426,7 +426,11 @@ Built before the road network, so everything that stands near a lane is checked 
   10.5 m band (65 strict, 66 in either band). The span search itself samples targets at 10.5 m, 8 m and 1.75 m and
   picks the pair of anchors with the lowest stay cost. In the furnished-grid fixture the after pass measured
   ≈27 s (≈23 s before the span fallback; the two tram/rail layouts add ≈6 s), and the runtime placement stays
-  within the earlier 3.5–4.7 s range because the support grid replaces the all-pairs test. New poles carry S-1
+  within the earlier 3.5–4.7 s range because the support grid replaces the all-pairs test. `addRuntimeSignalHeads` also
+  compacts out static poles, S-1/pedestrian heads, backplates, and pole colliders belonging to plans that
+  `configureSignals` disabled (49 S-1 heads and 72 poles across 24 of 25 disabled plans, including Most Teatralny plan
+  381; `tools/audit-dark-heads.mjs`, [2026-11-15 record](observations/dark-heads-2026-11-15.md)), while keeping
+  footprints unchanged. New poles carry S-1
   heads only; their footprints and player colliders are registered before controllers are built and their shafts
   get a runtime instanced mesh. The furnished-grid regression rebuilds the road and pedestrian networks with the
   new footprints and compares all lanes, crossings, and route segments and connections near each new pole.

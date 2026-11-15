@@ -254,9 +254,11 @@ test('runtime approaches use existing left poles when no right head or pole serv
   assert.ok(attrs.every((a) => a.key === 'signalIndex' && a.size === 1 && a.attr));
   assert.deepEqual(attrs.flatMap((a) => a.data).sort((a, b) => a - b), expectedIndices);
   assert.ok(runtimeHeads.length >= cases.length, 'every handpicked left-pole approach gets a head');
-  assert.equal(street.vehicleHeads, count + runtimeHeads.length);
+  // 49 static S-1 heads and 72 pole colliders on 25 disabled plans are pruned on the first addRuntimeSignalHeads call.
+  assert.equal(street.vehicleHeads, count - 49 + runtimeHeads.length);
+  world.disabledPlans = config.SIGNAL_PLANS.filter((p) => p.disabled).map((p) => p.index);
   assert.equal(JSON.stringify(street.footprints), footprints);
-  assert.equal(JSON.stringify(street.colliders), colliders);
+  assert.equal(street.colliders.length, JSON.parse(colliders).length - 72);
   assert.deepEqual(Array.from(street.audioSignals, (s) => [s.x, s.y, s.z, s.isAvenue, s.signalTiming]), audioSignals);
   const rebuilt = road.buildRoadNetwork(grid.sidewalks, [...grid.footprints, ...street.footprints]);
   assert.deepEqual(lanes(rebuilt), originalLanes);
@@ -472,5 +474,26 @@ test('overhead and span heads keep 3.1 m from tram poles and railway masts', () 
       }
     }
     assert.ok(min >= 3.1, `overhead ${where} at ${h.node.x}, ${h.node.z} is ${min.toFixed(2)} m from a mast`);
+  }
+});
+
+test('disabled signal plans render no vehicle heads, pedestrian heads, or poles', () => {
+  const { config, meshRecords, disabledPlans } = world;
+  const rootOf = (t) => {
+    while (t && t.alias) t = t.alias;
+    return t;
+  };
+  const disabled = new Set(disabledPlans.map((i) => config.SIGNAL_PLANS[i]));
+  assert.ok(disabled.has(config.SIGNAL_PLANS[381]), 'Most Teatralny plan 381 is disabled');
+  const totalPlans = config.SIGNAL_PLANS.length;
+  for (const m of meshRecords) {
+    const attr = m.attrs?.signalIndex;
+    if (!attr) continue;
+    const liveLen = attr.data.length;
+    for (let i = 0; i < liveLen; i++) {
+      const idx = Math.round(attr.data[i] * totalPlans - 0.5);
+      assert.ok(!disabled.has(rootOf(config.SIGNAL_PLANS[idx])),
+        `no rendered head belongs to disabled plan ${idx}`);
+    }
   }
 });
