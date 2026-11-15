@@ -123,6 +123,49 @@ function collisionBody(mode, radius, heading, margin = 0) {
 function buildingContact(c, x, y, z, body, contact) {
   if (y + body.bottom >= c.maxY || y + body.top <= (c.minY ?? 0)) return false;
   if (x + body.extX <= c.minX || x - body.extX >= c.maxX || z + body.extZ <= c.minZ || z - body.extZ >= c.maxZ) return false;
+  if (c.circle) {
+    const { cx, cz, r } = c.circle;
+    const dx = x - cx, dz = z - cz;
+    let nx = 0, nz = 0, depth = 0;
+    if (body.car) {
+      const lx = dx * body.cos - dz * body.sin;
+      const lz = dx * body.sin + dz * body.cos;
+      const qx = lx - Math.max(-body.hx, Math.min(body.hx, lx));
+      const qz = lz - Math.max(-body.hz, Math.min(body.hz, lz));
+      const distance = Math.hypot(qx, qz);
+      if (distance >= r) return false;
+      let nlx = 0, nlz = 0;
+      if (distance > 0) {
+        nlx = qx / distance; nlz = qz / distance;
+        depth = r - distance;
+      } else if (body.hx - Math.abs(lx) <= body.hz - Math.abs(lz)) {
+        nlx = lx <= 0 ? -1 : 1;
+        depth = body.hx - Math.abs(lx) + r;
+      } else {
+        nlz = lz <= 0 ? -1 : 1;
+        depth = body.hz - Math.abs(lz) + r;
+      }
+      nx = nlx * body.cos + nlz * body.sin;
+      nz = -nlx * body.sin + nlz * body.cos;
+    } else {
+      const distance = Math.hypot(dx, dz);
+      const sumR = r + body.radius;
+      if (distance >= sumR) return false;
+      if (distance > 0) {
+        nx = dx / distance; nz = dz / distance;
+        depth = sumR - distance;
+      } else {
+        nx = 1; nz = 0;
+        depth = sumR;
+      }
+    }
+    if (contact) {
+      contact.nx = nx;
+      contact.nz = nz;
+      contact.depth = depth;
+    }
+    return true;
+  }
   const o = c.obb;
   const cs = o ? o.cs : 1, sn = o ? o.sn : 0;
   const hx = o ? o.hx : (c.maxX - c.minX) * 0.5;

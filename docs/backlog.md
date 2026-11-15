@@ -281,9 +281,14 @@ the checks below; each remaining bullet is the part that is still open.
 
 ### Geometry, materials and collisions
 
-- Walk into the EC Garbary chimney and cooling-tower colliders; the non-residential silhouettes (Posnania, Castorama,
-  ZNTK, EC Garbary, Główna halls) were framed at street level and from the air on WebGPU and WebGL2 2026-11-14
-  ([record](observations/browser-checks-2026-11-14.md)). [Profiles record](observations/building-profiles-nonres-2026-11-08.md).
+- Browser check: visually walk into the EC Garbary chimney and cooling-tower colliders to confirm the rendered
+  silhouettes and ground contact; the non-residential silhouettes (Posnania, Castorama, ZNTK, EC Garbary, Główna halls)
+  were framed at street level and from the air on WebGPU and WebGL2 2026-11-14
+  ([record](observations/browser-checks-2026-11-14.md)), and the 2026-11-15 headless geometric + controller audit
+  ([record](observations/industry-colliders-2026-11-15.md)) replaced the square AABBs (`5.936 m` diagonal invisible
+  wall on the 55 m cooling tower, `2.367 m` on the 65 m chimney, `0.861–1.270 m` on the 5 OSM chimneys) with circular
+  colliders (`c.circle` in `controllers.js` and `buildings.js`, `maxGap ≤ 0.067 m`).
+  [Profiles record](observations/building-profiles-nonres-2026-11-08.md).
 - Visual framing check of the overhead clearance fixes (Rynek Łazarski road-cleared canopy columns, raised `6.1 m` tram
   canopies and elevated viaduct catenary portals); the 2026-11-14 headless geometric audit
   ([record](observations/overhead-clearance-2026-11-14.md)) resolved all `rail-portal`, `tram_panto` and

@@ -226,6 +226,18 @@ overlaps; the browser build matched (38 moved, 3 dropped, 225 shelters). The Ron
 moved, and runs the `--before` audit to check the new predicate still catches the pre-fix 0.08 m overhang and the
 pole shelter. The audit uses the headless fixture, not the browser's full collider set.
 
+## Industrial structure collider audit
+
+`node tools/audit-industry-colliders.mjs [--json]` builds the real headless world (`city-config.js`, `geodata.js`,
+`city-grid.js`, `buildings.js`, `road-network.js`, `street-details.js`, `controllers.js`), captures the instanced
+meshes (`IndustryCoolingTowers`, `IndustryChimneys`) and their `LatheGeometry`/`CylinderGeometry` profiles, checks
+each structure's `0–2 m` rendered silhouette against its player collider(s) for walk-through penetration and
+invisible-wall gaps, checks clearance against other buildings, road lanes, rails, and props, and drives
+`ThirdPersonControllerManager.prototype.updatePerson` and `updateCar` straight at each structure from 8 directions.
+It exits non-zero if any structure has `maxGap > 0.1 m`, `maxPenetration > 0.1 m`, overlaps, or pass-throughs.
+`tests/industry-colliders.test.cjs` pins circular collision handling in `controllers.js` and runs the full audit
+([record](observations/industry-colliders-2026-11-15.md)).
+
 ## Bridge parapet audit
 
 `node tools/audit-bridge-parapets.mjs [--before <rev>] [--boot] [--json] [--top N] [--name <substring>]` builds

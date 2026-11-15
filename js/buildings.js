@@ -4801,7 +4801,10 @@ function buildCityBlocks(scene) {
         dummy.scale.set(s.radius, s.height, s.radius);
         dummy.updateMatrix();
         mesh.setMatrixAt(i, dummy.matrix);
-        colliders.push({ minX: s.x - s.radius, maxX: s.x + s.radius, minZ: s.z - s.radius, maxZ: s.z + s.radius, minY: 0, maxY: s.height });
+        colliders.push({
+          minX: s.x - s.radius, maxX: s.x + s.radius, minZ: s.z - s.radius, maxZ: s.z + s.radius,
+          minY: 0, maxY: s.height, circle: { cx: s.x, cz: s.z, r: s.radius }
+        });
       }
       mesh.instanceMatrix.needsUpdate = true;
       mesh.computeBoundingSphere();
@@ -4814,14 +4817,14 @@ function buildCityBlocks(scene) {
         { r: 1.0, y: 0 }, { r: 0.94, y: 0.06 }, { r: 0.78, y: 0.28 }, { r: 0.64, y: 0.52 },
         { r: 0.68, y: 0.72 }, { r: 0.80, y: 0.9 }, { r: 0.86, y: 1.0 }
       ];
-      const geo = new THREE.LatheGeometry(profile.map((v) => new THREE.Vector2(v.r, v.y)), 18);
+      const geo = new THREE.LatheGeometry(profile.map((v) => new THREE.Vector2(v.r, v.y)), 32);
       const mat = new THREE.MeshStandardNodeMaterial({ color: 0xbcb9b2, roughness: 0.94, metalness: 0 });
       const mesh = new THREE.InstancedMesh(geo, mat, cooling.length);
       mesh.name = 'IndustryCoolingTowers';
       place(mesh, cooling);
     }
     if (chimneys.length) {
-      const geo = new THREE.CylinderGeometry(0.55, 1, 1, 14);
+      const geo = new THREE.CylinderGeometry(0.55, 1, 1, 24);
       geo.translate(0, 0.5, 0);
       const mat = new THREE.MeshStandardNodeMaterial({ roughness: 0.76, metalness: 0 });
       mat.colorNode = mix(color(0xbfbab0), color(0x8f211a), step(0.5, fract(positionWorld.y.div(28.0))));
