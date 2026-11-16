@@ -440,10 +440,12 @@ class CityAudioSystem {
     // or a new impact after separation can sound again; muting/reset discards this history rather than queuing it.
     if (now - contact.played < 0.18 || (!separated && speed <= Math.max(4, contact.speed * 1.8))) return false;
     const light = a.type === 'cyclist' || b.type === 'cyclist';
-    const severity = clamp((speed - 0.8) / 22, 0, 1) * (light ? 0.65 : 1);
+    // ?carma=1: a pedestrian struck by the player's car (traffic.js strikePeds) is a soft body, a dull thud
+    const soft = impact.kind === 'pedestrian';
+    const severity = clamp((speed - 0.8) / 22, 0, 1) * (light ? 0.65 : soft ? 0.7 : 1);
     const intensity = (0.12 + 0.88 * Math.sqrt(severity)) * (light ? 0.7 : 1);
     // The physics record is reused. emit() copies this position so the crash remains at the contact point.
-    if (!this.emit('crash', { id: a, x, y, z, seed: ++this.collisionSequence }, { severity, intensity })) return false;
+    if (!this.emit('crash', { id: a, x, y, z, seed: ++this.collisionSequence }, { severity, intensity, soft })) return false;
     contact.played = now;
     contact.speed = speed;
     return true;

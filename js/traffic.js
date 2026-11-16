@@ -137,6 +137,10 @@ function createTrafficSystem(
 ) {
   const group = new THREE.Group();
   group.name = 'TrafficAndPedestrians';
+  // ?carma=1 (main.js, pedestrian-hits.js): the player's car runs pedestrians down. Null without the switch, which
+  // leaves every frame exactly as before: no hit test, no meshes, no random numbers.
+  const pedestrianHits = options.pedestrianHits || null;
+  if (pedestrianHits) group.add(pedestrianHits.group);
   let collisionListener = null;
   const collisionEvent = { a: null, b: null, kind: 'vehicle', x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, speed: 0 };
 
@@ -3069,6 +3073,59 @@ function createTrafficSystem(
     }
   }
 
+  // A pedestrian the player's car hit leaves the simulation now: out of its conversation, off every crosswalk and curb
+  // list it is filed in this frame, and unplaced, so the pool re-places it like any other retired pedestrian (spawnPed
+  // resets the rest). Nothing else keeps a reference: the route and cell indexes and the meeting cells are rebuilt
+  // from the placed pedestrians, and audio reads only placed ones and drops a pair whose `conversation` is gone.
+  function retirePed(p) {
+    if (p.conversation) endConversation(p.conversation);
+    for (const n of walkedNodes) {
+      const i = n.walkers.indexOf(p);
+      if (i >= 0) n.walkers.splice(i, 1);
+    }
+    for (const n of curbNodes) {
+      const i = n.curb.indexOf(p);
+      if (i >= 0) n.curb.splice(i, 1);
+    }
+    p.placed = false;
+    p.rig.placed = false;
+    p.node = null;
+    p.waiting = false;
+    p.through = false;
+    p.route = null;
+    p.nextRoute = null;
+    p.nextLeg = 0;
+    p.v = 0;
+    p.pause = 0;
+    p.stuck = 0;
+  }
+
+  // ?carma=1 only: the player's car, faster than the hit speed, against every placed pedestrian. Its box (player.halfW
+  // x halfL about its centre, along its heading) grows by the body's radius; the car moves at most 0.7 m a 50 ms frame
+  // at 50 km/h, well inside its 4.5 m length, so a body cannot slip through between frames.
+  function strikePeds() {
+    const pe = player.entity;
+    const speed = Math.hypot(player.vx, player.vz);
+    if (!pedestrianHits.strikes(pe.type, speed)) return;
+    const sn = Math.sin(pe.heading || 0), cs = Math.cos(pe.heading || 0);
+    const reachL = player.halfL + pedestrianHits.radius, reachW = player.halfW + pedestrianHits.radius;
+    for (let i = 0; i < pedPopulation; i++) {
+      const p = peds[i];
+      if (!p.placed) continue;
+      const dx = p.x - player.x, dz = p.z - player.z;
+      const along = dx * sn + dz * cs;
+      if (along > reachL || along < -reachL) continue;
+      const across = dx * cs - dz * sn; // + on the car's left (model +x)
+      if (across > reachW || across < -reachW) continue;
+      pedestrianHits.strike(p, pe, along, across, player.vx, player.vz, speed);
+      // a dull body thud from the audio crash layer (audio-system.js reads kind 'pedestrian')
+      collisionEvent.kind = 'pedestrian';
+      reportCollision(pe, p, p.x, 0.7, p.z, -sn, -cs, speed);
+      collisionEvent.kind = 'vehicle';
+      retirePed(p);
+    }
+  }
+
   function endConversation(conversation) {
     for (const p of [conversation.a, conversation.b]) {
       p.conversation = null;
@@ -3755,6 +3812,7 @@ function createTrafficSystem(
     }
     for (const n of walkedNodes) n.walkers.length = 0;
     walkedNodes.length = 0;
+    if (pedestrianHits && player.active) strikePeds();
     if (pedCursor >= pedPopulation) pedCursor = 0;
     let pedBudget = jump ? pedPopulation : 6;
     for (let scanned = 0; scanned < pedPopulation && pedBudget > 0; scanned++) {
@@ -3784,6 +3842,7 @@ function createTrafficSystem(
       playerEntity.lastCollisionSpark = null;
     }
     updateSparks(dt);
+    if (pedestrianHits) pedestrianHits.update(dt, elapsed);
   }
 
   return {
@@ -3798,6 +3857,7 @@ function createTrafficSystem(
     peds,
     network,
     crosswalks: pedRoutes.crosswalks, // road-paint.js paints its zebras from them
+    pedestrianHits, // ?carma=1 only, else null
     pedestrianRoutes: pedRoutes
   };
 }

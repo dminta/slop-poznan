@@ -125,6 +125,9 @@ freezes. If you rename or remove any of these, update `audio-sources.js` in the 
   for more than 0.3 s. Cyclists are lighter (lower severity and intensity). A crash may evict the weakest crash
   (at most 3 at once) or a background event, but never a horn. Crash emitters start at full gain (`immediate`),
   which keeps the transient.
+- A pedestrian struck by the player's car under `?carma=1` arrives as a crash with `impact.kind === 'pedestrian'`
+  (`b` is the ped object): severity × 0.7 and `soft`, which `playEvent` plays as the body layer only at 0.72× rate
+  (a lower, fuller thud) with a faint panel knock (0.06 + 0.12 × severity) and no debris.
 - Bells: a tram's `bell` event (two strokes of a synthesized gong 0.24 s apart, the second a tone lower) rings when its
   `atStop` goes false (departure, doors closed), and every 4–6 s while its `waitReason` is `'player'`. Per-tram state
   (`tramStopped`, `bell`) is in `this.states`. Bells follow the tram (`follow`), ref 9, range 160, and are never

@@ -27,6 +27,7 @@ import { collectDynamicRoots, freezeStaticMatrices, updateDynamicMatrices } from
 import { CityAudioSystem } from './audio-system.js';
 import { QUALITY_TIERS, resolveQualityDecision, clearStoredQuality } from './graphics-quality.js';
 import { PerfStats } from './perf-stats.js';
+import { createPedestrianHits } from './pedestrian-hits.js';
 import { configureTreeQuality } from './trees.js';
 import { prepareOpaqueShadows } from './tsl-materials.js';
 
@@ -107,6 +108,8 @@ async function initApp() {
   const query = new URLSearchParams(window.location.search);
   const forceWebGL = query.get('backend') === 'webgl';
   const statsEnabled = query.get('stats') === '1';
+  // ?carma=1: the player's car can run pedestrians down (pedestrian-hits.js); without it nothing is built
+  const carmaEnabled = query.get('carma') === '1';
   const renderer = new THREE.WebGPURenderer({
     antialias: true,
     powerPreference: 'high-performance',
@@ -228,7 +231,8 @@ async function initApp() {
     ...streetDetails.footprints,
     ...allColliders.filter((c) => !c.obb && (c.minY ?? 0) < 3.5)
   ], streetDetails.roadNetwork, buildingColliders, {
-    population: qualitySettings.population
+    population: qualitySettings.population,
+    pedestrianHits: carmaEnabled ? createPedestrianHits() : null
   });
   const tramLayout = streetDetails.tramLayout || layoutTramInfrastructure(trafficSystem.network);
   const railLayout = layoutRailInfrastructure(trafficSystem.network);

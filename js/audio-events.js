@@ -522,6 +522,12 @@ export function playEvent(ctx, resources, kind, output, options = {}) {
     const severity = clamp(finite(options.severity, intensity));
     const variant = Math.floor(random() * resources.crashes.body.length);
     const rate = (1.16 - severity * 0.24) * (0.96 + random() * 0.08);
+    if (options.soft) {
+      // a body against a bumper: the damped body layer played lower and fuller, a faint panel knock, no debris
+      play(resources.crashes.body[variant], start, rate * 0.72, 1);
+      play(resources.crashes.metal[variant], start + 0.004, rate * 0.8, 0.06 + severity * 0.12);
+      return event;
+    }
     play(resources.crashes.body[variant], start, rate, 0.7 + severity * 0.3);
     play(resources.crashes.metal[variant], start + 0.003, rate, 0.08 + severity * 0.72);
     if (severity > 0.45) {

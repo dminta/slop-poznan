@@ -432,6 +432,65 @@ the [archived Phase 16 report](archive/poznan-plan.md#phase-16-signal-timing-and
 ## Player interaction
 - `player.active` is false in the helicopter or when the entity is at y >= 2.6. Mode-specific `halfW/halfL/push` values are set in `update()`. Drivers treat the player as a leader (`playerGap`), and lane changes avoid the player.
 - `collideWithPlayer` uses a SAT OBB test. The extents are the car's `hitW`/`hitL` (from its body spec) or the bus's literals in the call in `update()`, and the mass ratio is set in `collideWithPlayer`. `reportCollision` fires synchronously with a **reused** event object, so listeners (audio) must copy any field they keep.
+- Pedestrians and the player never collide by default: the walker, the bicycle and the car pass through them.
+
+### `?carma=1`: the player's car runs pedestrians down
+An opt-in review mode (URL switch, never persisted; see [architecture.md](architecture.md#review-url-parameters)).
+`main.js` builds `createPedestrianHits()` (`js/pedestrian-hits.js`) only with the switch and passes it to
+`createTrafficSystem` as `options.pedestrianHits`; traffic adds its `group` (`PedestrianHits`: meshes
+`PedestrianHitParts` and `PedestrianHitBlood`) under `TrafficAndPedestrians` and exposes it as
+`trafficSystem.pedestrianHits` (null otherwise).
+- **Hit rule** (`strikePeds` in traffic.js, `strikes()` in pedestrian-hits.js): only the active player entity of type
+  `car`, with ground speed `hypot(player.vx, player.vz)` above `STRIKE_SPEED` = 10 km/h (a brisk walk plus a little,
+  so creeping through a crowd at a zebra or while parking keeps the pass-through), against every placed pedestrian
+  whose centre lies in the car's box (`player.halfW` 0.86 × `halfL` 2.23 m about its centre, along its heading) grown
+  by `HIT_RADIUS` 0.28 m. Reversing counts too. At 50 km/h the car moves 0.7 m in a 50 ms frame, well inside its
+  4.5 m length, so nobody slips through between frames. The car keeps `MOMENTUM_KEEP` 95% of its speed (a ~75 kg
+  body against the ~1.4 t taxi). Slower contacts, the bicycle, the walker, NPC vehicles and every frame without the
+  switch run exactly as before.
+- **Removal** (`retirePed`): it ends the pedestrian's conversation (both partners; audio drops a talk event whose pair
+  no longer points back), splices it out of every `n.walkers` and `n.curb` list it is filed in, and unplaces it
+  (`placed`, `rig.placed`, `node`, `waiting`, `through`, `route`, `nextRoute`, `v`, `pause`, `stuck`). The strike runs
+  in the pedestrian section of `update()` after the walkers are cleared and before the replacement scan, so the pool
+  re-places the slot the same frame like any retired pedestrian (`spawnPed`, 60–280 m out, out of view). The route,
+  cell and meeting indexes are rebuilt from placed pedestrians, so nothing else keeps a reference. The thud is a
+  `reportCollision(pe, p, …)` with `collisionEvent.kind = 'pedestrian'` (restored to `'vehicle'` at once), which
+  audio-system.js plays as a soft crash ([audio.md](audio.md#events)).
+- **Body pieces**: six per victim (head, torso, two arms, two legs), drawn as extra instances of the pedestrian body
+  (`buildPersonGeometry(1)`, `createPersonMaterial`), so they wear exactly the clothes, skin and hair the GPU dressed
+  that person in. Each piece's pose keeps its own bones and collapses every other bone (scale 0) onto the joint at
+  the cut, which closes the torn end. Physics is a capsule per piece in plain numbers: thrown at 0.95–1.2× the car's
+  velocity, sideways (0.8 × the struck side ± 0.8) × (0.4 + 0.08 × speed) m/s plus ±0.6 m/s of jitter, and
+  1.5–3 m/s + 0.18 × speed upwards,
+  3–10 rad/s tumble; gravity 9.81, restitution 0.28, a landing friction impulse (μ 0.7) then 7 m/s² sliding, spin
+  damping 5/s, and long pieces topple flat (6/s) before they may rest. A body struck at 40 km/h ends 12–18 m ahead,
+  at 60 km/h 25–34 m (headless, 3 seeds). Each piece lives 4–8 s and sinks below the ground over its last 1.2 s.
+  `MAX_PARTS` 48 (8 victims); a full pool recycles the oldest pieces (ring order).
+- **Blood**: one transparent instanced mesh of ground quads (`MeshStandardNodeMaterial`, `transparentEffectMRT`,
+  `renderOrder` 997, under the contact shadows): a 1.1–1.6 m pool where the person stood, 7 droplets of 0.12–0.42 m
+  thrown up to 1.5 m + 0.2 × speed ahead, a splat where the head and the torso first land, and the smear: the point
+  of the car that struck them (its across offset clamped to the wheels, ±0.72 m) is followed for 2.5–6 m
+  (2.5 + 0.2 × speed, so 4.7 m at 40 km/h) in 0.45 m × 0.5 m-wide segments, strength fading from 1 to 0.3, for at most
+  1.5 s. Per-instance `bloodDecal` = (seed, start strength, birth time, end strength; end < 0 = round splat); the
+  shader fades and dries it from a single time uniform (wet dark red, roughness 0.22 → dark brown-red, 0.7 over 25 s;
+  gone over 30–45 s, `DECAL_LIFE` 45, `DECAL_FADE` 15), so nothing uploads after a decal is written. `MAX_DECALS` 192
+  (~20 a hit) in a ring; the mesh hides once the newest has faded. Height: `surfaceHeight` (raised ground, else any
+  curb island at 0.24 m, park blocks at 0.26 m, else the road) + 2 cm. Not `getGroundHeight`: the walker's ground
+  leaves park blocks at road level, under their 0.26 m paving. Blood on the lawns inside park beds (0.41 m) is hidden.
+- **Cost** (measured 2026-11-16, headless Chrome 157, M5 Pro, WebGPU high, at Św. Marcin; `renderer.info` with
+  `?stats=1`, our meshes counted with `onBeforeRender`): without the switch nothing is built (no meshes, draws, uploads,
+  random numbers, and one null check per frame); `tools/bench-traffic.mjs` (seeds 1 and 4242, 1 min, all districts) and
+  `tools/audit-ped-overlaps.mjs` (seed 4242, 1 min) give byte-identical JSON to the parent commit. With it, idle: 0
+  draws (both meshes hidden after the two warm-up frames, which keep one degenerate instance each so precompile and
+  warm-up compile the pipelines); with a hit's pieces and blood live: +2.5 draws a frame for the pieces (scene pass
+  plus shadow cascades on their cadence) and +1 for the blood. JS heap after a forced GC 552.4 MB off, 553.8–554.0 MB
+  on (two fresh browser runs each). Per frame the pieces upload `count × 124` floats; decals upload only in the frames
+  a decal is written. The visuals use their own seeded generator (mulberry32), so traffic's shared `Math.random`
+  stream sees only the replacement `spawnPed` calls.
+- Tests: `tests/pedestrian-hits.test.cjs` (hit rule, box, removal cleanup, the off guard, pools, piece physics and
+  pose, decal ring, surface height). It slices `strikePeds`, `retirePed` and `endConversation`, and the pedestrian
+  section of `update()` from `    for (const n of walkedNodes) n.walkers.length = 0;` to `    gatherCurbs();`.
+  `tests/traffic-population.test.cjs` stubs `pedestrianHits: null` for its sliced `update()`.
 
 ## Performance patterns (keep them when editing)
 - Instance slots are handed out every frame only to actors that `visible()` passes. `visible()` tests side planes only; the margin radii are car 18, bus 22, pedestrian 7, to cover shadows and beams. Every instanced mesh has `frustumCulled = false`. Cars within `CAR_PROXY_DISTANCE` (90 m from the focus) get the full body plus separate wheel instances; farther cars get the ~460–510-triangle proxy with built-in wheels (the full bodies are 2.9–3.0k triangles without wheels). That is two body meshes per class: 12 car body meshes, plus 2 wheel, 3 light-bar and 1 contact-shadow mesh; empty meshes are hidden after warm-up.

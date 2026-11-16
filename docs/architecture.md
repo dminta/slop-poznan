@@ -68,6 +68,9 @@
 These switches are for browser checks and real-device measurements; none is persisted:
 - `?quality=low|high` overrides the boot-time tier (see Boot order and [rendering.md](rendering.md#quality-tiers)).
 - `?backend=webgl` forces the WebGL2 fallback on a WebGPU machine.
+- `?carma=1` lets the player's car run pedestrians down above 10 km/h: body pieces and blood decals
+  (`js/pedestrian-hits.js`, built only with the switch; see [actors.md](actors.md#carma1-the-players-car-runs-pedestrians-down)).
+  Without it `trafficSystem.pedestrianHits` is null and nothing is built or run.
 - `?stats=1` shows the opt-in performance panel from `js/perf-stats.js`. It updates twice a second with frame-time
   p50/p95/max over the last 5 s, whole-frame draw calls and triangles from `renderer.info` (auto-reset off, reset once
   per frame), CPU render/simulation/frame time, programs and GPU memory, JS heap, tier and its reason, backend, GPU
