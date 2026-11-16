@@ -14,7 +14,8 @@ const tslStub = {
   createPreWarBuildingMaterial: (o) => ({ ...o }),
   createCurtainWallMaterial: (o) => ({ ...o }),
   createFacadeBoxes: () => new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), {}),
-  createLitWindowMaterial: () => ({})
+  createLitWindowMaterial: () => ({}),
+  createPitchTurfMaterial: () => ({ isPitchTurf: true })
 };
 
 const kit = loadModule(source('landmark-kit'), {
@@ -22,7 +23,7 @@ const kit = loadModule(source('landmark-kit'), {
   globals: { Math, console }
 });
 const stadium = loadModule(source('landmarks-stadium'), {
-  imports: { 'three/webgpu': THREE, './landmark-kit.js': kit },
+  imports: { 'three/webgpu': THREE, './landmark-kit.js': kit, './tsl-materials.js': tslStub },
   globals: { Math, console }
 });
 const M = kit.createLandmarkMaterials();
@@ -84,6 +85,30 @@ test('the Enea Stadion model reaches 56 m and keeps its four stands around the p
     return Math.abs(u) > c.obb.hx || Math.abs(w) > c.obb.hz;
   });
   assert.ok(pitchOpen, 'no stand collider covers the pitch centre');
+});
+
+// The pitch apron lay at 0.12 m under city-grid's sidewalk slab (top 0.22 m, SW_TOP) and curb (0.18 m) that cover the
+// whole stadium lot, so the bowl showed pale paving: nothing drawn over the pitch may top the turf.
+test('the pitch turf apron stands above the city-grid sidewalk slab and curb, with the markings on it', () => {
+  const SW_TOP = Number(/const SW_TOP = ([\d.]+);/.exec(source('city-grid'))[1]);
+  assert.equal(SW_TOP, 0.22, 'city-grid sidewalk slab top (update this test when it moves)');
+  const { group } = buildStadium();
+  const landmark = stadiumChild(group);
+  const apron = [];
+  const lines = [];
+  landmark.traverse((o) => {
+    if (!o.isMesh) return;
+    if (o.material && o.material.isPitchTurf) apron.push(o);
+    else if (o.material === M.plasterWhite && o.geometry.parameters && o.geometry.parameters.height <= 0.04) lines.push(o);
+  });
+  assert.equal(apron.length, 1, 'one turf apron mesh');
+  const top = new THREE.Box3().setFromObject(apron[0]);
+  const scale = landmark.scale.y;
+  assert.ok(top.max.y / scale >= SW_TOP + 0.02, `apron top ${top.max.y / scale} clears the 0.22 m slab`);
+  assert.ok(lines.length >= 40, `${lines.length} marking strips`);
+  for (const l of lines) {
+    assert.ok(new THREE.Box3().setFromObject(l).min.y >= top.max.y - 1e-6, 'every marking stands on the turf');
+  }
 });
 
 // The real building generator, with inert three.js/TSL surfaces: only the lot layout (the part that decides whether a

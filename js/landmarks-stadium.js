@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { addMesh, box, cylinder, prism, collider, fitToSite, site } from './landmark-kit.js';
+import { createPitchTurfMaterial } from './tsl-materials.js';
 
 // js/landmarks-stadium.js
 // Enea Stadion (Stadion Miejski w Poznaniu, ul. Bułgarska 17), the home ground of Lech Poznań. The new stadium was
@@ -80,10 +81,16 @@ function buildStadiumLandmarks({ group, colliders, M }) {
   const obj = new THREE.Group();
 
   // ---------------------------------------------------------------------------------------------------------------
-  // Pitch and its markings: 105 × 68 m, the OSM/league dimensions, on a 121 × 84 m grass apron.
+  // Pitch and its markings: 105 × 68 m, the OSM/league dimensions, on a 121 × 84 m turf apron.
+  // The apron's top is at the park lawn's 0.26 m (city-grid.js PARK_Y), not at the ground: the stadium lot is one of
+  // city-grid's curb islands, whose sidewalk slab tops out at 0.22 m and its curb at 0.18 m, and the old 0.12 m apron
+  // lay under both (a raycast down the pitch centre hit the slab at 0.22, the curb at 0.18, then the apron), so the
+  // bowl showed pale paving with no grass or lines. The pitch turf has the park lawn's detail and mown stripes that run
+  // along the pitch; the markings stand on it.
   // ---------------------------------------------------------------------------------------------------------------
-  box(obj, 121, 0.12, 84, M.hedge, 0, 0, 0);
-  const LINE = 0.14;
+  const TURF_TOP = 0.26;
+  box(obj, 121, TURF_TOP, 84, createPitchTurfMaterial(), 0, 0, 0);
+  const LINE = TURF_TOP + 0.01;
   const lineX = (len, x, z) => box(obj, len, 0.035, 0.12, M.plasterWhite, x, LINE, z);
   const lineZ = (len, x, z) => box(obj, 0.12, 0.035, len, M.plasterWhite, x, LINE, z);
   lineX(2 * PITCH_X, 0, -PITCH_Z);
@@ -103,7 +110,22 @@ function buildStadiumLandmarks({ group, colliders, M }) {
     box(obj, Math.hypot(x1 - x0, z1 - z0), 0.035, 0.12, M.plasterWhite, (x0 + x1) / 2, LINE, (z0 + z1) / 2,
       -Math.atan2(z1 - z0, x1 - x0));
   }
-  // Penalty and goal areas, penalty spots and the two goals.
+  // Centre spot, penalty and goal areas, penalty spots and arcs, corner arcs, goals, corner flags.
+  box(obj, 0.36, 0.035, 0.36, M.plasterWhite, 0, LINE, 0);
+  // An arc of `r` about (cx, cz) from angle a0 to a1 in short tangent strips (the centre circle's trick)
+  const arc = (cx, cz, r, a0, a1, n) => {
+    for (let i = 0; i < n; i++) {
+      const t0 = a0 + ((a1 - a0) * i) / n;
+      const t1 = a0 + ((a1 - a0) * (i + 1)) / n;
+      const x0 = cx + Math.cos(t0) * r;
+      const z0 = cz + Math.sin(t0) * r;
+      const x1 = cx + Math.cos(t1) * r;
+      const z1 = cz + Math.sin(t1) * r;
+      box(obj, Math.hypot(x1 - x0, z1 - z0) + 0.04, 0.035, 0.12, M.plasterWhite, (x0 + x1) / 2, LINE, (z0 + z1) / 2,
+        -Math.atan2(z1 - z0, x1 - x0));
+    }
+  };
+  const D_HALF = Math.acos(5.5 / 9.15); // the penalty arc leaves the area 5.5 m beyond the spot's line
   for (const s of [-1, 1]) {
     lineX(16.5, s * (PITCH_X - 8.25), -20.16);
     lineX(16.5, s * (PITCH_X - 8.25), 20.16);
@@ -112,8 +134,47 @@ function buildStadiumLandmarks({ group, colliders, M }) {
     lineX(5.5, s * (PITCH_X - 2.75), 9.16);
     lineZ(18.32, s * (PITCH_X - 5.5), 0);
     box(obj, 0.36, 0.035, 0.36, M.plasterWhite, s * (PITCH_X - 11), LINE, 0);
-    for (const z of [-3.66, 3.66]) cylinder(obj, 0.08, 0.08, 2.44, 6, M.plasterWhite, s * PITCH_X, LINE, z);
-    box(obj, 0.12, 0.12, 7.32, M.plasterWhite, s * PITCH_X, LINE + 2.44, 0);
+    // Penalty arc: 9.15 m about the spot, facing the centre circle (angle 0 points to +x, π to -x)
+    const facing = s > 0 ? Math.PI : 0;
+    arc(s * (PITCH_X - 11), 0, 9.15, facing - D_HALF, facing + D_HALF, 8);
+    for (const z of [-3.66, 3.66]) cylinder(obj, 0.08, 0.08, 2.44, 6, M.plasterWhite, s * PITCH_X, TURF_TOP, z);
+    box(obj, 0.12, 0.12, 7.32, M.plasterWhite, s * PITCH_X, TURF_TOP + 2.44, 0);
+    // The net: a back and two side panels of thin steel-grey boxes, 2 m deep behind the line, with a rear top bar.
+    const out = s * (PITCH_X + 1);
+    box(obj, 0.03, 2.0, 7.32, M.zinc, s * (PITCH_X + 2), TURF_TOP, 0);
+    box(obj, 2, 2.2, 0.03, M.zinc, out, TURF_TOP, -3.66);
+    box(obj, 2, 2.2, 0.03, M.zinc, out, TURF_TOP, 3.66);
+    box(obj, 0.1, 0.1, 7.32, M.plasterWhite, s * (PITCH_X + 2), TURF_TOP + 2.0, 0);
+    for (const z of [-3.66, 3.66]) box(obj, 2, 0.06, 0.06, M.plasterWhite, out, TURF_TOP + 2.44, z);
+  }
+  // Corner arcs (1 m) and corner flags: a 1.5 m pole with a small red pennant
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const cx = sx * PITCH_X;
+      const cz = sz * PITCH_Z;
+      const base = Math.atan2(-sz, -sx); // towards the pitch interior
+      arc(cx, cz, 1, base - Math.PI / 4, base + Math.PI / 4, 3);
+      cylinder(obj, 0.02, 0.02, 1.5, 4, M.plasterWhite, cx, TURF_TOP, cz);
+      box(obj, 0.3, 0.25, 0.02, M.tileRed, cx - sx * 0.15, TURF_TOP + 1.2, cz);
+    }
+  }
+
+  // Both teams' technical areas on the south touchline (+z): a glazed-roof dugout each, 8 m long, 1.5 m deep, over a
+  // wooden bench, with its marked technical area on the turf. Boxes of the shared landmark materials,
+  // batched with the rest of the stadium: no extra draw.
+  for (const cx of [-14, 14]) {
+    const z0 = PITCH_Z + 4;
+    box(obj, 8, 1.7, 0.1, M.darkMetal, cx, TURF_TOP, z0 + 1.5);
+    box(obj, 0.1, 1.7, 1.5, M.darkMetal, cx - 4, TURF_TOP, z0 + 0.75);
+    box(obj, 0.1, 1.7, 1.5, M.darkMetal, cx + 4, TURF_TOP, z0 + 0.75);
+    box(obj, 8.4, 0.08, 1.9, M.glass, cx, TURF_TOP + 1.7, z0 + 0.7);
+    box(obj, 7.4, 0.08, 0.5, M.wood, cx, TURF_TOP + 0.42, z0 + 1.15);
+    box(obj, 7.4, 0.42, 0.08, M.wood, cx, TURF_TOP, z0 + 1.15);
+    // Technical area outline: 10 m wide, from 1 m off the touchline to just behind the dugout (4.7 m)
+    lineX(10, cx, PITCH_Z + 1.2);
+    lineX(10, cx, z0 + 1.9);
+    lineZ(4.7, cx - 5, PITCH_Z + 3.55);
+    lineZ(4.7, cx + 5, PITCH_Z + 3.55);
   }
 
   // ---------------------------------------------------------------------------------------------------------------

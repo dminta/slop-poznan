@@ -2594,6 +2594,26 @@ function createParkLawnMaterial(isMeadow = false) {
   return mat;
 }
 
+/**
+ * Football-pitch turf: the park lawn's turf and normal detail with mown stripes that follow the pitch instead of the
+ * world axes (the lawn's own stripe runs along world x, and the Enea Stadion apron is turned 32° onto its lot). The
+ * stripes come from the apron box's uv: `uv().x` runs along the box's local x, `stripeCount` bands over its length
+ * (16 over the 121 m apron, 7.5 m each, a mown-pitch rhythm), alternating light and dark through the filtered pulse so
+ * they settle to their mean at distance. The box's top face is the only part that shows it.
+ */
+function createPitchTurfMaterial(stripeCount = 16) {
+  const mat = new THREE.MeshStandardNodeMaterial({ metalness: 0.0, roughness: 0.86 });
+  const lawn = parkLawnColorNode(false);
+  mat.colorNode = Fn(() => {
+    const along = uv().x.mul(stripeCount * 0.5);
+    const band = filteredPulse(fract(along), 0.0, 0.5, fwidth(along));
+    return lawn.mul(mix(float(0.8), float(1.2), band));
+  })();
+  mat.normalNode = parkLawnNormalNode();
+  setParkLawnSpecular(mat);
+  return mat;
+}
+
 // Transparent decal/effect planes & sprites preserve the underlying road/scene G-buffer in MRT (zero RGB & zero alpha on normal & metalRough)
 const _transparentEffectMRT = mrt({
   normal: vec4(0.0, 0.0, 0.0, 0.0),
@@ -2683,6 +2703,7 @@ export {
   parkLawnNormalNode,
   setParkLawnSpecular,
   createParkLawnMaterial,
+  createPitchTurfMaterial,
   createContactShadowMaterial,
   _transparentEffectMRT as transparentEffectMRT
 };
