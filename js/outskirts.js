@@ -1398,53 +1398,52 @@ function buildSatelliteStructures() {
   return meshes;
 }
 
-// Spatially chunked InstancedMeshes (frustum culled per chunk) sharing one facade material
-function buildBuildingChunks(list, material, chunkSize, name) {
-  const chunks = new Map();
-  for (const b of list) {
-    const key = Math.floor(b.x / chunkSize) + ',' + Math.floor(b.z / chunkSize);
-    let arr = chunks.get(key);
-    if (!arr) chunks.set(key, (arr = []));
-    arr.push(b);
-  }
-  const meshes = [];
+// One static borough family; scene culling preserves its 1.2 km fine cells and builds distant coarse copies.
+function createBuildingMesh(list, material, chunkSize, name) {
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const s = new THREE.Vector3();
   const p = new THREE.Vector3();
   const yAxis = new THREE.Vector3(0, 1, 0);
-  for (const [key, arr] of chunks) {
-    const geo = new THREE.BufferGeometry();
-    geo.setIndex(BOX_GEO.index);
-    geo.setAttribute('position', BOX_GEO.attributes.position);
-    geo.setAttribute('normal', BOX_GEO.attributes.normal);
-    const info = new Float32Array(arr.length * 4);
-    const tint = new Float32Array(arr.length * 4);
-    const mesh = new THREE.InstancedMesh(geo, material, arr.length);
-    for (let i = 0; i < arr.length; i++) {
-      const b = arr[i];
-      q.setFromAxisAngle(yAxis, b.rot);
-      m.compose(p.set(b.x, b.y, b.z), q, s.set(b.w, b.h, b.d));
-      mesh.setMatrixAt(i, m);
-      info[i * 4] = b.w;
-      info[i * 4 + 1] = b.h;
-      info[i * 4 + 2] = b.d;
-      info[i * 4 + 3] = b.seed;
-      tint[i * 4] = toLinear(b.tint[0]);
-      tint[i * 4 + 1] = toLinear(b.tint[1]);
-      tint[i * 4 + 2] = toLinear(b.tint[2]);
-      tint[i * 4 + 3] = b.style;
-    }
-    geo.setAttribute('bInfo', new THREE.InstancedBufferAttribute(info, 4));
-    geo.setAttribute('bTint', new THREE.InstancedBufferAttribute(tint, 4));
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.computeBoundingSphere();
-    mesh.castShadow = false;
-    mesh.receiveShadow = false;
-    mesh.name = name + ':' + key;
-    meshes.push(mesh);
+  // Keep the old fine-chunk traversal order inside coarse copies too: equal-depth distant roof pixels depend on it.
+  const cells = new Map();
+  for (const b of list) {
+    const key = Math.floor(b.x / chunkSize) + ',' + Math.floor(b.z / chunkSize);
+    let arr = cells.get(key);
+    if (!arr) cells.set(key, (arr = []));
+    arr.push(b);
   }
-  return meshes;
+  const arr = Array.from(cells.values()).flat();
+  const geo = new THREE.BufferGeometry();
+  geo.setIndex(BOX_GEO.index);
+  geo.setAttribute('position', BOX_GEO.attributes.position);
+  geo.setAttribute('normal', BOX_GEO.attributes.normal);
+  const info = new Float32Array(arr.length * 4);
+  const tint = new Float32Array(arr.length * 4);
+  const mesh = new THREE.InstancedMesh(geo, material, arr.length);
+  for (let i = 0; i < arr.length; i++) {
+    const b = arr[i];
+    q.setFromAxisAngle(yAxis, b.rot);
+    m.compose(p.set(b.x, b.y, b.z), q, s.set(b.w, b.h, b.d));
+    mesh.setMatrixAt(i, m);
+    info[i * 4] = b.w;
+    info[i * 4 + 1] = b.h;
+    info[i * 4 + 2] = b.d;
+    info[i * 4 + 3] = b.seed;
+    tint[i * 4] = toLinear(b.tint[0]);
+    tint[i * 4 + 1] = toLinear(b.tint[1]);
+    tint[i * 4 + 2] = toLinear(b.tint[2]);
+    tint[i * 4 + 3] = b.style;
+  }
+  geo.setAttribute('bInfo', new THREE.InstancedBufferAttribute(info, 4));
+  geo.setAttribute('bTint', new THREE.InstancedBufferAttribute(tint, 4));
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.computeBoundingSphere();
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.name = name;
+  mesh.userData.staticChunkSize = chunkSize;
+  return mesh;
 }
 
 // Panel buildings: createFacadeBoxes boxes (whole panel bays on every wall, y = box centre) on the wielka płyta
@@ -1514,7 +1513,7 @@ function buildOutskirts(scene) {
   const panels = list.filter((b) => b.panel);
   const others = list.filter((b) => !b.panel);
   const buildingMat = createBoroughBuildingMaterial();
-  for (const mesh of buildBuildingChunks(others, buildingMat, 1200, 'OutskirtsBuildings')) group.add(mesh);
+  group.add(createBuildingMesh(others, buildingMat, 1200, 'OutskirtsBuildings'));
   // Bigger chunks for the panel blocks, as each costs one draw per finish: 60 draws over the osiedla (2400 m: 96)
   for (const mesh of buildPanelChunks(panels, 3600, 'OutskirtsPanelBlocks')) group.add(mesh);
   for (const mesh of buildSatelliteStructures()) group.add(mesh);

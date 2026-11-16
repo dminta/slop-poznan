@@ -197,7 +197,12 @@ function setupSceneCulling(scene, roots, shadow = null, { propShadowProxies = tr
   const largeMeshes = [];
   for (const root of roots) {
     root.traverse((o) => {
-      if (!o.isInstancedMesh || !isStaticMesh(o) || o.count < 64 || o.count !== o.instanceMatrix.count) return;
+      if (!o.isInstancedMesh || !isStaticMesh(o) || o.count !== o.instanceMatrix.count) return;
+      if (o.userData.staticChunkSize) {
+        largeMeshes.push(o);
+        return;
+      }
+      if (o.count < 64) return;
       if (o.count * triangleCount(o.geometry) < 40000) return;
       if (!o.boundingSphere) o.computeBoundingSphere();
       if (o.boundingSphere.radius < 1500) return;
@@ -427,22 +432,23 @@ function setupSceneCulling(scene, roots, shadow = null, { propShadowProxies = tr
   for (const mesh of largeMeshes) {
     if (mesh.castShadow) continue;
     const parent = mesh.parent;
-    const fine = replaceWithChunks(mesh, STATIC_CELL);
-    addFarMerges(parent, mesh, fine, farMerges);
+    const cell = mesh.userData.staticChunkSize || STATIC_CELL;
+    const fine = replaceWithChunks(mesh, cell);
+    addFarMerges(parent, mesh, fine, farMerges, cell * 4);
   }
 
   state.culled = culled;
   state.farMerges = farMerges;
 }
 
-// A camera far from a whole FAR_CELL block sees its 1 km chunks as a few pixels' worth of distant city, yet each chunk
+// A camera far from a whole coarse block sees its fine chunks as a few pixels' worth of distant city, yet each chunk
 // of each material is a draw: at 3 km+ vistas over the city these are ~35 chunks per family. So every large static
-// family also gets coarse FAR_CELL copies of the same instances (same material, geometry and per-instance data, so the
-// pixels are identical). While the camera is at least FAR_MERGE_DIST from a block's bounds and at least two of its
-// 1 km chunks are in view, the 1 km chunks stand down for the coarse copy, unless that would submit more than
-// FAR_MERGE_WASTE times the triangles of the chunks in view (a block seen edge-on at the horizon). Nothing is hidden or
-// simplified, only regrouped, so the switch cannot pop. Cost: a second copy of those instance buffers on the JS heap;
-// the GPU only receives a coarse chunk once it first draws.
+// family also gets coarse copies: 1 km fine / 4 km coarse cells for city families (FAR_CELL), and 1.2 km fine / 4.8 km
+// coarse cells for Outskirts. They hold the same instances, material, geometry and per-instance data. While the camera
+// is at least FAR_MERGE_DIST from a block's bounds and at least two fine chunks are in view, the fine chunks stand down
+// for the coarse copy, unless that would submit more than FAR_MERGE_WASTE times the triangles of the chunks in view
+// (a block seen edge-on at the horizon). Nothing is hidden or simplified, only regrouped, so the switch cannot pop.
+// Cost: a second copy of those instance buffers on the JS heap; the GPU receives a coarse chunk once it first draws.
 const FAR_CELL = 4 * STATIC_CELL;
 const FAR_MERGE_DIST = 1500;
 const FAR_MERGE_WASTE = 2;
@@ -450,8 +456,8 @@ const FAR_MERGE_WASTE = 2;
 const _pv = new THREE.Matrix4();
 const _frustum = new THREE.Frustum();
 
-function farMergeKey(x, z) {
-  return Math.floor(x / FAR_CELL) + ',' + Math.floor(z / FAR_CELL);
+function farMergeKey(x, z, cell = FAR_CELL) {
+  return Math.floor(x / cell) + ',' + Math.floor(z / cell);
 }
 
 // Distance from the point to an axis-aligned box ({ min, max }), 0 inside it
@@ -469,19 +475,19 @@ function worldBox(mesh) {
 
 // Builds the coarse copies of `fine` (the 1 km chunks of `mesh`, already in the scene) and registers them in `out`.
 // A coarse block that would replace fewer than two fine chunks saves nothing and is not built.
-function addFarMerges(parent, mesh, fine, out) {
+function addFarMerges(parent, mesh, fine, out, cell = FAR_CELL) {
   const members = new Map();
   for (const chunk of fine) {
     const e = chunk.instanceMatrix.array;
-    const key = farMergeKey(e[12], e[14]);
+    const key = farMergeKey(e[12], e[14], cell);
     let list = members.get(key);
     if (!list) members.set(key, (list = []));
     list.push(chunk);
   }
   const triangles = triangleCount(mesh.geometry);
-  for (const coarse of chunkInstancedMesh(mesh, FAR_CELL)) {
+  for (const coarse of chunkInstancedMesh(mesh, cell)) {
     const e = coarse.instanceMatrix.array;
-    const list = members.get(farMergeKey(e[12], e[14]));
+    const list = members.get(farMergeKey(e[12], e[14], cell));
     if (!list || list.length < 2) continue;
     coarse.visible = false;
     coarse.userData.sharesPipelineWith = fine[0].userData.sharesPipelineWith || fine[0];

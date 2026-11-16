@@ -127,6 +127,8 @@ function createBridgeMaterials() {
 }
 
 // Instanced "beam" sets: every member is a unit box stretched between two points (one InstancedMesh per material)
+const BEAM_GEOMETRY = new THREE.BoxGeometry(1, 1, 1);
+
 function createBeamSet() {
   const sets = new Map();
   const X = new THREE.Vector3();
@@ -168,7 +170,7 @@ function createBeamSet() {
       push(material, m);
     },
     build(parent, name, shadowMats = new Set()) {
-      const geo = new THREE.BoxGeometry(1, 1, 1);
+      const geo = BEAM_GEOMETRY;
       for (const [material, mats] of sets) {
         const mesh = new THREE.InstancedMesh(geo, material, mats.length);
         mats.forEach((m, i) => mesh.setMatrixAt(i, m));
@@ -1079,6 +1081,45 @@ function createBalustradePanel() {
 // 4. ASSEMBLY
 // =====================================================================================================================
 
+// Curved structures emit one batch per straight section. Join compatible sections of the same named bridge,
+// keeping instance matrices unchanged and shadow flags separate. The resulting bounds still belong to one bridge.
+function batchBridgeSections(group) {
+  const buckets = new Map();
+  for (const mesh of group.children) {
+    if (!mesh.isMesh || mesh.material.transparent) continue;
+    const key = [mesh.name, mesh.material.uuid, mesh.castShadow, mesh.receiveShadow,
+      mesh.isInstancedMesh ? mesh.geometry.uuid : 'parts'].join('|');
+    let list = buckets.get(key);
+    if (!list) buckets.set(key, (list = []));
+    list.push(mesh);
+  }
+  for (const list of buckets.values()) {
+    if (list.length < 2) continue;
+    const first = list[0];
+    let merged;
+    if (first.isInstancedMesh) {
+      const count = list.reduce((n, mesh) => n + mesh.count, 0);
+      merged = new THREE.InstancedMesh(first.geometry, first.material, count);
+      let offset = 0;
+      for (const mesh of list) {
+        merged.instanceMatrix.array.set(mesh.instanceMatrix.array.subarray(0, mesh.count * 16), offset);
+        offset += mesh.count * 16;
+      }
+      merged.instanceMatrix.needsUpdate = true;
+      merged.computeBoundingSphere();
+    } else {
+      const geometry = mergeGeometries(list.map((mesh) => mesh.geometry), false);
+      if (!geometry) continue;
+      merged = new THREE.Mesh(geometry, first.material);
+    }
+    merged.name = first.name;
+    merged.castShadow = first.castShadow;
+    merged.receiveShadow = first.receiveShadow;
+    for (const mesh of list) group.remove(mesh);
+    group.add(merged);
+  }
+}
+
 /**
  * Builds every bridge of the core under one `Bridges` group added to the scene. Call after buildCityGrid(); `sidewalks`
  * (its raised sidewalk rects) is accepted for footing checks but nothing stands on the street yet: piers stand in the
@@ -1104,9 +1145,10 @@ function buildBridges(scene, { sidewalks = [], tramTracks = null, railTracks = n
     else buildOverpass(group, spec, mats, colliders, panelGeo, options);
     counts[kind] = (counts[kind] || 0) + 1;
   }
+  batchBridgeSections(group);
   scene.add(group);
   console.info(`[bridges] ${structures.length} structures ${JSON.stringify(counts)}, ${colliders.length} colliders, built in ${(performance.now() - t0).toFixed(0)} ms`);
   return { group, colliders };
 }
 
-export { buildBridges, bridgeStructures, parapetPieces };
+export { buildBridges, bridgeStructures, parapetPieces, batchBridgeSections };

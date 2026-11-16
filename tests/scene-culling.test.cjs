@@ -217,3 +217,93 @@ test('far blocks stay fine-chunked when the view needs few chunks or the coarse 
   updateFarMerges([block], ...camera, frustumSeeing(3));
   assert.ok(swapped(block, false));
 });
+
+// Borough buildings use 1.2 km cells rather than the city families' 1 km cells. Their coarse grid must nest those
+// cells too: using the default 4 km grid would split a fine chunk across coarse blocks and duplicate/omit instances.
+test('outskirts coarse keys nest the unchanged 1.2 km fine grid on both sides of zero', () => {
+  for (let x = -16000; x <= 16000; x += 137) {
+    for (const z of [-9600, -4800.01, -1, 0, 1199.99, 4800, 13400]) {
+      assert.equal(farMergeKey(x, z, 4800),
+        Math.floor(Math.floor(x / 1200) / 4) + ',' + Math.floor(Math.floor(z / 1200) / 4));
+    }
+  }
+});
+
+// Minimal buffer/scene stubs exercise the real setup, fine split and coarse registration without a renderer.
+// The family is deliberately below all automatic thresholds: pre-chunked outskirts used to miss largeMeshes.
+const { THREE: sceneThree } = require('./helpers/three-stub.cjs');
+class Geometry {
+  constructor() { this.attributes = {}; this.groups = []; this.drawRange = { start: 0, count: Infinity }; }
+  setIndex(index) { this.index = index; }
+  setAttribute(name, attr) { this.attributes[name] = attr; }
+  addGroup(start, count, materialIndex) { this.groups.push({ start, count, materialIndex }); }
+  setDrawRange(start, count) { this.drawRange = { start, count }; }
+}
+class Attribute {
+  constructor(array, itemSize, normalized = false, meshPerAttribute = 1) {
+    Object.assign(this, { array, itemSize, normalized, meshPerAttribute, count: array.length / itemSize });
+    this.isInstancedBufferAttribute = true;
+  }
+}
+class StaticInstances extends sceneThree.InstancedMesh {
+  constructor(...args) {
+    super(...args);
+    this.layers = { mask: 1 };
+    this.visible = true;
+    this.frustumCulled = true;
+  }
+  computeBoundingSphere() { this.boundingSphere = { radius: 1 }; }
+  computeBoundingBox() {
+    const xs = [], zs = [];
+    for (let i = 0; i < this.count; i++) {
+      xs.push(this.instanceMatrix.array[i * 16 + 12]);
+      zs.push(this.instanceMatrix.array[i * 16 + 14]);
+    }
+    this.boundingBox = new Box3({ x: Math.min(...xs) - 1, y: 0, z: Math.min(...zs) - 1 },
+      { x: Math.max(...xs) + 1, y: 2, z: Math.max(...zs) + 1 });
+  }
+}
+const staticModule = loadModule(readFileSync(join(__dirname, '../js/scene-culling.js'), 'utf8'), {
+  imports: { 'three/webgpu': { ...sceneThree, Frustum, BufferGeometry: Geometry,
+    InstancedMesh: StaticInstances, InstancedBufferAttribute: Attribute } },
+  filename: 'scene-culling.js'
+});
+
+test('explicit outskirts family keeps fine cells and all instance attributes in mutually exclusive far copies', () => {
+  const scene = new sceneThree.Group();
+  const root = new sceneThree.Group();
+  root.name = 'Outskirts'; scene.add(root);
+  const geo = new Geometry();
+  geo.index = { count: 36 };
+  geo.boundingSphere = {};
+  geo.boundingBox = {};
+  geo.setAttribute('position', { count: 24 });
+  geo.setAttribute('bInfo', new Attribute(new Float32Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]), 4));
+  geo.setAttribute('bTint', new Attribute(new Float32Array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6]), 2, true));
+  const mesh = new StaticInstances(geo, {}, 3);
+  mesh.castShadow = false;
+  mesh.userData.staticChunkSize = 1200;
+  for (let i = 0; i < 3; i++) mesh.instanceMatrix.array.set(
+    [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 100 + i * 1200, 0, 100, 1], i * 16);
+  root.add(mesh);
+  staticModule.setupSceneCulling(scene, [root]);
+  assert.equal(root.children.length, 4, 'three fine cells plus one coarse block despite just 36 built triangles');
+  const coarse = root.children.find((m) => !m.visible);
+  const fine = root.children.filter((m) => m.visible);
+  assert.equal(coarse.count, 3);
+  assert.deepEqual([...coarse.instanceMatrix.array], [...mesh.instanceMatrix.array]);
+  for (const name of ['bInfo', 'bTint']) {
+    assert.deepEqual([...coarse.geometry.attributes[name].array], [...geo.attributes[name].array]);
+    assert.deepEqual(fine.flatMap((m) => [...m.geometry.attributes[name].array]), [...geo.attributes[name].array]);
+    assert.equal(coarse.geometry.attributes[name].normalized, geo.attributes[name].normalized);
+  }
+  staticModule.updateSceneCulling({ x: 100, y: 1, z: 100 });
+  assert.equal(coarse.visible, false);
+  assert.ok(fine.every((m) => m.visible));
+  staticModule.updateSceneCulling({ x: 100, y: 1, z: -5000 });
+  assert.equal(coarse.visible, true);
+  assert.ok(fine.every((m) => !m.visible));
+  staticModule.updateSceneCulling({ x: 100, y: 1, z: 100 });
+  assert.equal(coarse.visible, false);
+  assert.ok(fine.every((m) => m.visible));
+});

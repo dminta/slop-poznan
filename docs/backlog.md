@@ -281,9 +281,11 @@ share are not thinned; [central-density record](observations/central-density-202
      batching (−34 % high / −44 % low on WebGPU and WebGL2, merge on/off bit-identical,
      [record](observations/perf-vistas-2026-11-15.md)), then whole-crown tree LOD 2 in 400 m far cells with per-instance
      moves (tree scene draws at wp5 616 → 264, scene draws −23 % High / −7 % Low, WebGPU High renders bit-identical, no flight
-     hitch, [record](observations/perf-tree-vistas-2026-11-15.md)). Left: Bridges (138 draws at wp5) and Outskirts chunks (98),
-     and 600 m tree cells (150 tree draws at wp5 but +20 % shadow triangles at Centrum). The tree level sweep is
-     incremental now (about 4.5 k of 118 k trees visited per update, 0.50 → 0.05 ms,
+     hitch, [record](observations/perf-tree-vistas-2026-11-15.md)), then per-bridge section batching and the outskirts
+     borough far merge (wp5 Bridges 138 → 90 draws, Outskirts 97 → 41,
+     [record](observations/perf-bridges-outskirts-2026-11-16.md)). Left: 600 m tree cells (150 tree draws at wp5 but
+     +20 % shadow triangles at Centrum). The tree level sweep is incremental now (about 4.5 k of 118 k trees visited
+     per update, 0.50 → 0.05 ms,
      [record](observations/perf-tree-sweep-2026-11-16.md)).
   [Ranked opportunities](observations/perf-older-devices-2026-11-11.md).
 - Road levels and richer road-priority classification; revisit only with a runtime consumer.

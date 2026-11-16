@@ -44,7 +44,11 @@ function loadRecordingBridges(root, bridgesSource, config, GEO) {
     }
   }
   const three = { ...THREE, InstancedMesh: RecordingMesh, ExtrudeGeometry: PanelGeometry };
-  const mod = loadModule(bridgesSource || readFileSync(join(root, 'js/bridges.js'), 'utf8'), {
+  // Audit the emitted members before section batching: the recording meshes intercept setMatrixAt, while the
+  // batch copies their packed buffers. Section-buffer equivalence is checked separately.
+  const source = (bridgesSource || readFileSync(join(root, 'js/bridges.js'), 'utf8'))
+    .replace('  batchBridgeSections(group);', '');
+  const mod = loadModule(source, {
     imports: {
       'three/webgpu': three,
       'three/tsl': inert(),

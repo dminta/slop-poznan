@@ -224,6 +224,18 @@
   views) and a coarse block uploads to the GPU when it first draws. The culling phase of `[init]` grows ~150 ms on high. Only meshes that are chunked at
   `STATIC_CELL` take part; the distance-culled small props and the trees (their own cells) do not. See
   [perf-vistas-2026-11-15](observations/perf-vistas-2026-11-15.md).
+- **Outskirts borough buildings opt into the same far merge.** `createBuildingMesh` supplies one static family with
+  `userData.staticChunkSize = 1200`; setup bypasses the automatic size/triangle thresholds and retains the original
+  1.2 km fine cells, with nested 4.8 km coarse blocks. Custom fine sizes must divide their coarse size exactly;
+  `addFarMerges` uses that size for both membership and instance grouping. The camera-distance and triangle-waste rules
+  stay the same. Fine-cell traversal order is retained inside the source family to limit equal-depth roof differences.
+  Panel blocks keep their existing 3.6 km cells per finish. Neither family casts shadows.
+- **Bridge sections batch per named bridge, material and shadow flags.** `batchBridgeSections` joins the identical
+  beam/panel geometries by copying their packed instance matrices, and joins the already world-space shaped parts
+  without another transform. Transparent parts stay separate. The bounds still belong to one bridge, so no city-wide
+  always-visible batch is introduced. At wp5 bridge scene draws fall 138 → 90 and Outskirts 97 → 41; see
+  [perf-bridges-outskirts-2026-11-16](observations/perf-bridges-outskirts-2026-11-16.md) for both backends, tiers,
+  street-level costs and pixel checks.
 - **Heavy street furniture is a vertex budget, not a draw budget.** The LED mast (23,193 instances) and the hydrant
   (5,144) are the largest instanced furniture meshes. Their geometry is deliberately reduced where the detail is
   sub-pixel at street distance (mast 284 → 120 triangles, hydrant 266 → 186, gas lantern 268 → 176, bollard 88 → 56,
