@@ -654,6 +654,36 @@ function signalHarness() {
   return h;
 }
 
+function handbrakeRun(handbrake, steer, seconds = 1, speed = 15, forward = 0) {
+  const h = signalHarness();
+  h.car.speed = speed;
+  for (let i = 0; i < Math.round(seconds * 60); i++) {
+    Object.assign(h.controller.keys, { up: handbrake, forward, left: Math.max(0, steer), right: Math.max(0, -steer) });
+    h.controller.updateCar(1 / 60);
+  }
+  return h.car;
+}
+
+test('the handbrake cuts the drive and adds about 6 m/s² of sliding friction', () => {
+  const coast = handbrakeRun(0, 0).speed;
+  const pulled = handbrakeRun(1, 0).speed;
+  assert.ok(Math.abs(coast - pulled - 6) < 0.15, `coast ${coast} vs handbrake ${pulled}`);
+  assert.equal(handbrakeRun(1, 0, 1, 15, 1).speed, pulled, 'throttle has no effect while the handbrake is held');
+  assert.equal(handbrakeRun(1, 0, 4).speed, 0, 'it stops the car without reversing it');
+});
+
+test('steering on the handbrake turns the body faster and leaves the momentum as lateral slip', () => {
+  const grip = handbrakeRun(0, 1, 0.5);
+  const drift = handbrakeRun(1, 1, 0.5);
+  assert.ok(drift.heading > grip.heading * 1.3, `heading ${grip.heading} -> ${drift.heading}`);
+  assert.ok(Math.hypot(grip.vx, grip.vz) < 1e-9);
+  const slip = Math.hypot(drift.vx, drift.vz);
+  assert.ok(slip > 2, `lateral slip ${slip}`);
+  // The slip never adds speed: the body's own velocity plus the slip stays within the entry speed
+  const vx = Math.sin(drift.heading) * drift.speed + drift.vx, vz = Math.cos(drift.heading) * drift.speed + drift.vz;
+  assert.ok(Math.hypot(vx, vz) <= 15, `ground speed ${Math.hypot(vx, vz)}`);
+});
+
 test('manual Z/X toggles the correct side, ignores repeat, modifiers, typing and other modes', () => {
   const h = signalHarness();
   h.key('keydown', 'KeyZ');

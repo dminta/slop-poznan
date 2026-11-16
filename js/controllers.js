@@ -80,7 +80,10 @@ const groundCollider = { type: 'ground' };
 
 const CAR_DRIVE = {
   speed: 23.5, boostSpeed: 36, reverseSpeed: 10.5, acceleration: 14, boostAcceleration: 21,
-  rolling: 0.18, drag: 0.0012, coast: 0.6, brake: 9
+  rolling: 0.18, drag: 0.0012, coast: 0.6, brake: 9,
+  // Handbrake (Space): locked rear wheels slide at ~0.6 g on the rear axle's share of the weight, the yaw rate under
+  // steering rises by up to `handbrakeYaw` and the rear grip falls from `grip` to `handbrakeGrip` (per second)
+  handbrake: 6, handbrakeYaw: 0.8, grip: 6.8, handbrakeGrip: 1.8
 };
 const BICYCLE_DRIVE = {
   speed: 12.8, boostSpeed: 19, reverseSpeed: 4.5, acceleration: 9, boostAcceleration: 13.5,
@@ -1333,13 +1336,18 @@ class ThirdPersonControllerManager {
     const c = this.entities.car;
     const maxSpeed = this.keys.boost ? CAR_DRIVE.boostSpeed : CAR_DRIVE.speed;
 
+    // The handbrake (`up`: Space / E, touch "Ręczny", gamepad A) cuts the drive while held
+    const handbrake = Math.min(1, +this.keys.up || 0);
     let throttle = 0;
-    if (this.keys.forward) throttle = this.keys.forward;
-    else if (this.keys.backward) throttle = -this.keys.backward;
+    if (!handbrake) {
+      if (this.keys.forward) throttle = this.keys.forward;
+      else if (this.keys.backward) throttle = -this.keys.backward;
+    }
 
     const braking = c.speed * throttle < 0;
     const previousSpeed = c.speed;
     c.speed = driveSpeed(c.speed, throttle, this.keys.boost, dt, CAR_DRIVE);
+    if (handbrake) c.speed = Math.sign(c.speed) * Math.max(0, Math.abs(c.speed) - handbrake * CAR_DRIVE.handbrake * dt);
     const acceleration = dt > 0 ? (c.speed - previousSpeed) / dt : 0;
 
     let steerInput = 0;
@@ -1348,14 +1356,22 @@ class ThirdPersonControllerManager {
 
     c.steerAngle += (steerInput * 0.52 - c.steerAngle) * Math.min(1, dt * 10);
 
+    const previousHeading = c.heading;
     if (Math.abs(c.speed) > 0.2) {
       const dirSign = c.speed >= 0 ? 1 : -1;
       const speedFactor = Math.min(1.0, Math.abs(c.speed) / 8.0);
-      c.heading += c.steerAngle * 2.4 * speedFactor * dirSign * dt;
+      c.heading += c.steerAngle * 2.4 * speedFactor * dirSign * dt * (1 + handbrake * CAR_DRIVE.handbrakeYaw);
+    }
+    // Locked rear wheels don't redirect the momentum: the share of the old velocity the body turned away from stays
+    // behind as lateral slip (the total velocity is unchanged this step), which the low rear grip then bleeds off slowly
+    if (handbrake && c.heading !== previousHeading) {
+      const slide = handbrake * c.speed;
+      c.vx += (Math.sin(previousHeading) - Math.sin(c.heading)) * slide;
+      c.vz += (Math.cos(previousHeading) - Math.cos(c.heading)) * slide;
     }
 
     // Integrate collision yaw spin & lateral tire slip velocity with asphalt grip damping
-    const tireGripDamp = Math.exp(-dt * 6.8);
+    const tireGripDamp = Math.exp(-dt * (CAR_DRIVE.grip - handbrake * (CAR_DRIVE.grip - CAR_DRIVE.handbrakeGrip)));
     c.heading += c.angularVel * dt;
     c.angularVel *= Math.exp(-dt * 7.8);
 

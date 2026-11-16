@@ -775,6 +775,12 @@ default Kaponiera 22:1 is a 15-pair-frame side graze after the car was already o
 
 ## Physics and coasting parameters (player vehicles, `controllers.js`)
 - Traffic AI speed is IDM only. Player car and bicycle speed comes from `driveSpeed()` with `CAR_DRIVE`/`BICYCLE_DRIVE`. `rolling` and `drag` apply **always, including under throttle** (powered speed is built on the coasted value). `coast` applies only with no throttle. `brake × |throttle|` applies only when throttle opposes the speed.
+- Handbrake (car only, the `up` action: Space / E, touch "Ręczny", gamepad A): cuts the drive and adds
+  `CAR_DRIVE.handbrake` (6 m/s²) of sliding friction, raises the steering yaw rate by `handbrakeYaw` (+80 %) and drops the
+  slip damping from `grip` 6.8/s to `handbrakeGrip` 1.8/s. Each step the heading turns, the part of the old velocity the
+  body turned away from goes into the slip velocity `vx`/`vz` (ground velocity unchanged that step), so a steered
+  handbrake swings the tail out and the slide bleeds off once released. Full lock at 15 m/s turns the body ~130° in 1 s.
+  Brake lights stay off (a parking brake doesn't light them), and `driveLoad()` returns 0 while it is held.
 - To change how fast a released vehicle slows, tune `coast`. History: f3132b6 separated coasting from braking; 039a327 lowered `rolling`/`drag` and was reverted (35c183e); 0e92315 then added `coast` instead.
 - `driveLoad()` in `audio-sources.js` mirrors the controller's throttle priority and braking test, so update both together. Player brake lights are `braking || (speed === 0 && !throttle)`.
 

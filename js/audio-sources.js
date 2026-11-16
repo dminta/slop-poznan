@@ -9,7 +9,9 @@ const unit = (value) => Math.max(0, Math.min(1, Number.isFinite(value) ? value :
 const seedAt = (index) => ((Math.imul(index + 1, 2654435761) >>> 0) / 4294967296);
 
 function driveLoad(keys, speed, cyclist) {
-  // Match the controller's forward priority, and distinguish propulsion from braking.
+  // Match the controller's forward priority, and distinguish propulsion from braking. The car's handbrake (`up`) cuts
+  // the drive (controllers.js updateCar).
+  if (!cyclist && +keys.up > 0) return 0;
   const throttle = unit(+keys.forward) || -unit(+keys.backward) * (cyclist ? 0.6 : 1);
   if ((cyclist && throttle <= 0) || speed * throttle < 0) return 0;
   return unit(Math.abs(throttle) * (cyclist || keys.boost ? 1 : 0.8));

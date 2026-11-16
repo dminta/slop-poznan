@@ -143,14 +143,17 @@ test('mode changes clear touches and expose the relevant actions', () => {
   assert.equal(buttons.up.hidden, false);
   assert.equal(buttons.down.hidden, false);
   controls.setMode('car');
-  assert.equal(buttons.up.hidden, true);
+  assert.equal(labels.up.textContent, 'Ręczny');
+  assert.equal(buttons.up.hidden, false);
   assert.equal(buttons.down.hidden, true);
   buttons.up.dispatch('pointerdown', { pointerId: 3 });
-  assert.equal(input.up, 0, 'hidden actions cannot receive input');
+  assert.equal(input.up, 1, 'the car handbrake takes the up button');
   controls.setMode('cyclist');
   assert.equal(labels.boost.textContent, 'Sprint');
   assert.equal(buttons.up.hidden, true);
   assert.equal(buttons.down.hidden, true);
+  buttons.up.dispatch('pointerdown', { pointerId: 4 });
+  assert.equal(input.up, 0, 'hidden actions cannot receive input');
 });
 
 test('disabling controls clears held input and blocks new input until enabled', () => {

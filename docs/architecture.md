@@ -147,6 +147,8 @@ per-frame code free of allocations. Collision listeners must copy any event fiel
     the player.
 - Every source resets on `blur` and `visibilitychange`. Opening the map calls `resetInput()` and disables touch and gamepad
   through `onToggle`.
+- In car mode `up` is the handbrake (`controllers.js` `updateCar`): Space / E, the touch up button (labelled "Ręczny";
+  it is hidden only for the cyclist) and gamepad A (button 0, as the walker's jump).
 - In car mode gamepad D-pad left/right toggle the left/right indicator (buttons 14/15), using the same edge and
   held-button suppression as camera actions. There are no touch HUD indicator buttons.
 - `GamepadControls` reads only pads with `mapping === 'standard'`. It suppresses buttons that are already held after a connect,
