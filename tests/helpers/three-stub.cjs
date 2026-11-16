@@ -61,6 +61,7 @@ class Vector2 {
 class Quaternion {
   constructor(x = 0, y = 0, z = 0, w = 1) { this.set(x, y, z, w); }
   set(x, y, z, w) { this.x = x; this.y = y; this.z = z; this.w = w; return this; }
+  copy(q) { return this.set(q.x, q.y, q.z, q.w); }
   setFromAxisAngle(axis, rad) {
     const half = rad / 2;
     const s = Math.sin(half);

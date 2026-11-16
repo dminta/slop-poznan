@@ -159,6 +159,7 @@ function loadLandmarkSub(name) {
       './city-config.js': config,
       './city-clock.js': stub,
       './tsl-materials.js': stub,
+      './baltyk-disco.js': { createBaltykDisco: () => ({ group: new threeWithExtras.Group(), update() {} }) },
       './geodata.js': { GEO }
     },
     globals

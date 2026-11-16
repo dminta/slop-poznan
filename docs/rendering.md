@@ -162,6 +162,10 @@
     `cityUniforms.uInteriorGlow`. Each pane carries a unique seed in `uv.x` and its lit share in `uv.y` (0.45 standard,
     0.20 on churches), hashed per pane for uniform lighting with a dimmer, warm/cool mix and night fade. Unlit
     architectural glass uses plain `M.glass`.
+  - Bałtyk's 14th-floor party (`baltyk-disco.js`, [`world.md`](world.md#bałtyk-14th-floor-disco-baltyk-discojs-landmarks-towersjs)):
+    three emissive meshes (room shell, mirror ball, glass pane; +6 programs) animated by one `uniform(0)` time written from
+    `landmarks.update`, faded by `smoothstep(0.7, 1.2, uInteriorGlow)` and hidden (`visible = false`) below 0.62, so the
+    daytime cost is one curtain-wall box. No lights; the pattern to copy for night-only animated interiors.
 - Use `canyonSkyAONode()` as the `aoNode` for street-level city surfaces, and read sun and sky colours from `cityUniforms` so they follow the presets. It opens up over 0–22 m (Poznań's ≈ 18–25 m roofline) and inside the parks.
 - Shaders that need to know where land or parks are sample `getLandMaskTexture()` (8 m cells, 1 on land and bridge decks) or `getParkMaskTexture()` (16 m cells, each block's `park` share) through `boxUV`, built lazily from the city-config land raster and `BLOCKS` over the detail box. The water's night skyline marches the reflected ray over the land mask (ten taps) and fades out beyond the box.
 

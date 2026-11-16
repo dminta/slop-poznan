@@ -7,6 +7,7 @@ const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { loadModule } = require('./helpers/module.cjs');
 const { THREE } = require('./helpers/three-stub.cjs');
+const baltykDiscoStub = require('./helpers/baltyk-disco-stub.cjs');
 
 function inert() {
   const fn = function () {};
@@ -49,7 +50,7 @@ function setupTestWorld() {
       './landmarks-centrum.js': loadModule(source('landmarks-centrum'), { imports: { ...rendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
       './landmarks-dworzec.js': loadModule(source('landmarks-dworzec'), { imports: { ...rendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
       './landmarks-historic.js': loadModule(source('landmarks-historic'), { imports: { ...rendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
-      './landmarks-towers.js': loadModule(source('landmarks-towers'), { imports: { ...rendering, './city-config.js': config, './landmark-kit.js': kit }, globals }),
+      './landmarks-towers.js': loadModule(source('landmarks-towers'), { imports: { ...rendering, './city-config.js': config, './landmark-kit.js': kit, './baltyk-disco.js': baltykDiscoStub }, globals }),
       './landmarks-piotrowo.js': loadModule(source('landmarks-piotrowo'), { imports: { ...rendering, './city-config.js': config, './geodata.js': { GEO }, './landmark-kit.js': kit }, globals }),
       './landmarks-stadium.js': loadModule(source('landmarks-stadium'), { imports: { ...rendering, './landmark-kit.js': kit }, globals })
     },

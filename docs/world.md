@@ -812,6 +812,43 @@ Headless Chrome day/midnight screenshots of campus, tennis halls, both pitch are
 were checked on WebGPU and WebGL2 on 2026-11-13; screenshots and measurements are in `.agent-task/REPORT.md`. Computing also occupies BT/CW at Piotrowo 2: OSM's Instytut Informatyki and ECBiG nodes and PP
 staff contact pages confirm it. A25 at Polanka 3 is a separate site outside this scope.
 
+## Bałtyk 14th-floor disco (`baltyk-disco.js`, `landmarks-towers.js`)
+
+At twilight and midnight the office floor on Bałtyk's south-south-east riser holds a party: a turning mirror ball, ceiling
+spots and a wall wash that change between magenta, cyan, green and amber on a 120 bpm rhythm. It is pure emissive TSL
+driven by `cityUniforms.uInteriorGlow` and one time uniform; no scene light is created, added or toggled.
+
+- **Floor count.** Ground floor = 0, so level n's slab is at n × `BALTYK_LEVEL` (67 / 17 = 3.94 m) and the existing
+  "15th-floor terrace" camera stands on the 59.1 m deck of n = 15. The 14th floor spans 55.18–59.12 m; the opening ends at
+  58.67 m under the part's 0.45 m roof slab. (Counted from 1 it would be the level-13 slab at 51.2 m, a different wall.)
+- **Façade.** The glazing is the SE edge (`plan[2] → plan[3]`) of `BALTYK_PARTS[8]`, the `[15, 0]` part, standing above
+  the roof deck of the `[14, 0]` part (a 3.4 m terrace with its 1.1 m balustrade in front). Its outward normal is bearing
+  154° (south-south-east). The Iglica, the Targi's landmark, lies 411 m away at bearing 204°, 50° off; every other riser at
+  that level faces 154° too and the short west ends face 270° (66° off), so this riser is the façade towards the MTP.
+  `tests/baltyk-disco.test.cjs` derives both bearings from `LANDMARK_SITES`.
+- **Room.** 16 m along the glazing (5–21 m of the riser's 25.7 m, opaque curtain wall at both ends), 6.4 m deep (across the
+  `[16, 0]` strip, up to 0.15 m in front of the core's glazing wall), 3.9 m high. `buildBaltyk` cuts the party storey out of
+  the two parts: below 14 × L and above 15 × L the prisms are as before; on that storey only the exposed walls are drawn
+  (`wallSlab`), so the room is open behind the pane. `baltykDiscoFrame()` is the one description of the room (origin at
+  `plan[3]`, x along the glazing, z out of the glass, room at z < 0); the room group, the pane and the day wall are built in
+  that frame and mounted in the **dynamic** root with the tower's fitted transform (scale 1).
+- **Draws.** Night: 3 (room shell, ball with its rod, glass pane), none casts shadows. Day: the three are `visible = false`
+  and a thin curtain-wall box (`M.facade.glassDark`, no shadow, the core's wall behind it shades the same ground) closes
+  the opening, +1 draw over the old batched wall. The switch is `uInteriorGlow > PARTY_ON_GLOW` (0.62), below which the
+  night fade `smoothstep(0.7, 1.2, glow)` is exactly 0, so nothing pops. Everything is created visible so
+  `precompileShaders` builds the night pipelines (+6 programs) behind the loading screen; the first `update` hides them.
+- **Look.** The room material is one `MeshBasicNodeMaterial` in room coordinates, faces told apart by normal: ceiling spots
+  on Lissajous paths, back-wall fans, a wash, and the ball's light as a latitude/longitude dot grid that turns at
+  0.38 rad/s (dots grow with distance and stretch on grazing walls). The ball's mirror tiles glint with their own hash at
+  0.3–0.6 Hz. The pane is transparent like the tram shelters' glass (`transparentEffectMRT`), with sill and head bands and
+  mullions at the curtain wall's 1.8 m.
+- **Photosensitivity.** The whole room breathes once a beat (2 Hz) between 55 % and 100 %, a bar accent adds 25 % at
+  0.5 Hz, colours cross-fade every 2.5 s over 0.45 s, every spot shares the beat phase, and dots and facets twinkle at
+  0.3–1 Hz each. Never above 3 Hz (`BEAT_HZ`, asserted in the test); never fully dark or fully strobed.
+- **Cost** (browser, `?stats=1`, Bałtyk view at 190 m): see [the disco report](observations/baltyk-disco-2026-11-16.md).
+- **Tests and tools.** Any loader of `landmarks-towers.js` needs a `./baltyk-disco.js` stub (`tests/helpers/baltyk-disco-stub.cjs`;
+  the audits in `tools/` carry inline ones); without a `dynamic` root the tower builds without the party.
+
 ## Batching
 - `batchStaticGroupMeshes(root, excludeMaterials, splitShadowFlags)` merges all non-instanced meshes that share a **material object** into one mesh. It keeps only `position`, `normal` and `uv`, and meshes missing any of those are skipped. The originals are removed, so their names, userData and custom attributes are lost.
   - Pass a material in `excludeMaterials` to keep its meshes separate, for example a material with custom attributes, or one whose mesh another module looks up.

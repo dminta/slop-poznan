@@ -4,6 +4,7 @@ const { join } = require('node:path');
 const test = require('node:test');
 const { loadModule } = require('./helpers/module.cjs');
 const { THREE } = require('./helpers/three-stub.cjs');
+const baltykDiscoStub = require('./helpers/baltyk-disco-stub.cjs');
 
 const cityConfig = require('../js/city-config.js');
 const { LANDMARK_SITES } = cityConfig;
@@ -127,6 +128,7 @@ test('Biurowiec Delta: dominanta corrected to 43.5 m from Ataner / Sipińscy mea
   const towers = loadModule(towersSource, {
     imports: {
       'three/webgpu': THREE,
+      './baltyk-disco.js': baltykDiscoStub,
       './landmark-kit.js': kit
     },
     globals: { Math, console }
@@ -385,6 +387,7 @@ test('Fara and Novotel: sourced heights retained (40.0 m and 68.0 m)', () => {
   const towers = loadModule(towersSource, {
     imports: {
       'three/webgpu': THREE,
+      './baltyk-disco.js': baltykDiscoStub,
       './landmark-kit.js': kit
     },
     globals: { Math, console }
@@ -417,6 +420,7 @@ test('Unchanged landmarks retain accurate heights selected by site', () => {
   const towers = loadModule(towersSource, {
     imports: {
       'three/webgpu': THREE,
+      './baltyk-disco.js': baltykDiscoStub,
       './landmark-kit.js': kit
     },
     globals: { Math, console }

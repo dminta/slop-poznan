@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { fitToSite, box, cylinder, prism, profileSlab, collider, site } from './landmark-kit.js';
+import { createBaltykDisco } from './baltyk-disco.js';
 
 // js/landmarks-towers.js
 // Poznań's post-war and contemporary high-rises: MVRDV's Bałtyk at Rondo Kaponiera, the Collegium Altum of the
@@ -78,17 +79,104 @@ const BALTYK_PARTS = [
   [12, 2, [[11.3, 0.3], [12.4, -0.6], [12.4, 3.6]]]
 ];
 
+// The party room (docs/world.md "Bałtyk 14th-floor disco"). Floors count from the ground floor = 0, so level n's floor
+// slab is at n × BALTYK_LEVEL (the "15th-floor terrace" camera stands on the 59.1 m deck of n = 15): the 14th floor
+// spans 55.2–59.1 m. Its glazing is the south-south-east riser of the [15, 0] part (BALTYK_PARTS[8]) above the
+// roof deck of the [14, 0] part, 3.4 m deep: of every riser that is exposed at that level (the stair risers face
+// 154° from north, the short west ends 270°), it is the one that faces the Targi, whose Iglica lies at bearing 204°
+// from the tower (50° off; the west ends are 66° off). The room reaches back across the [16, 0] strip to the core's
+// glazing wall, so it is 6.4 m deep, and it fills 5…21 m of the riser's 25.7 m, leaving opaque curtain wall at both ends.
+const BALTYK_DISCO_FLOOR = 14;
+const BALTYK_DISCO_PART = 8; // [15, 0, ...]: its SE edge (plan[2] → plan[3]) is the glazing
+const BALTYK_DISCO_NEIGHBOUR = 7; // [16, 0, ...]: the strip behind it, opened on the same level
+const BALTYK_DISCO_CORE = 0; // the full-height core, whose south-east wall closes the room
+const BALTYK_DISCO_SPAN = [5, 21]; // metres along the glazing from plan[3]
+const ROOF_SLAB = 0.45;
+
+// The room frame in the model's local coordinates: origin (plan[3] of the party part, at the ground), x along the
+// glazing (towards plan[2]), z out of the glass (the room is at z < 0), `yaw` the rotation about y that takes the
+// room's x to the model's, and the room's extent in that frame
+function baltykDiscoFrame() {
+  const plan = BALTYK_PARTS[BALTYK_DISCO_PART][2];
+  const a = plan[3];
+  const b = plan[2];
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  const e = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+  const n = [-e[1], e[0]]; // out of the glass: the room's +z
+  // Depth: from the glazing back to the core's south-east wall (its edge plan[2] → plan[3]), less 0.15 m
+  const core = BALTYK_PARTS[BALTYK_DISCO_CORE][2][2];
+  let depth = Infinity;
+  for (const s of BALTYK_DISCO_SPAN) {
+    const q = [a[0] + e[0] * s, a[1] + e[1] * s];
+    depth = Math.min(depth, (q[0] - core[0]) * n[0] + (q[1] - core[1]) * n[1]);
+  }
+  depth -= 0.15;
+  const L = BALTYK_LEVEL;
+  return {
+    origin: a,
+    edge: e,
+    normal: n,
+    length: len,
+    yaw: Math.atan2(-e[1], e[0]),
+    room: {
+      x0: BALTYK_DISCO_SPAN[0],
+      x1: BALTYK_DISCO_SPAN[1],
+      depth,
+      floorY: BALTYK_DISCO_FLOOR * L,
+      ceilY: (BALTYK_DISCO_FLOOR + 1) * L - ROOF_SLAB
+    }
+  };
+}
+
+// A thin wall slab along a → b, 0.3 m thick on the inside of the plan, from y for h
+function wallSlab(obj, a, b, y, h, material, plan) {
+  let cx = 0;
+  let cz = 0;
+  for (const [px, pz] of plan) {
+    cx += px / plan.length;
+    cz += pz / plan.length;
+  }
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  let nx = -(b[1] - a[1]) / len;
+  let nz = (b[0] - a[0]) / len;
+  if ((cx - a[0]) * nx + (cz - a[1]) * nz > 0) {
+    nx = -nx;
+    nz = -nz;
+  }
+  const t = 0.3;
+  prism(obj, [a, b, [b[0] - nx * t, b[1] - nz * t], [a[0] - nx * t, a[1] - nz * t]], h, material, 0, y, 0);
+}
+
 function buildBaltyk(obj, M) {
   const L = BALTYK_LEVEL;
-  for (const [top, bottom, plan] of BALTYK_PARTS) {
+  const frame = baltykDiscoFrame();
+  const deck = BALTYK_DISCO_FLOOR * L;
+  const soffit = (BALTYK_DISCO_FLOOR + 1) * L;
+  BALTYK_PARTS.forEach(([top, bottom, plan], idx) => {
     const y0 = bottom * L;
     const y1 = top * L;
     // Glazed walls (the curtain shader's world-space grid of small windows), a dark terrace deck / roof slab on top
     // and, where the floor is cut away from below, a dark soffit under the overhang
-    prism(obj, plan, y1 - y0 - 0.45, M.facade.glassDark, 0, y0, 0);
+    if (idx === BALTYK_DISCO_PART || idx === BALTYK_DISCO_NEIGHBOUR) {
+      // The party storey is cut out of these two parts: walls only on the edges that are exposed, no south-east wall
+      // where the room is (the glazing and the opening's day wall live in baltyk-disco.js)
+      prism(obj, plan, deck - y0, M.facade.glassDark, 0, y0, 0);
+      const slice = idx === BALTYK_DISCO_PART ? soffit - ROOF_SLAB - deck : soffit - deck;
+      wallSlab(obj, plan[3], plan[0], deck, slice, M.facade.glassDark, plan); // the short south-west end
+      if (idx === BALTYK_DISCO_PART) {
+        const [s0, s1] = BALTYK_DISCO_SPAN;
+        const at = (s) => [frame.origin[0] + frame.edge[0] * s, frame.origin[1] + frame.edge[1] * s];
+        wallSlab(obj, plan[3], at(s0), deck, slice, M.facade.glassDark, plan);
+        wallSlab(obj, at(s1), plan[2], deck, slice, M.facade.glassDark, plan);
+      } else {
+        prism(obj, plan, y1 - soffit - ROOF_SLAB, M.facade.glassDark, 0, soffit, 0);
+      }
+    } else {
+      prism(obj, plan, y1 - y0 - 0.45, M.facade.glassDark, 0, y0, 0);
+    }
     prism(obj, plan, 0.45, M.granite, 0, y1 - 0.45, 0);
     if (bottom > 0) prism(obj, plan, 0.6, M.darkMetal, 0, y0, 0);
-  }
+  });
   // Terrace balustrades: a glass band 1.1 m tall along the low edge of each south-west terrace (its longest edge
   // facing down the stairs, +x +z)
   for (let i = 7; i < 18; i++) {
@@ -145,10 +233,11 @@ function inflate(plan, k) {
   });
 }
 
-function buildTowerLandmarks({ group, colliders, M }) {
+function buildTowerLandmarks({ group, dynamic, colliders, M }) {
   // ---------------------------------------------------------------------------------------------------------------
   // Bałtyk, 67 m (pl.wikipedia, MVRDV): see BALTYK_PARTS
   // ---------------------------------------------------------------------------------------------------------------
+  let disco = null;
   {
     const c0 = colliders.length;
     const obj = new THREE.Group();
@@ -161,6 +250,22 @@ function buildTowerLandmarks({ group, colliders, M }) {
     collider(colliders, 6.6, 12.4, -10, 0, 50);
     collider(colliders, -8, 6, 33, 38.5, 20);
     fitToSite([obj], site('Bałtyk'), colliders, c0, { height: 67, horizontal: 1, offset: frameOffset(obj) });
+
+    // The 14th-floor party (baltyk-disco.js): an animated, hide-by-day part, so it lives in the dynamic root and takes
+    // the tower's fitted transform (scale 1: the model is as tall as the real 67 m, drawn at real size)
+    if (dynamic) {
+      const frame = baltykDiscoFrame();
+      disco = createBaltykDisco({ room: frame.room, dayMaterial: M.facade.glassDark });
+      disco.group.position.set(frame.origin[0], 0, frame.origin[1]);
+      disco.group.rotation.y = frame.yaw;
+      const mount = new THREE.Group();
+      mount.name = 'BaltykDiscoMount';
+      mount.add(disco.group);
+      mount.position.copy(obj.position);
+      mount.quaternion.copy(obj.quaternion);
+      mount.scale.copy(obj.scale);
+      dynamic.add(mount);
+    }
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -414,6 +519,8 @@ function buildTowerLandmarks({ group, colliders, M }) {
     collider(colliders, -46, -10, -15, 0, 6 * F + 1);
     fitToSite([obj], site('Delta'), colliders, c0, { height: 43.5, horizontal: 1, offset: frameOffset(obj) });
   }
+
+  return disco ? (dt, elapsed) => disco.update(dt, elapsed) : null;
 }
 
-export { buildTowerLandmarks };
+export { buildTowerLandmarks, baltykDiscoFrame, BALTYK_PARTS, BALTYK_LEVEL, BALTYK_DISCO_FLOOR, BALTYK_DISCO_PART, BALTYK_DISCO_NEIGHBOUR };
