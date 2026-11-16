@@ -389,12 +389,6 @@ are listed below. The Główny hall / Garbary ramp track overlaps remain deliber
 - Observe a follower held outside an occupied boarding stop, then admitted after the leader departs; whole-tram
   switch and road-crossing passages were sampled on WebGPU 2026-11-16. Also finish the unobserved Starołęka line 13
   southbound direction. [Coverage and limits](observations/browser-checks-2026-11-16.md).
-- Fix missing terminal boarding at Zawady/Ogrody: the stop scan starts at `path.indexAt(u)` and drops the arrival
-  stops at chain ends about 11 m before their targets; departure platforms snap to unrouted tracks while route
-  extensions follow the main loop. Review scanning the preceding edge plus a Zawady pre-switch target clamp,
-  and routing via platform tracks or preferring routed tracks when snapping. Logged states show no boarding
-  dwell/open doors (Ogrody doors are not legible in the frames). Return plates render correctly.
-  [Sequences and stop attachments](observations/browser-checks-2026-11-16.md).
 - Fix the Starołęka rendered corridor boundary near `(658, 2855)`: simulated trams continue across coarse lawn/road
   surfaces after the visible rails and wires end. `TRAM_ROUTE_EXTENSIONS` extends lines 7/12/13 to z ≈ 3125,
   but `layoutTrackRails` rejects `!isLand` pieces outside the detail box (z max 2844.2). Lay rails/wires on outskirts

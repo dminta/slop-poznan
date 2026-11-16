@@ -1095,3 +1095,78 @@ test('a tram waits for a car committed to its road conflict, moving or stopped, 
   sys.drive(t, 8);
   assert.equal(t.waitReason, 'car', 'a stopped car that does not wait for the tram keeps holding it');
 });
+
+test('a stop at a chain end keeps its forward target past the boundary and clamps before a switch', () => {
+  const { createTramSystem } = load(() => 'green', true);
+  // Case 1: stop at the end of chain 0 (x = 500), continuing onto chain 1 (500 -> 1000) with no switch.
+  const railPlain = [tram([0, 0, 500, 0]), tram([500, 0, 1000, 0])];
+  const stopsPlain = [{ name: 'Ogrody-like', x: 500, z: 0, railIndex: 0, s: 500, dir: 1, kind: 'island' }];
+  const sys1 = createTramSystem(inert(), { network: { nodes: [], edges: [] }, rail: railPlain, stops: stopsPlain });
+  const t1 = sys1.pool[0];
+  t1.active = true;
+  t1.path.reset(sys1.graph.edges[0], 502, t1.length + 10, () => 0);
+  t1.path.extend(200, () => 0);
+  t1.speed = 4;
+  let dwelled = false;
+  let departed = false;
+  for (let f = 0; f < 35 * 15; f++) {
+    sys1.occupy(t1);
+    sys1.drive(t1, f / 15);
+    sys1.advance(t1, 1 / 15);
+    if (f === 0) assert.equal(t1.nextStop.name, 'Ogrody-like', 'stop remains targeted after front crosses chain end');
+    if (t1.atStop && t1.doorsOpen) dwelled = true;
+    if (dwelled && !t1.atStop && t1.speed > 0.5) { departed = true; break; }
+  }
+  assert.ok(dwelled, 'tram dwells with doors open at chain-end stop');
+  assert.ok(departed, 'tram departs after dwell');
+
+  // Case 2: stop at the end of chain 0 (x = 500), followed by a 9 m link (500 -> 509) to a switch.
+  const railSwitch = [
+    tram([0, 0, 500, 0]),
+    tram([500, 0, 509, 0]),
+    tram([509, 0, 700, 0]),
+    tram([509, 0, 700, 30])
+  ];
+  const stopsSwitch = [{ name: 'Zawady-like', x: 500, z: 0, railIndex: 0, s: 500, dir: 1, kind: 'curb' }];
+  const sys2 = createTramSystem(inert(), { network: { nodes: [], edges: [] }, rail: railSwitch, stops: stopsSwitch });
+  const link = sys2.graph.edges.find((e) => e.chain === 1);
+  const t2 = sys2.pool[0];
+  t2.active = true;
+  t2.path.reset(sys2.graph.edges[0], 480, t2.length + 10, () => 0);
+  t2.path.extend(200, () => 0);
+  t2.speed = 5;
+  let stopU = 0;
+  for (let f = 0; f < 30 * 15; f++) {
+    sys2.occupy(t2);
+    sys2.drive(t2, f / 15);
+    sys2.advance(t2, 1 / 15);
+    if (t2.atStop) { stopU = t2.path.u; break; }
+  }
+  assert.ok(t2.atStop, 'tram stops at switch-preceding chain-end stop');
+  assert.ok(stopU <= 509 - link.foulEnd - 0.4, `stop position ${stopU.toFixed(2)} stays clear of switch foul zone`);
+
+  // Case 3: stop 9 m before the end of an edge that ends at a switch (Głogowska/Hetmańska pattern):
+  // s + 0.35 * length crosses edge.len, so it must clamp before the switch's no-stop zone.
+  const railPreSwitch = [
+    tram([0, 0, 500, 0]),
+    tram([500, 0, 700, 0]),
+    tram([500, 0, 700, 30])
+  ];
+  const stopsPreSwitch = [{ name: 'Hetmanska-like', x: 491, z: 0, railIndex: 0, s: 491, dir: 1, kind: 'island' }];
+  const sys3 = createTramSystem(inert(), { network: { nodes: [], edges: [] }, rail: railPreSwitch, stops: stopsPreSwitch });
+  const edge0 = sys3.graph.edges[0];
+  const t3 = sys3.pool[0];
+  t3.active = true;
+  t3.path.reset(edge0, 470, t3.length + 10, () => 0);
+  t3.path.extend(200, () => 0);
+  t3.speed = 5;
+  let stopU3 = 0;
+  for (let f = 0; f < 30 * 15; f++) {
+    sys3.occupy(t3);
+    sys3.drive(t3, f / 15);
+    sys3.advance(t3, 1 / 15);
+    if (t3.atStop) { stopU3 = t3.path.u; break; }
+  }
+  assert.ok(t3.atStop, 'tram stops at 9m-before-switch stop');
+  assert.ok(stopU3 <= 500 - edge0.foulEnd - 0.4, `stop position ${stopU3.toFixed(2)} stays clear of switch foul zone`);
+});

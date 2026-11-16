@@ -523,13 +523,15 @@ const allTramRoutes = osmTramRoutes.elements
   .sort((a, b) => +a.ref - +b.ref || a.to.localeCompare(b.to, 'pl') || a.id - b.id);
 
 // The PTv2 relations end before the turning tracks at Ogrody and Zawady. Complete the arrival route up to the
-// departure stop; the runtime then switches to the same line's return relation. Keep the main loop: the Ogrody
-// siding/bypass and Zawady's outer loop skip that boarding stop. At Starołęka two newly split ways are absent from
+// departure stop / return track; the runtime then switches to the same line's return relation. At Ogrody, keep the
+// main loop (the siding/bypass skips the boarding stop); at Zawady, relation 4763597 boards on the inner track
+// (stop_entry_only node 2689845386, end of way 73491169); the sim has no platform room there (0.44 m gap before
+// the join), so line 5 departs from the outer ZAWA42 platform (133882284 → 335763489). At Starołęka two newly split ways are absent from
 // every relation, leaving a 412 m gap which starts 126 m before the detail boundary. Anchors are OSM member ways,
 // not generated chain indices, so each correction follows only the relations using the adjacent mapped track.
 const TRAM_ROUTE_EXTENSIONS = [
   [495295031, [100278290]], // Ogrody: arrival stop → departure stop, lines 2/7/8/18
-  [16403985, [365385517, 73491169]], // Zawady: arrival stop → departure stop, line 5
+  [16403985, [365385517, 133882284, 335763489]], // Zawady: arrival stop → outer platform track → return track, line 5
   [977970537, [1533059210]], // Starołęka: continue south beyond the map, lines 7/12/13
   [151435174, [1533059211]] // Starołęka: return from beyond the map, lines 7/12/13
 ];

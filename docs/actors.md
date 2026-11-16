@@ -568,8 +568,10 @@ Trams follow the associated road signal phase; dedicated tram signal heads are n
   Lines run the real sequence of tracks only roughly: no timetable, any number of trams per line.
 - **Stops**: `tram-infra.js` stops (`railIndex`, `s`, `dir`) are attached to the edge running that way
   (`attachTramStops`). Bare `GEO.tramStops` nodes are snapped to the nearest track within 6 m (`snapTramStops`); that
-  fallback is used by the tests. The tram's front stops `0.35 × length` past the stop point, dwells 20–30 s with its
-  doors open, then departs.
+  fallback is used by the tests. The tram's front stops `0.35 × length` past the stop point (clamped before a switch's
+  `noStop` zone, and for curb stops before road crossings, when the whole body clears earlier zones), dwells 20–30 s
+  with its doors open, then departs. The stop scan steps back across recent chain boundaries within `0.35 × length + 0.5` m
+  so chain-end stops stay targeted after the front enters the next edge.
 - **Signals** (`findTrackSignals`): every `n.signal` road node within 9 m of a track puts a stop line on that edge, as
   far out as the stop line of the road arm the tram arrives along (the in-edge within 60° of the track tangent 12 m
   before the junction). Its group is that arm's (`axisIndex === 0` → group 0), else the group the roads don't use.

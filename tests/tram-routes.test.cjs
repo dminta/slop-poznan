@@ -42,8 +42,8 @@ function checkLoop(arrival, departure, terminal, refs) {
   }
 }
 
-test('Zawady line 5 uses the loop through its departure stop and turns onto the return route', () => {
-  checkLoop([1635.7, -502.7], [1650.1, -561.4], 'Zawady', ['5']);
+test('Zawady line 5 uses the outer platform loop and turns onto the return route', () => {
+  checkLoop([1635.7, -502.7], [1609.7, -563], 'Zawady', ['5']);
 });
 
 test('Ogrody lines use the main loop through their departure stop, avoiding the siding and bypass', () => {

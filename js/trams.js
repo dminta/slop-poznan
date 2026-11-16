@@ -1308,23 +1308,29 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     return true;
   }
 
+  function clampStopZone(path, raw, length, target, base, j, c) {
+    const entry = base + c.start;
+    const end = base + c.end + (c.switch && j + 1 < path.n ? path.edges[j + 1].foulStart : 0);
+    if (raw > entry - 0.5 || target <= entry - 0.5 || target - length >= end + 0.5) return target;
+    const before = entry - 0.5;
+    // Even when the nose is already beyond a narrow crossing, the tail may still block it. Check the whole
+    // proposed body, including earlier crossings; a short refuge between crossings cannot hold a 32 m tram.
+    return stopBodyClear(path, before, length) ? Math.min(target, before) : target;
+  }
+
   function curbStopTarget(path, index, st, length, offset) {
     const raw = path.start[index] + st.s;
     let target = raw + offset;
-    if (!st.stop.source || st.stop.source.kind !== 'curb') return target;
-    // OSM's curb stop may be just before a road crossing. The usual middle-front offset must not move the nose
-    // into it for the entire dwell (Rynek Jeżycki). An island has fixed boarding geometry and is not moved here.
+    const isCurb = !!(st.stop.source && st.stop.source.kind === 'curb');
+    const crossesEnd = st.s + offset > path.edges[index].len;
+    // OSM's curb stop may be just before a road crossing (Rynek Jeżycki), and a stop whose target crosses the
+    // edge end may sit just before a switch (Zawady, Głogowska/Hetmańska). Clamp those before a switch's no-stop
+    // zone, and curb stops before road crossings, when the whole proposed body clears earlier no-stop zones.
     for (let j = index; j < path.n && path.start[j] < target + length; j++) {
       const base = path.start[j];
-      for (const c of path.edges[j].keepClear) {
-        const entry = base + c.start;
-        const end = base + c.end;
-        if (raw > entry - 0.5 || target <= entry - 0.5 || target - length >= end + 0.5) continue;
-        const before = entry - 0.5;
-        // Even when the nose is already beyond a narrow crossing, the tail may still block it. Check the whole
-        // proposed body, including earlier crossings; a short refuge between crossings cannot hold a 32 m tram.
-        if (stopBodyClear(path, before, length)) target = Math.min(target, before);
-      }
+      const e = path.edges[j];
+      if (isCurb) for (const c of e.keepClear) target = clampStopZone(path, raw, length, target, base, j, c);
+      if (crossesEnd) for (const c of e.noStop) if (c.switch) target = clampStopZone(path, raw, length, target, base, j, c);
     }
     return target;
   }
@@ -1733,10 +1739,13 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       }
     }
 
-    // The next stop: the first one ahead on the path not just served; the tram's middle-front stands at the stop
+    // The next stop: the first one ahead on the path not just served; the tram's middle-front stands at the stop.
+    // Step back across a recent chain boundary so a stop near the previous edge's end keeps its forward target.
     t.nextStop = null;
     const stopOffset = t.length * 0.35;
-    for (let j = ic; j < path.n && !t.nextStop; j++) {
+    let j0 = ic;
+    while (j0 > 0 && u - path.start[j0] <= stopOffset + 0.5) j0--;
+    for (let j = j0; j < path.n && !t.nextStop; j++) {
       const sj = path.start[j];
       if (sj - u > LOOKAHEAD) break;
       for (const st of path.edges[j].stops) {
