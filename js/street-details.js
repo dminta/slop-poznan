@@ -582,6 +582,7 @@ function buildStreetDetails(scene, opts = {}) {
     }
   }
   const clearOfCrosswalks = (x, z, r) => {
+    const cwHalfR = CROSSWALK * 0.5 + r;
     const ix0 = Math.floor(x / LANDING_CELL);
     const iz0 = Math.floor(z / LANDING_CELL);
     for (let ix = ix0 - 1; ix <= ix0 + 1; ix++) {
@@ -594,7 +595,7 @@ function buildStreetDetails(scene, opts = {}) {
           const oz = z - l.z;
           const along = ox * l.ux + oz * l.uz;
           const side = ox * l.uz - oz * l.ux;
-          if (Math.abs(along - l.mid) < CROSSWALK / 2 + r && side > -l.left - 2.6 - r && side < l.right + 2.6 + r) return false;
+          if (Math.abs(along - l.mid) < cwHalfR && side > -l.left - 2.6 - r && side < l.right + 2.6 + r) return false;
         }
       }
     }
@@ -1064,13 +1065,21 @@ function buildStreetDetails(scene, opts = {}) {
       const j0 = row(Math.min(a.z, c.z)), j1 = row(Math.max(a.z, c.z));
       for (let ix = i0; ix <= i1; ix++) for (let jz = j0; jz <= j1; jz++) at(jz * cols + ix);
     };
+    const valid = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const a = poly[i], c = poly[(i + 1) % n];
+      if (Math.hypot(c.x - a.x, c.z - a.z) >= 1e-6) valid[i] = 1;
+    }
     const starts = new Int32Array(cols * rows + 1);
     for (let i = 0; i < n; i++) file(i, (c) => { starts[c + 1]++; });
     for (let c = 0; c < cols * rows; c++) starts[c + 1] += starts[c];
     const edges = new Int32Array(starts[cols * rows]);
     const fill = starts.slice(0, cols * rows);
     for (let i = 0; i < n; i++) file(i, (c) => { edges[fill[c]++] = i; });
-    idx = { poly, x0, z0, x1, z1, cell, cols, rows, starts, edges, stamp: new Int32Array(n), query: 0 };
+    idx = {
+      poly, x0, z0, x1, z1, cell, cols, rows, starts, edges, valid, frames: new Array(n),
+      stamp: new Int32Array(n), query: 0
+    };
     curbEdgeIndexes.set(b, idx);
     return idx;
   }
@@ -1782,30 +1791,27 @@ function buildStreetDetails(scene, opts = {}) {
   const nearestCurbFrame = (b, x, z) => {
     const idx = curbEdgeIndex(b);
     const poly = idx.poly;
+    const valid = idx.valid;
     const n = poly.length;
     let best = Infinity;
     let bestI = -1;
-    const test = (i) => {
-      if (idx.stamp[i] === idx.query) return;
-      idx.stamp[i] = idx.query;
-      const p0 = poly[i];
-      const p1 = poly[(i + 1) % n];
-      const len = Math.hypot(p1.x - p0.x, p1.z - p0.z);
-      if (len < 1e-6) return;
-      const d = distPointToSeg(x, z, p0.x, p0.z, p1.x, p1.z);
-      // the scan kept the first edge of an equal distance
-      if (d < best || (d === best && i < bestI)) {
-        best = d;
-        bestI = i;
-      }
-    };
-    idx.query++;
     if (x < idx.x0 || x > idx.x1 || z < idx.z0 || z > idx.z1) {
-      for (let i = 0; i < n; i++) test(i);
+      for (let i = 0; i < n; i++) {
+        if (!valid[i]) continue;
+        const p0 = poly[i];
+        const p1 = poly[(i + 1) % n];
+        const d = distPointToSeg(x, z, p0.x, p0.z, p1.x, p1.z);
+        if (d < best || (d === best && i < bestI)) {
+          best = d;
+          bestI = i;
+        }
+      }
     } else {
+      const q = ++idx.query;
       const gx = Math.floor((x - idx.x0) / idx.cell);
       const gz = Math.floor((z - idx.z0) / idx.cell);
       const maxRing = Math.max(gx, idx.cols - 1 - gx, gz, idx.rows - 1 - gz);
+      const stamp = idx.stamp, starts = idx.starts, edges = idx.edges;
       for (let ring = 0; ring <= maxRing; ring++) {
         // after rings 0..ring-1 every unvisited edge is at least (ring - 1) cells away
         const bound = (ring - 1) * idx.cell - 1e-9;
@@ -1818,7 +1824,20 @@ function buildStreetDetails(scene, opts = {}) {
           for (let iz = gz - ring; iz <= gz + ring; iz += step) {
             if (iz < 0 || iz >= idx.rows) continue;
             const c = iz * idx.cols + ix;
-            for (let k = idx.starts[c], end = idx.starts[c + 1]; k < end; k++) test(idx.edges[k]);
+            for (let k = starts[c], end = starts[c + 1]; k < end; k++) {
+              const i = edges[k];
+              if (stamp[i] === q) continue;
+              stamp[i] = q;
+              if (!valid[i]) continue;
+              const p0 = poly[i];
+              const p1 = poly[(i + 1) % n];
+              const d = distPointToSeg(x, z, p0.x, p0.z, p1.x, p1.z);
+              // the scan kept the first edge of an equal distance
+              if (d < best || (d === best && i < bestI)) {
+                best = d;
+                bestI = i;
+              }
+            }
           }
         }
       }
@@ -1828,17 +1847,25 @@ function buildStreetDetails(scene, opts = {}) {
         dist: Infinity, acrossX: true, narrow: false, pitRot: 0, squeeze: 0.82, tier: 1, grate: true, pitS: 1
       };
     }
-    const p0 = poly[bestI];
-    const p1 = poly[(bestI + 1) % n];
-    const dx = p1.x - p0.x, dz = p1.z - p0.z;
-    const len = Math.hypot(dx, dz);
-    let inx = -dz / len, inz = dx / len;
-    const mx = (p0.x + p1.x) * 0.5, mz = (p0.z + p1.z) * 0.5;
-    if (blockAt(mx + inx * 1.6, mz + inz * 1.6) !== b) { inx = -inx; inz = -inz; }
-    const narrow = !!blockAt(mx - inx * 14, mz - inz * 14);
+    // Cache per-edge facing/narrow state: 82% of the 22,257 nearestCurbFrame calls revisit an already-seen edge.
+    let f = idx.frames[bestI];
+    if (!f) {
+      const p0 = poly[bestI];
+      const p1 = poly[(bestI + 1) % n];
+      const dx = p1.x - p0.x, dz = p1.z - p0.z;
+      const len = Math.hypot(dx, dz);
+      let inx = -dz / len, inz = dx / len;
+      const mx = (p0.x + p1.x) * 0.5, mz = (p0.z + p1.z) * 0.5;
+      if (blockAt(mx + inx * 1.6, mz + inz * 1.6) !== b) { inx = -inx; inz = -inz; }
+      const narrow = !!blockAt(mx - inx * 14, mz - inz * 14);
+      f = idx.frames[bestI] = {
+        acrossX: Math.abs(dz) > Math.abs(dx), narrow, pitRot: Math.atan2(dx, dz),
+        squeeze: narrow ? 0.7 : 0.82, tier: narrow ? 2 : 1, grate: !narrow, pitS: narrow ? 0.7 : 1
+      };
+    }
     return {
-      dist: best, acrossX: Math.abs(dz) > Math.abs(dx), narrow, pitRot: Math.atan2(dx, dz),
-      squeeze: narrow ? 0.7 : 0.82, tier: narrow ? 2 : 1, grate: !narrow, pitS: narrow ? 0.7 : 1
+      dist: best, acrossX: f.acrossX, narrow: f.narrow, pitRot: f.pitRot,
+      squeeze: f.squeeze, tier: f.tier, grate: f.grate, pitS: f.pitS
     };
   };
   const parkCollider = (s) => {
@@ -2488,7 +2515,7 @@ function buildStreetDetails(scene, opts = {}) {
         const reasons = {}, candidates = [];
         let walks = getWalks();
         let closest = null, sampleCount = 0;
-        const failures = (px, pz, stopEarly) => {
+        const failures = (px, pz, stopEarly, skipRail = false) => {
           const fail = [];
           const b = blockAt(px, pz);
           const pad = b && b.median ? 0.9 : 0.4;
@@ -2501,7 +2528,7 @@ function buildStreetDetails(scene, opts = {}) {
             curb = Boolean(q4 && !!q4.median === med);
           }
           if (!curb) { fail.push('curb'); if (stopEarly) return fail; }
-          if (!clearOfRails(px, pz, 0.22)) { fail.push('rail'); if (stopEarly) return fail; }
+          if (!skipRail && !clearOfRails(px, pz, 0.22)) { fail.push('rail'); if (stopEarly) return fail; }
           let crossing = false;
           for (const c of lookup(crossings, px, pz)) {
             const dx = c.bx - c.ax, dz = c.bz - c.az, len = Math.hypot(dx, dz);
@@ -2601,7 +2628,8 @@ function buildStreetDetails(scene, opts = {}) {
                 if (reach > OVERHEAD_REACH || reach < 1 || (best && reach >= best.score)) continue;
                 const px = x + edge.dx * along + edge.rx * lat;
                 const pz = z + edge.dz * along + edge.rz * lat;
-                if (!mastClear(px, pz) || failures(px, pz, true).length) continue;
+                // mastClear already verified clearOfRails(px, pz, 1.1), so skip the weaker 0.22 check in failures.
+                if (!mastClear(px, pz) || failures(px, pz, true, true).length) continue;
                 const target = { x: x + edge.dx * t + edge.rx * lane, z: z + edge.dz * t + edge.rz * lane, along: t };
                 if (!armClear({ x: px, z: pz }, target)) continue;
                 best = { foot: { x: px, z: pz }, existing: false, reach, score: reach, target, band, strict };

@@ -888,8 +888,60 @@ function railBoxHasSegs(minX, maxX, minZ, maxZ) {
   return false;
 }
 
+// Exact 2D segment-to-segment pre-filter for laneClear: boxHasRails triggered 901,642 per-step railWithin calls on
+// tracks whose 32 m AABB grazed a rail > 2.34 m away (1e-3 m slack covers near-parallel closest-pair rounding).
+function railSegHasSegs(ax, az, bx, bz, d) {
+  const cells = railCells();
+  const minX = (ax < bx ? ax : bx) - d, maxX = (ax > bx ? ax : bx) + d;
+  const minZ = (az < bz ? az : bz) - d, maxZ = (az > bz ? az : bz) + d;
+  const dx = bx - ax, dz = bz - az, a = dx * dx + dz * dz;
+  const lim2 = (d + 1e-3) * (d + 1e-3);
+  const ix0 = Math.floor(minX / RAIL_CELL), ix1 = Math.floor(maxX / RAIL_CELL);
+  const iz0 = Math.floor(minZ / RAIL_CELL), iz1 = Math.floor(maxZ / RAIL_CELL);
+  for (let ix = ix0; ix <= ix1; ix++) {
+    const row = ix * 100003;
+    for (let iz = iz0; iz <= iz1; iz++) {
+      const list = cells.get(row + iz);
+      if (!list) continue;
+      for (const s of list) {
+        if (s.x1 < minX || s.x0 > maxX || s.z1 < minZ || s.z0 > maxZ) continue;
+        const rx = ax - s.ax, rz = az - s.az;
+        const e = s.L2;
+        const c = dx * rx + dz * rz, f = s.ex * rx + s.ez * rz;
+        let u, v;
+        if (a <= 1e-12 && e <= 1e-12) {
+          if (rx * rx + rz * rz <= lim2) return true;
+          continue;
+        } else if (a <= 1e-12) {
+          u = 0;
+          v = Math.max(0, Math.min(1, f / e));
+        } else if (e <= 1e-12) {
+          u = Math.max(0, Math.min(1, -c / a));
+          v = 0;
+        } else {
+          const b = dx * s.ex + dz * s.ez;
+          const denom = a * e - b * b;
+          u = denom !== 0 ? Math.max(0, Math.min(1, (b * f - c * e) / denom)) : 0;
+          v = (b * u + f) / e;
+          if (v < 0) {
+            v = 0;
+            u = Math.max(0, Math.min(1, -c / a));
+          } else if (v > 1) {
+            v = 1;
+            u = Math.max(0, Math.min(1, (b - c) / a));
+          }
+        }
+        const px = rx + dx * u - s.ex * v, pz = rz + dz * u - s.ez * v;
+        if (px * px + pz * pz <= lim2) return true;
+      }
+    }
+  }
+  return false;
+}
+
 railClearance.within = railWithin;
 railClearance.boxHasRails = railBoxHasSegs;
+railClearance.segHasRails = railSegHasSegs;
 
 // Trees additionally clear the full mainline ballast bed with their circular crown envelope. Keep the existing
 // tram/prop rule; one squeezed axis still leaves the other crown axis at full size. Match trees.js's seeded species.

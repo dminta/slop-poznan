@@ -1425,7 +1425,8 @@ function underpassBlockAt(x, z) {
 // The final city-grid surface cut applies to every tram corridor, including parks and underpass strips.
 // Reject its indexed quads before either block lookup so an overlapping block cannot restore invisible raised ground.
 const TRAM_SURFACE_CELL = 32;
-const TRAM_SURFACE_GRID = new Map();
+let tscMinIx = Infinity, tscMaxIx = -Infinity, tscMinIz = Infinity, tscMaxIz = -Infinity;
+const tscMap = new Map();
 for (const r of GEO.rail) {
   if (r.kind !== 'tram') continue;
   for (let i = 0; i + 3 < r.pts.length; i += 2) {
@@ -1434,15 +1435,35 @@ for (const r of GEO.rail) {
     if (len < 1e-6) continue;
     const seg = { ax, az, ux: (bx - ax) / len, uz: (bz - az) / len, len };
     const pad = TRAM_CUT_HALF * 2;
-    for (let ix = Math.floor((Math.min(ax, bx) - pad) / TRAM_SURFACE_CELL);
-      ix <= Math.floor((Math.max(ax, bx) + pad) / TRAM_SURFACE_CELL); ix++) {
-      for (let iz = Math.floor((Math.min(az, bz) - pad) / TRAM_SURFACE_CELL);
-        iz <= Math.floor((Math.max(az, bz) + pad) / TRAM_SURFACE_CELL); iz++) {
+    const ix0 = Math.floor((Math.min(ax, bx) - pad) / TRAM_SURFACE_CELL);
+    const ix1 = Math.floor((Math.max(ax, bx) + pad) / TRAM_SURFACE_CELL);
+    const iz0 = Math.floor((Math.min(az, bz) - pad) / TRAM_SURFACE_CELL);
+    const iz1 = Math.floor((Math.max(az, bz) + pad) / TRAM_SURFACE_CELL);
+    if (ix0 < tscMinIx) tscMinIx = ix0;
+    if (ix1 > tscMaxIx) tscMaxIx = ix1;
+    if (iz0 < tscMinIz) tscMinIz = iz0;
+    if (iz1 > tscMaxIz) tscMaxIz = iz1;
+    for (let ix = ix0; ix <= ix1; ix++) {
+      for (let iz = iz0; iz <= iz1; iz++) {
         const key = ix * 100003 + iz;
-        if (!TRAM_SURFACE_GRID.has(key)) TRAM_SURFACE_GRID.set(key, []);
-        TRAM_SURFACE_GRID.get(key).push(seg);
+        if (!tscMap.has(key)) tscMap.set(key, []);
+        tscMap.get(key).push(seg);
       }
     }
+  }
+}
+const tscSpanX = tscMap.size ? tscMaxIx - tscMinIx + 1 : 0;
+const tscSpanZ = tscMap.size ? tscMaxIz - tscMinIz + 1 : 0;
+const TSC_BUCKETS = [];
+// Flat Int32Array bucket index: inTramSurfaceCut runs on every blockAt/isBlockAt call, so avoiding Map.get cut 72 ms.
+const TSC_FLAT = tscSpanX > 0 && tscSpanZ > 0 && tscSpanX * tscSpanZ <= 500000
+  ? new Int32Array(tscSpanX * tscSpanZ).fill(-1) : null;
+if (TSC_FLAT) {
+  for (const [key, list] of tscMap) {
+    const ix = Math.round(key / 100003);
+    const iz = key - ix * 100003;
+    TSC_FLAT[(ix - tscMinIx) * tscSpanZ + (iz - tscMinIz)] = TSC_BUCKETS.length;
+    TSC_BUCKETS.push(list);
   }
 }
 
@@ -1451,7 +1472,17 @@ function tramSurfaceClearance(x, z, radius = 8) {
   let best = radius;
   for (let ix = Math.floor((x - radius) / TRAM_SURFACE_CELL); ix <= Math.floor((x + radius) / TRAM_SURFACE_CELL); ix++) {
     for (let iz = Math.floor((z - radius) / TRAM_SURFACE_CELL); iz <= Math.floor((z + radius) / TRAM_SURFACE_CELL); iz++) {
-      for (const s of TRAM_SURFACE_GRID.get(ix * 100003 + iz) || []) {
+      let list;
+      if (TSC_FLAT) {
+        if (ix < tscMinIx || ix > tscMaxIx || iz < tscMinIz || iz > tscMaxIz) continue;
+        const bi = TSC_FLAT[(ix - tscMinIx) * tscSpanZ + (iz - tscMinIz)];
+        if (bi < 0) continue;
+        list = TSC_BUCKETS[bi];
+      } else {
+        list = tscMap.get(ix * 100003 + iz);
+        if (!list) continue;
+      }
+      for (const s of list) {
         const dx = x - s.ax, dz = z - s.az;
         const along = dx * s.ux + dz * s.uz;
         const across = dz * s.ux - dx * s.uz;
@@ -1466,10 +1497,20 @@ function tramSurfaceClearance(x, z, radius = 8) {
 }
 
 function inTramSurfaceCut(x, z) {
-  const list = TRAM_SURFACE_GRID.get(Math.floor(x / TRAM_SURFACE_CELL) * 100003 +
-    Math.floor(z / TRAM_SURFACE_CELL));
-  if (!list) return false;
-  for (const s of list) {
+  const ix = Math.floor(x / TRAM_SURFACE_CELL);
+  const iz = Math.floor(z / TRAM_SURFACE_CELL);
+  let list;
+  if (TSC_FLAT) {
+    if (ix < tscMinIx || ix > tscMaxIx || iz < tscMinIz || iz > tscMaxIz) return false;
+    const bi = TSC_FLAT[(ix - tscMinIx) * tscSpanZ + (iz - tscMinIz)];
+    if (bi < 0) return false;
+    list = TSC_BUCKETS[bi];
+  } else {
+    list = tscMap.get(ix * 100003 + iz);
+    if (!list) return false;
+  }
+  for (let i = 0; i < list.length; i++) {
+    const s = list[i];
     const dx = x - s.ax, dz = z - s.az;
     const along = dx * s.ux + dz * s.uz;
     const across = dz * s.ux - dx * s.uz;

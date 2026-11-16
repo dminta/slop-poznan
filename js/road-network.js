@@ -1998,6 +1998,30 @@ function largestComponent(list, next) {
   return out;
 }
 
+// Precomputed Bernstein basis and derivative weights at k / 16 (makeCurve runs for every junction connector).
+const CURVE_B0 = new Float64Array(17);
+const CURVE_B1 = new Float64Array(17);
+const CURVE_B2 = new Float64Array(17);
+const CURVE_B3 = new Float64Array(17);
+const CURVE_D0 = new Float64Array(17);
+const CURVE_D1 = new Float64Array(17);
+const CURVE_D2 = new Float64Array(17);
+const CURVE_DD0 = new Float64Array(17);
+const CURVE_DD1 = new Float64Array(17);
+for (let k = 0; k <= 16; k++) {
+  const t = k / 16;
+  const u = 1 - t;
+  CURVE_B0[k] = u * u * u;
+  CURVE_B1[k] = 3 * u * u * t;
+  CURVE_B2[k] = 3 * u * t * t;
+  CURVE_B3[k] = t * t * t;
+  CURVE_D0[k] = 3 * u * u;
+  CURVE_D1[k] = 6 * u * t;
+  CURVE_D2[k] = 3 * t * t;
+  CURVE_DD0[k] = 6 * u;
+  CURVE_DD1[k] = 6 * t;
+}
+
 // Cubic Bézier from the end of lane i on edge e to the start of lane j on edge f: a quarter-circle-like
 // arc around the corner for turns, an S-bend for straight lane shifts. Includes an arc-length table and
 // the sharpest curvature along it (1 / tightest radius).
@@ -2016,29 +2040,31 @@ function makeCurve(e, i, f, j) {
     k0 = 0.552 * Math.abs(t);
     k3 = 0.552 * Math.hypot(x3 - (x0 + e.dx * t), z3 - (z0 + e.dz * t));
   }
+  const x1 = x0 + e.dx * k0, z1 = z0 + e.dz * k0;
+  const x2 = x3 - f.dx * k3, z2 = z3 - f.dz * k3;
   const c = {
-    x0, z0, x3, z3,
-    x1: x0 + e.dx * k0, z1: z0 + e.dz * k0,
-    x2: x3 - f.dx * k3, z2: z3 - f.dz * k3,
+    x0, z0, x3, z3, x1, z1, x2, z2,
     lut: new Float32Array(17),
     len: 0,
     curv: 0
   };
+  const dx0 = x1 - x0, dx1 = x2 - x1, dx2 = x3 - x2;
+  const dz0 = z1 - z0, dz1 = z2 - z1, dz2 = z3 - z2;
+  const ddx0 = x2 - 2 * x1 + x0, ddx1 = x3 - 2 * x2 + x1;
+  const ddz0 = z2 - 2 * z1 + z0, ddz1 = z3 - 2 * z2 + z1;
   let px = x0;
   let pz = z0;
   for (let k = 0; k <= 16; k++) {
-    const t = k / 16;
-    const u = 1 - t;
-    const x = u * u * u * x0 + 3 * u * u * t * c.x1 + 3 * u * t * t * c.x2 + t * t * t * x3;
-    const z = u * u * u * z0 + 3 * u * u * t * c.z1 + 3 * u * t * t * c.z2 + t * t * t * z3;
+    const x = CURVE_B0[k] * x0 + CURVE_B1[k] * x1 + CURVE_B2[k] * x2 + CURVE_B3[k] * x3;
+    const z = CURVE_B0[k] * z0 + CURVE_B1[k] * z1 + CURVE_B2[k] * z2 + CURVE_B3[k] * z3;
     c.len += Math.hypot(x - px, z - pz);
     c.lut[k] = c.len;
     px = x;
     pz = z;
-    const dx = 3 * u * u * (c.x1 - x0) + 6 * u * t * (c.x2 - c.x1) + 3 * t * t * (x3 - c.x2);
-    const dz = 3 * u * u * (c.z1 - z0) + 6 * u * t * (c.z2 - c.z1) + 3 * t * t * (z3 - c.z2);
-    const ddx = 6 * u * (c.x2 - 2 * c.x1 + x0) + 6 * t * (x3 - 2 * c.x2 + c.x1);
-    const ddz = 6 * u * (c.z2 - 2 * c.z1 + z0) + 6 * t * (z3 - 2 * c.z2 + c.z1);
+    const dx = CURVE_D0[k] * dx0 + CURVE_D1[k] * dx1 + CURVE_D2[k] * dx2;
+    const dz = CURVE_D0[k] * dz0 + CURVE_D1[k] * dz1 + CURVE_D2[k] * dz2;
+    const ddx = CURVE_DD0[k] * ddx0 + CURVE_DD1[k] * ddx1;
+    const ddz = CURVE_DD0[k] * ddz0 + CURVE_DD1[k] * ddz1;
     c.curv = Math.max(c.curv, Math.abs(dx * ddz - dz * ddx) / Math.max(1e-6, Math.hypot(dx, dz) ** 3));
   }
   return c;

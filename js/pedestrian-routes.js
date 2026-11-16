@@ -36,6 +36,7 @@ function createPedestrianRoutes(
   const sameBlockAt = isBlockAt || ((x, z, b) => blockAt(x, z) === b);
   const railWithin = railClearance ? (railClearance.within || ((x, z, d) => railClearance(x, z, d) < d)) : null;
   const boxHasRails = railClearance && railClearance.boxHasRails;
+  const segHasRails = railClearance && railClearance.segHasRails;
   const sidewalks = new Map(), crossings = new Map(), junctions = new Map(), connections = new WeakMap();
   const islandPorts = new Map(), curbPorts = new Map();
   const point = (track, end) => ({ x: track.ax + track.ux * track.len * end, z: track.az + track.uz * track.len * end });
@@ -239,10 +240,12 @@ function createPedestrianRoutes(
       Math.min(a.x, b.x) - walkPad, Math.max(a.x, b.x) + walkPad,
       Math.min(a.z, b.z) - walkPad, Math.max(a.z, b.z) + walkPad
     );
-    const checkRails = railWithin && (!boxHasRails || boxHasRails(
-      Math.min(a.x, b.x) - LANE_INSET - RAIL_KEEP, Math.max(a.x, b.x) + LANE_INSET + RAIL_KEEP,
-      Math.min(a.z, b.z) - LANE_INSET - RAIL_KEEP, Math.max(a.z, b.z) + LANE_INSET + RAIL_KEEP
-    ));
+    const checkRails = railWithin && (segHasRails
+      ? segHasRails(a.x, a.z, b.x, b.z, LANE_INSET + RAIL_KEEP)
+      : (!boxHasRails || boxHasRails(
+        Math.min(a.x, b.x) - LANE_INSET - RAIL_KEEP, Math.max(a.x, b.x) + LANE_INSET + RAIL_KEEP,
+        Math.min(a.z, b.z) - LANE_INSET - RAIL_KEEP, Math.max(a.z, b.z) + LANE_INSET + RAIL_KEEP
+      )));
     if (checkRails && steps + 1 > laneCenterRail.length) laneCenterRail = new Uint8Array(steps + 1);
     let maxCenter = -1;
     let lanes = 0;
