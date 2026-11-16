@@ -1032,6 +1032,187 @@ function createSlotLists(capacities) {
   };
 }
 
+// Level of a tree at distance d (3 = hidden): hysteresis keeps the current level within LOD_HYSTERESIS of a boundary.
+// The reference rule of the level sweep; `maxD` is the tree's draw distance (tier, street cutoff already applied).
+function levelAt(d, curL, maxD, profile) {
+  let nextL = d < profile.lodNear ? 0 : d < profile.lodMid ? 1 : d < maxD ? 2 : 3;
+  if (Math.abs(nextL - curL) === 1) {
+    const edge = nextL < curL
+      ? (nextL === 0 ? profile.lodNear : nextL === 1 ? profile.lodMid : maxD)
+      : (curL === 0 ? profile.lodNear : curL === 1 ? profile.lodMid : maxD);
+    if (Math.abs(d - edge) < LOD_HYSTERESIS) nextL = curL;
+  }
+  return nextL;
+}
+
+const SWEEP_EPS = 0.01; // m of slack on the box-distance tests; far above float rounding of f32 positions
+
+/**
+ * Incremental level sweep. Trees are grouped (`spatialGroups`: arrays of tree ids, ascending; split by tier here);
+ * a group is skipped when every tree in it already holds one level and the camera-to-box distance interval lies
+ * strictly inside that level's band for each tier present, because then every tree's rule returns exactly the
+ * level it holds (hysteresis never applies when next == current). So lod[] and the changes equal a full ascending
+ * sweep after every call; `apply(i, prev, next)` gets the changed trees in ascending id order like the full sweep did
+ * (swap-removes depend on that order).
+ * lod[] uses 255 for hidden. `visited` holds the number of trees evaluated by the last call.
+ */
+function createLevelSweep(profile, px, py, pz, tier, lod, spatialGroups, apply) {
+  // Split every group by draw-distance tier: a mixed group would straddle its tiers' different maxDist for most of
+  // the camera range (950-3000 m) and be visited on every update
+  const groups = [];
+  for (const list of spatialGroups) {
+    const byTier = [[], [], []];
+    for (const i of list) byTier[tier[i]].push(i);
+    for (const part of byTier) if (part.length) groups.push(part);
+  }
+  const G = groups.length;
+  const N = px.length;
+  const start = new Int32Array(G + 1);
+  for (let g = 0; g < G; g++) start[g + 1] = start[g] + groups[g].length;
+  const ids = new Int32Array(start[G]);
+  const groupOf = new Int32Array(N);
+  const box = new Float64Array(G * 6); // minX, maxX, minY, maxY, minZ, maxZ
+  // Smallest and largest draw distance over the tiers present, for high / street-level (camera below 40 m)
+  const maxLo = new Float64Array(G * 2);
+  const maxHi = new Float64Array(G * 2);
+  const size = new Int32Array(G);
+  const cnt = new Int32Array(G * 4); // trees per level 0-2, hidden
+  const maxFor = (t, low) => (low ? Math.min(profile.maxDist[t], profile.streetCutoff) : profile.maxDist[t]);
+  for (let g = 0; g < G; g++) {
+    const list = groups[g];
+    size[g] = list.length;
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    let mask = 0;
+    for (let k = 0; k < list.length; k++) {
+      const i = list[k];
+      ids[start[g] + k] = i;
+      groupOf[i] = g;
+      cnt[g * 4 + (lod[i] === 255 ? 3 : lod[i])]++;
+      x0 = Math.min(x0, px[i]); x1 = Math.max(x1, px[i]);
+      y0 = Math.min(y0, py[i]); y1 = Math.max(y1, py[i]);
+      z0 = Math.min(z0, pz[i]); z1 = Math.max(z1, pz[i]);
+      mask |= 1 << tier[i];
+    }
+    box.set([x0, x1, y0, y1, z0, z1], g * 6);
+    for (let m = 0; m < 2; m++) {
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (let t = 0; t < 3; t++) {
+        if (!(mask & (1 << t))) continue;
+        lo = Math.min(lo, maxFor(t, m === 1));
+        hi = Math.max(hi, maxFor(t, m === 1));
+      }
+      maxLo[g * 2 + m] = lo;
+      maxHi[g * 2 + m] = hi;
+    }
+  }
+  const pendingNext = new Uint8Array(N);
+  const changed = new Int32Array(N);
+  const sq = (v) => v * v;
+  const nearIn = sq(profile.lodNear - SWEEP_EPS);
+  const nearOut = sq(profile.lodNear + SWEEP_EPS);
+  const midIn = sq(profile.lodMid - SWEEP_EPS);
+  const midOut = sq(profile.lodMid + SWEEP_EPS);
+
+  // In-place heapsort of changed[0..n): no allocation, ascending ids (sift is created once, not per call)
+  function sift(root, end) {
+    const v = changed[root];
+    let r = root;
+    for (;;) {
+      let c = 2 * r + 1;
+      if (c >= end) break;
+      if (c + 1 < end && changed[c + 1] > changed[c]) c++;
+      if (changed[c] <= v) break;
+      changed[r] = changed[c];
+      r = c;
+    }
+    changed[r] = v;
+  }
+  function sortChanged(n) {
+    for (let r = (n >> 1) - 1; r >= 0; r--) sift(r, n);
+    for (let end = n - 1; end > 0; end--) {
+      const top = changed[0];
+      changed[0] = changed[end];
+      changed[end] = top;
+      sift(0, end);
+    }
+  }
+
+  const sweep = {
+    visited: 0,
+    groups: G,
+    // Returns the number of trees whose level changed
+    run(cx, cy, cz) {
+      const low = cy < 40;
+      const m = low ? 1 : 0;
+      let n = 0;
+      let visited = 0;
+      for (let g = 0; g < G; g++) {
+        const g4 = g * 4;
+        const total = size[g];
+        let B = -1;
+        if (cnt[g4] === total) B = 0;
+        else if (cnt[g4 + 1] === total) B = 1;
+        else if (cnt[g4 + 2] === total) B = 2;
+        else if (cnt[g4 + 3] === total) B = 3;
+        if (B >= 0) {
+          const b = g * 6;
+          const ax = cx - box[b];
+          const bx = cx - box[b + 1];
+          const ay = cy - box[b + 2];
+          const by = cy - box[b + 3];
+          const az = cz - box[b + 4];
+          const bz = cz - box[b + 5];
+          // nearest point of the box (0 on an axis the camera is inside), farthest corner
+          const nx = ax < 0 ? -ax : bx > 0 ? bx : 0;
+          const ny = ay < 0 ? -ay : by > 0 ? by : 0;
+          const nz = az < 0 ? -az : bz > 0 ? bz : 0;
+          const fx = Math.max(Math.abs(ax), Math.abs(bx));
+          const fy = Math.max(Math.abs(ay), Math.abs(by));
+          const fz = Math.max(Math.abs(az), Math.abs(bz));
+          const dmin2 = nx * nx + ny * ny + nz * nz;
+          const dmax2 = fx * fx + fy * fy + fz * fz;
+          let skip;
+          if (B === 0) skip = dmax2 < nearIn;
+          else if (B === 1) skip = dmin2 >= nearOut && dmax2 < midIn;
+          else if (B === 2) skip = dmin2 >= midOut && dmax2 < sq(maxLo[g * 2 + m] - SWEEP_EPS);
+          else skip = dmin2 >= sq(Math.max(profile.lodMid, maxHi[g * 2 + m]) + SWEEP_EPS);
+          if (skip) continue;
+        }
+        for (let k = start[g], e = start[g + 1]; k < e; k++) {
+          const i = ids[k];
+          visited++;
+          const dx = px[i] - cx;
+          const dy = py[i] - cy;
+          const dz = pz[i] - cz;
+          const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          const curL = lod[i] === 255 ? 3 : lod[i];
+          const nextL = levelAt(d, curL, maxFor(tier[i], low), profile);
+          if (nextL !== curL) {
+            pendingNext[i] = nextL === 3 ? 255 : nextL;
+            changed[n++] = i;
+          }
+        }
+      }
+      sweep.visited = visited;
+      if (n === 0) return 0;
+      sortChanged(n);
+      for (let k = 0; k < n; k++) {
+        const i = changed[k];
+        const prev = lod[i];
+        const next = pendingNext[i];
+        lod[i] = next;
+        const g4 = groupOf[i] * 4;
+        cnt[g4 + (prev === 255 ? 3 : prev)]--;
+        cnt[g4 + (next === 255 ? 3 : next)]++;
+        apply(i, prev, next);
+      }
+      return n;
+    }
+  };
+  return sweep;
+}
+
 /**
  * Builds the instanced tree field for `sites` ({ x, y, z, scale, species, yaw?, sx?, sz?, tier? }) and keeps each
  * tree's level of detail up to date from the camera of every view pass (scene.onBeforeRender). Returns
@@ -1276,39 +1457,22 @@ function createTreeField(scene, sites) {
     flushFar();
   }
 
-  // Levels from the camera position (3D distance to mid-crown), with hysteresis at every boundary
+  // Levels from the camera position (3D distance to mid-crown), with hysteresis at every boundary. The sweep skips
+  // 200 m cells whose trees cannot change level (createLevelSweep); results equal a full pass over all trees.
   const last = new V3(Infinity, Infinity, Infinity);
   const cam = new V3();
+  const sweep = createLevelSweep(profile, px, py, pz, tier, lod, Array.from(cells.values(), (cell) => cell.trees),
+    (i, prev, next) => {
+      // Levels 0 and 1 repack their 200 m cell; level 2 moves just this instance in its far mesh
+      if (prev === 2) farRemove(i);
+      if (next === 2) farAdd(i);
+      if (prev < 2 || next < 2) dirtyCells.add(cellOf[i]);
+    });
   function update(position) {
     cam.copy(position);
     if (cam.distanceToSquared(last) < 16) return false;
     last.copy(cam);
-    const low = cam.y < 40;
-    let changed = false;
-    for (let i = 0; i < N; i++) {
-      const dx = px[i] - cam.x;
-      const dy = py[i] - cam.y;
-      const dz = pz[i] - cam.z;
-      const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      const maxD = low ? Math.min(profile.maxDist[tier[i]], profile.streetCutoff) : profile.maxDist[tier[i]];
-      // levels 0-2, 3 = hidden; next to a boundary a tree keeps the level it has
-      const curL = lod[i] === 255 ? 3 : lod[i];
-      let nextL = d < profile.lodNear ? 0 : d < profile.lodMid ? 1 : d < maxD ? 2 : 3;
-      if (Math.abs(nextL - curL) === 1) {
-        const edge = [profile.lodNear, profile.lodMid, maxD][Math.min(nextL, curL)];
-        if (Math.abs(d - edge) < LOD_HYSTERESIS) nextL = curL;
-      }
-      const next = nextL === 3 ? 255 : nextL;
-      const prev = lod[i];
-      if (next !== prev) {
-        lod[i] = next;
-        // Levels 0 and 1 repack their 200 m cell; level 2 moves just this instance in its far mesh
-        if (prev === 2) farRemove(i);
-        if (next === 2) farAdd(i);
-        if (prev < 2 || next < 2) dirtyCells.add(cellOf[i]);
-        changed = true;
-      }
-    }
+    const changed = sweep.run(cam.x, cam.y, cam.z) > 0;
     if (changed) rebuild();
     return changed;
   }
@@ -1343,12 +1507,14 @@ function createTreeField(scene, sites) {
     triangles: geos.map((v) => v.map((l) => l.map((g) => g && g.userData.triangles))),
     cards: geos.map((v) => v.map((l) => l.map((g) => g && g.userData.cards)))
   };
-  return { group, material, atlas, update, meshes: instanced, stats };
+  return { group, material, atlas, update, meshes: instanced, stats, sweep };
 }
 
 export {
   createTreeField,
   createSlotLists,
+  createLevelSweep,
+  levelAt,
   createLeafAtlas,
   buildTreeGeometries,
   coverageMips,
