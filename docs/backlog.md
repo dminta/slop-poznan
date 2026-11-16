@@ -305,6 +305,15 @@ in midday and midnight views. An 8 px gutter and isotropic LOD capped at 4 isola
 and draw; [footprint proof, screenshots and costs](observations/shop-sign-mips-2026-11-15.md). Cell selection, chain
 signs and dusk/night spot colours were checked 2026-11-11.
 
+The [2026-11-16 signals/trams/clearance pass](observations/browser-checks-2026-11-16.md) sampled six cantilever
+heads, four ordinary span heads and the Górna Wilda head on WebGPU high and WebGL2 low: visible from 13–30 m
+behind the queue at 1.2 m eye height; lead-car view not checked. Mast/anchor and stay coverage is partial.
+It framed the Rynek Łazarski road-cleared columns, raised 6.1 m tram canopies and elevated railway portals on both
+backends; a canopy pantograph is visible only on WebGL2. Natural WebGPU sequences cover a whole Zawady switch
+passage, a Kaponiera road-crossing passage and a left turn without a nearby tram. Remaining checks and two defects
+are listed below. The Główny hall / Garbary ramp track overlaps remain deliberately unchanged, as documented in
+[the earlier clearance audit](observations/overhead-clearance-2026-11-14.md#3-document-only-findings-no-code-change).
+
 ### Interface and performance
 
 - Confirm the loading-screen credit link hover/focus and external navigation in a real (non-headless) browser; its
@@ -320,12 +329,6 @@ signs and dusk/night spot colours were checked 2026-11-11.
   wall on the 55 m cooling tower, `2.367 m` on the 65 m chimney, `0.861–1.270 m` on the 5 OSM chimneys) with circular
   colliders (`c.circle` in `controllers.js` and `buildings.js`, `maxGap ≤ 0.067 m`).
   [Profiles record](observations/building-profiles-nonres-2026-11-08.md).
-- Visual framing check of the overhead clearance fixes (Rynek Łazarski road-cleared canopy columns, raised `6.1 m` tram
-  canopies and elevated viaduct catenary portals); the 2026-11-14 headless geometric audit
-  ([record](observations/overhead-clearance-2026-11-14.md)) resolved all `rail-portal`, `tram_panto` and
-  `canopy-column` road clashes (`0` road-vehicle clashes) and documented the Główny 2012 hall / Garbary ramp
-  track overlaps (`browser-checks-2026-11-14` framed Dworzec Letni and Garbary from their platforms).
-  [Canopy record](observations/platform-canopies-2026-11-08.md).
 - Calibrate Collegium Maius hall weather-cover elevations and outer panel specification if a measured section or
   dated refurbishment record becomes available. Its narrow gabled exterior above curved interior glazing is now
   resolved from GUGiK/GEOPOZ imagery (13 × 17 m approximation); 14 m eaves / 3.5 m rise remain model assumptions.
@@ -370,18 +373,33 @@ signs and dusk/night spot colours were checked 2026-11-11.
 - Check Dworzec's connected refuge route, signals and pedestrian/vehicle interactions on WebGL2; record a full
   rendered interaction with a naturally approaching bus, including rear clearance.
   [Dworzec checks](observations/dworzec-2026-10-30.md), [bus population check](observations/bus-population-2026-10-30.md).
-- Inspect the 2026-11-08 span and cantilever heads on WebGPU and WebGL2: the 48 cantilever heads (16 new 6.2 m
-  masts) and 27 span heads (25 new 10 m masts), stay height and sag above the tram wires and portals, and the Górna
-  Wilda head hanging from the two 7.6 m traction poles (stays at 7.2 m). Check visibility through the queue in a browser;
-  the 2026-11-14 headless geometric audit ([record](observations/signal-tram-clearance-2026-11-14.md),
-  `tools/audit-signal-tram-clearance.mjs`) confirms 0 clashes against the articulated tram swept envelope and catenary
-  wires (min lateral 0.508 m on cantilever heads, 0.775 m on span heads, 0.873 m on ordinary poles; min stay vertical
-  clearance +1.382 m above 5.8 m contact wire at Górna Wilda, +4.182 m elsewhere). [Measurements](observations/missing-signal-heads-2026-11-08.md).
-- Watch a tram pass a car stopped at a crossing and a left-turner complete through the Kaponiera box; check for
-  visible clipping or stopping within the approximately 1 s forecast gap. A six-frame twilight watch on 2026-11-11 saw
-  no clipping, but not the named pair.
-- Watch whole trams clear switches, crossings and occupied stops; observe Zawady/Ogrody loop boarding and return
-  destinations and the Starołęka boundary routes.
+- Finish span/cantilever head checks on both backends: lead-car view, the head-position sign question
+  (`findOverhead` uses negative upstream offsets; `docs/world.md:423` describes the visibility band), head 16's
+  two unshown masts, both anchors for heads 15/22/67, a stronger view of head 75 (≈10 px), and a side view resolving
+  head 9's arm versus a dark traction pole. Górna Wilda's left stay is indistinguishable from a tram span wire;
+  its clearance and a signal stay crossing a mainline railway portal also remain unverified. Only 11 of 114
+  overhead heads were sampled. [Visual coverage](observations/browser-checks-2026-11-16.md),
+  [geometric clearance audit](observations/signal-tram-clearance-2026-11-14.md).
+- Frame the raised tram canopy with a visible pantograph on WebGPU; the 2026-11-16 WebGPU view shows the roof/wires,
+  while only the WebGL2 frame shows the pantograph. [Record](observations/browser-checks-2026-11-16.md).
+- Watch a tram pass a car stopped at a crossing and a left-turner turning with a tram approaching at Kaponiera,
+  including the approximately 1 s forecast-gap case. The 2026-11-16 completed left turn has no tram within 30 m,
+  so it does not verify the tram interaction or the close passing pair.
+  [Record](observations/browser-checks-2026-11-16.md).
+- Observe a follower held outside an occupied boarding stop, then admitted after the leader departs; whole-tram
+  switch and road-crossing passages were sampled on WebGPU 2026-11-16. Also finish the unobserved Starołęka line 13
+  southbound direction. [Coverage and limits](observations/browser-checks-2026-11-16.md).
+- Fix missing terminal boarding at Zawady/Ogrody: the stop scan starts at `path.indexAt(u)` and drops the arrival
+  stops at chain ends about 11 m before their targets; departure platforms snap to unrouted tracks while route
+  extensions follow the main loop. Review scanning the preceding edge plus a Zawady pre-switch target clamp,
+  and routing via platform tracks or preferring routed tracks when snapping. Logged states show no boarding
+  dwell/open doors (Ogrody doors are not legible in the frames). Return plates render correctly.
+  [Sequences and stop attachments](observations/browser-checks-2026-11-16.md).
+- Fix the Starołęka rendered corridor boundary near `(658, 2855)`: simulated trams continue across coarse lawn/road
+  surfaces after the visible rails and wires end. `TRAM_ROUTE_EXTENSIONS` extends lines 7/12/13 to z ≈ 3125,
+  but `layoutTrackRails` rejects `!isLand` pieces outside the detail box (z max 2844.2). Lay rails/wires on outskirts
+  ground, or end tracks at the box edge and retire trams there. Sampled route assignments remain intact.
+  [Screenshots](observations/browser-checks-2026-11-16.md).
 - Listen to sirens, bells, tram motors/squeal and the noon show; verify local timing and audible range.
 
 For each fix, record measurements and regression checks in the topic docs or observation records, and state which
