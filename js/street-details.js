@@ -606,6 +606,7 @@ function buildStreetDetails(scene, opts = {}) {
   // outside the nearest roadway (0.35 m left a few poles in lanes)
   const signalPoleSpot = (x, z, exactPark = false) => {
     const b = blockAt(x, z);
+    if (SIGNAL_POLE_KEEPOUT.some(([kx, kz, r = SIGNAL_KEEPOUT_R]) => Math.hypot(x - kx, z - kz) < r)) return false;
     if (!b || b.underpass || inPlaza(x, z, 0.5, exactPark) || !isClearOfPoles(x, z, 1.4) || !clearOfRoads(x, z, 0.5) ||
       !clearOfCrosswalks(x, z, 0.15) || !clearOfRails(x, z, 0.22)) return false;
     const pad = b.median ? 0.9 : 0.4;
@@ -616,6 +617,22 @@ function buildStreetDetails(scene, opts = {}) {
     return true;
   };
 
+  // Spots where a pole of the ordinary search stands in a turning curve of its junction or on a crosswalk landing,
+  // closing an edge or disabling a plan (tools/audit-pruned-roads.mjs). The curves and the crosswalks that
+  // pedestrian-routes.js keeps come from road-network.js, which is not built until the furniture is; building it
+  // ahead costs ~450 ms of boot, and the general rules tried instead (stop lines of shallow crossings, the next
+  // junction's mouth) moved 280-330 of the 1935 poles. So the six places that do close a turn are listed, each with
+  // the 1.2 m steps of the search that stand within SIGNAL_KEEPOUT_R of it, and the search takes its next spot.
+  const SIGNAL_KEEPOUT_R = 2.2;
+  const SIGNAL_POLE_KEEPOUT = [
+    [1975.9, 2613.7], // (unnamed) one-way out of Piłsudskiego: the [S] move from the Piłsudskiego carriageway
+    [2005.4, 2616.1], // Piłsudskiego -> Inflancka [R] turn
+    [-2092.3, 2448.7], // Górecka slip [R] (plan 115)
+    [2875.3, -1991.9], // Bałtycka crosswalk landing (plan 194)
+    [686.3, 2737.3, 1], // Krucza west: the landing of the crosswalk over the western arm (plan 136), and the spot
+    [685.1, 2736.9, 1], // 1.2 m on that the search takes next
+    [3923.2, -120.4] // Mogileńska crosswalk landing (plan 347)
+  ];
   const cross = (ax, az, bx, bz) => ax * bz - az * bx;
   const setFacing = (x, y, z, fx, fz) => {
     dummy.position.set(x, y, z);

@@ -59,8 +59,8 @@ test('furnished road network keeps SCC-restored streets and re-enabled signal pl
   const furnished = road.buildRoadNetwork(grid.sidewalks, [...grid.footprints, ...street.footprints]);
 
   assert.ok(
-    furnished.edges.length >= bare.edges.length - 5,
-    `expected furnished edges (${furnished.edges.length}) within 5 of bare (${bare.edges.length})`
+    furnished.edges.length >= bare.edges.length,
+    `expected furnished edges (${furnished.edges.length}) to keep all of bare (${bare.edges.length})`
   );
 
   // Restored road clusters from the SCC audit must remain in the furnished network.
@@ -69,7 +69,12 @@ test('furnished road network keeps SCC-restored streets and re-enabled signal pl
     ['Wiejska', 2756.3, -1488.6],
     ['Szelągowska', 418.6, -993.8],
     ['gen. St. Maczka', -1107.6, -1853.7],
-    ['Szeherezady', -6863.2, -136.1]
+    ['Szeherezady', -6863.2, -136.1],
+    // the last pruned carriageways: pole spots in turning curves, and a 0.11 m curb-rect graze on an [R] turn
+    ['Osiedle Stare Żegrze', 2245.0, 2654.7],
+    ['Piłsudskiego -> (unnamed)', 1974.5, 2653.1],
+    ['Piłsudskiego -> (unnamed)', 1979.4, 2625.6],
+    ['Górecka slip', -2075.8, 2439.6]
   ];
   for (const [label, tx, tz] of requiredStreets) {
     const found = furnished.edges.some((e) => {
@@ -95,7 +100,7 @@ test('furnished road network keeps SCC-restored streets and re-enabled signal pl
     configureSignalClearance: config.configureSignalClearance
   })();
 
-  for (const idx of [63, 103, 125, 132, 140, 153, 233, 363, 415, 473, 477]) {
+  for (const idx of [63, 103, 125, 132, 140, 153, 233, 363, 415, 473, 477, 115, 136, 194, 347]) {
     assert.ok(!config.SIGNAL_PLANS[idx].disabled, `SIGNAL_PLANS[${idx}] must remain enabled`);
   }
 });

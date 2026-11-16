@@ -273,8 +273,8 @@ function buildRoadNetwork(sidewalks, obstacles) {
     }
     return false;
   }
-  const blockedOnStreet = (x, z, clear) => !onLand(x - clear, x + clear, z - clear, z + clear) ||
-    curbs(x - 0.3, x + 0.3, z - 0.3, z + 0.3, 1) ||
+  const blockedOnStreet = (x, z, clear, curbClear = 0.3) => !onLand(x - clear, x + clear, z - clear, z + clear) ||
+    curbs(x - curbClear, x + curbClear, z - curbClear, z + curbClear, 1) ||
     nearOutline(x, z, clear) ||
     blocked(x - clear, x + clear, z - clear, z + clear, 2);
 
@@ -1461,7 +1461,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
     const p = { x: 0, z: 0, dx: 0, dz: 0 };
     for (let k = 1; k < 10; k++) {
       curvePoint(c, c.len * k / 10, p);
-      if (blockedOnStreet(p.x, p.z, 0.8)) return false;
+      if (blockedOnStreet(p.x, p.z, 0.8, 0.1)) return false;
     }
     return true;
   }

@@ -108,14 +108,14 @@ function runInstrumented(sidewalks, obstacles) {
 
   let src = source('road-network');
   src = src.replace(
-    '  const blockedOnStreet = (x, z, clear) => !onLand(x - clear, x + clear, z - clear, z + clear) ||\n' +
-    '    curbs(x - 0.3, x + 0.3, z - 0.3, z + 0.3, 1) ||\n' +
+    '  const blockedOnStreet = (x, z, clear, curbClear = 0.3) => !onLand(x - clear, x + clear, z - clear, z + clear) ||\n' +
+    '    curbs(x - curbClear, x + curbClear, z - curbClear, z + curbClear, 1) ||\n' +
     '    nearOutline(x, z, clear) ||\n' +
     '    blocked(x - clear, x + clear, z - clear, z + clear, 2);',
     '  let _lastBlockReason = null;\n' +
-    '  const blockedOnStreet = (x, z, clear) => {\n' +
+    '  const blockedOnStreet = (x, z, clear, curbClear = 0.3) => {\n' +
     '    if (!onLand(x - clear, x + clear, z - clear, z + clear)) { _lastBlockReason = "water/offLand"; return true; }\n' +
-    '    if (curbs(x - 0.3, x + 0.3, z - 0.3, z + 0.3, 1)) { _lastBlockReason = "curb(sidewalk/curb-rect)"; return true; }\n' +
+    '    if (curbs(x - curbClear, x + curbClear, z - curbClear, z + curbClear, 1)) { _lastBlockReason = "curb(sidewalk/curb-rect)"; return true; }\n' +
     '    if (nearOutline(x, z, clear)) { _lastBlockReason = "medianOutline"; return true; }\n' +
     '    if (blocked(x - clear, x + clear, z - clear, z + clear, 2)) { _lastBlockReason = "footprintObstacle"; return true; }\n' +
     '    return false;\n' +

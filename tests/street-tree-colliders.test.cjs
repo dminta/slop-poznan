@@ -60,7 +60,7 @@ test('street trees carry player colliders, including Rybaki', async () => {
   // and matches the 0.9 + r * Math.SQRT2 lane clearance audit (dropping 1 OSM tree at -1434.3, -586.6) -> 33,556.
   // SCC chord-cut guards & dual-edge zebra keepout fix (2026-11-15): -2/+7 street trees around chord-cut guards &
   // -92 trees inside the 0.8 m tilted-zebra margin -> 33,462.
-  assert.equal(streetTrees.length, 33462, 'street trees in the headless build');
+  assert.equal(streetTrees.length, 33461, 'street trees in the headless build');
   // Surveyed OSM park trees have no city-grid site of their own, so street-details.js adds their trunk boxes to the
   // same player list as the street rows; count them separately rather than letting them hide a missing street trunk.
   const osmParkTrees = sites.filter((t) => t.source === 'osm' && t.tier === 0).length;

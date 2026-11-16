@@ -14,14 +14,14 @@ test('opposing-lane audit lists used street runs and counts off-street and unuse
   assert.ok(rows.every((row) => row.length >= 5 && row.minimum < 2.3));
   assert.ok(rows.every((row) => row.street && row.routes > 0),
     'only street-running tracks a route uses can collide with a car');
-  assert.ok(!rows.some((row) => row.road === 7500 && row.track === 275), 'the corrected lane clears that track');
-  for (const road of [3015, 3201, 305]) {
+  assert.ok(!rows.some((row) => row.road === 7503 && row.track === 275), 'the corrected lane clears that track');
+  for (const road of [3018, 3204, 305]) {
     assert.ok(!rows.some((row) => row.road === road), `edge ${road} now clears its opposing track`);
   }
-  for (const road of [266, 8154, 8212, 8213]) {
+  for (const road of [266, 8157, 8215, 8216]) {
     assert.ok(!rows.some((row) => row.road === road), `the short-stub pass moved edge ${road} clear`);
   }
-  assert.ok(!rows.some((row) => [3389, 3390, 3391, 6770, 8798].includes(row.road)),
+  assert.ok(!rows.some((row) => [3392, 3393, 3394, 6773, 8801].includes(row.road)),
     'off-street tracks are not body-overlap rows');
   assert.ok(!rows.some((row) => Math.hypot(row.roadStart[0] + 1216.6, row.roadStart[1] + 591.4) < 1),
     'the crossing-track pass moves the Pułaskiego stub clear');
@@ -30,9 +30,9 @@ test('opposing-lane audit lists used street runs and counts off-street and unuse
   assert.equal(total.lanes, new Set(rows.map((row) => `${row.road}:${row.lane}`)).size);
   assert.ok(total.segments <= 40 && total.lanes <= 38 && total.length <= 293,
     `${total.segments} runs / ${total.lanes} lanes / ${total.length} m remain: only used street tracks`);
-  assert.ok(!rows.some((row) => row.road === 4581),
+  assert.ok(!rows.some((row) => row.road === 4584),
     'the station profile moves the Głogowska 4257 shared lane clear across the bend');
-  for (const road of [5035, 8549]) {
+  for (const road of [5038, 8552]) {
     assert.ok(!rows.some((row) => row.road === road),
       `the strip pass moves edge ${road} onto its same-direction track, clear of the oncoming one`);
   }
@@ -44,14 +44,14 @@ test('opposing-lane audit lists used street runs and counts off-street and unuse
   const allRows = all.stdout.trim().split('\n').map(JSON.parse);
   const allTotal = JSON.parse(all.stderr.trim());
   assert.equal(allRows.length, total.segments + total.skipped.segments);
-  assert.ok(allRows.some((row) => [3407, 3408, 3409, 6799, 8839].includes(row.road)), '--all restores off-street rows');
+  assert.ok(allRows.some((row) => [3410, 3411, 3412, 6802, 8842].includes(row.road)), '--all restores off-street rows');
   assert.deepEqual([allTotal.segments, allTotal.lanes, allTotal.length], [55, 51, 498]);
 });
 
 test('a station profile shifts the Głogowska 4257 lane smoothly across the bend', () => {
   const { network } = buildWorld({ noPeds: true });
   const edge = network.edges.find((e) => Math.hypot(e.sx + 2987, e.sz - 2474.8) < 2);
-  assert.ok(edge && edge.laneShift, 'edge 4581 carries a station profile');
+  assert.ok(edge && edge.laneShift, 'edge 4584 carries a station profile');
   const max = Math.max(...edge.laneShift.map((p) => Math.abs(p.d)));
   assert.ok(max > 2.3, `${max.toFixed(2)} m clears the opposing track`);
   const previous = network.edges.find((e) => Math.hypot(e.sx + 3022.1, e.sz - 2519.3) < 2);

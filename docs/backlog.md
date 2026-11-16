@@ -6,12 +6,12 @@ Implementation details and completed measurements live in the [topic docs](../AG
 
 ## Known gaps and follow-up investigations
 
-- **Remaining SCC-dropped edges and disabled signal plans (2026-11-15):** After making park footprints walkable, adding
-  `'L'`/`'R'` turn lane-pair fallback, and filtering curbside furniture against carriageway lanes, 4 dropped edges
-  (0.056 km: `Osiedle Stare Żegrze` curb-rect graze, 2 `Piłsudskiego -> (unnamed)` edges blocked by a signal pole, and
-  1 unnamed `Górecka` slip blocked by a signal pole) and 4 newly disabled signal plans (`115 Górecka`, `136 Krucza`,
-  `194 Bałtycka`, `347 Mogileńska`, where restored signal poles still block the slip turn or crosswalk landing) remain
-  alongside the 6 bare-disabled 2-arm plans.
+- **Bare-disabled signal plans (2026-11-16):** the furnished network now keeps every bare edge and disables only the
+  6 plans the bare graph disables (12 Rondo Rataje, 16 Krańcowa/Główna, 129 and 130 Chartowo, 414 Byka, 474
+  Wieruszowska/Grunwaldzka). They are multi-arm OSM signals whose network node is a 2-side bend of a merged complex,
+  not mid-block pedestrian crossings, so they are correctly disabled; a real crossing there would need the complex's
+  crosswalk layout checked in a browser. The `SIGNAL_POLE_KEEPOUT` list in street-details.js is a stop-gap: a general
+  rule that also needs the turning curves would have to build the network before the furniture (~450 ms).
 
 - **Piotrowo heights:** confirm the new rectorate against a post-completion survey; its 16.5 m model height now
   follows the documented 16.31 m above-ground portion. A28/A29 use 2024 elevation data; A30 uses PP’s 11.80 m dimension.

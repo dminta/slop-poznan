@@ -123,13 +123,15 @@ test('seeded species assignment preserves the full built city tree sites and col
   // and matches 0.9 + r * Math.SQRT2 lane clearance (dropping 1 street + 1 park OSM tree).
   // SCC chord-cut guards & dual-edge zebra keepout fix (2026-11-15):
   // -92 trees inside the 0.8 m tilted-zebra margin, and walkable parks update park-block footprints.
-  assert.deepEqual(before, [45640, 48751, 21936, 1979]);
-  assert.deepEqual(after, [43771, 46723, 21022, 6790]);
-  assert.equal(siteHash, '393ef6928b1a6638b1d96c061cd09d81c8a0239b8496864e67bb24bd21a043a9');
+  // Last pruned carriageways (2026-11-16): six signal poles move off turning curves and crosswalk landings; one street
+  // tree and one park tree follow the restored lanes.
+  assert.deepEqual(before, [45639, 48751, 21936, 1979]);
+  assert.deepEqual(after, [43770, 46723, 21022, 6790]);
+  assert.equal(siteHash, '9b52d659a850ecac23a5ae2f8dea726927357b4fdbe806d80cbbb34a482acc59');
   // The rail crown filter drops grid park trunk colliders before construction; lamps and other props stay fixed.
   assert.equal(digest(grid.propColliders), '40be654e880d47d4d9f05d78cb6dc7e3c7b01775ed877d91b435cfd5441875c6');
   // Street-details loses only the rejected street/mapped trunk colliders; surviving colliders stay identical.
-  assert.equal(digest(details.colliders), '17a956318e7d181847d6d05b5efbbcc81e479dc751ca5b08b7cbef989669c828');
+  assert.equal(digest(details.colliders), '4b1ebc6d1ba1d7aa044253836710fdc7597ccbe84cf215887295cd3758204cf3');
   assert.equal(meshCount((t) => t.species || 0), 25321);
   assert.equal(meshCount(treeSpecies), 30158);
   // Every surveyed node the clearance rules accept reaches the field exactly at its OSM position. The rest are dropped

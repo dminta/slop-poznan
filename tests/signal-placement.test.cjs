@@ -257,12 +257,12 @@ test('runtime approaches use existing left poles when no right head or pole serv
   assert.ok(attrs.every((a) => a.key === 'signalIndex' && a.size === 1 && a.attr));
   assert.deepEqual(attrs.flatMap((a) => a.data).sort((a, b) => a - b), expectedIndices);
   assert.ok(runtimeHeads.length >= cases.length, 'every handpicked left-pole approach gets a head');
-  // 20 static S-1 heads on the 9 remaining disabled plans are pruned on the first addRuntimeSignalHeads call
+  // 12 static S-1 heads on the 6 remaining bare-disabled disabled plans are pruned on the first addRuntimeSignalHeads call
   // (21 -> 9 disabled plans after SCC & walkable-park fixes).
-  assert.equal(street.vehicleHeads, count - 20 + runtimeHeads.length);
+  assert.equal(street.vehicleHeads, count - 12 + runtimeHeads.length);
   world.disabledPlans = config.SIGNAL_PLANS.filter((p) => p.disabled).map((p) => p.index);
   assert.equal(JSON.stringify(street.footprints), footprints);
-  assert.equal(street.colliders.length, JSON.parse(colliders).length - 33);
+  assert.equal(street.colliders.length, JSON.parse(colliders).length - 20);
   assert.deepEqual(Array.from(street.audioSignals, (s) => [s.x, s.y, s.z, s.isAvenue, s.signalTiming]), audioSignals);
   const rebuilt = road.buildRoadNetwork(grid.sidewalks, [...grid.footprints, ...street.footprints]);
   assert.deepEqual(lanes(rebuilt), originalLanes);

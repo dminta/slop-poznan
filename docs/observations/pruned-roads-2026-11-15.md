@@ -39,3 +39,27 @@ Restoring the carriageway near `(-1434.31, -586.59)` exposed a 1-millimetre clea
 - `node tools/audit-dark-heads.mjs`: `disabledPlans: 21`, `disabledPlansWithPolesOrHeads: 0`, `totalRenderedDisabledLensOrPanelInstances: 0`.
 - `tests/sidewalk-prune.test.cjs`: verifies `grid.sidewalks` excludes `UNDERPASS_SIDEWALKS` AABBs, preserves Roosevelta near `(-1253.0, -546.1)` and Most Teatralny `(-1373.2, -213.7)` (`>= 3` arms), and keeps `SIGNAL_PLANS[381]` enabled.
 - WebGPU and WebGL2 headless Chrome screenshots at Most Teatralny confirm working signal heads with 0 console/page errors.
+
+## Last pruned carriageways and furniture-disabled plans (2026-11-16)
+
+Before: 4 dropped edges (0.056 km) and 4 newly disabled plans (115 Górecka, 136 Krucza, 194 Bałtycka, 347 Mogileńska).
+After: **0 dropped edges, 0 newly disabled plans** (furnished 13,256 edges, 569.891 km; 6 plans disabled, as in the bare graph).
+
+| Case | Cause | Fix |
+| --- | --- | --- |
+| Osiedle Stare Żegrze `[R]` | the curve passes 0.11 m outside a lot rectangle corner, inside the 0.3 m curb half-box | `pathClear` uses a 0.1 m curb half-box |
+| 2 Piłsudskiego -> (unnamed) `[S]` | poles at (1975.9, 2613.7) and (2005.4, 2616.1) stand in 35 m bend curves from stop lines 16 m out | `SIGNAL_POLE_KEEPOUT` |
+| Górecka slip `[R]`, plan 115 | pole (-2092.0, 2448.2), then the next spot (-2092.6, 2449.2), on the curve | `SIGNAL_POLE_KEEPOUT` |
+| Plan 194 Bałtycka | pole (2875.3, -1991.9) on a crosswalk landing | `SIGNAL_POLE_KEEPOUT` |
+| Plan 136 Krucza | poles (686.3, 2737.3) and (685.1, 2736.9) on the western crosswalk's landing (found by removing candidate poles) | `SIGNAL_POLE_KEEPOUT` |
+| Plan 347 Mogileńska | pole (3923.2, -120.4) on its crosswalk landing | `SIGNAL_POLE_KEEPOUT` |
+
+Why the pole search missed them: `corner` ignores arms with |cos| > 0.82, yet `stopBack` still sets stop lines 16-20 m out for them,
+and merged-cluster arms start at their own graph node, not at the junction centre. A general rule (corner = max(corner,
+centre offset + stop-line estimate), poles before the next junction's mouth) restored everything but moved 280-330 of 1935 poles
+and dropped 8-20 vehicle heads; kept out. Six poles move (five get a new spot, Krucza west none); pole count 1935 -> 1934.
+
+Bare-disabled plans 12, 16, 129, 130, 414, 474 are multi-arm signals whose network node is a 2-side bend (no crosswalk); correctly disabled.
+
+Gates: boot `totalMs` median 10471 -> 10430 ms (3 runs each). Tests 648/648 (pins updated: signal-audit, signal-placement,
+tree-distribution, street-tree-colliders, opposing-tram-audit edge ids +3 from 1570, demand-crossings node 2653 -> 2654).
