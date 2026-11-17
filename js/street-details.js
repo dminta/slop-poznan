@@ -1662,6 +1662,16 @@ function buildStreetDetails(scene, opts = {}) {
     ? layoutTramInfrastructure(treeNetwork, grid)
     : null;
   const shelterKeepout = tramLayout?.shelterKeepout || null;
+  const canopyKeepout = tramLayout?.canopyKeepout || null;
+  const clearOfCanopies = (x, z, r, top = Infinity) => !canopyKeepout || canopyKeepout.isClear(x, z, r, top);
+  const lampClearOfCanopies = (x, z, edge, scale) => {
+    // A bent LED arm can cross a deck even when its pole stands outside it.
+    const reach = LED_REACH * scale;
+    for (let d = 0; d <= reach; d += 0.4) {
+      if (!clearOfCanopies(x + edge.outX * d, z + edge.outZ * d, 0.3, 0.1 + 10 * scale)) return false;
+    }
+    return clearOfCanopies(x + edge.outX * reach, z + edge.outZ * reach, 0.3, 0.1 + 10 * scale);
+  };
   const clearOfShelters = (x, z, r = 0) => !shelterKeepout ||
     shelterKeepout.isClear(x, z, r);
   const rectClearOfShelters = (x, z, hx, hz, yaw = 0) => !shelterKeepout ||
@@ -1674,7 +1684,8 @@ function buildStreetDetails(scene, opts = {}) {
     // they are relocated after trees so they cannot displace valid existing trees.
     for (const item of placedLamps) {
       const hw = item.type === 'gas' ? 0.2 : 0.225;
-      if (!rectClearOfShelters(item.pole.x, item.pole.z, hw, hw, 0)) {
+      if (!rectClearOfShelters(item.pole.x, item.pole.z, hw, hw, 0) ||
+          (item.type === 'led' && !lampClearOfCanopies(item.pole.x, item.pole.z, item.edge, item.scale))) {
         removePole(item.pole);
         badLamps.push(item);
       }
@@ -1790,7 +1801,7 @@ function buildStreetDetails(scene, opts = {}) {
     }
     if (!clearOfCrosswalks(x, z, r * Math.SQRT2)) return false;
     if (!clearOfTramPoles(x, z, scale)) return false;
-    if (!clearOfShelters(x, z, r)) return false;
+    if (!clearOfShelters(x, z, r) || !clearOfCanopies(x, z, r)) return false;
     for (const s of treeKeepouts.get(Math.floor(x / TREE_LANE_CELL) * 100000 + Math.floor(z / TREE_LANE_CELL)) || []) {
       const dx = s.bx - s.ax, dz = s.bz - s.az, len = Math.hypot(dx, dz);
       const along = ((x - s.ax) * dx + (z - s.az) * dz) / len;
@@ -2010,7 +2021,10 @@ function buildStreetDetails(scene, opts = {}) {
     } else {
       site.tier = 0;
     }
-    if (!clearOfRails(x, z, 0.4 * scale, site)) { osmPlacement.dropped++; continue; }
+    if (!clearOfRails(x, z, 0.4 * scale, site) || !clearOfCanopies(x, z, 0.28 * scale)) {
+      osmPlacement.dropped++;
+      continue;
+    }
     if (site.tier > 0 && !rectClearOfShelters(x, z, 0.85 * site.pitS, 1.3 * site.pitS, site.pitRot)) {
       osmPlacement.dropped++;
       continue;
@@ -2034,7 +2048,7 @@ function buildStreetDetails(scene, opts = {}) {
   for (const s of parkTreeSites || []) {
     if (nearOsmTree(s.x, s.z)) {
       parkCollider(s);
-    } else if (clearOfRails(s.x, s.z, 0.4 * s.scale, s) &&
+    } else if (clearOfCanopies(s.x, s.z, 0.28 * s.scale) && clearOfRails(s.x, s.z, 0.4 * s.scale, s) &&
         isClearOfWalls(s.x, s.z, s.scale, s.species, 1.0, s.y || 0.41, s.tier || 1)) {
       treePositions.push(s);
     } else {
@@ -2189,6 +2203,7 @@ function buildStreetDetails(scene, opts = {}) {
             for (const delta of [0, 0.1, -0.1, 0.2, -0.2]) {
               const cand = ledCheckCandidate(edge, scale, f, 1.08 + delta);
               if (cand && rectClearOfShelters(cand.lx, cand.lz, 0.225, 0.225, 0) &&
+                  lampClearOfCanopies(cand.lx, cand.lz, edge, scale) &&
                   clearOfPlacedTrees(cand.lx, cand.lz, 2.2) &&
                   blockCurbDist(cand.lx, cand.lz, b, reqDist) >= reqDist) { placed = cand; break; }
             }

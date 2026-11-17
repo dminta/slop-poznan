@@ -366,6 +366,28 @@ function createShelterKeepout(stops) {
   return { isClear, isRectClear };
 }
 
+// Include an unclassified roof when it overlaps a mapped tram canopy, as at the western tram loop.
+function createCanopyKeepout(canopies) {
+  const entries = (canopies || []).map((c) => ({
+    source: c, rect: makeObb(c.cx, c.cz, c.w / 2, c.d / 2, -c.ang), clearance: c.clearance
+  }));
+  const tram = entries.filter((c) => c.source.kind === 'tram');
+  const rects = entries.filter((c) => c.source.kind === 'tram' ||
+    (c.source.kind === 'roof' && tram.some((t) => obbOverlap(t.rect, c.rect))));
+  const bounds = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
+  for (const c of rects) {
+    const a = c.rect, rx = Math.abs(a.ux) * a.hx + Math.abs(a.vx) * a.hz;
+    const rz = Math.abs(a.uz) * a.hx + Math.abs(a.vz) * a.hz;
+    bounds.minX = Math.min(bounds.minX, a.x - rx); bounds.maxX = Math.max(bounds.maxX, a.x + rx);
+    bounds.minZ = Math.min(bounds.minZ, a.z - rz); bounds.maxZ = Math.max(bounds.maxZ, a.z + rz);
+  }
+  const at = (x, z, r = 0.001, top = Infinity) => {
+    if (x + r < bounds.minX || x - r > bounds.maxX || z + r < bounds.minZ || z - r > bounds.maxZ) return null;
+    return rects.find((c) => top > c.clearance && obbCircleOverlap(c.rect, x, z, r)) || null;
+  };
+  return { at, canopies: rects.map((c) => c.source), isClear: (x, z, r, top = Infinity) => !at(x, z, r, top) };
+}
+
 // Every layout caller supplies its built city grid; mapped trees remain part of the same input recipe.
 function tramLayoutInputs(grid) {
   return { propColliders: grid?.propColliders || [], osmTrees: OSM_TREES, gardenTrees: TEATR_POLSKI_GARDEN_TREES };
@@ -755,6 +777,7 @@ function layoutTramInfrastructure(network, grid = null) {
   const sheltersDropped = [];
 
   // --- Overhead line supports ---------------------------------------------------------------------------------------
+  const canopyKeepout = createCanopyKeepout(GEO.canopies);
   const poles = [];
   const spans = [];
   const arms = [];
@@ -818,6 +841,13 @@ function layoutTramInfrastructure(network, grid = null) {
       const s = (i + 0.5) * tr.len / count;
       const P = pointAt(tr, s);
       if (supported.within(P.x, P.z, STATION * 0.4, (sg) => sg.data === tr)) continue;
+      // Covered contact wire hangs directly from the underside at the same spacing, with no mast above the roof.
+      const canopy = canopyKeepout.at(P.x, P.z, 0.001, SPAN_Y);
+      if (canopy && canopy.clearance > WIRE_Y) {
+        droppers.push({ x: P.x, z: P.z, y0: canopy.clearance - 0.15, canopy: true });
+        supported.add(P.x - 0.1, P.z, P.x + 0.1, P.z, tr);
+        continue;
+      }
       const nx = -P.dz;
       const nz = P.dx;
       const street = tr.street === 1;
@@ -1316,8 +1346,10 @@ function layoutTramInfrastructure(network, grid = null) {
     }
   }
 
-  return { tracks, pieces, decks, stops, skipped, poles, spans, arms, rosettes, droppers, footprints, laneDist, trackDist,
-    sheltersMoved, sheltersDropped, shelterKeepout: createShelterKeepout(stops) };
+  return {
+    tracks, pieces, decks, stops, skipped, poles, spans, arms, rosettes, droppers, footprints, laneDist, trackDist,
+    sheltersMoved, sheltersDropped, shelterKeepout: createShelterKeepout(stops), canopyKeepout
+  };
 }
 
 /**

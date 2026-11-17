@@ -399,9 +399,9 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   `bMax`-aware gating; `bMax: 3.0` at `js/trams.js:53` is used only by the amber check) rather than just lowering the cap
   (`t.acc = Math.max(-9, _acc)`, `:1817`), which would cause overruns. Needs accept-traffic. Browser rates of 9–11 m/s²
   were a harness timebase artefact. [Record](observations/browser-checks-trams-2026-11-17.md#3-kaponiera).
-- **Defect (not investigated): lamp heads / pole tops poke through canopy decks.** About five dark arms appear on the
-  Piaśnicka Rynek roof in the aerial frame `/tmp/cx-canopy-ssr/shots/after-webgpu-top.png`; cause and scope are not
-  investigated. [Record](observations/canopy-ssr-2026-11-17.md).
+- **Canopy follow-up:** the Piaśnicka Rynek platform remains dark at night; design dedicated canopy lighting. Survey
+  the separate station-platform/rail-mast and other roof conflicts.
+  [Record](observations/canopy-clearance-2026-11-17.md).
 - **Defect (minor): open doorways are barely readable in some lighting (Zawady Tramino).** Open leaf RGB (27, 31, 33) vs
   closed (9, 21, 31) in `zawadyA3-10` / `-12`; the open colour `0x2b2622` (`js/actor-models.js:3697`) is shared by all
   models, and Ogrody's Combino reads better (`ogrody-09` / `-11`), so it is lighting and angle. Model labels are inferred

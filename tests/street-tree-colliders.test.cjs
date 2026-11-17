@@ -61,7 +61,8 @@ test('street trees carry player colliders, including Rybaki', async () => {
   // SCC chord-cut guards & dual-edge zebra keepout fix (2026-11-15): -2/+7 street trees around chord-cut guards &
   // -92 trees inside the 0.8 m tilted-zebra margin -> 33,462.
   // Shelter clearance (2026-11-17) preserves mapped trunks and relocates procedural street trees -> 33,463.
-  assert.equal(streetTrees.length, 33463, 'street trees in the headless build');
+  // Tram canopy clearance removes two trees in this reduced fixture.
+  assert.equal(streetTrees.length, 33461, 'street trees in the headless build');
   // Surveyed OSM park trees have no city-grid site of their own, so street-details.js adds their trunk boxes to the
   // same player list as the street rows; count them separately rather than letting them hide a missing street trunk.
   const osmParkTrees = sites.filter((t) => t.source === 'osm' && t.tier === 0).length;

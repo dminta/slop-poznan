@@ -915,3 +915,13 @@ The current graph cuts five segments across three plazas, including Półwiejska
 Półwiejska and Ślusarska / Plac Kolegiacki. Skwer Kaspra Goskiego and the plaza near (4075, −1807) have no
 drivable graph road at those locations; another segment crosses the latter plaza near (4408, −955). The regression
 checks slab pieces and plaza furniture against crossing graph segments. Browser appearance remains unverified.
+
+## Tram canopy furniture clearance (2026-11-17)
+
+Tram decks and other roofs overlapping them are a keep-out for tall LED lamps and tree trunks. The existing shelter
+repair relocates or drops conflicting lamps, testing their arms as well as their feet; mapped trees are dropped and
+procedural candidates rejected. Lower park lamps remain under decks when their tops fit. Contact wire under a tram deck
+is hung from its underside at the existing support stations instead of using poles and brackets above the roof. The
+hangers reuse the existing wire mesh; runtime signals receive the remaining traction supports. The audit, out-of-scope
+railway and roof conflicts, dark night view and screenshot pairs are in the
+[clearance record](observations/canopy-clearance-2026-11-17.md).
