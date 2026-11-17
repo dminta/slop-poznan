@@ -7,7 +7,7 @@ Inspection of `c02f9ff` on `cc-browser-trams`. No `js/`, `tools/` or test file c
 
 **Results in one paragraph.** (1) The pantograph **is** visible on WebGPU high under a raised 6.1 m canopy; no defect,
 and the 2026-11-16 miss was not reproduced (cause unproven). Side finding: the high-tier (SSR) canopy underside shows a ghost
-reflection that the WebGL2 low frame does not. (2) An occupied boarding stop was observed end to end: follower held outside for ~30 s,
+reflection that the WebGL2 low frame does not. Resolved: [canopy SSR follow-up](canopy-ssr-2026-11-17.md). (2) An occupied boarding stop was observed end to end: follower held outside for ~30 s,
 admitted 10 s after the leader moved off, then dwelt. (3) At Kaponiera a tram passed in front of a stopped car
 (gap 2.7 m) and the frames show a left-turner just after it cleared a braking tram's path (the close crossing itself is inferred from
 the log, not framed); the tram reaches the −9 m/s² cap for such gates. (4) Starołęka
@@ -63,6 +63,8 @@ The pantograph exists only on the mid section of each tram (`pantograph: true` o
 `pano-webgl2-back.png` (WebGL2 **low**, which has no SSR, `docs/rendering.md` ~127) shows a flat grey deck, so it is not
 shown to be WebGPU-specific; WebGL2 high was not checked. Likely cause: the canopy roof material
 `roughness: 0.5, metalness: 0.42` (`js/canopies.js:48`), under the 0.75 SSR roughness mask. Added to the backlog.
+
+Resolved: [canopy SSR follow-up](canopy-ssr-2026-11-17.md).
 
 ## 2. Occupied boarding stop
 
@@ -247,5 +249,6 @@ tram braking cap, the open-door contrast, the high-tier canopy reflection and th
 - The exact forecast-gap value at the Kaponiera left turn.
 - The SUV near tram 2 in `jez2-04` / `-09` (parallax is likely; the pair was not measured).
 - `jez1` frames; the WebGL2 versions of every sequence except the pantograph.
-- Whether the canopy ghost reflection is SSR and whether WebGL2 high shows it (not investigated).
+- Whether the canopy ghost reflection is SSR and whether WebGL2 high shows it (not investigated in this pass).
+  Resolved: [canopy SSR follow-up](canopy-ssr-2026-11-17.md).
 - The close left-turn crossing at Kaponiera was not framed (only the aftermath).

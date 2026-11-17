@@ -88,7 +88,7 @@ test('canopy columns keep clear of every rail centreline and are inside their ro
 test('buildCanopies emits one roof instance per record and only collides the posts and the deck', async () => {
   const { GEO } = await import('../js/geodata.js');
   const { buildCanopies } = loadModule(readFileSync(join(__dirname, '../js/canopies.js'), 'utf8'), {
-    imports: { 'three/webgpu': threeStubs().three, './geodata.js': { GEO } },
+    imports: { 'three/webgpu': threeStubs().three, 'three/tsl': inert(), './geodata.js': { GEO } },
     filename: 'canopies.js'
   });
   const scene = { add: () => {} };

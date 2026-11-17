@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu';
+import { float, mix, normalGeometry, step } from 'three/tsl';
 import { GEO } from './geodata.js';
 
 // js/canopies.js
@@ -46,6 +47,10 @@ function buildCanopies(scene) {
   }
 
   const roofMaterial = new THREE.MeshStandardNodeMaterial({ roughness: 0.5, metalness: 0.42 });
+  // Painted underside is matte; retain the original finish on the top and edges. All instances stay in one draw.
+  const underside = step(normalGeometry.y, -0.5);
+  roofMaterial.roughnessNode = mix(float(0.5), float(0.85), underside);
+  roofMaterial.metalnessNode = mix(float(0.42), float(0.05), underside);
   const concreteMaterial = new THREE.MeshStandardNodeMaterial({ color: CONCRETE, roughness: 0.82, metalness: 0.05 });
   const steelMaterial = new THREE.MeshStandardNodeMaterial({ color: STEEL, roughness: 0.48, metalness: 0.62 });
   const unitBox = new THREE.BoxGeometry(1, 1, 1);

@@ -400,15 +400,13 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   `bMax`-aware gating; `bMax: 3.0` at `js/trams.js:53` is used only by the amber check) rather than just lowering the cap
   (`t.acc = Math.max(-9, _acc)`, `:1817`), which would cause overruns. Needs accept-traffic. Browser rates of 9–11 m/s²
   were a harness timebase artefact. [Record](observations/browser-checks-trams-2026-11-17.md#3-kaponiera).
+- **Defect (not investigated): lamp heads / pole tops poke through canopy decks.** About five dark arms appear on the
+  Piaśnicka Rynek roof in the aerial frame `/tmp/cx-canopy-ssr/shots/after-webgpu-top.png`; cause and scope are not
+  investigated. [Record](observations/canopy-ssr-2026-11-17.md).
 - **Defect (minor): open doorways are barely readable in some lighting (Zawady Tramino).** Open leaf RGB (27, 31, 33) vs
   closed (9, 21, 31) in `zawadyA3-10` / `-12`; the open colour `0x2b2622` (`js/actor-models.js:3697`) is shared by all
   models, and Ogrody's Combino reads better (`ogrody-09` / `-11`), so it is lighting and angle. Model labels are inferred
   from livery. [Record](observations/browser-checks-trams-2026-11-17.md#5-dwells-and-the-jeżyce-reservation).
-- **Defect (not investigated): high-tier (SSR) reflection on the tram canopy underside.** The 6.1 m canopy at Piaśnicka
-  Rynek `(3274, 2324)` shows semi-transparent ghost reflections on WebGPU high (`pano-webgpu-back`, `pano-webgpu-side`);
-  the comparison frame was WebGL2 **low**, which has no SSR (`pano-webgl2-back`); WebGL2 high was not checked. Likely cause:
-  the canopy roof material `roughness: 0.5, metalness: 0.42` (`js/canopies.js:48`), under the 0.75 SSR roughness mask.
-  [Record](observations/browser-checks-trams-2026-11-17.md#1-pantograph-under-a-raised-canopy).
 - Kaponiera left turn with a tram approaching: the close crossing ahead of the tram's nose was **not framed**. The frames
   (`kapL3`) show the car just after it cleared the path of a braking tram (≈ 0.25 s after), the crossing itself is inferred
   from the log. The per-frame tram-reservation value (`c.held`, `tramConflictGap`) was not read, so the ~1 s
