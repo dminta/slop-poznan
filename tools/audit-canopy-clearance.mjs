@@ -67,53 +67,75 @@ const pedRoutesMod = loadModule(source('pedestrian-routes'), {
   globals, filename: 'pedestrian-routes.js'
 });
 const kit = loadModule(source('landmark-kit'), {
-  imports: { 'three/webgpu': threeStub, 'three/addons/utils/BufferGeometryUtils.js': inert(), './city-config.js': config, './tsl-materials.js': materialsStub },
+  imports: { 'three/webgpu': threeStub, 'three/addons/utils/BufferGeometryUtils.js': inert(),
+    './city-config.js': config, './tsl-materials.js': materialsStub },
   globals, filename: 'landmark-kit.js'
 });
 const lmModules = {};
-for (const name of ['landmarks-rynek', 'landmarks-heritage', 'landmarks-centrum', 'landmarks-dworzec', 'landmarks-towers', 'landmarks-historic', 'landmarks-stadium', 'landmarks-piotrowo']) {
+for (const name of ['landmarks-rynek', 'landmarks-heritage', 'landmarks-centrum', 'landmarks-dworzec',
+  'landmarks-towers', 'landmarks-historic', 'landmarks-stadium', 'landmarks-piotrowo']) {
   lmModules['./' + name + '.js'] = loadModule(source(name), {
-    imports: { 'three/webgpu': threeStub, 'three/tsl': tslStub, 'three/addons/utils/BufferGeometryUtils.js': inert(), './city-config.js': config, './geodata.js': { GEO }, './landmark-kit.js': kit, './tsl-materials.js': materialsStub, './city-clock.js': inert(), './baltyk-disco.js': inert() },
+    imports: { 'three/webgpu': threeStub, 'three/tsl': tslStub, 'three/addons/utils/BufferGeometryUtils.js': inert(),
+      './city-config.js': config, './geodata.js': { GEO }, './landmark-kit.js': kit,
+      './tsl-materials.js': materialsStub,
+      './city-clock.js': inert(), './baltyk-disco.js': inert() },
     globals, filename: name + '.js'
   });
 }
 const landmarksMod = loadModule(source('landmarks'), {
-  imports: { 'three/webgpu': threeStub, './city-config.js': config, './landmark-kit.js': kit, './city-grid.js': inert(), ...lmModules },
+  imports: { 'three/webgpu': threeStub, './city-config.js': config, './landmark-kit.js': kit,
+    './city-grid.js': inert(), ...lmModules },
   globals, filename: 'landmarks.js'
 });
 const buildingsMod = loadModule(source('buildings'), {
-  imports: { 'three/webgpu': threeStub, 'three/tsl': tslStub, 'three/addons/utils/BufferGeometryUtils.js': inert(), './city-config.js': config, './geodata.js': { GEO }, './tsl-materials.js': materialsStub, './roofs.js': inert(), './balconies.js': inert(), './city-grid.js': inert() },
+  imports: { 'three/webgpu': threeStub, 'three/tsl': tslStub, 'three/addons/utils/BufferGeometryUtils.js': inert(),
+    './city-config.js': config, './geodata.js': { GEO }, './tsl-materials.js': materialsStub,
+    './roofs.js': inert(), './balconies.js': inert(), './city-grid.js': inert() },
   globals, filename: 'buildings.js'
 });
-const gridMod = loadModule(source('city-grid') + '\nexport function snapshot() { return { pavedPlazaRects, parkTreeSites, parkLampSites, sidewalkBlocks }; }', {
-  imports: { 'three/webgpu': inertThree, 'three/addons/utils/BufferGeometryUtils.js': inert(), './city-config.js': config, './geodata.js': { GEO }, './tsl-materials.js': tslStub },
+const gridSnapshot = '\nexport function snapshot() { return { ' +
+  'pavedPlazaRects, parkTreeSites, parkLampSites, sidewalkBlocks }; }';
+const gridMod = loadModule(source('city-grid') + gridSnapshot, {
+  imports: { 'three/webgpu': inertThree, 'three/addons/utils/BufferGeometryUtils.js': inert(),
+    './city-config.js': config, './geodata.js': { GEO }, './tsl-materials.js': tslStub },
   globals, filename: 'city-grid.js'
 });
 const canopiesMod = loadModule(source('canopies'), {
-  imports: { 'three/webgpu': inertThree, 'three/tsl': tslStub, 'three/addons/utils/BufferGeometryUtils.js': inert(), './geodata.js': { GEO }, './tsl-materials.js': tslStub },
+  imports: { 'three/webgpu': inertThree, 'three/tsl': tslStub, 'three/addons/utils/BufferGeometryUtils.js': inert(),
+    './geodata.js': { GEO }, './tsl-materials.js': tslStub },
   globals, filename: 'canopies.js'
 });
 const bridgesMod = loadModule(source('bridges'), {
-  imports: { 'three/webgpu': inertThree, 'three/tsl': tslStub, 'three/addons/utils/BufferGeometryUtils.js': inert(), './city-config.js': config, './geodata.js': { GEO }, './tsl-materials.js': tslStub },
+  imports: { 'three/webgpu': inertThree, 'three/tsl': tslStub, 'three/addons/utils/BufferGeometryUtils.js': inert(),
+    './city-config.js': config, './geodata.js': { GEO }, './tsl-materials.js': tslStub },
   globals, filename: 'bridges.js'
 });
-const tramMod = loadModule(source('tram-infra'), {
-  imports: { 'three/webgpu': inertThree, 'three/tsl': tslStub, 'three/addons/utils/BufferGeometryUtils.js': inert(), './geodata.js': { GEO }, './city-config.js': config, './tsl-materials.js': tslStub },
+const tramMod = loadModule(source('tram-infra') + '\nexport { SPAN_Y };', {
+  imports: { 'three/webgpu': inertThree, 'three/tsl': tslStub, 'three/addons/utils/BufferGeometryUtils.js': inert(),
+    './geodata.js': { GEO }, './city-config.js': config, './tsl-materials.js': tslStub },
   globals, filename: 'tram-infra.js'
 });
+const { SPAN_Y } = tramMod;
 
 const landmarks = landmarksMod.buildLandmarks(new Group());
 const cityBlocks = buildingsMod.buildCityBlocks(new Group());
 const buildingColliders = [...landmarks.colliders, ...cityBlocks.colliders];
-const grid = gridMod.buildCityGrid(new Group(), { buildingFootprints: cityBlocks.footprintsByBlock, buildingColliders });
+const grid = gridMod.buildCityGrid(new Group(), { buildingFootprints: cityBlocks.footprintsByBlock,
+  buildingColliders });
 const liveGrid = { ...gridMod, ...gridMod.snapshot() };
 const canopies = canopiesMod.buildCanopies(new Group());
 const bridges = bridgesMod.buildBridges(new Group(), { sidewalks: grid.sidewalks });
-const allColliders = [...landmarks.colliders, ...cityBlocks.colliders, ...canopies.colliders, ...bridges.colliders, ...(grid.colliders || [])];
+const allColliders = [...landmarks.colliders, ...cityBlocks.colliders, ...canopies.colliders,
+  ...bridges.colliders, ...(grid.colliders || [])];
 
 let capturedLamps = [];
-globals.captureLamps = (items, footprints) => { capturedLamps = items.filter((p) => footprints[p.fpIdx]).map((p) => ({ x: p.pole.x, z: p.pole.z, type: p.type, scale: p.scale || 1 })); };
-const detailsSource = source('street-details').replace('    const compact = (arr) => {', '    captureLamps(placedLamps, footprints);\n    const compact = (arr) => {');
+globals.captureLamps = (items, footprints) => {
+  capturedLamps = items.filter((p) => footprints[p.fpIdx]).map((p) => ({
+    x: p.pole.x, z: p.pole.z, type: p.type, scale: p.scale || 1
+  }));
+};
+const detailsSource = source('street-details').replace('    const compact = (arr) => {',
+  '    captureLamps(placedLamps, footprints);\n    const compact = (arr) => {');
 const detailsMod = loadModule(detailsSource, {
   imports: {
     'three/webgpu': inertThree, 'three/tsl': tslStub, 'three/addons/utils/BufferGeometryUtils.js': inert(),
@@ -134,7 +156,8 @@ const network = road.buildRoadNetwork(grid.sidewalks, [
   ...details.footprints,
   ...allColliders.filter((c) => !c.obb && (c.minY ?? 0) < 3.5)
 ]);
-const pedRoutes = pedRoutesMod.createPedestrianRoutes(network, config.blockAt, gridMod.railClearance, buildingColliders, config.PEDESTRIAN_WAYS);
+const pedRoutes = pedRoutesMod.createPedestrianRoutes(network, config.blockAt, gridMod.railClearance,
+  buildingColliders, config.PEDESTRIAN_WAYS);
 const tramLayout = details.tramLayout || tramMod.layoutTramInfrastructure(network, grid);
 const railLayout = tramMod.layoutRailInfrastructure(network);
 details.addRuntimeSignalHeads(network, pedRoutes, [...tramLayout.poles, ...railLayout.masts]);
@@ -162,19 +185,28 @@ function segmentHits(c, s) {
   return true;
 }
 const objects = [];
-for (const p of capturedLamps) objects.push({ kind: p.type + '-lamp', x: p.x, z: p.z, r: p.type === 'led' ? 0.225 : 0.2, top: p.type === 'led' ? 0.1 + 10 * p.scale : 4.36 });
-for (const p of liveGrid.parkLampSites || []) objects.push({ kind: 'park-lamp', x: p.x, z: p.z, r: 0.2, top: p.y + 0.28 });
+for (const p of capturedLamps) objects.push({ kind: p.type + '-lamp', x: p.x, z: p.z, r: p.type === 'led' ? 0.225 : 0.2,
+  top: p.type === 'led' ? 0.1 + 10 * p.scale : 4.36 });
+for (const p of liveGrid.parkLampSites || []) objects.push({ kind: 'park-lamp', x: p.x,
+  z: p.z, r: 0.2, top: p.y + 0.28 });
 for (const t of capturedTrees) objects.push({ kind: 'tree', x: t.x, z: t.z, r: 0.28 * (t.scale || 1), top: Infinity });
 for (const p of tramLayout.poles) objects.push({ kind: 'tram-pole', x: p.x, z: p.z, r: 0.16, top: p.h });
 for (const p of railLayout.masts) objects.push({ kind: 'rail-mast', x: p.x, z: p.z, r: 0.2, top: p.h });
-for (const p of details.footprints) if (p.kind === 'signal') objects.push({ kind: 'signal', x: (p.minX + p.maxX) / 2, z: (p.minZ + p.maxZ) / 2, r: Math.max(p.maxX - p.minX, p.maxZ - p.minZ) / 2, top: 4.1 });
-for (const st of tramLayout.stops) if (st.shelter) objects.push({ kind: 'shelter', x: st.shelter.x, z: st.shelter.z, r: 0.1, top: 2.8 });
+for (const p of details.footprints) if (p.kind === 'signal') objects.push({ kind: 'signal',
+  x: (p.minX + p.maxX) / 2, z: (p.minZ + p.maxZ) / 2, r: Math.max(p.maxX - p.minX, p.maxZ - p.minZ) / 2,
+  top: 4.1 });
+for (const st of tramLayout.stops) if (st.shelter) objects.push({ kind: 'shelter', x: st.shelter.x,
+  z: st.shelter.z, r: 0.1, top: 2.8 });
 const hits = [];
 for (const [index, c] of GEO.canopies.entries()) {
-  for (const o of objects) if (o.top > c.clearance && circleHits(c, o.x, o.z, o.r)) hits.push({ index, canopyKind: c.kind, cx: c.cx, cz: c.cz, clearance: c.clearance, ...o, top: Number.isFinite(o.top) ? o.top : null });
+  for (const o of objects) if (o.top > c.clearance && circleHits(c, o.x, o.z, o.r)) hits.push({ index,
+    canopyKind: c.kind, cx: c.cx, cz: c.cz, clearance: c.clearance, ...o,
+    top: Number.isFinite(o.top) ? o.top : null });
   for (const [kind, segments] of [['tram-arm', tramLayout.arms], ['tram-span', tramLayout.spans]]) {
-    if (6.6 <= c.clearance) continue;
-    for (const s of segments) if (segmentHits(c, s)) hits.push({ index, canopyKind: c.kind, cx: c.cx, cz: c.cz, clearance: c.clearance, kind, x: s.ax, z: s.az, bx: s.bx, bz: s.bz, top: 6.6 });
+    if (SPAN_Y <= c.clearance) continue;
+    for (const s of segments) if (segmentHits(c, s)) hits.push({ index, canopyKind: c.kind,
+      cx: c.cx, cz: c.cz, clearance: c.clearance, kind, x: s.ax, z: s.az, bx: s.bx, bz: s.bz,
+      top: SPAN_Y });
   }
 }
 const counts = {};
@@ -182,7 +214,7 @@ for (const h of hits) { const k = h.canopyKind + '/' + h.kind; counts[k] = (coun
 const targetCanopies = tramLayout.canopyKeepout.canopies.map((c) => GEO.canopies.indexOf(c));
 const hangers = tramLayout.droppers.filter((d) => d.canopy).map((d) => ({
   x: d.x, z: d.z, top: d.y0 + 0.15,
-  canopy: GEO.canopies.indexOf(tramLayout.canopyKeepout.at(d.x, d.z).source)
+  canopy: GEO.canopies.indexOf(tramLayout.canopyKeepout.at(d.x, d.z, 0.001, SPAN_Y).source)
 }));
 const tractionSupports = [...tramLayout.poles, ...railLayout.masts];
 const missingSignalSupports = [];
@@ -194,6 +226,9 @@ for (const h of details.runtimeHeads) {
     }
   }
 }
-const data = { canopies: GEO.canopies.length, targetCanopies, counts, hits, hangers, missingSignalSupports };
+const data = {
+  canopies: GEO.canopies.length, targetCanopies, counts, hits, hangers, missingSignalSupports,
+  tramPoles: tramLayout.poles, tramArms: tramLayout.arms
+};
 if (jsonMode) console.log(JSON.stringify(data, null, 2));
 else { console.log(JSON.stringify(counts, null, 2)); for (const h of hits) console.log(JSON.stringify(h)); }

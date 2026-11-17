@@ -126,16 +126,16 @@ test('seeded species assignment preserves the full built city tree sites and col
   // Last pruned carriageways (2026-11-16): six signal poles move off turning curves and crosswalk landings; one street
   // tree and one park tree follow the restored lanes.
   // Shelter clearance (2026-11-17): street trees move clear of shelters, pits and machines; mapped trees stay.
-  // Tram canopy clearance changes the reduced fixture, which omits the full-world building and landmark walls.
-  assert.deepEqual(before, [45638, 48751, 21936, 1979]);
-  assert.deepEqual(after, [43769, 46723, 21022, 6790]);
-  assert.equal(siteHash, 'c7a0ce5830eac2d44c6ad14d7d044f7a2223abac43aabdb218b8e7a9163450af');
+  // Platform pole and lamp changes restore three trees in this reduced fixture.
+  assert.deepEqual(before, [45639, 48753, 21936, 1979]);
+  assert.deepEqual(after, [43771, 46725, 21022, 6789]);
+  assert.equal(siteHash, '2b467b1a18507af2b4803e30a7810ac214610165b3a043b1fa6eabac2ac07902');
   // Tram-canopy placement also updates this reduced fixture's grid prop collider snapshot.
   assert.equal(digest(grid.propColliders), 'c7b783ae645e5f0d34df6adec447966df7b09ead7b16dfc85f7e6c7b29eab529');
   // Street-details colliders also reflect relocated or dropped lamps and reduced-fixture tree placement.
-  assert.equal(digest(details.colliders), '1141621761f4a3e0ebf21a45644aa1925c2f9a2b9b2253f25b73f51bf315219e');
+  assert.equal(digest(details.colliders), '8efb863dcba21e15b36c97519bf369778f025a3b229b54f968f2817c0bb38721');
   assert.equal(meshCount((t) => t.species || 0), 25323);
-  assert.equal(meshCount(treeSpecies), 30160);
+  assert.equal(meshCount(treeSpecies), 30158);
   // Every surveyed node the clearance rules accept reaches the field exactly at its OSM position. The rest are dropped
   // where a wall, lane, track, water or building doorway leaves no room, or within 4 m of a plaza planter whose own tree
   // stands for them, rather than moved off the surveyed point.

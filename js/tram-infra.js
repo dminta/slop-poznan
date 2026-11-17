@@ -366,26 +366,41 @@ function createShelterKeepout(stops) {
   return { isClear, isRectClear };
 }
 
-// Include an unclassified roof when it overlaps a mapped tram canopy, as at the western tram loop.
+// All decks protect tall furniture; a track station qualifies for a hanger only where it lies under a deck.
 function createCanopyKeepout(canopies) {
   const entries = (canopies || []).map((c) => ({
     source: c, rect: makeObb(c.cx, c.cz, c.w / 2, c.d / 2, -c.ang), clearance: c.clearance
   }));
-  const tram = entries.filter((c) => c.source.kind === 'tram');
-  const rects = entries.filter((c) => c.source.kind === 'tram' ||
-    (c.source.kind === 'roof' && tram.some((t) => obbOverlap(t.rect, c.rect))));
   const bounds = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
-  for (const c of rects) {
+  const cells = new Map();
+  const key = (x, z) => x + ',' + z;
+  for (const c of entries) {
     const a = c.rect, rx = Math.abs(a.ux) * a.hx + Math.abs(a.vx) * a.hz;
     const rz = Math.abs(a.uz) * a.hx + Math.abs(a.vz) * a.hz;
+    for (let ix = Math.floor((a.x - rx) / 64); ix <= Math.floor((a.x + rx) / 64); ix++) {
+      for (let iz = Math.floor((a.z - rz) / 64); iz <= Math.floor((a.z + rz) / 64); iz++) {
+        const k = key(ix, iz);
+        if (!cells.has(k)) cells.set(k, []);
+        cells.get(k).push(c);
+      }
+    }
     bounds.minX = Math.min(bounds.minX, a.x - rx); bounds.maxX = Math.max(bounds.maxX, a.x + rx);
     bounds.minZ = Math.min(bounds.minZ, a.z - rz); bounds.maxZ = Math.max(bounds.maxZ, a.z + rz);
   }
   const at = (x, z, r = 0.001, top = Infinity) => {
     if (x + r < bounds.minX || x - r > bounds.maxX || z + r < bounds.minZ || z - r > bounds.maxZ) return null;
-    return rects.find((c) => top > c.clearance && obbCircleOverlap(c.rect, x, z, r)) || null;
+    let best = null;
+    for (let ix = Math.floor((x - r) / 64); ix <= Math.floor((x + r) / 64); ix++) {
+      for (let iz = Math.floor((z - r) / 64); iz <= Math.floor((z + r) / 64); iz++) {
+        for (const c of cells.get(key(ix, iz)) || []) {
+          if (top > c.clearance && (!best || c.clearance > best.clearance) &&
+              obbCircleOverlap(c.rect, x, z, r)) best = c;
+        }
+      }
+    }
+    return best;
   };
-  return { at, canopies: rects.map((c) => c.source), isClear: (x, z, r, top = Infinity) => !at(x, z, r, top) };
+  return { at, canopies: entries.map((c) => c.source), isClear: (x, z, r, top = Infinity) => !at(x, z, r, top) };
 }
 
 // Every layout caller supplies its built city grid; mapped trees remain part of the same input recipe.
@@ -778,6 +793,11 @@ function layoutTramInfrastructure(network, grid = null) {
 
   // --- Overhead line supports ---------------------------------------------------------------------------------------
   const canopyKeepout = createCanopyKeepout(GEO.canopies);
+  const tramDecks = GEO.canopies.filter((c) => c.kind === 'tram');
+  const treeDecks = GEO.canopies.filter((c) => c.kind === 'tram' || (c.kind === 'roof' && tramDecks.some((t) =>
+    obbOverlap(makeObb(c.cx, c.cz, c.w / 2, c.d / 2, -c.ang),
+      makeObb(t.cx, t.cz, t.w / 2, t.d / 2, -t.ang)))));
+  const treeCanopyKeepout = createCanopyKeepout(treeDecks);
   const poles = [];
   const spans = [];
   const arms = [];
@@ -816,7 +836,7 @@ function layoutTramInfrastructure(network, grid = null) {
     for (let o = TRACK_KEEP; o <= maxO; o += 0.25) {
       const px = x + nx * o;
       const pz = z + nz * o;
-      if (!trackGround(px, pz)) break;
+      if (!trackGround(px, pz) || !canopyKeepout.isClear(px, pz, 0.2, SPAN_Y)) break;
       if (!clearSpot(px, pz)) continue;
       if (onCurb(px, pz)) {
         const ix = px + nx * 0.6;
@@ -861,6 +881,19 @@ function layoutTramInfrastructure(network, grid = null) {
           rosettes.push({ x: ra.x, z: ra.z, nx: -nx, nz: -nz }, { x: la.x, z: la.z, nx, nz });
           spans.push({ ax: la.x, az: la.z, bx: ra.x, bz: ra.z });
           markCrossings(la.x, la.z, ra.x, ra.z);
+          continue;
+        }
+      }
+      // A short span beside a deck can use one cantilever: keep its full crossing, but avoid a redundant pole
+      // on the deck side. The unused endpoint stays in place so every wire support crossing remains identical.
+      if (street && R && L && R.o + L.o <= 4) {
+        const leftNear = !canopyKeepout.isClear(L.x, L.z, 5, SPAN_Y);
+        const rightNear = !canopyKeepout.isClear(R.x, R.z, 5, SPAN_Y);
+        if (leftNear !== rightNear) {
+          const from = leftNear ? R : L, to = leftNear ? L : R;
+          const q = poleAt(from.x, from.z, 7.6);
+          arms.push({ ax: q.x, az: q.z, bx: to.x, bz: to.z });
+          markCrossings(q.x, q.z, to.x, to.z);
           continue;
         }
       }
@@ -1348,7 +1381,7 @@ function layoutTramInfrastructure(network, grid = null) {
 
   return {
     tracks, pieces, decks, stops, skipped, poles, spans, arms, rosettes, droppers, footprints, laneDist, trackDist,
-    sheltersMoved, sheltersDropped, shelterKeepout: createShelterKeepout(stops), canopyKeepout
+    sheltersMoved, sheltersDropped, shelterKeepout: createShelterKeepout(stops), canopyKeepout, treeCanopyKeepout
   };
 }
 
