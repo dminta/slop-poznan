@@ -121,7 +121,11 @@
   the addon's `SunShadowNode` / `SunLightShadow` internals (`_viewports`, `_matrices`, `_cascadeData`), so recheck it on
   both backends after a three.js CDN bump. Measured draws, CPU and pixel diffs:
   [perf-shadows-2026-11-11](observations/perf-shadows-2026-11-11.md).
-- Dynamic lights (streetlights, store spots, police lights, headlights) come from fixed pools created at build time. A pool light is "off" when its intensity is 0 and it is parked at y = -1000. To add a light, add it to a pool and change only its intensity and position at runtime; do not create lights per frame.
+- Dynamic lights (streetlights, store spots, police lights, headlights) come from fixed pools created at build time.
+  A pool light is "off" when its intensity is 0 and it is parked at y = -1000. To add a light, add it to a pool and
+  change only its intensity and position at runtime; do not create lights per frame.
+- Canopy soffit fixtures share the street point-light pool and fade their emissive material with the street-lamp shader's
+  `smoothstep(0.4, 1.1, uInteriorGlow)`; the fixed pool bounds the number of real lights.
 
 ## Post-processing chain (`main.js` → `post-processing.js`)
 - The high-tier scene pass MRT writes `output`, `normal` (view space) and `metalRough`. The `metalRough.r` channel is metalness, and it is zeroed when roughness is 0.75 or higher or the surface is beyond about 360 m (`ssrFade`), so SSR spends rays only on nearby glossy pixels. Half-resolution SSR is masked again by roughness before it is added to the scene colour. Down-facing glossy surfaces can mirror the street in SSR; give them a matte underside where appropriate, as in `canopies.js`. The low tier skips the MRT, the SSR pass and the bloom node altogether; `createPostProcessing(renderer, sceneColor, reflections, { bloom: false })` builds only the grading graph.

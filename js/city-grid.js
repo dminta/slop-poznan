@@ -1948,8 +1948,17 @@ function buildCityGrid(scene, opts = {}) {
     addPropCollider(x, z, 0.95, 0.27, y + 0.92, rotY); // 1.9 m of slats, the back's top at 0.91 m
     return true;
   }
+  const transitDecks = (GEO.canopies || []).filter((c) => c.kind === 'tram' || c.kind === 'platform');
   function addLamp(x, y, z) {
     if (!railClear(x, z, 0.3) || tramSurfaceClearance(x, z, 0.7) < 0.7 || !clearOfLamps(x, z)) return false;
+    // Even a short globe that clears the soffit obstructs a covered platform or track.
+    for (const c of transitDecks) {
+      if (x < c.x0 - 0.27 || x > c.x1 + 0.27 || z < c.z0 - 0.27 || z > c.z1 + 0.27) continue;
+      const dx = x - c.cx, dz = z - c.cz, cs = Math.cos(c.ang), sn = Math.sin(c.ang);
+      const u = Math.max(0, Math.abs(dx * cs + dz * sn) - c.w * 0.5);
+      const v = Math.max(0, Math.abs(-dx * sn + dz * cs) - c.d * 0.5);
+      if (u * u + v * v <= 0.27 * 0.27) return false;
+    }
     lampMatrices.push(new THREE.Matrix4().makeTranslation(x, y, z));
     const site = { x, y: y + 4.17, z };
     lampSites.push(site);

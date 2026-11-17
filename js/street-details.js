@@ -2398,6 +2398,9 @@ function buildStreetDetails(scene, opts = {}) {
   for (const s of parkLampSites || []) {
     streetPointSites.push({ x: s.x, y: s.y, z: s.z, color: 0xffe4b4, intensity: 32, dist: 14.0 });
   }
+  for (const s of opts.canopyFixtureSites || []) {
+    streetPointSites.push({ x: s.x, y: s.y - 0.15, z: s.z, color: 0xffe8c2, intensity: 25, dist: 12 });
+  }
 
   const STREETLIGHT_SPOT_POOL = 36;
   const STREET_POINT_POOL = 48;

@@ -221,7 +221,9 @@ async function initApp() {
   ];
 
   // the building walls carry the street name plates at the signalised corners
-  const streetDetails = buildStreetDetails(scene, { buildingColliders: allColliders, grid: cityGrid, layoutTramInfrastructure });
+  const streetDetails = buildStreetDetails(scene, {
+    buildingColliders: allColliders, grid: cityGrid, layoutTramInfrastructure, canopyFixtureSites: canopies.fixtureSites
+  });
   markInit('streetDetails');
   // Buildings turned along non-grid streets have oriented colliders whose world bounds reach past their lots: they stay
   // inside the property line anyway, so the road network (lanes & sidewalks) doesn't need them.

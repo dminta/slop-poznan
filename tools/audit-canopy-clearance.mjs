@@ -228,6 +228,10 @@ for (const h of details.runtimeHeads) {
 }
 const data = {
   canopies: GEO.canopies.length, targetCanopies, counts, hits, hangers, missingSignalSupports,
+  parkLampsUnderTransitDecks: GEO.canopies.flatMap((c, index) =>
+    c.kind === 'tram' || c.kind === 'platform'
+      ? (liveGrid.parkLampSites || []).filter((p) => circleHits(c, p.x, p.z, 0.27))
+        .map((p) => ({ index, x: p.x, z: p.z })) : []),
   tramPoles: tramLayout.poles, tramArms: tramLayout.arms
 };
 if (jsonMode) console.log(JSON.stringify(data, null, 2));

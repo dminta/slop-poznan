@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
-import { float, mix, normalGeometry, step } from 'three/tsl';
+import { color, float, mix, normalGeometry, smoothstep, step } from 'three/tsl';
 import { GEO } from './geodata.js';
+import { cityUniforms } from './tsl-materials.js';
 
 // js/canopies.js
 // Open platform, tram-stop, petrol-station and market canopies from the OSM building=roof outlines (GEO.canopies).
@@ -11,9 +12,8 @@ import { GEO } from './geodata.js';
 // every rail centreline, so no pillar stands in a running line. Vehicles and pedestrians pass underneath: the roof
 // collider starts at the clearance, above the tallest ground actor.
 //
-// The whole set is three instanced meshes (roof decks, concrete columns, steel columns) plus one instanced beam family,
-// all under the static Canopies root, so scene culling chunks it with the rest of the city and no per-frame update is
-// needed.
+// Roofs, columns, beams and soffit fixtures use instanced meshes under the static Canopies root. Fixture positions
+// also feed the shared street-light pool; the geometry itself needs no per-frame update.
 
 const UP = new THREE.Vector3(0, 1, 0);
 const ROOF_TINT = {
@@ -31,19 +31,54 @@ function canopyColumns(canopy) {
   return canopy.columns || [];
 }
 
+function canopyFixtureSites(list) {
+  const sites = [];
+  for (const c of list) {
+    // Long narrow ordinary roofs include the Komedy and Ławica walkways whose lamps were removed.
+    if (c.kind !== 'platform' && c.kind !== 'tram' &&
+        !(c.kind === 'roof' && c.w >= 30 && c.d <= 10)) continue;
+    const n = Math.max(1, Math.ceil(c.w / 7.5));
+    const rows = c.d >= 14 ? [-c.d * 0.3, c.d * 0.3] : [0];
+    const cs = Math.cos(c.ang), sn = Math.sin(c.ang);
+    const columns = canopyColumns(c);
+    for (const v of rows) {
+      for (let i = 0; i < n; i++) {
+        const nominal = ((i + 0.5) / n - 0.5) * c.w;
+        let u = null;
+        // Keep the 1.4 m housing clear of posts, moving along the row without leaving the deck.
+        for (const shift of [0, 0.25, -0.25, 0.5, -0.5, 0.75, -0.75, 1, -1, 1.25, -1.25, 1.5, -1.5]) {
+          const candidate = nominal + shift;
+          if (Math.abs(candidate) + 0.7 > c.w * 0.5) continue;
+          const x = c.cx + candidate * cs - v * sn, z = c.cz + candidate * sn + v * cs;
+          let clear = true;
+          for (let k = 0; k + 1 < columns.length; k += 2) {
+            if (Math.hypot(x - columns[k], z - columns[k + 1]) < 1) { clear = false; break; }
+          }
+          if (clear) { u = candidate; break; }
+        }
+        if (u === null) continue;
+        sites.push({ x: c.cx + u * cs - v * sn, y: c.clearance - 0.06,
+          z: c.cz + u * sn + v * cs, ang: c.ang });
+      }
+    }
+  }
+  return sites;
+}
+
 /**
  * Build every GEO.canopies record as static instanced geometry.
  * @param {import('three/webgpu').Scene} scene
- * @returns {{ group: THREE.Group, colliders: Array<object>, count: number }}
+ * @returns {{ group: THREE.Group, colliders: Array<object>, count: number, fixtureSites: Array<object> }}
  */
 function buildCanopies(scene) {
   const group = new THREE.Group();
   group.name = 'Canopies';
   const list = GEO.canopies || [];
   const colliders = [];
+  const fixtureSites = canopyFixtureSites(list);
   if (!list.length) {
     scene.add(group);
-    return { group, colliders, count: 0 };
+    return { group, colliders, count: 0, fixtureSites };
   }
 
   const roofMaterial = new THREE.MeshStandardNodeMaterial({ roughness: 0.5, metalness: 0.42 });
@@ -74,6 +109,9 @@ function buildCanopies(scene) {
   const steel = steelCount ? new THREE.InstancedMesh(unitBox, steelMaterial, steelCount) : null;
   // Two edge beams per canopy make the deck read as a supported slab rather than a floating plate.
   const beams = new THREE.InstancedMesh(unitBox, steelMaterial, list.length * 2);
+  const fixtureMaterial = new THREE.MeshStandardNodeMaterial({ color: 0xc6c8c3, roughness: 0.7 });
+  fixtureMaterial.emissiveNode = color(0xffe8c2).mul(smoothstep(0.4, 1.1, cityUniforms.uInteriorGlow)).mul(1.6);
+  const fixtures = fixtureSites.length ? new THREE.InstancedMesh(unitBox, fixtureMaterial, fixtureSites.length) : null;
   for (const mesh of [roofs, concrete, steel, beams]) {
     if (!mesh) continue;
     mesh.castShadow = true;
@@ -83,6 +121,15 @@ function buildCanopies(scene) {
   if (concrete) concrete.name = 'CanopyColumnsConcrete';
   if (steel) steel.name = 'CanopyColumnsSteel';
   beams.name = 'CanopyBeams';
+  if (fixtures) {
+    fixtures.name = 'CanopyFixtures';
+    fixtureSites.forEach((s, i) => {
+      quaternion.setFromAxisAngle(UP, -s.ang);
+      matrix.compose(position.set(s.x, s.y, s.z), quaternion, scale.set(1.4, 0.1, 0.22));
+      fixtures.setMatrixAt(i, matrix);
+    });
+    fixtures.instanceMatrix.needsUpdate = true;
+  }
 
   let ci = 0, si = 0, bi = 0;
   list.forEach((c, i) => {
@@ -141,8 +188,9 @@ function buildCanopies(scene) {
   if (concrete) group.add(concrete);
   if (steel) group.add(steel);
   group.add(beams);
+  if (fixtures) group.add(fixtures);
   scene.add(group);
-  return { group, colliders, count: list.length };
+  return { group, colliders, count: list.length, fixtureSites };
 }
 
-export { buildCanopies, canopyColumns };
+export { buildCanopies, canopyColumns, canopyFixtureSites };

@@ -11,6 +11,7 @@ test('tram decks clear tall furniture and support contact wires', () => {
   const hits = data.hits.filter((h) => data.targetCanopies.includes(h.index) &&
     ['led-lamp', 'gas-lamp', 'park-lamp', 'tree', 'tram-pole', 'tram-arm', 'tram-span'].includes(h.kind));
   assert.deepEqual(hits, []);
+  assert.deepEqual(data.parkLampsUnderTransitDecks, [], 'park globes stay outside transit decks, even below the roof');
   assert.ok(data.targetCanopies.includes(10), 'the tram platform deck is selected');
   assert.ok(data.targetCanopies.includes(184), 'the low roof is selected');
   assert.ok(data.hangers.length > 8, 'deck hangers replace overhead supports');

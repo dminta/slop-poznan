@@ -130,8 +130,8 @@ test('seeded species assignment preserves the full built city tree sites and col
   assert.deepEqual(before, [45639, 48753, 21936, 1979]);
   assert.deepEqual(after, [43771, 46725, 21022, 6789]);
   assert.equal(siteHash, '2b467b1a18507af2b4803e30a7810ac214610165b3a043b1fa6eabac2ac07902');
-  // Tram-canopy placement also updates this reduced fixture's grid prop collider snapshot.
-  assert.equal(digest(grid.propColliders), 'c7b783ae645e5f0d34df6adec447966df7b09ead7b16dfc85f7e6c7b29eab529');
+  // Excluding the Piaśnicka globe removes its grid prop collider; tree-site pins above remain unchanged.
+  assert.equal(digest(grid.propColliders), '8a252787a188a84d17ce25a6f5ac2c95df54c514b249f1d7a3c82c17e57bb75c');
   // Street-details colliders also reflect relocated or dropped lamps and reduced-fixture tree placement.
   assert.equal(digest(details.colliders), '8efb863dcba21e15b36c97519bf369778f025a3b229b54f968f2817c0bb38721');
   assert.equal(meshCount((t) => t.species || 0), 25323);

@@ -13,10 +13,11 @@ test('all city lamps (street, gas, park, plaza) sit on sidewalk/walk with >= 0.5
   assert.equal(byType.side.count, 20573, 'expected 20,573 side LED streetlights');
   assert.equal(byType.gas.count, 1055, 'expected 1,055 historic gas lanterns');
   // Minimum 6 m lamp spacing in city-grid.js drops duplicate park/plaza lamps at corners and shared edges.
-  assert.equal(byType.park.count, 2782, 'expected 2,782 park walk and lawn lampposts');
+  // One park globe is excluded under the Piaśnicka tram deck.
+  assert.equal(byType.park.count, 2781, 'expected 2,781 park walk and lawn lampposts');
   // 665 before Teatr Polski (+8 -> 673), then 615 after dropping duplicate plaza lamps (< 6 m apart).
   assert.equal(byType.plaza.count, 612, 'expected 612 square/plaza lampposts');
-  assert.equal(allLamps.length, 27581, 'expected 27,581 total lamps citywide');
+  assert.equal(allLamps.length, 27580, 'expected 27,580 total lamps citywide');
 
   // 2. Zero lamps overlapping curb stone or roadway (< 0.25 m from curb edge)
   for (const [type, t] of Object.entries(byType)) {

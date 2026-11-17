@@ -88,7 +88,9 @@ test('canopy columns keep clear of every rail centreline and are inside their ro
 test('buildCanopies emits one roof instance per record and only collides the posts and the deck', async () => {
   const { GEO } = await import('../js/geodata.js');
   const { buildCanopies } = loadModule(readFileSync(join(__dirname, '../js/canopies.js'), 'utf8'), {
-    imports: { 'three/webgpu': threeStubs().three, 'three/tsl': inert(), './geodata.js': { GEO } },
+    imports: {
+      'three/webgpu': threeStubs().three, 'three/tsl': inert(), './geodata.js': { GEO }, './tsl-materials.js': inert()
+    },
     filename: 'canopies.js'
   });
   const scene = { add: () => {} };
@@ -106,4 +108,30 @@ test('buildCanopies emits one roof instance per record and only collides the pos
     assert.ok(c.maxY > c.minY, 'deck has thickness');
   }
   assert.ok(postBoxes.every((c) => c.maxY >= 4.5 && c.maxX - c.minX <= 0.5), 'posts are thin and full height');
+});
+
+test('fixtures stay beneath selected decks and cover the affected roofs', async () => {
+  const { GEO } = await import('../js/geodata.js');
+  const { canopyFixtureSites } = loadModule(readFileSync(join(__dirname, '../js/canopies.js'), 'utf8'), {
+    imports: {
+      'three/webgpu': threeStubs().three, 'three/tsl': inert(), './geodata.js': { GEO }, './tsl-materials.js': inert()
+    },
+    filename: 'canopies.js'
+  });
+  assert.equal(canopyFixtureSites(GEO.canopies).length, 458);
+  for (const [i, c] of GEO.canopies.entries()) {
+    const sites = canopyFixtureSites([c]);
+    if ([7, 10, 15, 33, 52, 67, 80].includes(i)) assert.ok(sites.length, `affected deck ${i}`);
+    for (const s of sites) {
+      const dx = s.x - c.cx, dz = s.z - c.cz;
+      const u = dx * Math.cos(c.ang) + dz * Math.sin(c.ang);
+      const v = -dx * Math.sin(c.ang) + dz * Math.cos(c.ang);
+      assert.ok(Math.abs(u) + 0.7 <= c.w / 2 && Math.abs(v) + 0.11 <= c.d / 2);
+      assert.ok(s.y + 0.05 < c.clearance && s.y > c.clearance - 0.2);
+      for (let j = 0; j < c.columns.length; j += 2) {
+        assert.ok(Math.hypot(s.x - c.columns[j], s.z - c.columns[j + 1]) >= 0.5,
+          `fixture clears column on deck ${i}`);
+      }
+    }
+  }
 });
