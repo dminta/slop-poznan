@@ -330,46 +330,49 @@ are listed below. The Główny hall / Garbary ramp track overlaps remain deliber
 
 ### Geometry, materials and collisions
 
-- Browser check: visually walk into the EC Garbary chimney and cooling-tower colliders to confirm the rendered
-  silhouettes and ground contact; the non-residential silhouettes (Posnania, Castorama, ZNTK, EC Garbary, Główna halls)
-  were framed at street level and from the air on WebGPU and WebGL2 2026-11-14
-  ([record](observations/browser-checks-2026-11-14.md)), and the 2026-11-15 headless geometric + controller audit
-  ([record](observations/industry-colliders-2026-11-15.md)) replaced the square AABBs (`5.936 m` diagonal invisible
-  wall on the 55 m cooling tower, `2.367 m` on the 65 m chimney, `0.861–1.270 m` on the 5 OSM chimneys) with circular
-  colliders (`c.circle` in `controllers.js` and `buildings.js`, `maxGap ≤ 0.067 m`).
-  [Profiles record](observations/building-profiles-nonres-2026-11-08.md).
 - Calibrate Collegium Maius hall weather-cover elevations and outer panel specification if a measured section or
   dated refurbishment record becomes available. Its narrow gabled exterior above curved interior glazing is now
   resolved from GUGiK/GEOPOZ imagery (13 × 17 m approximation); 14 m eaves / 3.5 m rise remain model assumptions.
   [Hall-roof evidence, 2026-11-13](observations/kit-roofs-2026-11-13.md#hall-weather-roof-review-2026-11-13).
 - Continue landmark-placement and scenic-camera checks, panel-material shimmer, balcony LOD transitions and
   platform/slab flicker where surfaces are only 1 cm apart.
-- Browser check: visually compare a few street-tree pits against OSM points in Stare Miasto and around Park Cytadela,
-  and measure frame rate and draw calls at street level and from the drone (the 119,366/119,245-site scene; the
-  2026-11-14 headless audit + pole-overlap fix confirmed 0 landing/zebra/lane/island/rail/wall/water/platform/shelter/pole-overlap
-  violations and 0 moved OSM nodes). The Rybaki collision was checked 2026-11-11: the player deflected 0.57 m around a
-  tree with a player collider at `(-285.9, 874.5)`.
+- Browser check still open for the street trees: an in-frame overlay of OSM points on the pits (the 2026-11-17 attempt drew no
+  marker meshes in the WebGPU frame, cause not investigated), and GPU frame time plus the WebGL2/low tier on the tree scene. The
+  2026-11-17 pass matched 302 of 712 old-town pits and 362 of 1,496 Cytadela-area pits to OSM nodes within 0.3 m (all the rest are
+  procedural rows), found every OSM node within 45 m of two sample discs rendered at its exact point, and measured WebGPU high at
+  60 fps (vsync-capped) with 754–1,236 draw calls at street level and the drone, CPU frame 7–15 ms
+  ([record](observations/browser-checks-props-2026-11-17.md#4-street-trees-vs-osm-frame-rate-and-draw-calls)). The Rybaki collision was
+  checked 2026-11-11: the player deflected 0.57 m around a tree with a player collider at `(-285.9, 874.5)`.
   [Tree-placement audit and pins](observations/street-tree-clearance-2026-11-06.md),
   [OSM tree record](observations/osm-street-trees-2026-11-08.md),
   [2026-11-14 headless audit](observations/street-tree-audit-2026-11-14.md).
-- Walk and drive around the named diagonal tram shelters at Dworzec Zachodni and Żniwna, checking collision against
-  their back glass and ends; a shelter at `(-1552.6, 229.7)` stopped the walking player at 3.84 m on 2026-11-11.
-  The 2026-11-14 headless geometric + controller audit ([record](observations/stop-furniture-colliders-2026-11-14.md))
-  found a `0.880 m` invisible wall on the open front of all 225 shelters (`stopFurnitureColliders` used one solid OBB),
-  split each shelter into 4 OBBs (back glass/posts, left glass/posts, right advert/posts, bench) reducing max excess to
-  `0.035 m`, and verified entering from the open front and stopping at glass/ends/bench on all Dworzec Zachodni, Żniwna
-  and Bałtyk diagonal shelters (browser check still open for visual framing).
-  [Furniture geometry](world.md#tram-infrastructure).
-- Browser check: visually inspect park lamps on Za Cytadelą and lamps stepped onto lawns in narrow-walk parks (e.g.
-  block 212 near `−953, −1928`), plus Park Nad Wartą and Park Jana Kasprowicza. The 2026-11-14 headless audit
-  ([record](observations/park-lamps-trees-2026-11-14.md)) confirmed 0 lamp trunk/prop/building/water/road/rail overlaps
-  (dropped 6 OSM trees overlapping `parkLampSites`), 0 `parkLampSites` pairs `< 6 m` apart (dropped 81 duplicate
-  park/plaza lamps, `3,519 → 3,438`), 0 procedural park trees on walks/pond paths (dropped 32), 0 trunks inside
-  buildings across Avenida, Park Nad Wartą, Antoninek block 876 (was 874) and all 44 full park blocks with buildings,
-  and verified that all 122 `onLawn` lamps sit 1.0–1.59 m inside narrow 0.2–1.0 m walks where no walk-edge spot exists.
-  [Tree/building clearance](observations/tree-building-clearance-2026-11-03.md).
-- Watch black locust wind motion; its foliage, bark and LOD were framed on 2026-11-14
-  ([record](observations/browser-checks-2026-11-14.md)). [Tree models](world.md).
+- Keep everything but the shelter out of tram-shelter footprints: the 2026-11-17 browser pass found 14 of 224 shelters with
+  something standing in them (local coordinates in the shelter frame; the headless scan that found only two skipped lamp masts,
+  pits and trees):
+  - parking machine and hydrant, from `place()` in `street-details.js`: Dworzec Zachodni `(−1637.99, 878.92)` local
+    `(−1.45, 0.32)`; Żeromskiego `(−2961.0, −791.4)` local `(1.76, 0.28)`;
+  - lamp masts, from the lamp placer: Wilczak `(843.3, −2048.1)`, Małe Garbary `(205.2, −262.7)` and `(234.1, −244.5)`,
+    Łomżyńska `(3492.2, −106.9)`, Kórnicka `(1314.6, 1046.2)`, Polanka `(1927.5, 1293.8)` (at the bench);
+  - street trees with their pits, from the tree placement: Łąkowa `(13.9, 737.7)`, Uniwersytet Przyrodniczy `(−1885.4, −2046.6)`,
+    Most Teatralny `(−1313.5, −360.8)`, Św. Leonarda `(−1541.1, −2702.1)`, Serbska `(801.8, −2556.1)`, Budziszyńska
+    `(−5851.2, 2271.6)`;
+  - borderline: the stop sign at Rondo Kaponiera `(−1414.4, 88.4)`, local `(1.93, 0.70)`, on the edge of the open front.
+
+  The 2026-11-14 street-tree audit's "0 shelter violations" needs re-checking. Shots and local coordinates in
+  [the record](observations/browser-checks-props-2026-11-17.md#defects-found-while-framing-the-shelters-14-shelters-after-review-round-1).
+  The browser walk/drive check of the named diagonal shelters at Dworzec Zachodni and Żniwna itself passed (person stops at the
+  back glass, ends and bench, enters the open front; car stops at the glass or bench).
+- Browser check: lamps stepped onto lawns in narrow-walk parks (the 122 `onLawn` lamps, 1.0–1.59 m inside the walk edge, a count that may be stale;
+  e.g. block 212 near `−953, −1928`, Skwer Sybiraków block 303, Moniuszki block 421). The 2026-11-17 browser pass
+  ([record](observations/browser-checks-props-2026-11-17.md#3-park-lamps--ok-for-the-sampled-lamps-the-lawn-lamp-placement-itself-not-exercised))
+  framed 13 lamps in Za Cytadelą, Park Cytadela, Park Nad Wartą and Park Jana Kasprowicza by day and night (all fine; none a
+  verified lawn lamp: the one at `−959.18, −1893.81` stands on a grass median). The "122 `onLawn`" figure comes from the 3,438-lamp audit
+  and may be stale (the grid now has 3,390 lamps, `tram-bed-surfaces-2026-11-14.md`); the headless audit
+  ([record](observations/park-lamps-trees-2026-11-14.md)) already confirmed the geometry. [Tree/building clearance](observations/tree-building-clearance-2026-11-03.md).
+- Watch the black locust wind motion in a strong-gust phase: the 2026-11-17 check sampled 7.2 s of a ≈ 12.6 s gust period
+  (crown drift ≤ 2 px / 6 px, leaf flutter, no popping) and could not separate branch motion from foliage motion in stills
+  ([record](observations/browser-checks-props-2026-11-17.md#5-black-locust-wind--plausible-amplitude-small-not-resolved-for-strong-gusts)).
+  [Tree models](world.md).
 
 ### Signals, traffic and audio
 
