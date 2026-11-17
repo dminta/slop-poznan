@@ -1546,3 +1546,31 @@ test('a tram\'s obstacle car stood 20 s on a connector keeps the tram\'s body ba
   assert.deepEqual(frame(), full, 'a tram that no longer waits for the car brings its proxy back');
   assert.equal(car.released, null);
 });
+
+test('box curvature samples of a connector with a shifted stop line follow the Bezier, not the straight stub', () => {
+  const roads = readFileSync(join(__dirname, '../js/road-network.js'), 'utf8');
+  const curvePoint = vm.runInNewContext(`(${roads.match(/^function curvePoint\([^]*?\n\}/m)[0]})`);
+  const curve = {
+    x0: -2038.93, z0: -438.65, x1: -2036.05, z1: -445.98, x2: -2019.54, z2: -446.95, x3: -2002.08, z3: -440.82,
+    len: 39.43346, curv: 0.16106,
+    lut: [0, 1.47576737, 2.99882746, 4.62286711, 6.38378143, 8.30244827, 10.38873577, 12.64495659,
+      15.06837654, 17.65290833, 20.39025497, 23.27067947, 26.28353119, 29.41763878, 32.66158676, 36.00394440, 39.43346024]
+  };
+  const lead = 6, tx = curve.x1 - curve.x0, tz = curve.z1 - curve.z0, tl = Math.hypot(tx, tz);
+  const led = { ...curve, lead, ux: tx / tl, uz: tz / tl, len: curve.len + lead };
+  const context = { curvePoint, boxSample: {} };
+  const boxSamples = trafficFunction('boxSamples', context);
+  boxSamples(curve);
+  boxSamples(led);
+  const peak = (c) => {
+    let k = 0;
+    for (let i = 1; i < c.boxBends.length; i++) if (c.boxBends[i] > c.boxBends[k]) k = i;
+    return { s: c.len * k / (c.boxBends.length - 1), bend: c.boxBends[k] };
+  };
+  const a = peak(curve), b = peak(led);
+  assert.ok(Math.abs(b.s - (a.s + lead)) < 0.6, `sharpest bend at ${b.s}, expected ${a.s + lead}`);
+  assert.ok(Math.abs(b.bend - a.bend) / a.bend < 0.02);
+  for (let i = 0; i < led.boxBends.length; i++) {
+    if (led.len * i / (led.boxBends.length - 1) <= lead) assert.equal(led.boxBends[i], 0, 'no curvature on the stub');
+  }
+});

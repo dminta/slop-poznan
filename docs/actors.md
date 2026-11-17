@@ -289,6 +289,14 @@ Root causes found and fixed: jam density from a full pool on sparse networks (`V
 as junctions (road-network.js step 7, docs/world.md); trams holding junction curves ahead while they could not go;
 trams and pedestrians waiting for each other at the rails; a trickle of walkers starving a car at a zebra (courtesy);
 cycles found: 6 cars and trams at (-1863, -391) and 3 around a car stuck in the (-986, 161) box behind a tram, both gone.
+Side-head stop lines (Table 7.2, 2.0 m before the head's front face) are moved by `streetDetails.addRuntimeSignalHeads`
+after the traffic system exists and before trams and road paint: `network.shiftStopLine(e, shift)` shortens the edge,
+lengthens `setbackTo` by the same amount (the zebra stays) and records `e.stopLead`; each connector (cached or built later)
+starts with a straight stub of that length, so `v.cs`, `crosswalkEnd`, box and reservation logic all see the new line
+without a traffic.js change; rules that classify a link by its size (12 m, 17.5 m, 2·half, `RSV_MAX_LEN`) read
+`e.linkLen ?? e.len`, the physical length. Links under `SIDE_HEAD_MIN_LINK` (17.5 m physical) keep their line; about 216 of 954 signalised approaches move (median 1 m, max 10.6 m)
+and 329 keep a side head closer than 2.0 m ([record](observations/signal-stopline-2026-11-17.md)). `tools/bench-world.mjs`
+runs the same placement by default (it models `main.js`), so `accept-traffic` sees it; `BENCH_RUNTIME_HEADS=0` turns it off.
 Local signal plans live in `node.signalTiming` (shared with `SIGNAL_SITES[].timing`).
 `updateSignal(time, node)` caches both vehicle groups and WALK/display states once per plan and time. Traffic updates
 its signal nodes once per frame, and cars read `phaseOf(e)`. Plan splits use inbound lanes and width; minor and compact

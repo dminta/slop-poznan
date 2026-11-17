@@ -662,10 +662,15 @@ function buildStreetDetails(scene, opts = {}) {
   const OVERHEAD_ARM_Y = 5.55;
   const OVERHEAD_ARM_R = 0.045;
   const OVERHEAD_REACH = 12;
+  // Table 7.2 (front face to stop line): 10.5 m for the 5.5 m row plus the 0.18 m from the head's centre to its face
+  // and a 2 cm margin; the 15 m recommended value of that row is the ceiling (a 15-19 deg view from the lead car)
+  const OVERHEAD_AHEAD_MIN = 10.7;
+  const OVERHEAD_AHEAD_MAX = 15;
   // A span wire hangs the head from two stays that meet above it. The stays run at 10 m, above the 7.6 m tram
   // poles, 9.6 m railway portal masts and 8.9 m portal beams, so they may cross a track; only the head and the
   // vertical drop below them need the 2.22 m horizontal track clearance. Two 10 m masts (or sleeves on reused 4.2 m
   // poles) carry the stays.
+  const OVERHEAD_SPAN_ALONG = [OVERHEAD_AHEAD_MIN, 12.5, 14, OVERHEAD_AHEAD_MAX];
   const SPAN_Y = 10;
   const SPAN_MAST_H = 10;
   const SPAN_REACH = 55;
@@ -2672,7 +2677,10 @@ function buildStreetDetails(scene, opts = {}) {
       const ox = h.p.x - x, oz = h.p.z - z;
       return (h.group0 !== swap) === (edge.axisIndex === 0) &&
         -h.a.ux * edge.dx - h.a.uz * edge.dz > 0.9 && Math.hypot(ox, oz) <= headReach &&
-        ox * edge.dx + oz * edge.dz <= STOP_SETBACK;
+        // an overhead head serves the edge it hangs over, 10.5-15 m past ITS stop line (Table 7.2), never one it
+        // would stand upstream of or too close to; a ground head stands at most STOP_SETBACK past the line
+        (h.overhead ? ox * edge.dx + oz * edge.dz >= OVERHEAD_AHEAD_MIN - 1e-6 &&
+          ox * edge.dx + oz * edge.dz <= OVERHEAD_AHEAD_MAX + 1e-6 : ox * edge.dx + oz * edge.dz <= STOP_SETBACK);
     });
     const findApproachHead = (list, node, edge) => list.find((h) => {
       const swap = Math.abs(h.site.timing.mainUx * node.signalTiming.mainUx +
@@ -2813,63 +2821,57 @@ function buildStreetDetails(scene, opts = {}) {
           return true;
         };
         // Overhead fallback: pair the head with an existing signal pole or a mast foot on any clear block within
-        // 12 m, including medians and sidewalk points 6-12 m from the curb and supports up to 10 m ahead of the stop
-        // line. The ordinary search stops at 6 m and misses them. The first search keeps the head at least 8 m before
-        // the stop line (the table 7.2 row for a 4.5 m mounting), then a successful arm is retargeted to the stricter
-        // 10.5 m row for the 5.3 m head when its reach allows; only when no support reaches either band does the head
-        // fall back to the support's position (1.75 m past the stop line at most).
+        // 12 m, including medians and sidewalk points 6-12 m from the curb. Table 7.2 of załącznik 3 (Dz.U. 2015
+        // poz. 1314, identical in Dz.U. 2019 poz. 2311) measures from the signal's front face BACK to the stop line:
+        // overhead heads hang OVERHEAD_AHEAD_MIN (the 5.5 m row, 10.5 m; the 5.3 m head sits between the 4.5 m and
+        // 5.5 m rows) to OVERHEAD_AHEAD_MAX metres PAST the line, over or beyond the junction, so the lead driver sees
+        // them. The first version put them 8-15 m upstream, behind the driver (browser-checks-signals-2026-11-17.md).
+        // Without a site past the line the approach stays unplaced (class C); nothing falls back to the old side.
         const findOverhead = () => {
-          // Pair the head with the support's longitudinal position, clamped to the ground search's -15 m limit and
-          // to the requested visibility band; the head goes over the nearest lane. The arm is not always lateral:
-          // 10 of the 26 arms run farther along the approach than across it, and 11 of the 15 fallbacks run
-          // 6.25-8.25 m along it.
-          const targetFor = (along, lat, maxAlong) => {
+          // Pair the head with the support's longitudinal position, clamped to the visibility band; the head goes
+          // over the nearest lane. The arm is not always lateral: it often runs along the approach as well.
+          const targetFor = (along, lat) => {
             let lane = edge.lanes[0];
             for (const value of edge.lanes) if (Math.abs(value - lat) < Math.abs(lane - lat)) lane = value;
-            const t = Math.max(-15, Math.min(maxAlong, along));
+            const t = Math.max(OVERHEAD_AHEAD_MIN, Math.min(OVERHEAD_AHEAD_MAX, along));
             return { x: x + edge.dx * t + edge.rx * lane, z: z + edge.dz * t + edge.rz * lane, along: t };
           };
           // Keep the mast foot 3.1 m from every track as a conservative buffer above the 1.75 m tram-pole and
           // 2.6 m railway-mast setbacks, and 3.1 m from the real tram poles and railway masts handed in by main.js.
           const mastClear = (px, pz) => clearOfRails(px, pz, 1.1) && supportClear(px, pz);
-          const search = (maxAlong, band, strict = false) => {
-            let best = null;
-            for (const record of signalArmPoles.values()) for (const item of record.poles) {
-              const p = item.p, along = (p.x - x) * edge.dx + (p.z - z) * edge.dz;
-              if (along < -30 || along > 20 || !mastClear(p.x, p.z)) continue;
-              const lat = (p.x - x) * edge.rx + (p.z - z) * edge.rz;
-              const target = targetFor(along, lat, maxAlong);
-              const reach = Math.hypot(p.x - target.x, p.z - target.z);
-              if (reach > OVERHEAD_REACH || reach < 0.3) continue;
-              const score = reach - 3;
-              if (best && score >= best.score) continue;
-              if (!armClear(p, target)) continue;
-              best = { foot: p, existing: true, reach, score, target, band, strict };
+          const alongLo = OVERHEAD_AHEAD_MIN - OVERHEAD_REACH, alongHi = OVERHEAD_AHEAD_MAX + OVERHEAD_REACH;
+          let best = null;
+          for (const record of signalArmPoles.values()) for (const item of record.poles) {
+            const p = item.p, along = (p.x - x) * edge.dx + (p.z - z) * edge.dz;
+            if (along < alongLo || along > alongHi || !mastClear(p.x, p.z)) continue;
+            const lat = (p.x - x) * edge.rx + (p.z - z) * edge.rz;
+            const target = targetFor(along, lat);
+            const reach = Math.hypot(p.x - target.x, p.z - target.z);
+            if (reach > OVERHEAD_REACH || reach < 0.3) continue;
+            const score = reach - 3;
+            if (best && score >= best.score) continue;
+            if (!armClear(p, target)) continue;
+            best = { foot: p, existing: true, reach, score, target };
+          }
+          for (let along = Math.floor(alongLo); along <= alongHi; along += 1) {
+            const t = Math.max(OVERHEAD_AHEAD_MIN, Math.min(OVERHEAD_AHEAD_MAX, along));
+            const dAlong = along - t;
+            if (Math.abs(dAlong) > OVERHEAD_REACH) continue;
+            for (let lat = -edge.half - 24; lat <= edge.half + 24; lat += 0.8) {
+              let lane = edge.lanes[0];
+              for (const value of edge.lanes) if (Math.abs(value - lat) < Math.abs(lane - lat)) lane = value;
+              const reach = Math.hypot(dAlong, lat - lane);
+              if (reach > OVERHEAD_REACH || reach < 1 || (best && reach >= best.score)) continue;
+              const px = x + edge.dx * along + edge.rx * lat;
+              const pz = z + edge.dz * along + edge.rz * lat;
+              // mastClear already verified clearOfRails(px, pz, 1.1), so skip the weaker 0.22 check in failures.
+              if (!mastClear(px, pz) || failures(px, pz, true, true).length) continue;
+              const target = { x: x + edge.dx * t + edge.rx * lane, z: z + edge.dz * t + edge.rz * lane, along: t };
+              if (!armClear({ x: px, z: pz }, target)) continue;
+              best = { foot: { x: px, z: pz }, existing: false, reach, score: reach, target };
             }
-            for (let along = -30; along <= 20; along += 1) {
-              const t = along < -15 ? -15 : (along > maxAlong ? maxAlong : along);
-              const dAlong = along - t;
-              if (Math.abs(dAlong) > OVERHEAD_REACH) continue;
-              for (let lat = -edge.half - 24; lat <= edge.half + 24; lat += 0.8) {
-                let lane = edge.lanes[0];
-                for (const value of edge.lanes) if (Math.abs(value - lat) < Math.abs(lane - lat)) lane = value;
-                const reach = Math.hypot(dAlong, lat - lane);
-                if (reach > OVERHEAD_REACH || reach < 1 || (best && reach >= best.score)) continue;
-                const px = x + edge.dx * along + edge.rx * lat;
-                const pz = z + edge.dz * along + edge.rz * lat;
-                // mastClear already verified clearOfRails(px, pz, 1.1), so skip the weaker 0.22 check in failures.
-                if (!mastClear(px, pz) || failures(px, pz, true, true).length) continue;
-                const target = { x: x + edge.dx * t + edge.rx * lane, z: z + edge.dz * t + edge.rz * lane, along: t };
-                if (!armClear({ x: px, z: pz }, target)) continue;
-                best = { foot: { x: px, z: pz }, existing: false, reach, score: reach, target, band, strict };
-              }
-            }
-            return best;
-          };
-          const band = search(-8, true);
-          if (!band) return search(STOP_SETBACK, false);
-          if (band.target.along <= -10.5 + 1e-6) return { ...band, strict: true };
-          return search(-10.5, true, true) || band;
+          }
+          return best;
         };
         // When no 12 m cantilever reaches a visibility band, hang the head from two stays. A span can use existing
         // signal poles or new 10 m masts up to 55 m away, which covers the wider corners the ground and cantilever
@@ -2927,11 +2929,11 @@ function buildStreetDetails(scene, opts = {}) {
               if (!wireClear(a.p, a.p, highOverhead) || !wireClear(b.p, b.p, highOverhead) ||
                 !wireClear(a.p, topPoint, highOverhead) || !wireClear(b.p, topPoint, highOverhead) ||
                 !wireClear(topPoint, target, overhead)) continue;
-              return { target, anchors: [a, b], band: true, strict: false };
+              return { target, anchors: [a, b] };
             }
             return null;
           };
-          for (const [along, band, strict] of [[-10.5, true, true], [-8, true, false], [1.75, false, false]]) {
+          for (const along of OVERHEAD_SPAN_ALONG) {
             let best = null;
             for (const lane of edge.lanes) {
               // A tram in the lane's centre may leave no 2.22 m spot at the lane axis. Slide the head across the
@@ -2943,8 +2945,6 @@ function buildStreetDetails(scene, opts = {}) {
                 if (!headClear(target.x, target.z)) continue;
                 const site = pick(target, lat);
                 if (!site) continue;
-                site.band = band;
-                site.strict = strict;
                 const score = site.anchors[0].d + site.anchors[1].d;
                 if (!best || score < best.score) { best = site; best.score = score; }
               }
@@ -3004,7 +3004,7 @@ function buildStreetDetails(scene, opts = {}) {
               }
               return best;
             };
-            for (const [along, band, strict] of [[-10.5, true, true], [-8, true, false], [1.75, false, false]]) {
+            for (const along of OVERHEAD_SPAN_ALONG) {
               let best = null;
               for (const lane of edge.lanes) {
                 for (const shift of [0, -0.5, 0.5, -1, 1, -1.5, 1.5, -2, 2, -2.5, 2.5, -3, 3, -3.5, 3.5]) {
@@ -3015,8 +3015,6 @@ function buildStreetDetails(scene, opts = {}) {
                   if (!headClear(target.x, target.z) || roadClearance(target.x, target.z) > -1) continue;
                   const site = pickTraction(target, lane);
                   if (!site) continue;
-                  site.band = band;
-                  site.strict = strict;
                   if (!best || site.score < best.score) best = site;
                 }
               }
@@ -3075,7 +3073,7 @@ function buildStreetDetails(scene, opts = {}) {
             const target = overheadSite.target;
             const m = setFacing(target.x + a.ux * 0.18, OVERHEAD_Y, target.z + a.uz * 0.18, a.ux, a.uz);
             const head = { site, a, p: target, group0, existing: overheadSite.existing, node, edge,
-              overhead: true, pole: overheadSite.foot, m, band: overheadSite.band, strict: overheadSite.strict };
+              overhead: true, pole: overheadSite.foot, m };
             recordHead(head);
             placedForNode = true;
             entry.class = 'B';
@@ -3100,7 +3098,7 @@ function buildStreetDetails(scene, opts = {}) {
             anchors: spanSite.anchors.map((anchor) => anchor.p),
             anchorExisting: spanSite.anchors.map((anchor) => anchor.existing),
             anchorTraction: spanSite.anchors.map((anchor) => !!anchor.traction), topY,
-            m, band: spanSite.band, strict: spanSite.strict };
+            m };
           recordHead(head);
           placedForNode = true;
           entry.class = 'B';
@@ -3117,6 +3115,60 @@ function buildStreetDetails(scene, opts = {}) {
       }
     }
     return { entries, heads };
+  }
+
+  // Table 7.2 (załącznik 3, Dz.U. 2015 poz. 1314): the stop line lies at least 2.0 m before the front face of a side
+  // signal. The ground poles stand anywhere from 15 m before the line to 1.75 m past it, so on an approach whose
+  // most forward ground head is closer than that, the stop line moves upstream (Network.shiftStopLine: lanes, curves
+  // and crosswalk stay) when at least SIDE_HEAD_QUEUE m of the link remain to queue on. Overhead-only approaches are
+  // handled by findOverhead (the head goes past the line instead). Computed from the current line, so a second call
+  // finds the approach compliant and moves nothing; `result.stopLines` lists what moved and what could not.
+  const SIDE_HEAD_AHEAD_MIN = 2.2; // 2.0 m to the front face, which is 0.18 m nearer than the pole, plus 2 cm
+  const SIDE_HEAD_QUEUE = 5.5;
+  // Shipped value 17.5 m: a link shorter than that (physical length, before the shift) keeps its stop line. Over 40 fresh
+  // seeds (accept-traffic r3, docs/observations/signal-stopline-2026-11-17.md) shifting everywhere (0) read holds > 120 s
+  // 32 -> 44 and deadlocks 2 -> 4, links under 12 m 47 / 6, and 17.5 m 37 / 3, the least bad (221 of 391 shifts in the
+  // bench world). tools/bench-world.mjs overrides the literal through BENCH_STOP_MIN_LINK.
+  const SIDE_HEAD_MIN_LINK = 17.5;
+  function shiftSideHeadStopLines(network) {
+    const aliasRoot = (plan) => {
+      while (plan && plan.alias) plan = plan.alias;
+      return plan;
+    };
+    const report = result.stopLines || (result.stopLines = { compliant: 0, shifted: [], tooShort: [], uneven: [] });
+    for (const node of network.nodes) {
+      if (!node.signal || !node.signalTiming || node.signalTiming.disabled) continue;
+      const nodeRoot = aliasRoot(node.signalTiming);
+      for (const edge of node.in) {
+        if (!edge.lanes.length) continue;
+        const x = edge.sx + edge.dx * edge.len, z = edge.sz + edge.dz * edge.len;
+        let lead = null, leadAlong = -Infinity;
+        for (const h of vehicleHeadSites) {
+          if (h.overhead || aliasRoot(h.site.timing) !== nodeRoot) continue;
+          const swap = Math.abs(h.site.timing.mainUx * node.signalTiming.mainUx +
+            h.site.timing.mainUz * node.signalTiming.mainUz) <= 0.82;
+          if (!(node.signalTiming.pedestrian || (h.group0 !== swap) === (edge.axisIndex === 0)) ||
+            Math.hypot(h.p.x - node.x, h.p.z - node.z) >= 45 ||
+            h.a.ux * edge.inArm.ux + h.a.uz * edge.inArm.uz <= 0.98) continue;
+          const along = (h.p.x - x) * edge.dx + (h.p.z - z) * edge.dz;
+          if (along > leadAlong) { leadAlong = along; lead = h; }
+        }
+        if (!lead) continue;
+        const need = Math.ceil((SIDE_HEAD_AHEAD_MIN - leadAlong) * 10) / 10;
+        if (need <= 0.05) { report.compliant++; continue; }
+        const row = { edge, node, head: lead, along: leadAlong, shift: need, len: edge.len };
+        if (edge.len - need < SIDE_HEAD_QUEUE || edge.len + (edge.stopLead || 0) < SIDE_HEAD_MIN_LINK) {
+          report.tooShort.push(row);
+          continue;
+        }
+        // the lanes' lateral shift profile must be flat over the stub, which then lies exactly on the old lane
+        const flat = [0.25, 0.5, 0.75, 1].every((f) => Math.abs(network.laneShiftAt(edge, edge.len - need * f) -
+          network.laneShiftAt(edge, edge.len)) < 1e-6);
+        if (!flat) { report.uneven.push(row); continue; }
+        network.shiftStopLine(edge, need);
+        report.shifted.push(row);
+      }
+    }
   }
 
   // Some mapped one-way arms acquire an incoming lane only after the network merges and centres the roads. Reuse
@@ -3249,6 +3301,7 @@ function buildStreetDetails(scene, opts = {}) {
       }
       addMatrixArrayInstanced(unitCyl, signalPoleMat, signalPoleMatrices.slice(poleStart));
     }
+    if (pedRoutes && network.shiftStopLine) shiftSideHeadStopLines(network);
     addMatrixArrayInstanced(s1HousingGeo, signalHousingMat, matrices);
     addMatrixArrayInstanced(backplateGeo, signalHousingMat, backplates);
     addMatrixArrayInstanced(backplateBorderGeo, backplateBorderMat, backplates);

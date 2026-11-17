@@ -175,7 +175,8 @@ function createTrafficSystem(
   // north-south roads, z across east-west ones). One axis per arm keeps the two roadways of a divided road, up to 20
   // degrees apart, on the walkers' scale.
   const laneCoord = (e, i, arm) => {
-    const c = arm.in || arm.out, s = arm === e.inArm ? e.len : 0;
+    // the crosswalk end of the edge is its physical end: a shifted stop line (e.stopLead) lies before the crosswalk
+    const c = arm.in || arm.out, s = arm === e.inArm ? e.len + (e.stopLead || 0) : 0;
     return (e.sx + e.dx * s + e.rx * laneAt(e, i, s)) * c.clx + (e.sz + e.dz * s + e.rz * laneAt(e, i, s)) * c.clz;
   };
 
@@ -230,9 +231,12 @@ function createTrafficSystem(
       curvePoint(c, s, boxSample);
       points[k * 2] = boxSample.x;
       points[k * 2 + 1] = boxSample.z;
+      // a shifted stop line's straight stub (c.lead) precedes the Bezier, which c.lut measures from its own start
+      const sb = s - (c.lead || 0);
+      if (c.lead && sb <= 0) { bends[k] = 0; continue; }
       let h = 1;
-      while (h < 16 && c.lut[h] < s) h++;
-      const t = (h - 1 + Math.min(1, Math.max(0, (s - c.lut[h - 1]) / (c.lut[h] - c.lut[h - 1] || 1)))) / 16;
+      while (h < 16 && c.lut[h] < sb) h++;
+      const t = (h - 1 + Math.min(1, Math.max(0, (sb - c.lut[h - 1]) / (c.lut[h] - c.lut[h - 1] || 1)))) / 16;
       const u = 1 - t;
       const dx = 3 * u * u * (c.x1 - c.x0) + 6 * u * t * (c.x2 - c.x1) + 3 * t * t * (c.x3 - c.x2);
       const dz = 3 * u * u * (c.z1 - c.z0) + 6 * u * t * (c.z2 - c.z1) + 3 * t * t * (c.z3 - c.z2);
@@ -860,7 +864,7 @@ function createTrafficSystem(
       nearLanes += Math.max(0, Math.min(e.len, along + half) - Math.max(0, along - half)) * e.lanes.length;
     }
     nearTarget = Math.min(vehicles.length, Math.max(minVehicles, Math.round((nearLanes / 1000) * vehicleDensity)));
-    nearBusTarget = nearEdges.some((e) => e.major && e.len >= 2 * buses[0].half + 10)
+    nearBusTarget = nearEdges.some((e) => e.major && (e.linkLen ?? e.len) >= 2 * buses[0].half + 10)
       ? Math.ceil(nearTarget * buses.length / vehicles.length) : 0;
     for (const n of crossingNodes) {
       const dx = n.x - focusX, dz = n.z - focusZ;
@@ -1152,9 +1156,9 @@ function createTrafficSystem(
     // junction behind it and stood in its box for 51 s, because the exit's 10 s green releases one car at a time.
     // Buses are left to the existing short-link bus guard: their length does not fit the rear-gap estimate.
     let shortAhead = false, shortStopped = false;
-    if (!v.bus && f.len >= 20 && f.to && f.to.out) {
+    if (!v.bus && (f.linkLen ?? f.len) >= 20 && f.to && f.to.out) {
       for (const g of f.to.out) {
-        if (g.len < 12 && g.to.signal && (tight || !g.from.signal)) {
+        if ((g.linkLen ?? g.len) < 12 && g.to.signal && (tight || !g.from.signal)) {
           shortAhead = true;
           shortStopped = !tight && !g.from.signal; // the give-way extension only holds for a stationary rear car
           break;
@@ -1182,11 +1186,11 @@ function createTrafficSystem(
         // A lead that something physical holds must not reserve the one usable lane of a short link out of a
         // signal. A police car behind a tram at the 9.4 m Św. Marcin link kept it for the whole cross green and
         // starved the (-1074, 129) approach for 184 s (seed 99, 10 min). Unsignalised give-way exits keep the old rule.
-        if (f.len < 12 && f.from.signal && o.v.speed < 0.5 &&
+        if ((f.linkLen ?? f.len) < 12 && f.from.signal && o.v.speed < 0.5 &&
           (o.v.held === 'box' || o.v.held === 'tram' || o.v.held === 'oncoming' || o.v.held === 'crossing' ||
           o.v.held === 'pedestrian' || o.v.held === 'turner' || o.v.held === 'bus' || o.v.held === 'lane')) continue;
         if (a.to.signal && !o.v.isPolice && o.v.commit !== a.to && phaseOf(a) !== 'green' &&
-          !(f.len < 12 && o.v.wait > 10 && Number.isFinite(o.v.mergeArrival) && downstreamStops(f, j, v))) continue;
+          !((f.linkLen ?? f.len) < 12 && o.v.wait > 10 && Number.isFinite(o.v.mergeArrival) && downstreamStops(f, j, v))) continue;
         const at = Number.isFinite(o.v.mergeArrival) ? o.v.mergeArrival : Infinity;
         const first = Number.isFinite(at) ? priority && a.id < priority.id
           : o.v.wait > waited || (priority && o.v.wait === waited && a.id < priority.id);
@@ -1206,11 +1210,11 @@ function createTrafficSystem(
         // A lead that something physical holds must not reserve the one usable lane of a short link out of a
         // signal. A police car behind a tram at the 9.4 m Św. Marcin link kept it for the whole cross green and
         // starved the (-1074, 129) approach for 184 s (seed 99, 10 min). Unsignalised give-way exits keep the old rule.
-        if (f.len < 12 && f.from.signal && o.v.speed < 0.5 &&
+        if ((f.linkLen ?? f.len) < 12 && f.from.signal && o.v.speed < 0.5 &&
           (o.v.held === 'box' || o.v.held === 'tram' || o.v.held === 'oncoming' || o.v.held === 'crossing' ||
           o.v.held === 'pedestrian' || o.v.held === 'turner' || o.v.held === 'bus' || o.v.held === 'lane')) continue;
         if (a.to.signal && !o.v.isPolice && o.v.commit !== a.to && phaseOf(a) !== 'green' &&
-          !(f.len < 12 && o.v.wait > 10 && Number.isFinite(o.v.mergeArrival) && downstreamStops(f, j, v))) continue;
+          !((f.linkLen ?? f.len) < 12 && o.v.wait > 10 && Number.isFinite(o.v.mergeArrival) && downstreamStops(f, j, v))) continue;
         const first = a === v.edge ? mergeFirst(o.v, o.s, v, v.s) : a === priority;
         if (first) free -= 2 * o.v.half + o.v.driver.s0;
       }
@@ -1271,7 +1275,7 @@ function createTrafficSystem(
     // only merge priority is skipped, mayEnter still checks room, cross traffic, pedestrians and trams). A give-way
     // merging into a short exit can block the whole chain upstream too (Kaponiera's 10 m exit at -1497, 198 held
     // 148 s at 95% merge), so the exemption covers unsignalised short links as well as those between signals.
-    if (f.len < 12 && v.wait > 15 && v.waitReason === 'merge' &&
+    if ((f.linkLen ?? f.len) < 12 && v.wait > 15 && v.waitReason === 'merge' &&
       lead && lead.v !== v) return null;
     for (let i = 0; i < e.lanes.length; i++) {
       const o = i === v.lane ? null : leadOf(e.occ[i]);
@@ -1314,7 +1318,7 @@ function createTrafficSystem(
       if (v.bus) {
         const f = v.move.to;
         const j = v.move.out[v.lane];
-        if (j >= 0 && f.len < 2 * v.half && tramRefusedClose(v, f, j)) return refuse(v, 'tram');
+        if (j >= 0 && (f.linkLen ?? f.len) < 2 * v.half && tramRefusedClose(v, f, j)) return refuse(v, 'tram');
       }
       return true;
     }
@@ -1338,7 +1342,7 @@ function createTrafficSystem(
     // empty, so the link stores one car per green instead of two. When the planned lane is full, take a sibling lane
     // of the same short exit that can make the same turn. Only at a link whose far end is a signal (the storage case)
     // and only for an uncommitted car; room/alongside still check it.
-    if (f.len < 12 && f.to && f.to.signal && !v.commit) j = shortLinkLane(v, e, f, m, j, stoppable);
+    if ((f.linkLen ?? f.len) < 12 && f.to && f.to.signal && !v.commit) j = shortLinkLane(v, e, f, m, j, stoppable);
     // A car that would have to stand on a short link must not enter it while a tram owns the link's exit curve.
     // Its stopping distance no longer fits on the link, so it would wait across the curve (Kaponiera 7343/6034).
     if (!v.bus && shortLinkTramBlocked(v, f, j)) return refuse(v, 'tram');
@@ -1362,7 +1366,7 @@ function createTrafficSystem(
     // A straight car on a short link between signals does the same, so the link behind it empties for the next green
     // (Centrum (-1136, 127): 112 -> 86 s hold); only before an exit over 17.5 m, as Kaponiera's 10-17 m exits then
     // held cars in boxes trams needed and added deadlock cycles (docs/observations/centrum-exit-room-2026-11-10.md).
-    const straightWait = m.turn === 'S' && e.len < SHORT_SIGNAL_LINK && e.from.signal && f.len > BOX_WAIT_EXIT;
+    const straightWait = m.turn === 'S' && (e.linkLen ?? e.len) < SHORT_SIGNAL_LINK && e.from.signal && (f.linkLen ?? f.len) > BOX_WAIT_EXIT;
     const first = n.signal && (!v.isPolice || phase === 'green') && (m.turn !== 'S' || straightWait) && !lead;
     const across = m.turn === 'L' && !!e.opposite;
     const wait = first ? (across ? yieldPoint(v, c, e) : c.len - shortOfZebra(f) - v.half) : -1; // < 0: no room inside to wait
@@ -1562,7 +1566,7 @@ function createTrafficSystem(
       const d = e.len - v.s - v.half;
       if (d < LOOKAHEAD) {
         let go = mayEnter(v, d);
-        if (!go && v.edge.len < 12 && v.edge.from.signal && v.edge.to.signal && v.move.turn === 'L' && v.speed < 2 &&
+        if (!go && (v.edge.linkLen ?? v.edge.len) < 12 && v.edge.from.signal && v.edge.to.signal && v.move.turn === 'L' && v.speed < 2 &&
           (v.held === 'oncoming' || v.held === 'box' || v.held === 'tram' || v.held === 'pedestrian' ||
           v.held === 'room' || v.held === 'merge' || v.held === 'turner' || v.held === 'crossing' || v.held === 'bus')) {
           const alt = straightFallback(v);
@@ -1636,7 +1640,7 @@ function createTrafficSystem(
       // The old fallback drove Kaponiera bus 200 into tram 1 at 8.4 m/s. A tram still approaching is refused earlier,
       // while the bus can brake off the line; only a body already over the curve reaches this hard stop.
       if (v.speed < 4 || j < 0 ||
-        (v.held === 'tram' && v.bus && f.len < 2 * v.half && tramRefusedClose(v, f, j, TRAM_HARD_REACH))) {
+        (v.held === 'tram' && v.bus && (f.linkLen ?? f.len) < 2 * v.half && tramRefusedClose(v, f, j, TRAM_HARD_REACH))) {
         v.s = e.len - v.half;
         v.speed = 0;
         return;
@@ -2004,7 +2008,7 @@ function createTrafficSystem(
     for (const te of tramGraph.edges) {
       for (const r of te.lanes || []) {
         const f = r.edge;
-        if (r.dir >= 0 || f.len >= RSV_MAX_LEN || f.from.signal || f.to.signal || !f.moves || !f.opposite) continue;
+        if (r.dir >= 0 || (f.linkLen ?? f.len) >= RSV_MAX_LEN || f.from.signal || f.to.signal || !f.moves || !f.opposite) continue;
         if (Math.max(r.l0, r.l1) < f.len - RSV_FAR_LINE || Math.abs(r.l1 - r.l0) < RSV_MIN_RUN) continue;
         if (!f._rsvRuns) f._rsvRuns = f.lanes.map(() => []);
         f._rsvRuns[r.lane].push({ te, r });
@@ -2110,7 +2114,7 @@ function createTrafficSystem(
         const a = rear - base; // the body on te: [a, b]
         const b = path.u - base;
         for (const c of te.junctions) {
-          if (c.s1 < a || c.s0 > (c.e.len < 12 && c.node.signal ? shortFar : junctionFar) - base) continue;
+          if (c.s1 < a || c.s0 > ((c.e.linkLen ?? c.e.len) < 12 && c.node.signal ? shortFar : junctionFar) - base) continue;
           c.held = tramFrame;
           c.by = t;
         }
@@ -2335,7 +2339,7 @@ function createTrafficSystem(
   // nothing (it is ordinary short-link storage); buses keep their own longer-body guard.
   const canStandOn = (v, f) => v.speed * v.speed <= 2 * v.driver.b * Math.max(0, f.len - v.half - 0.5);
   function shortLinkTramBlocked(v, f, j) {
-    return f.len < 12 && !canStandOn(v, f) && nextTramBlocked(v, f, j);
+    return (f.linkLen ?? f.len) < 12 && !canStandOn(v, f) && nextTramBlocked(v, f, j);
   }
 
   // Body-path reservation for a short link an opposing tram's swept envelope covers (`setTrams` marks them from the
@@ -2524,7 +2528,7 @@ function createTrafficSystem(
   function spawnVehicle(v, rMin, rMax, protectView) {
     for (let attempt = 0; attempt < 12; attempt++) {
       const e = nearEdges[Math.floor(Math.random() * nearEdges.length)];
-      if (!e || (v.bus && !e.major) || e.len < 2 * v.half + 10) continue; // buses keep to major roads (road-network.js)
+      if (!e || (v.bus && !e.major) || (e.linkLen ?? e.len) < 2 * v.half + 10) continue; // buses keep to major roads (road-network.js)
       const lane = Math.floor(Math.random() * e.lanes.length);
       const along = (focusX - e.sx) * e.dx + (focusZ - e.sz) * e.dz;
       const minS = Math.max(v.half + 5, along - rMax);

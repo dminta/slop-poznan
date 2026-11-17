@@ -1846,7 +1846,30 @@ function buildRoadNetwork(sidewalks, obstacles) {
     return distToWater((minX + maxX) * 0.5, (minZ + maxZ) * 0.5) > halfDiag + SHORE_MARGIN + 4 &&
       !blocked(minX, maxX, minZ, maxZ, 1);
   };
-  const network = { nodes, edges, paintEdges, connector, curvePoint, laneOffset, laneShiftAt, walkable, isRoadClear };
+  // Move edge e's stop line `shift` metres upstream (street-details.js, Table 7.2 for side heads). The lanes, the
+  // crosswalk and every lane-to-lane curve keep their places: the edge gets shorter, its setback to the crosswalk
+  // longer by the same amount (so len + setbackTo, where pedestrian-routes.js and road-paint.js put the zebra, does
+  // not change), and its curves, built or not yet, lead in with a straight stub from the new line.
+  function shiftStopLine(e, shift) {
+    e.len -= shift;
+    e.setbackTo += shift;
+    e.stopLead = (e.stopLead || 0) + shift;
+    e.linkLen = e.len + e.stopLead; // the physical link length, for rules that classify a link by its size
+    if (e.crosswalkEnd !== undefined) e.crosswalkEnd += shift;
+    for (const m of e.moves) {
+      for (let i = 0; i < e.lanes.length; i++) {
+        if (m.out[i] < 0) continue;
+        const c = curves.get(((e.id * 8 + i) * 16384 + m.to.id) * 8 + m.out[i]);
+        if (!c) continue;
+        leadCurve(c, shift, e.dx, e.dz);
+        if (c.crosswalkEnd !== undefined) c.crosswalkEnd += shift;
+      }
+    }
+    const p = paintOf.get(e);
+    if (p) { p.len = e.len; p.setbackTo = e.setbackTo; }
+  }
+  const network = { nodes, edges, paintEdges, connector, curvePoint, laneOffset, laneShiftAt, walkable, isRoadClear,
+    shiftStopLine };
   network.configureCrosswalks = (crosswalks) => configureCompoundCrossings(network, crosswalks);
   return network;
 }
@@ -2025,9 +2048,12 @@ for (let k = 0; k <= 16; k++) {
 // Cubic Bézier from the end of lane i on edge e to the start of lane j on edge f: a quarter-circle-like
 // arc around the corner for turns, an S-bend for straight lane shifts. Includes an arc-length table and
 // the sharpest curvature along it (1 / tightest radius).
+// `stopLead` is the distance a stop line was moved upstream of the edge's original end (shiftStopLine): the Bezier
+// still starts there, so a straight stub of that length leads from the new stop line to it and the swept path is unchanged.
 function makeCurve(e, i, f, j) {
-  const x0 = e.sx + e.dx * e.len + e.rx * laneOffset(e, i, e.len);
-  const z0 = e.sz + e.dz * e.len + e.rz * laneOffset(e, i, e.len);
+  const lead = e.stopLead || 0;
+  const x0 = e.sx + e.dx * (e.len + lead) + e.rx * laneOffset(e, i, e.len + lead);
+  const z0 = e.sz + e.dz * (e.len + lead) + e.rz * laneOffset(e, i, e.len + lead);
   const x3 = f.sx + f.rx * laneOffset(f, j, 0);
   const z3 = f.sz + f.rz * laneOffset(f, j, 0);
   const cross = e.dx * f.dz - e.dz * f.dx;
@@ -2067,11 +2093,30 @@ function makeCurve(e, i, f, j) {
     const ddz = CURVE_DD0[k] * ddz0 + CURVE_DD1[k] * ddz1;
     c.curv = Math.max(c.curv, Math.abs(dx * ddz - dz * ddx) / Math.max(1e-6, Math.hypot(dx, dz) ** 3));
   }
+  if (lead > 0) leadCurve(c, lead, e.dx, e.dz);
   return c;
+}
+
+// Give curve c a straight run-in of `lead` metres along (ux, uz) before its Bezier
+function leadCurve(c, lead, ux, uz) {
+  c.len += lead;
+  c.lead = (c.lead || 0) + lead;
+  c.ux = ux;
+  c.uz = uz;
 }
 
 // Position and unit tangent at arc length s along a curve
 function curvePoint(c, s, out) {
+  if (c.lead) {
+    if (s < c.lead) {
+      out.x = c.x0 - c.ux * (c.lead - s);
+      out.z = c.z0 - c.uz * (c.lead - s);
+      out.dx = c.ux;
+      out.dz = c.uz;
+      return out;
+    }
+    s -= c.lead;
+  }
   let k = 1;
   while (k < 16 && c.lut[k] < s) k++;
   const s0 = c.lut[k - 1];

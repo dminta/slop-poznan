@@ -155,7 +155,10 @@ async function main() {
       for (const seed of SEEDS) {
         const actual = side === 'base' ? seed + SHIFT : seed;
         for (const kind of kinds) {
-          const cacheFile = join(CACHE_DIR, `${hashes[side]}-${kind}-s${actual}-m${MINUTES}-f${FPS}.json`);
+          // the bench variants (tools/bench-world.mjs) change a tree's result, whichever side it is on
+          const variant = [process.env.BENCH_RUNTIME_HEADS && `h${process.env.BENCH_RUNTIME_HEADS}`,
+            process.env.BENCH_STOP_MIN_LINK && `l${process.env.BENCH_STOP_MIN_LINK}`].filter(Boolean).join('-');
+          const cacheFile = join(CACHE_DIR, `${hashes[side]}-${kind}-s${actual}-m${MINUTES}-f${FPS}${variant ? `-${variant}` : ''}.json`);
           tasks.push(async () => {
             if (!inflight.has(cacheFile)) {
               inflight.set(cacheFile, (async () => {

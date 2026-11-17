@@ -420,12 +420,20 @@ Built before the road network, so everything that stands near a lane is checked 
   the overhead fallback adds the arm and head instead: its foot passes the same rail (3.1 m), landing, lane, curve,
   pedestrian-route and building checks, and every 0.5 m of the 5.55 m arm and the head keeps 2.22 m from each track
   axis, while tall colliders and bridge decks are sampled too. The S-1 centre sits at 5.3 m and its top at 5.73 m,
-  below the 5.8 m tram contact wire. The first search puts the head at least 8 m before the stop line, where table 7.2
-  places overhead signals at a 4.5 m mounting; a successful arm is then retargeted to the stricter 10.5 m row for
-  the 5.3 m head when the 12 m reach allows. The current fallback places **7 cantilever heads** at the stop line
-  (six at 1.75 m past it, one reused pole at 0.03 m) and **one span head** at 1.75 m; the rest reach the 8 m or
-  10.5 m band (65 strict, 66 in either band). The span search itself samples targets at 10.5 m, 8 m and 1.75 m and
-  picks the pair of anchors with the lowest stay cost. In the furnished-grid fixture the after pass measured
+  below the 5.8 m tram contact wire. Table 7.2 of załącznik 3 (Dz.U. 2015 poz. 1314; identical in Dz.U. 2019 poz. 2311) measures from the signal's front
+  face BACK to the stop line, so the head hangs **past** the line: the search keeps its centre 10.7 m (the 5.5 m row's
+  10.5 m plus the 0.18 m from the centre to the face and 2 cm) to 15 m (that row's recommended value) beyond the stop
+  line, over or beyond the junction, facing the approach; the lead car (eye 1.2 m, 1 m behind the line) then sees it
+  at 15–19.3°. The earlier version read the table backwards and hung 101 of 114 heads 8–15 m *behind* the line
+  ([record](observations/browser-checks-signals-2026-11-17.md)). The span search samples targets at 10.7, 12.5, 14 and
+  15 m and picks the pair of anchors with the lowest stay cost. An approach with no clear site past the line would stay without a head (audit class C, 0 in the furnished grid, pinned by
+  `summary.unplaced`); nothing falls back to the old upstream side.
+  **Side heads** follow the 2.0 m row: after the heads are placed, an approach whose most forward ground head is less
+  than 2.0 m (2.2 m to the pole) past the stop line gets its stop line moved upstream by the difference when at least
+  5.5 m of the link remain to queue on (`shiftSideHeadStopLines`, `network.shiftStopLine`: the edge gets shorter, its
+  `setbackTo` longer by the same amount so the zebra stays, `edge.stopLead` records the shift, and every connector starts
+  with a straight stub of that length so lanes and swept paths are unchanged); the rest are listed in
+  `streetDetails.stopLines.tooShort`. In the furnished-grid fixture the after pass measured
   ≈27 s (≈23 s before the span fallback; the two tram/rail layouts add ≈6 s), and the runtime placement stays
   within the earlier 3.5–4.7 s range because the support grid replaces the all-pairs test. `addRuntimeSignalHeads` also
   compacts out static poles, S-1/pedestrian heads, backplates, and pole colliders belonging to plans that

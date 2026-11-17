@@ -18,41 +18,36 @@ test('the furnished audit classifies historical approaches before and after runt
   assert.equal(before.rows.length, 210);
   assert.equal(after.rows.length, 210);
   assert.deepEqual(before.summary.counts, { A: 21, B: 72, C: 115, D: 2 });
+  // Overhead heads hang 10.5 m or more PAST the stop line (Table 7.2) and every approach still has one
   assert.deepEqual(after.summary.counts, { A: 208, B: 0, C: 0, D: 2 });
+  assert.deepEqual(after.summary.unplaced, []);
   // 20 static S-1 heads on the 9 remaining disabled plans are dropped at runtime pruning;
   // SCC & walkable-park fixes (2026-11-15) restore 12 more plans (21 -> 9 disabled, 3 historical D -> A).
   assert.equal(before.summary.vehicleHeads, 1109);
   assert.equal(after.summary.vehicleHeads, 1298);
   assert.equal(after.summary.pedestrianHeads, 1935);
-  assert.equal(after.summary.runtimePoles, 108);
-  assert.equal(after.summary.reusedPoles, 81);
+  assert.equal(after.summary.runtimePoles, 99);
+  assert.equal(after.summary.reusedPoles, 90);
   assert.equal(after.summary.overheadHeads, 113);
-  assert.equal(after.summary.overheadPoles, 39);
-  assert.equal(after.summary.overheadReused, 74);
-  assert.equal(after.summary.overheadStrict, 99);
-  assert.equal(after.summary.overheadBand, 101);
-  assert.equal(after.summary.overheadException, 9);
-  assert.deepEqual(after.summary.overheadFallbackAlong, [1.75, 1.75, 1.75, 0.031, 1.75, 1.75, 1.75, 1.738, 1.75]);
-  assert.equal(after.summary.spanHeads, 44);
-  assert.equal(after.summary.spanPoles, 33);
-  assert.equal(after.summary.spanReused, 49);
-  assert.equal(after.summary.spanNewHeads, 24);
-  assert.equal(after.summary.spanExistingHeads, 20);
+  assert.equal(after.summary.overheadPoles, 30);
+  assert.equal(after.summary.overheadReused, 83);
+  assert.ok(after.summary.overheadAheadMin >= 10.7 - 1e-6 && after.summary.overheadAheadMax <= 15 + 1e-6,
+    'every overhead head hangs 10.5-15 m past its stop line (front face at least 10.5 m)');
+  assert.ok(after.summary.overheadElevationMax <= 20, 'the lead car sees every overhead head within 20 degrees');
+  assert.equal(after.summary.spanHeads, 28);
+  assert.equal(after.summary.spanPoles, 20);
+  assert.equal(after.summary.spanReused, 32);
+  assert.equal(after.summary.spanNewHeads, 14);
+  assert.equal(after.summary.spanExistingHeads, 14);
   assert.equal(after.summary.spanTractionHeads, 3);
   assert.equal(after.summary.spanTractionAnchors, 6);
-  assert.equal(after.summary.cantileverPoles, 15);
-  assert.equal(after.summary.spanStrict, 40);
-  assert.equal(after.summary.spanBand, 41);
-  assert.equal(after.summary.spanException, 3);
-  assert.deepEqual(after.summary.spanFallbackAlong, [1.75, 1.75, 1.75]);
+  assert.equal(after.summary.cantileverPoles, 16);
   assert.ok(after.summary.spanLengthMax > 53 && after.summary.spanLengthMax <= 55,
     'the longest span stay stays within the 55 m reach');
   assert.ok(after.summary.overheadFootRailMin >= 3.1, 'mast feet keep 0.5 m from a 2.6 m mast setback');
   assert.ok(after.summary.overheadArmRailMin >= 2.22, 'every sampled arm and head keeps 2.22 m from rails');
   assert.ok(after.summary.spanHeadRailMin >= 2.22, 'every span head keeps 2.22 m from rails');
-  assert.ok(after.summary.overheadFallbackSupportMin > 12 && after.summary.overheadFallbackSupportMin < 13,
-    'the closest fallback support misses the 12 m arm');
-  assert.ok(after.summary.overheadArmMax > 11.7 && after.summary.overheadArmMax <= 12,
+  assert.ok(after.summary.overheadArmMax > 11.5 && after.summary.overheadArmMax <= 12,
     'the longest overhead arm stays within the 12 m reach');
   assert.ok(after.summary.pedestrianApproaches.every((row) => row.class === 'A'),
     'every active pedestrian approach has an A head');
@@ -67,19 +62,19 @@ test('the furnished audit classifies historical approaches before and after runt
     typeof v === 'number' ? Number(v.toFixed(3)) : v));
   // Two active approaches previously reused poles from disabled plans and now place new poles.
   assert.equal(createHash('sha256').update(JSON.stringify(placements)).digest('hex'),
-    '23127209f5eb954788a7d394dce2adae1bfc883df246d69ea9da9c3ed6cd6b67');
+    'e32fe5473d1fad8ca9946c2e5cec6d7908be97eb316d76f9cf64f2a52daf47f8');
   const gorna = after.rows.find((r) => Math.hypot(r.node[0] + 448.825, r.node[1] - 947.425) < 0.01 &&
     r.direction[0] > 0.4 && r.direction[1] < -0.8);
   assert.ok(gorna, 'the Górna Wilda approach is still audited');
   assert.equal(gorna.class, 'A', 'the traction-anchored span serves the last C approach');
-  assert.ok(Math.abs(gorna.along + 10.5) < 1e-6 && gorna.lateral > 3,
-    `the Górna Wilda head sits on the clear side of the shared lane (${gorna.along}, ${gorna.lateral})`);
+  assert.ok(gorna.along >= 10.7 - 1e-6 && gorna.along <= 15 + 1e-6,
+    `the Górna Wilda head hangs past the stop line (${gorna.along}, ${gorna.lateral})`);
   for (const [x, z] of [[1374.2, 566.1], [1060.7, 1452.8]]) {
     assert.ok(before.rows.some((r) => Math.hypot(r.node[0] - x, r.node[1] - z) < 0.01 && r.class === 'B'));
     assert.ok(after.rows.some((r) => Math.hypot(r.node[0] - x, r.node[1] - z) < 0.01 && r.class === 'A'));
   }
   assert.ok(after.rows.filter((row) => row.class === 'A').every((row) =>
-    row.along <= 2 && Math.abs(row.lateral) <= 15));
+    row.along <= 15 + 1e-6 && Math.abs(row.lateral) <= 15));
   const cycle = Math.max(120, ...config.SIGNAL_PLANS.map((plan) => plan.cycle || 0));
   let pedestrianA = 0;
   for (const [stage, report] of [['before', before], ['after', after]]) {

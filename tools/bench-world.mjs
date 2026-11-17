@@ -223,7 +223,11 @@ function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSe
     });
     gridSnap = grid.snapshot();
   }
-  const { buildStreetDetails } = loadModule(js('street-details.js'), {
+  let streetSource = js('street-details.js');
+  if (process.env.BENCH_STOP_MIN_LINK) {
+    streetSource = streetSource.replace(/const SIDE_HEAD_MIN_LINK = [\d.]+;/, `const SIDE_HEAD_MIN_LINK = ${Number(process.env.BENCH_STOP_MIN_LINK)};`);
+  }
+  const { buildStreetDetails } = loadModule(streetSource, {
     imports: {
       ...three, './city-config.js': config, './road-network.js': rn, './tsl-materials.js': inert(),
       './trees.js': { createTreeField: () => ({ group: inert() }) },
@@ -234,9 +238,10 @@ function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSe
     },
     globals: { ...G, document: inert() }, filename: 'street-details.js'
   });
-  const { footprints, roadNetwork } = furnished ? buildStreetDetails(inert(), {
+  const street = furnished ? buildStreetDetails(inert(), {
     buildingColliders: loadBuildingColliders(), grid: cityGrid
   }) : buildStreetDetails(inert());
+  const { footprints, roadNetwork } = street;
   const routes = loadPedestrianRoutes(rn);
   const actors = loadModule(js('actor-models.js'), {
     imports: { ...three, './tsl-materials.js': inert() },
@@ -280,11 +285,23 @@ function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSe
     ...cityGrid.footprints, ...footprints,
     ...loadBuildingColliders().filter((c) => !c.obb && (c.minY ?? 0) < 3.5)
   ], roadNetwork, loadBuildingColliders()) : createTrafficSystem(inert(), [], footprints, roadNetwork, loadBuildingColliders());
-  const { layoutTramInfrastructure } = loadModule(js('tram-infra.js'), {
+  const { layoutTramInfrastructure, layoutRailInfrastructure } = loadModule(js('tram-infra.js'), {
     imports: { ...three, './geodata.js': { GEO }, './city-config.js': config, './tsl-materials.js': inert() },
     globals: G, filename: 'tram-infra.js'
   });
-  const { stops } = layoutTramInfrastructure(traffic.network, cityGrid || grid.buildCityGrid(inert()));
+  const tramLayout = layoutTramInfrastructure(traffic.network, cityGrid || grid.buildCityGrid(inert()));
+  const { stops } = tramLayout;
+  // main.js places the runtime signal heads after the traffic system and before the trams, and always shifts the side
+  // heads' stop lines upstream there (road-network.js shiftStopLine); the cars and trams built below follow. The bench
+  // models what ships, so it runs by default; BENCH_RUNTIME_HEADS=0 turns the call off (the old trees' behaviour),
+  // =noshift runs it with the shift disabled (a control: the call alone changes trajectories, seed 73 15.1 -> 15.9 km/h),
+  // BENCH_STOP_MIN_LINK=12|0 overrides the shipped 17.5 m minimum link length for a shift.
+  const runtimeHeads = process.env.BENCH_RUNTIME_HEADS;
+  if (runtimeHeads !== '0' && street.addRuntimeSignalHeads && traffic.pedestrianRoutes) {
+    if (runtimeHeads === 'noshift') traffic.network.shiftStopLine = null;
+    street.addRuntimeSignalHeads(traffic.network, traffic.pedestrianRoutes,
+      [...tramLayout.poles, ...layoutRailInfrastructure(traffic.network).masts]);
+  }
   const { createTramSystem } = loadModule(js('trams.js'), {
     imports: {
       'three/webgpu': inert(), './geodata.js': { GEO }, './city-config.js': config,

@@ -381,6 +381,10 @@ node tools/accept-traffic.mjs --base poznan --ped --demand --jobs 6
 - **Seeds:** default `61 67 71 73 79 83 89 97 101 103 107 109 113 127 131 137 139 149 151 157` — none is a historical
   seed or one of the curb-fix record's twelve (`13 17 19 23 29 31 37 41 43 47 53 59`). `--seeds a,b,c` overrides
   (positive integers below 2147483647). `--minutes`, `--fps`, `--jobs` (default half the cores), `--json out`.
+- **Runtime signal heads:** `tools/bench-world.mjs` runs `addRuntimeSignalHeads` (the side-head stop-line shift, as `main.js` does) by
+  default. `BENCH_RUNTIME_HEADS=0` skips it (the pre-shift world), `=noshift` runs it without the shift (a control: the call alone
+  changes trajectories), `BENCH_STOP_MIN_LINK=12|0` overrides the shipped 17.5 m minimum link length. `accept-traffic` keys its cache
+  by both variables, on both sides.
 - **Cost:** about 3 CPU-minutes per seed and tree for bench + tram; the default 20 seeds × 2 trees ≈ 2 CPU-hours, so
   roughly 25–30 min at `--jobs 6`. Results are cached per (tree content hash, tool, seed, minutes, fps) in the
   gitignored `.accept-cache/`: the hash covers `js/` and `tools/` as they are on disk, so a rerun with the same code, and

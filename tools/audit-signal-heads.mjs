@@ -119,10 +119,12 @@ const overhead = street.runtimeHeads.filter((h) => h.overhead);
 const span = overhead.filter((h) => h.span);
 const spanTraction = span.filter((h) => h.anchorTraction && h.anchorTraction.some(Boolean));
 const cantilever = overhead.filter((h) => !h.span);
-const fallback = cantilever.filter((h) => !h.band);
-const spanFallback = span.filter((h) => !h.band);
-const fallbackAlong = fallback.map(alongOf);
-const spanFallbackAlong = spanFallback.map(alongOf);
+// Table 7.2: overhead heads hang 10.5 m or more past the stop line (head centre >= 10.7 m, front face 0.18 m nearer),
+// and the lead car (eye 1.2 m, 1 m behind the line) must see them within a windscreen field
+const aheadAlong = overhead.map(alongOf);
+const elevation = overhead.map((h) => Math.atan2(h.m ? 5.3 - 1.2 : 4.1, Math.max(0.1, alongOf(h) + 1)) * 180 / Math.PI);
+const unplaced = [];
+for (const entry of analysis.entries) if (entry.class === 'C') unplaced.push([entry.node.x, entry.node.z]);
 const armLengths = cantilever.map((h) => Math.hypot(h.pole.x - h.p.x, h.pole.z - h.p.z));
 const spanLengths = span.map((h) => Math.max(...h.anchors.map((p) => Math.hypot(p.x - h.p.x, p.z - h.p.z))));
 const armRail = (h) => {
@@ -132,23 +134,6 @@ const armRail = (h) => {
   for (let i = 0; i <= steps; i++) {
     min = Math.min(min, gridModule.railClearance(h.pole.x + (h.p.x - h.pole.x) * i / steps,
       h.pole.z + (h.p.z - h.pole.z) * i / steps, 20));
-  }
-  return min;
-};
-// How close an existing signal pole would come to a head at the 8 m band: the fallback heads keep the support
-// position because this distance exceeds the 12 m arm.
-const supportDistance = (h) => {
-  const e = h.edge, x = e.sx + e.dx * e.len, z = e.sz + e.dz * e.len;
-  let min = Infinity;
-  for (const record of audit.signalArmPoles.values()) for (const item of record.poles) {
-    const p = item.p, along = (p.x - x) * e.dx + (p.z - z) * e.dz;
-    if (along < -15 || along > 10) continue;
-    const lat = (p.x - x) * e.rx + (p.z - z) * e.rz;
-    let lane = e.lanes[0];
-    for (const value of e.lanes) if (Math.abs(value - lat) < Math.abs(lane - lat)) lane = value;
-    const t = Math.max(-15, Math.min(-8, along));
-    min = Math.min(min, Math.hypot(p.x - x - e.dx * t - e.rx * lane,
-      p.z - z - e.dz * t - e.rz * lane));
   }
   return min;
 };
@@ -169,11 +154,10 @@ console.log(JSON.stringify({ counts, total: initial.length, vehicleHeads: street
   overheadHeads: overhead.length,
   overheadPoles: overhead.filter((h) => !h.existing).length,
   overheadReused: overhead.filter((h) => h.existing).length,
-  overheadStrict: overhead.filter((h) => h.strict).length,
-  overheadBand: overhead.filter((h) => h.band).length,
-  overheadException: fallback.length,
-  overheadFallbackAlong: fallbackAlong.map((v) => Number(v.toFixed(3))),
-  overheadFallbackSupportMin: fallback.length ? Number(Math.min(...fallback.map(supportDistance)).toFixed(3)) : null,
+  overheadAheadMin: aheadAlong.length ? Number(Math.min(...aheadAlong).toFixed(3)) : null,
+  overheadAheadMax: aheadAlong.length ? Number(Math.max(...aheadAlong).toFixed(3)) : null,
+  overheadElevationMax: elevation.length ? Number(Math.max(...elevation).toFixed(2)) : null,
+  unplaced,
   overheadArmMax: armLengths.length ? Number(Math.max(...armLengths).toFixed(4)) : null,
   overheadArmMean: armLengths.length
     ? Number((armLengths.reduce((sum, v) => sum + v, 0) / armLengths.length).toFixed(4)) : null,
@@ -183,12 +167,8 @@ console.log(JSON.stringify({ counts, total: initial.length, vehicleHeads: street
   spanNewHeads,
   spanExistingHeads: span.length - spanNewHeads,
   cantileverPoles,
-  spanStrict: span.filter((h) => h.strict).length,
-  spanBand: span.filter((h) => h.band).length,
   spanTractionHeads: spanTraction.length,
   spanTractionAnchors: spanTraction.reduce((sum, h) => sum + h.anchorTraction.filter(Boolean).length, 0),
-  spanException: spanFallback.length,
-  spanFallbackAlong: spanFallbackAlong.map((v) => Number(v.toFixed(3))),
   spanLengthMax: spanLengths.length ? Number(Math.max(...spanLengths).toFixed(4)) : null,
   spanLengthMean: spanLengths.length
     ? Number((spanLengths.reduce((sum, v) => sum + v, 0) / spanLengths.length).toFixed(4)) : null,

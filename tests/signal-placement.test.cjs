@@ -351,8 +351,16 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
     const e = h.edge, x = e.sx + e.dx * e.len, z = e.sz + e.dz * e.len;
     const along = (h.p.x - x) * e.dx + (h.p.z - z) * e.dz;
     const lateral = Math.abs((h.p.x - x) * e.rx + (h.p.z - z) * e.rz);
-    assert.ok(Math.hypot(h.p.x - x, h.p.z - z) <= 30 && along >= -15 - 1e-6 && along <= road.STOP_SETBACK + 1e-6,
-      `setback ${along}`);
+    // Ground poles are searched against the stop line the network built (a side head's own stop line then moves
+    // upstream by e.stopLead); overhead heads hang 10.5 m or more PAST the line they stand at (Table 7.2).
+    const builtAlong = along - (e.stopLead || 0);
+    if (h.overhead) {
+      assert.ok(along - 0.18 >= 10.5 - 1e-6 && along <= 15 + 1e-6, `overhead head ${along} m past the stop line`);
+      assert.ok(Math.hypot(h.p.x - x, h.p.z - z) <= 30 && !e.stopLead, `overhead approach ${along}`);
+    } else {
+      assert.ok(Math.hypot(h.p.x - x, h.p.z - z) <= 30 + (e.stopLead || 0) &&
+        builtAlong >= -15 - 1e-6 && builtAlong <= road.STOP_SETBACK + 1e-6, `setback ${builtAlong}`);
+    }
     if (h.overhead) {
       if (h.span) {
         const traction = h.anchorTraction && h.anchorTraction.some(Boolean);
@@ -380,8 +388,6 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
           assert.ok(supports.every((s) => Math.hypot(p.x - s.x, p.z - s.z) >= 3.1),
             `span foot ${p.x}, ${p.z} keeps 3.1 m from a traction pole`);
         }
-        if (h.band) assert.ok(along <= -8 + 1e-6, `span band head along ${along}`);
-        if (h.strict) assert.ok(along <= -10.5 + 1e-6, `span strict head along ${along}`);
       } else {
         const arm = Math.hypot(h.pole.x - h.p.x, h.pole.z - h.p.z);
         assert.ok(arm <= 12.01, `overhead arm ${arm}`);
@@ -394,8 +400,6 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
           assert.ok(gridModule.railClearance(px, pz, 20) >= 2.22,
             `overhead arm keeps 2.22 m from rails at ${px}, ${pz}`);
         }
-        if (h.band) assert.ok(along <= -8 + 1e-6, `band head along ${along}`);
-        if (h.strict) assert.ok(along <= -10.5 + 1e-6, `strict head along ${along}`);
         assert.ok(config.roadClearance(h.pole.x, h.pole.z) >= 0.8);
         assert.ok(gridModule.railClearance(h.pole.x, h.pole.z, 20) >= 2.22);
       }
@@ -419,6 +423,56 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
     if (Math.hypot(p.x + 1175, p.z - 567) < 5) continue;
     assert.equal(localRoutes(rebuiltRoutes, p), localRoutes(routes, p),
       `pedestrian tracks and connections near ${p.x}, ${p.z} are unchanged`);
+  }
+});
+
+// Table 7.2 (załącznik 3): the front face of an overhead head is at least 10.5 m past the stop line, of a side head at
+// least 2.0 m. Overhead heads were placed past the line (findOverhead); on approaches with a side head that stands
+// closer than 2.0 m, the stop line moved upstream while 5.5 m of the link remained to queue on (shiftStopLine).
+test('overhead heads stand 10.5 m past their stop line and shifted side-head stop lines 2.0 m before theirs', () => {
+  const { network, street, grid, road } = world;
+  const FACE = 0.18; // from the head's pole position / target to its front face
+  const overhead = street.runtimeHeads.filter((h) => h.overhead);
+  assert.ok(overhead.length > 100, 'the overhead heads are placed');
+  for (const h of overhead) {
+    const e = h.edge, x = e.sx + e.dx * e.len, z = e.sz + e.dz * e.len;
+    const face = (h.p.x - x) * e.dx + (h.p.z - z) * e.dz - FACE;
+    assert.ok(face >= 10.5 && face <= 15, `overhead head ${face} m past its stop line`);
+    assert.ok(!e.stopLead, 'an overhead approach keeps its stop line');
+    // the lead car (eye 1.2 m, 1 m behind the line) sees it within a windscreen field
+    assert.ok(Math.atan2(5.3 - 1.2, face + FACE + 1) * 180 / Math.PI <= 20, 'lead-car elevation within 20 degrees');
+  }
+  const stopLines = street.stopLines;
+  assert.ok(stopLines.shifted.length > 200, `side-head stop lines moved (${stopLines.shifted.length})`);
+  assert.ok(stopLines.tooShort.length > 100, 'approaches with less than 5.5 m to give, or on links under 17.5 m, keep their stop line');
+  const rebuilt = road.buildRoadNetwork(grid.sidewalks, [...grid.footprints, ...street.footprints]);
+  const original = new Map(rebuilt.edges.map((e) => [e.id, e]));
+  for (const row of stopLines.shifted) {
+    const e = row.edge, x = e.sx + e.dx * e.len, z = e.sz + e.dz * e.len;
+    const face = (row.head.p.x - x) * e.dx + (row.head.p.z - z) * e.dz - FACE;
+    assert.ok(face >= 2 - 1e-6, `side head ${face} m past its shifted stop line`);
+    assert.ok(e.len >= 5.5 - 1e-6, `queue storage ${e.len} m`);
+    assert.ok(Math.abs(e.stopLead - row.shift) < 1e-9 && e.setbackTo >= row.shift - 1e-9);
+    // lanes, curves and the crosswalk do not move: the stop line and its crosswalk setback trade places, and
+    // every curve starts with a straight stub that meets the old curve
+    const old = original.get(e.id);
+    assert.ok(old && Math.abs(old.sx - e.sx) < 1e-9 && Math.abs(old.len - (e.len + e.stopLead)) < 1e-9);
+    assert.ok(old.len >= 17.5 - 1e-9, `a  m link keeps its stop line (SIDE_HEAD_MIN_LINK)`);
+    assert.ok(Math.abs(old.len + old.setbackTo - (e.len + e.setbackTo)) < 1e-9, 'the zebra stays where it was');
+    const p = { x: 0, z: 0, dx: 0, dz: 0 }, q = { x: 0, z: 0, dx: 0, dz: 0 };
+    for (const m of e.moves) for (let i = 0; i < e.lanes.length; i++) {
+      if (m.out[i] < 0) continue;
+      const c = network.connector(e, i, m.to, m.out[i]), o = rebuilt.connector(old, i, old.moves.find((n) => n.to.id === m.to.id).to, m.out[i]);
+      assert.ok(Math.abs(c.len - (o.len + e.stopLead)) < 1e-6, 'the curve gained exactly the stub');
+      for (const f of [0, 0.5, 1]) {
+        network.curvePoint(c, e.stopLead + o.len * f, p);
+        rebuilt.curvePoint(o, o.len * f, q);
+        assert.ok(Math.hypot(p.x - q.x, p.z - q.z) < 1e-6, 'the swept path is the old one');
+      }
+      network.curvePoint(c, 0, p);
+      assert.ok(Math.abs((p.x - x) * e.rx + (p.z - z) * e.rz - e.lanes[i]) < 1e-6 &&
+        Math.abs((p.x - x) * e.dx + (p.z - z) * e.dz) < 1e-6, 'the curve starts at the new stop line, on its lane');
+    }
   }
 });
 

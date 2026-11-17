@@ -600,8 +600,9 @@ function mapTramsToRoads(graph, network, gap = ROAD_OVERLAP) {
     let reach = gap;
     for (const l of r.lanes) reach = Math.max(reach, Math.abs(l) + gap);
     for (const p of r.laneShift || []) reach = Math.max(reach, Math.abs(p.d) + gap);
-    const ex = r.sx + r.dx * r.len;
-    const ez = r.sz + r.dz * r.len;
+    const rLen = r.len + (r.stopLead || 0); // the whole carriageway, stub included
+    const ex = r.sx + r.dx * rLen;
+    const ez = r.sz + r.dz * rLen;
     addToGrid(roadGrid, r, Math.min(r.sx, ex) - reach, Math.max(r.sx, ex) + reach, Math.min(r.sz, ez) - reach, Math.max(r.sz, ez) + reach);
   }
   const at = { x: 0, z: 0, tx: 0, tz: 0 };
@@ -618,7 +619,7 @@ function mapTramsToRoads(graph, network, gap = ROAD_OVERLAP) {
         const px = at.x - r.sx;
         const pz = at.z - r.sz;
         const along = px * r.dx + pz * r.dz;
-        if (along < 0 || along > r.len) continue;
+        if (along < 0 || along > r.len + (r.stopLead || 0)) continue;
         const lat = px * r.rx + pz * r.rz;
         const cos = at.tx * r.dx + at.tz * r.dz;
         for (let i = 0; i < r.lanes.length; i++) {
@@ -1628,13 +1629,13 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
                 (v.conn ? v.edge.len + v.cs : v.s) < v.half;
               // A car already on a short link may be unable to stop before this curve even before it is committed:
               // at 10.2 m/s on Kaponiera's 9.4 m link 6034 the line 5 tram started while the car needed the crossing.
-              const unable = v.edge === c.e && v.lane === c.i && c.e.len < 12 && !v.conn && v.speed > 1 &&
+              const unable = v.edge === c.e && v.lane === c.i && (c.e.linkLen ?? c.e.len) < 12 && !v.conn && v.speed > 1 &&
                 v.move && v.move.to === c.f && v.move.out[v.lane] === c.j &&
                 v.speed * v.speed > 2 * v.driver.b * (c.e.len - v.s - v.half);
               // Committed on a connector into this short link: the car has not reached c.e yet, but its braking
               // distance no longer fits between its front and the end of the link.
               const arriving = !entering && !unable && v.conn && v.move && v.out === c.i && v.move.to === c.e &&
-                c.e.len < 12 && v.speed > 1 &&
+                (c.e.linkLen ?? c.e.len) < 12 && v.speed > 1 &&
                 v.speed * v.speed > 2 * v.driver.b * (v.conn.len - v.cs + c.e.len - v.half);
               if (!entering && !tail && !unable && !arriving) continue;
               // A stopped car queued behind this tram's proxy (directly or behind one stopped car) cannot clear

@@ -371,13 +371,15 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
 - Check Dworzec's connected refuge route, signals and pedestrian/vehicle interactions on WebGL2; record a full
   rendered interaction with a naturally approaching bus, including rear clearance.
   [Dworzec checks](observations/dworzec-2026-10-30.md), [bus population check](observations/bus-population-2026-10-30.md).
-- **Defect: overhead heads stand on the wrong side of the stop line.** `findOverhead` (`js/street-details.js:2592–2644`)
-  puts 101 of 114 heads 8–15 m *behind* the line and 13 within 1.75 m of it; Table 7.2 (załącznik 3, pkt 7.2.2) and two ZDM
-  Poznań designs put overhead signals 8–30 m *beyond* the line, so the lead driver sees none of them (56° above the eye
-  at best). Fix proposed in [the record](observations/browser-checks-signals-2026-11-17.md): flip `search(-8/-10.5)`
-  to +8/+10.5, clamp to +10.5…+30, widen the along windows at `:2610,2620`, update `docs/world.md:423` and the sight
-  audit, or (B) move the approach stop line upstream (road-network/traffic, needs accept-traffic). The consolidated 2019
-  table is identical, so no re-read is needed.
+- **Stop lines versus Table 7.2 (done, awaiting visual approval and merge).** Overhead heads now hang 10.7–15 m past the
+  line; side-head stop lines move upstream on links of 17.5 m or more (**variant L17.5**, `SIDE_HEAD_MIN_LINK`; 216 of 954 approaches in the
+  audit fixture) ([record](observations/signal-stopline-2026-11-17.md)). Open items:
+  (1) every approach has a head (the earlier class-C pair was an audit artifact, fixed); (2) **329 side-head approaches keep a stop line
+  closer than 2.0 m to their head** (2.2 m pole rule): 93 miss by under 2 m, 75 by 2–5 m, 87 by 5–10 m, 74 by more; 199 of them are
+  10–12 m links (`streetDetails.stopLines.tooShort`): the user decides whether to move those heads instead; (3) traffic, 20 + 20 seeds
+  against feff6af, all within noise: holds > 120 s 32 → 37, deadlocks 2 → 3; the base already deadlocks at Rataje@1026,1671 (seed 211)
+  and Jeżyce@−2069,−470 (seed 197, kept). **Open deadlock sites under L17.5:** Wilda@−108,1867;−123,1864;−123,1931;−138,1927 (seed 103)
+  and Kaponiera@−1136,127 (seed 263), both new; (4) rear-queue and WebGL2 low checks of the new head positions.
 - **Defect: head 10's span stays cross an elevated mainline rail deck** (existing poles (−1551.0, 544.4, head 9's pole) / (−1547.0, 533.6),
   head (−1506.1, 555.0)) at 10 m, only 3.65 m above the 6.35 m deck, through the train envelope for 20 m. Spans use
   a ground-relative 10 m; over a viaduct they need the deck height plus the portal/catenary clearance, or a different
@@ -385,9 +387,6 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   collision, not examined). [Record](observations/browser-checks-signals-2026-11-17.md).
 - Near-collinear spans are systemic: 11 of 44 span heads have stays under 12° apart in plan (head 16 at 8°, 90 at 1.5°);
   cause is `pick` (`js/street-details.js` ~2689–2690) admitting same-side pairs at a +8 penalty. Low priority.
-- Related: Table 7.2 row 1 ("obok jezdni") needs the stop line ≥ 2,0 m before a side signal, but the ground-pole search
-  allows −15 … +1.75 m (`js/street-details.js` ~2807–2833, enforced by `tests/signal-placement.test.cjs` ~354); ordinary
-  ground heads probably share the misreading.
 - Remaining overhead-head checks: 81 of 114 overhead heads have no visual check yet; supports and coverage were checked on WebGPU only; low-level frames of head 10's stays against the portal
   were not legible. Lead-car and rear-queue views will need repeating after the sign fix.
   [Record](observations/browser-checks-signals-2026-11-17.md), earlier
