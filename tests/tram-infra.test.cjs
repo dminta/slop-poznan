@@ -207,6 +207,102 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
     assert.equal(tieShaderAttrs.length, 1, 'only mainline railway ballast material requests the tie attribute');
   }
 
+  // Every tram track a route uses has rendered rails and an overhead line, also beyond the detail box: the OSM data keeps
+  // 11.4 km of tram track outside it (Starołęka, Franowo, Junikowo, Górczyn, Dębiec, Miłostowo...), the routes run on it
+  // and the trams drive there. layoutTrackRails used to drop that track as !isLand (the land raster ends at the box),
+  // so trams ran past the last rail piece and wire at z 2846 (Starołęka). Rails and wires now continue over the
+  // outskirts land.
+  {
+    const [bx0, bx1, bz0, bz1] = GEO.frame.detailBox;
+    const outside = (x, z) => x <= bx0 || x >= bx1 || z <= bz0 || z >= bz1;
+    const laid = new Map(); // railIndex -> metres of rail pieces
+    for (const p of layout.pieces) laid.set(p.railIndex, (laid.get(p.railIndex) || 0) + Math.hypot(p.bx - p.ax, p.bz - p.az));
+    let routedKm = 0;
+    let outsideKm = 0;
+    const bare = [];
+    for (const tr of tracks) {
+      if (!GEO.rail[tr.railIndex].routes.length) continue;
+      routedKm += tr.len / 1000;
+      const got = laid.get(tr.railIndex) || 0;
+      // a chord is never longer than its arc: a routed track with every piece laid is within 0.5% of its length
+      if (got < tr.len * 0.995) bare.push({ tr, got });
+      for (let k = 0; k + 1 < tr.n; k++) {
+        const mx = (tr.p[2 * k] + tr.p[2 * k + 2]) / 2, mz = (tr.p[2 * k + 1] + tr.p[2 * k + 3]) / 2;
+        if (outside(mx, mz)) outsideKm += Math.hypot(tr.p[2 * k + 2] - tr.p[2 * k], tr.p[2 * k + 3] - tr.p[2 * k + 1]) / 1000;
+      }
+    }
+    assert.ok(outsideKm > 11, `${outsideKm.toFixed(2)} km of routed tram track beyond the detail box`);
+    assert.ok(routedKm > 120, `${routedKm.toFixed(1)} km of routed tram track`);
+    // The Starołęka tracks (lines 7, 12 and 13) run on to z 3125 with rails
+    assert.ok(layout.pieces.some((p) => Math.max(p.az, p.bz) > 3100 && p.ax > 600 && p.ax < 700), 'rails reach Starołęka z 3100');
+    // A support (pole, arm or span end) within 45 m of every 10 m sample of routed track beyond the box, so the wire is
+    // carried there too (a track with no side clear for a pole within 9 m would stay bare)
+    const supports = [...poles.map((q) => [q.x, q.z]), ...layout.spans.flatMap((q) => [[q.ax, q.az], [q.bx, q.bz]]),
+      ...layout.arms.map((q) => [q.ax, q.az])];
+    const cells = new Map();
+    for (const [x, z] of supports) {
+      const key = Math.floor(x / 64) * 100003 + Math.floor(z / 64);
+      (cells.get(key) || cells.set(key, []).get(key)).push([x, z]);
+    }
+    const near = (x, z, r) => {
+      for (let ix = Math.floor((x - r) / 64); ix <= Math.floor((x + r) / 64); ix++) {
+        for (let iz = Math.floor((z - r) / 64); iz <= Math.floor((z + r) / 64); iz++) {
+          for (const [sx, sz] of cells.get(ix * 100003 + iz) || []) if (Math.hypot(sx - x, sz - z) <= r) return true;
+        }
+      }
+      return false;
+    };
+    let samples = 0;
+    const unsupported = [];
+    for (const tr of tracks) {
+      if (!GEO.rail[tr.railIndex].routes.length) continue;
+      for (let s = 0; s <= tr.len; s += 10) {
+        const P = (() => { let k = 0; while (k + 2 < tr.n && tr.cum[k + 1] < s) k++; const t = (s - tr.cum[k]) / ((tr.cum[k + 1] - tr.cum[k]) || 1);
+          return { x: tr.p[2 * k] + (tr.p[2 * k + 2] - tr.p[2 * k]) * t, z: tr.p[2 * k + 1] + (tr.p[2 * k + 3] - tr.p[2 * k + 1]) * t }; })();
+        if (!outside(P.x, P.z)) continue;
+        samples++;
+        if (!near(P.x, P.z, 45)) unsupported.push(`rail ${tr.railIndex} at ${P.x.toFixed(0)}, ${P.z.toFixed(0)}`);
+      }
+    }
+    assert.ok(samples > 1000, `${samples} samples beyond the box`);
+    assert.deepEqual(unsupported, [], 'the overhead line is carried along the routed track beyond the box');
+
+    // Outside the box nothing stands off outskirts land: the Warta is the gap between two OUTSKIRTS rings at Most
+    // Przemysła I (x 105-154, z 2964-2981; ways 52076600 and 73305565 are bridges with no deck in the data), where rail
+    // pieces and poles used to be laid on open water (26+ pieces, 6 poles)
+    const toPts = (r) => r.map((p) => (Array.isArray(p) ? { x: p[0], z: p[1] } : p));
+    const rings = config.OUTSKIRTS.map(toPts);
+    const holes = config.OUTSKIRTS_HOLES.map((h) => ({ outer: h.outer, ring: toPts(h.ring) }));
+    const inRing = (ring, x, z) => {
+      let c = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const a = ring[i], b = ring[j];
+        if ((a.z > z) !== (b.z > z) && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) c = !c;
+      }
+      return c;
+    };
+    const onOutskirts = (x, z) => rings.some((r, k) => inRing(r, x, z) && !holes.some((h) => h.outer === k && inRing(h.ring, x, z)));
+    const wet = (layoutX) => {
+      const bad = [];
+      for (const p of layoutX.pieces) {
+        const x = (p.ax + p.bx) / 2, z = (p.az + p.bz) / 2;
+        if (outside(x, z) && !onOutskirts(x, z)) bad.push(`piece ${x.toFixed(0)}, ${z.toFixed(0)}`);
+      }
+      for (const q of layoutX.poles) if (outside(q.x, q.z) && !onOutskirts(q.x, q.z)) bad.push(`pole ${q.x.toFixed(0)}, ${q.z.toFixed(0)}`);
+      for (const q of layoutX.spans) for (const [x, z] of [[q.ax, q.az], [q.bx, q.bz]]) if (outside(x, z) && !onOutskirts(x, z)) bad.push(`span ${x.toFixed(0)}, ${z.toFixed(0)}`);
+      for (const q of layoutX.arms) if (outside(q.ax, q.az) && !onOutskirts(q.ax, q.az)) bad.push(`arm ${q.ax.toFixed(0)}, ${q.az.toFixed(0)}`);
+      return bad;
+    };
+    assert.deepEqual(bare.map(({ tr, got }) => `rail ${tr.railIndex}: ${got.toFixed(0)} of ${tr.len.toFixed(0)} m`), [],
+      'every routed tram track has rail pieces along its whole length (the Warta span on its deck)');
+    // Rail pieces over the Warta are laid on an explicit deck span (the only pieces off outskirts land)
+    assert.ok(layout.decks.length >= 10 && layout.decks.length < 60, `${layout.decks.length} deck pieces`);
+    assert.ok(layout.decks.every((d) => outside(d.ax, d.az) && !onOutskirts((d.ax + d.bx) / 2, (d.az + d.bz) / 2)), 'deck pieces are over outside-box water');
+    assert.ok(layout.decks.some((d) => d.ax > 100 && d.ax < 160 && d.az > 2960 && d.az < 2985), 'the Most Przemysła I span is bridged');
+    const onDeck = (p) => layout.decks.some((d) => d.ax === p.ax && d.az === p.az);
+    assert.deepEqual(wet({ ...layout, pieces: layout.pieces.filter((p) => !onDeck(p)) }), [], 'no rail piece, pole, span or arm outside the box stands off outskirts land except the deck span');
+  }
+
   // Stop furniture colliders follow the turned shelter (an OBB), not its world AABB: the old AABB flattened the
   // shelter's local depth to hx + hz, reaching up to 2.28 m past the glass on the diagonal stops. Compare against the
   // rendered shelter: the end panel / advert at len / 2, glass back at local z = -0.62, roof front at +0.8.

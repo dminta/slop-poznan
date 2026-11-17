@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import { Fn, attribute, color, float, vec2, mix, smoothstep, step, abs, fract, floor, fwidth, max, clamp, normalGeometry, positionGeometry, screenCoordinate, texture, uv } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GEO } from './geodata.js';
-import { BRIDGES, RAIL_BRIDGES, RAIL_BED_W, PLAZAS, blockAt, isLand, isWater, roadClearance } from './city-config.js';
+import { BRIDGES, RAIL_BRIDGES, RAIL_BED_W, PLAZAS, OUTSKIRTS, OUTSKIRTS_HOLES, blockAt, isLand, isWater, roadClearance } from './city-config.js';
 import { cityUniforms, createCurbMaterial, transparentEffectMRT } from './tsl-materials.js';
 
 // js/tram-infra.js
@@ -30,6 +30,40 @@ const PIECE = 4; // rails are laid as straight pieces up to this long, so they f
 const WIRE_Y = 5.8; // contact wire height
 const SPAN_Y = 6.6; // span wires and cantilever arms
 const STATION = 30; // support spacing along the track
+// Track the OSM data keeps beyond the detail box (11.4 km of it, 11.38 km on a route) runs over the outskirts land, which
+// has no land raster: city-config's isLand is false there. Outside the box the ground is the OUTSKIRTS rings minus
+// OUTSKIRTS_HOLES (outskirtsLand). That is not every point: the Warta is the gap between two rings at Most Przemysła I
+// (x 105-154, z 2964-2981, rails 1097/1098), where ~50 m of routed track crosses open water with no deck in the data.
+const [BOX_X0, BOX_X1, BOX_Z0, BOX_Z1] = GEO.frame.detailBox;
+const outsideBox = (x, z) => x <= BOX_X0 || x >= BOX_X1 || z <= BOX_Z0 || z >= BOX_Z1;
+const ringBounds = (pts) => {
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const p of pts) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
+  return { pts, x0, x1, z0, z1 };
+};
+const OUT_RINGS = OUTSKIRTS.map(ringBounds);
+const OUT_HOLES = OUTSKIRTS_HOLES.map((h) => ({ outer: h.outer, ...ringBounds(h.ring) }));
+const inRing = (r, x, z) => {
+  if (x < r.x0 || x > r.x1 || z < r.z0 || z > r.z1) return false;
+  let c = false;
+  for (let i = 0, j = r.pts.length - 1; i < r.pts.length; j = i++) {
+    const a = r.pts[i], b = r.pts[j];
+    if ((a.z > z) !== (b.z > z) && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) c = !c;
+  }
+  return c;
+};
+const outskirtsLand = (x, z) => {
+  for (let k = 0; k < OUT_RINGS.length; k++) {
+    if (!inRing(OUT_RINGS[k], x, z)) continue;
+    for (const h of OUT_HOLES) if (h.outer === k && inRing(h, x, z)) return false;
+    return true;
+  }
+  return false;
+};
+// Tram rail pieces over outskirts water (no deck in the data) are laid on a plain concrete tram deck with side girders,
+// the wire runs across it (user's choice, 2026-11-17; the alternative was a bare crossing).
+const TRAM_DECK_W = 6.5;
+const trackGround = (x, z) => (outsideBox(x, z) ? outskirtsLand(x, z) : isLand(x, z));
 // Platforms keep this far from a car lane's centreline: road-network.js closes a lane when an obstacle box comes within
 // LANE_CLEAR 1.2 m of it along both axes, which reaches ~1.7 m on a diagonal street
 const LANE_KEEP = 1.75;
@@ -530,7 +564,7 @@ function laneDistance(network) {
 
 // Rails are laid as straight pieces up to PIECE long, so they follow curbs and bends. There is no raised tram track
 // bed: each piece sits on the asphalt ground deck, or on a curb island's 0.22 m paving, and its heads stay flush.
-function layoutTrackRails(tracks) {
+function layoutTrackRails(tracks, decks = []) {
   const pieces = [];
   for (const tr of tracks) {
     const count = Math.max(1, Math.ceil(tr.len / PIECE));
@@ -541,7 +575,11 @@ function layoutTrackRails(tracks) {
       const mx = (A.x + B.x) / 2;
       const mz = (A.z + B.z) / 2;
       const len = Math.hypot(B.x - A.x, B.z - A.z);
-      if ((!isLand(mx, mz) && (tr.street !== 1 || !isWater(mx, mz))) || len < 0.01) continue;
+      if (len < 0.01) continue;
+      if (!trackGround(mx, mz) && (tr.street !== 1 || !isWater(mx, mz))) {
+        if (!outsideBox(mx, mz)) continue;
+        decks.push({ ax: A.x, az: A.z, bx: B.x, bz: B.z });
+      }
       const ground = tr.street === 1 ? 0 : (blockAt(mx, mz) ? SW_TOP : 0);
       pieces.push({ railIndex: tr.railIndex, s0, ax: A.x, az: A.z, bx: B.x, bz: B.z, ground });
     }
@@ -574,7 +612,7 @@ function layoutTramInfrastructure(network) {
     trackGrid.within(x, z, r, except ? (sg) => sg.data.tr !== except : null);
   // Poles keep 2 m from a lane centreline: the road network tests obstacles by box overlap, so a pole is clear of its
   // 1.2 m only beyond 1.2 + 0.16 m along both axes (up to 1.92 m diagonally)
-  const clearSpot = (x, z, keep = TRACK_KEEP) => isLand(x, z) && !laneDist.within(x, z, 2.0) && !trackWithin(x, z, keep);
+  const clearSpot = (x, z, keep = TRACK_KEEP) => trackGround(x, z) && !laneDist.within(x, z, 2.0) && !trackWithin(x, z, keep);
   const onCurb = (x, z) => {
     const b = blockAt(x, z);
     return !!(b && !b.median);
@@ -635,7 +673,7 @@ function layoutTramInfrastructure(network) {
     for (let o = TRACK_KEEP; o <= maxO; o += 0.25) {
       const px = x + nx * o;
       const pz = z + nz * o;
-      if (!isLand(px, pz)) break;
+      if (!trackGround(px, pz)) break;
       if (!clearSpot(px, pz)) continue;
       if (onCurb(px, pz)) {
         const ix = px + nx * 0.6;
@@ -922,7 +960,8 @@ function layoutTramInfrastructure(network) {
     });
   }
 
-  const pieces = layoutTrackRails(tracks);
+  const decks = [];
+  const pieces = layoutTrackRails(tracks, decks);
 
   // Ground footprints of everything placed, as small axis-aligned boxes (platforms sampled every 1.5 m): none goes to
   // the road network (built before this), but tests/tram-infra.test.cjs feeds them to it to prove no lane is crowded
@@ -943,7 +982,7 @@ function layoutTramInfrastructure(network) {
     }
   }
 
-  return { tracks, pieces, stops, skipped, poles, spans, arms, rosettes, droppers, footprints, laneDist, trackDist,
+  return { tracks, pieces, decks, stops, skipped, poles, spans, arms, rosettes, droppers, footprints, laneDist, trackDist,
     sheltersMoved, sheltersDropped };
 }
 
@@ -1784,7 +1823,7 @@ function stopFurnitureColliders(stops) {
 function buildTramInfrastructure(scene, network, layouts = null) {
   const layout = layouts?.tram || layoutTramInfrastructure(network);
   const {
-    tracks, pieces: tramPieces, stops, poles, spans, arms, rosettes, droppers, sheltersMoved, sheltersDropped
+    tracks, pieces: tramPieces, decks, stops, poles, spans, arms, rosettes, droppers, sheltersMoved, sheltersDropped
   } = layout;
   const group = new THREE.Group();
   group.name = 'TramInfrastructure';
@@ -1911,13 +1950,30 @@ function buildTramInfrastructure(scene, network, layouts = null) {
       const bx = tr.p[2 * k + 2];
       const bz = tr.p[2 * k + 3];
       const L = Math.hypot(bx - ax, bz - az);
-      if (L < 0.05 || !isLand((ax + bx) / 2, (az + bz) / 2)) continue;
+      if (L < 0.05) continue;
       const parts = Math.max(1, Math.ceil(L / STATION));
       for (let j = 0; j < parts; j++) {
         const t0 = j / parts;
         const t1 = (j + 1) / parts;
+        const tm = (t0 + t1) / 2;
+        const wx = ax + (bx - ax) * tm, wz = az + (bz - az) * tm;
+        if (!trackGround(wx, wz) && !outsideBox(wx, wz)) continue;
         wireM.push(beam(ax + (bx - ax) * t0, WIRE_Y, az + (bz - az) * t0, ax + (bx - ax) * t1, WIRE_Y, az + (bz - az) * t1, 0.022, 0.022));
       }
+    }
+  }
+  // Outskirts river spans (`decks`): a plain 6.5 m concrete slab at the flat world's road level under each
+  // rail piece, 2 m longer at both ends to overlap its neighbours, with a steel side girder each side
+  const deckM = [];
+  const girderM = [];
+  for (const d of decks) {
+    const L = Math.hypot(d.bx - d.ax, d.bz - d.az);
+    if (L < 0.01) continue;
+    const ux = (d.bx - d.ax) / L, uz = (d.bz - d.az) / L;
+    deckM.push(beam(d.ax - ux, -0.31, d.az - uz, d.bx + ux, -0.31, d.bz + uz, TRAM_DECK_W, 0.6));
+    for (const sg of [-1, 1]) {
+      const ox = -uz * sg * (TRAM_DECK_W / 2 - 0.12), oz = ux * sg * (TRAM_DECK_W / 2 - 0.12);
+      girderM.push(beam(d.ax - ux + ox, 0.2, d.az - uz + oz, d.bx + ux + ox, 0.2, d.bz + uz + oz, 0.24, 1.0));
     }
   }
 
@@ -2203,7 +2259,9 @@ function buildTramInfrastructure(scene, network, layouts = null) {
     instanced('CatenaryWires', unitBox, wireMat, wireM, {}, false),
     instanced('CatenarySpans', unitBox, wireMat, spanM, {}, false),
     instanced('CatenaryArms', unitBox, steelMat, armM),
-    instanced('CatenaryRosettes', rosetteGeo, steelMat, rosetteM, {}, false)
+    instanced('CatenaryRosettes', rosetteGeo, steelMat, rosetteM, {}, false),
+    instanced('TramRiverDecks', unitBox, endWallMat, deckM),
+    instanced('TramRiverGirders', unitBox, steelMat, girderM)
   ]) if (mesh) group.add(mesh);
   for (const mesh of [
     instanced('RailBallast', railBedGeo, railBallastMat, railBedM, { tie: { size: 2, data: railTies } }, false),

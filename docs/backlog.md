@@ -409,14 +409,6 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   [Record](observations/browser-checks-signals-2026-11-17.md), earlier
   [visual coverage](observations/browser-checks-2026-11-16.md) and
   [geometric clearance audit](observations/signal-tram-clearance-2026-11-14.md).
-- Fix the Starołęka rendered corridor boundary near `(658, 2855)`: simulated trams continue across coarse lawn/road
-  surfaces after the visible rails and wires end. `TRAM_ROUTE_EXTENSIONS` extends lines 7/12/13 to z ≈ 3125,
-  but `layoutTrackRails` rejects `!isLand` pieces outside the detail box (z max 2844.2). Lay rails/wires on outskirts
-  ground, or end tracks at the box edge and retire trams there. Sampled route assignments remain intact. Confirmed
-  2026-11-17 for line 13 southbound (top-down `star13top-01…03`: a tram crosses the box edge at z ≈ 2844 and runs on
-  coarse road/lawn); with the camera focus at `(658, 2800)` about 9–10 southbound and 8–15 northbound passages per 5 min
-  cross z = 2848 (all lines 1/7/11/12/13; line 13 southbound 2.4 per 5 min). The spawn focus inflates this, so read it
-  as an order of magnitude. [Record](observations/browser-checks-trams-2026-11-17.md#4-starołęka-line-13-southbound).
 - **Defect (to confirm with the user): trams reach the −9 m/s² floor.** About 3.6 times per tram-hour headless (bench
   world, 7 districts, seeds 4242 and 7, 5 min, 20 fps, 25.5 tram-hours: 157 episodes below −3 m/s², 117 below −5,
   93 at the cap; at-cap by wait reason room 36, car 28, switch 17, signal 9, stop 3; Wilda `(−929, 1954)` hits `'room'`
@@ -437,6 +429,9 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   (`kapL3`) show the car just after it cleared the path of a braking tram (≈ 0.25 s after), the crossing itself is inferred
   from the log. The per-frame tram-reservation value (`c.held`, `tramConflictGap`) was not read, so the ~1 s
   forecast-gap case is unverified. [Record](observations/browser-checks-trams-2026-11-17.md#3-kaponiera).
+- Tram lines now run on rails to the OSM data edge outside the detail box (Starołęka z ≈ 3125 and 21 other chains); the real
+  terminus loops (Starołęka PKM etc.) lie beyond the snapshot. Consider a buffer-stop prop at the data-edge ends and a pole-vs-outskirts-building
+  check. [Record](observations/staroleka-rails-2026-11-17.md).
 - Listen to sirens, bells, tram motors/squeal and the noon show; verify local timing and audible range.
 
 For each fix, record measurements and regression checks in the topic docs or observation records, and state which
