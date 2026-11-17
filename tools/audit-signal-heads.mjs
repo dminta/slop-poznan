@@ -36,9 +36,9 @@ const grid = gridModule.buildCityGrid(inert());
 const liveGrid = { ...gridModule, ...gridModule.snapshot() };
 const audit = {};
 const streetSource = source('street-details').replace(
-  '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null) {',
+  '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null, railLayout = null) {',
   '  Object.assign(audit, { signalArmPoles, vehicleHeadSites });\n' +
-  '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null) {');
+  '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null, railLayout = null) {');
 const street = loadModule(streetSource, { imports: { ...rendering, './city-config.js': config,
   './road-network.js': road, './city-grid.js': liveGrid, './trees.js': { createTreeField: () => ({ group: inert() }) } },
   globals: { ...globals, audit } }).buildStreetDetails(inert());
@@ -46,13 +46,13 @@ const network = road.buildRoadNetwork(grid.sidewalks, [...grid.footprints, ...st
 const { createPedestrianRoutes } = loadModule(source('pedestrian-routes'), { imports: { './road-network.js': road }, globals });
 const pedRoutes = createPedestrianRoutes(network, config.blockAt, gridModule.railClearance);
 const before = process.argv.includes('--before');
-let supports = null;
+let supports = null, railLayout = null;
 if (!before) {
   const tramInfra = loadModule(source('tram-infra'), {
     imports: { ...rendering, './geodata.js': { GEO }, './city-config.js': config }, globals
   });
   const tramLayout = tramInfra.layoutTramInfrastructure(network, grid);
-  const railLayout = tramInfra.layoutRailInfrastructure(network);
+  railLayout = tramInfra.layoutRailInfrastructure(network);
   supports = [...tramLayout.poles, ...railLayout.masts];
 }
 const configure = source('traffic').match(/  function configureSignals\([^]*?\n  \}/)[0];
@@ -77,7 +77,7 @@ for (const node of network.nodes) {
 vm.runInNewContext(`(${configure})`, { nodes: network.nodes, pedRoutes, KERB: 1.6, signalNodes: [],
   configurePedestrianSignal: config.configurePedestrianSignal, configureSignalClearance: config.configureSignalClearance })();
 street.addRuntimeSignalHeads(network);
-if (!before) street.addRuntimeSignalHeads(network, pedRoutes, supports);
+if (!before) street.addRuntimeSignalHeads(network, pedRoutes, supports, railLayout);
 const analysis = street.auditRuntimeSignalHeads(network, pedRoutes);
 const byEdge = new Map(analysis.entries.map((entry) => [entry.edge, entry]));
 const counts = { A: 0, B: 0, C: 0, D: 0 };
@@ -118,7 +118,8 @@ const alongOf = (h) => {
 const overhead = street.runtimeHeads.filter((h) => h.overhead);
 const span = overhead.filter((h) => h.span);
 const spanTraction = span.filter((h) => h.anchorTraction && h.anchorTraction.some(Boolean));
-const cantilever = overhead.filter((h) => !h.span);
+const bridge = overhead.filter((h) => h.bridge);
+const cantilever = overhead.filter((h) => !h.span && !h.bridge);
 // Table 7.2: overhead heads hang 10.5 m or more past the stop line (head centre >= 10.7 m, front face 0.18 m nearer),
 // and the lead car (eye 1.2 m, 1 m behind the line) must see them within a windscreen field
 const aheadAlong = overhead.map(alongOf);
@@ -161,6 +162,7 @@ console.log(JSON.stringify({ counts, total: initial.length, vehicleHeads: street
   overheadArmMax: armLengths.length ? Number(Math.max(...armLengths).toFixed(4)) : null,
   overheadArmMean: armLengths.length
     ? Number((armLengths.reduce((sum, v) => sum + v, 0) / armLengths.length).toFixed(4)) : null,
+  bridgeHeads: bridge.length,
   spanHeads: span.length,
   spanPoles: new Set(spanNewFeet.map((p) => `${p.x.toFixed(3)},${p.z.toFixed(3)}`)).size,
   spanReused: [...spanAnchors.values()].filter((a) => a.existing).length,

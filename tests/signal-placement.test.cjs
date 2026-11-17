@@ -64,8 +64,9 @@ test.before(async () => {
     '        const attr = new THREE.InstancedBufferAttribute(new Float32Array(data), size);\n        attributeRecords.push({ key, size, data: Array.from(data), attr });\n        g.setAttribute(key, attr);'
   ).replace('    const inst = new THREE.InstancedMesh(g, mat, matrices.length);',
     '    meshRecords.push({ geo, matrices: [...matrices], attrs });\n    const inst = new THREE.InstancedMesh(g, mat, matrices.length);'
-  ).replace('  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null) {',
-    '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null) {\n    testInternals.push(vehicleHeadSites);'
+  ).replace('  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null, railLayout = null) {',
+    '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null, railLayout = null) {\n' +
+    '    testInternals.push(vehicleHeadSites);'
   ).replace('    addMatrixArrayInstanced(s1HousingGeo, signalHousingMat, matrices);',
     '    meshTypes.push({ s1HousingGeo, s1LensGeo, backplateGeo, backplateBorderGeo });\n    addMatrixArrayInstanced(s1HousingGeo, signalHousingMat, matrices);'
   ).replace('    dummy.rotation.set(0, Math.atan2(fx, fz), 0);',
@@ -313,11 +314,13 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
   const oldCount = street.vehicleHeads, oldFootprints = street.footprints.length, oldColliders = street.colliders.length;
   const sitesBefore = testInternals[0].length;
   const footprintSnapshot = JSON.stringify(street.footprints), colliderSnapshot = JSON.stringify(street.colliders);
-  const supports = [...world.tramInfra.layoutTramInfrastructure(network, world.grid).poles,
-    ...world.tramInfra.layoutRailInfrastructure(network).masts];
-  street.addRuntimeSignalHeads(network, routes, supports);
+  const railLayout = world.tramInfra.layoutRailInfrastructure(network);
+  const supports = [...world.tramInfra.layoutTramInfrastructure(network, world.grid).poles, ...railLayout.masts];
+  street.addRuntimeSignalHeads(network, routes, supports, railLayout);
   assert.ok(street.runtimeHeads.some((h) => h.existing && Math.hypot(h.node.x + 2086.95, h.node.z - 2421.3) < 0.1));
   assert.ok(street.runtimeHeads.some((h) => !h.existing && Math.hypot(h.node.x - 1374.2, h.node.z - 566.1) < 0.1));
+  assert.ok(street.runtimeHeads.some((h) => h.bridge && h.edge.id === 157),
+    'the approach under the viaduct gets a bridge-mounted head');
   const newHeads = street.runtimeHeads.filter((h) => h.span ? h.anchorExisting.some((existing) => !existing) : !h.existing);
   const newPolePoints = [];
   const seenPoles = new Set();
@@ -388,6 +391,19 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
           assert.ok(supports.every((s) => Math.hypot(p.x - s.x, p.z - s.z) >= 3.1),
             `span foot ${p.x}, ${p.z} keeps 3.1 m from a traction pole`);
         }
+      } else if (h.bridge) {
+        assert.ok(h.headY - 0.55 >= 4.6 - 1e-6, 'bridge head clears road users');
+        assert.ok(h.topY - (h.headY + 0.55) >= 0.3 - 1e-6, 'head clears the deck underside');
+        assert.ok(railLayout.viaducts.some((v) => {
+          const vx = v.bx - v.ax, vz = v.bz - v.az, len = Math.hypot(vx, vz);
+          const along = ((h.pole.x - v.ax) * vx + (h.pole.z - v.az) * vz) / len;
+          return along >= 0.5 - 1e-6 && along <= len - 0.5 + 1e-6 &&
+            Math.abs(v.yClearance - h.topY) < 1e-6 && v.pieces.some((p) => {
+            const dx = p.bx - p.ax, dz = p.bz - p.az, l2 = dx * dx + dz * dz;
+            const t = Math.max(0, Math.min(1, ((h.pole.x - p.ax) * dx + (h.pole.z - p.az) * dz) / l2));
+            return Math.hypot(h.pole.x - p.ax - t * dx, h.pole.z - p.az - t * dz) <= 2.5 + 1e-6;
+            });
+        }), 'bracket anchors at least 0.5 m inside a real viaduct deck');
       } else {
         const arm = Math.hypot(h.pole.x - h.p.x, h.pole.z - h.p.z);
         assert.ok(arm <= 12.01, `overhead arm ${arm}`);
@@ -516,6 +532,11 @@ test('overhead and span heads keep 3.1 m from tram poles and railway masts', () 
       } else {
         assert.ok(supports.every((s) => (s.h ?? 0) < 9.8), 'span stays run above the traction poles');
       }
+      continue;
+    }
+    if (h.bridge) {
+      assert.ok(supports.every((s) => segDist(s.x, s.z, h.pole.x, h.pole.z, h.p.x, h.p.z) >= 3.1),
+        'bridge bracket clears traction supports');
       continue;
     }
     let min = Infinity, where = '';

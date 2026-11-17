@@ -26,21 +26,22 @@ test('the furnished audit classifies historical approaches before and after runt
   assert.equal(before.summary.vehicleHeads, 1109);
   assert.equal(after.summary.vehicleHeads, 1298);
   assert.equal(after.summary.pedestrianHeads, 1935);
-  assert.equal(after.summary.runtimePoles, 99);
-  assert.equal(after.summary.reusedPoles, 90);
+  assert.equal(after.summary.runtimePoles, 98);
+  assert.equal(after.summary.reusedPoles, 91);
   assert.equal(after.summary.overheadHeads, 113);
-  assert.equal(after.summary.overheadPoles, 30);
-  assert.equal(after.summary.overheadReused, 83);
+  assert.equal(after.summary.overheadPoles, 29);
+  assert.equal(after.summary.overheadReused, 84);
   assert.ok(after.summary.overheadAheadMin >= 10.7 - 1e-6 && after.summary.overheadAheadMax <= 15 + 1e-6,
     'every overhead head hangs 10.5-15 m past its stop line (front face at least 10.5 m)');
   assert.ok(after.summary.overheadElevationMax <= 20, 'the lead car sees every overhead head within 20 degrees');
-  assert.equal(after.summary.spanHeads, 28);
-  assert.equal(after.summary.spanPoles, 20);
-  assert.equal(after.summary.spanReused, 32);
-  assert.equal(after.summary.spanNewHeads, 14);
+  assert.equal(after.summary.bridgeHeads, 1);
+  assert.equal(after.summary.spanHeads, 27);
+  assert.equal(after.summary.spanPoles, 19);
+  assert.equal(after.summary.spanReused, 30);
+  assert.equal(after.summary.spanNewHeads, 13);
   assert.equal(after.summary.spanExistingHeads, 14);
-  assert.equal(after.summary.spanTractionHeads, 3);
-  assert.equal(after.summary.spanTractionAnchors, 6);
+  assert.equal(after.summary.spanTractionHeads, 6);
+  assert.equal(after.summary.spanTractionAnchors, 12);
   assert.equal(after.summary.cantileverPoles, 16);
   assert.ok(after.summary.spanLengthMax > 53 && after.summary.spanLengthMax <= 55,
     'the longest span stay stays within the 55 m reach');
@@ -62,7 +63,7 @@ test('the furnished audit classifies historical approaches before and after runt
     typeof v === 'number' ? Number(v.toFixed(3)) : v));
   // Two active approaches previously reused poles from disabled plans and now place new poles.
   assert.equal(createHash('sha256').update(JSON.stringify(placements)).digest('hex'),
-    'e32fe5473d1fad8ca9946c2e5cec6d7908be97eb316d76f9cf64f2a52daf47f8');
+    'bacee9e1077c5b83fab46b9a482c0d4847aa91d1237bebf9ea26b4d06ef2f50c');
   const gorna = after.rows.find((r) => Math.hypot(r.node[0] + 448.825, r.node[1] - 947.425) < 0.01 &&
     r.direction[0] > 0.4 && r.direction[1] < -0.8);
   assert.ok(gorna, 'the Górna Wilda approach is still audited');

@@ -48,9 +48,9 @@ const grid = gridModule.buildCityGrid(inert());
 const liveGrid = { ...gridModule, ...gridModule.snapshot() };
 const audit = {};
 const streetSource = source('street-details').replace(
-  '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null) {',
+  '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null, railLayout = null) {',
   '  Object.assign(audit, { signalArmPoles, vehicleHeadSites });\n' +
-  '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null) {'
+  '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null, railLayout = null) {'
 );
 const street = loadModule(streetSource, {
   imports: {
@@ -88,7 +88,7 @@ vm.runInNewContext(`(${configure})`, {
 })();
 
 street.addRuntimeSignalHeads(network);
-street.addRuntimeSignalHeads(network, pedRoutes, supports);
+street.addRuntimeSignalHeads(network, pedRoutes, supports, railLayout);
 
 // Signal head geometry constants from js/street-details.js:304-306, 622
 const OVERHEAD_Y = 5.3;
@@ -217,7 +217,8 @@ for (let idx = 0; idx < fallbacks.length; idx++) {
   for (let i = 1; i < e.lanes.length; i++) {
     if (Math.abs(e.lanes[i] - lat) < Math.abs(e.lanes[overLane] - lat)) overLane = i;
   }
-  console.log(`\n=== Head #${idx + 1} (${h.span ? 'span' : 'cantilever'}, existing=${!!h.existing}) ===`);
+  const supportKind = h.bridge ? 'bridge' : h.span ? 'span' : 'cantilever';
+  console.log(`\n=== Head #${idx + 1} (${supportKind}, existing=${!!h.existing}) ===`);
   console.log(`  pos=(${h.p.x.toFixed(3)}, ${h.p.z.toFixed(3)}), node=(${h.node.x.toFixed(2)}, ${h.node.z.toFixed(2)}), along=${along.toFixed(3)} m, lat=${lat.toFixed(3)} m (lane ${overLane} @ ${e.lanes[overLane].toFixed(2)} m), lanes=${e.lanes.length}, edgeLen=${e.len.toFixed(2)} m`);
 
   for (let laneIdx = 0; laneIdx < e.lanes.length; laneIdx++) {

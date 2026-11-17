@@ -299,8 +299,9 @@ function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSe
   const runtimeHeads = process.env.BENCH_RUNTIME_HEADS;
   if (runtimeHeads !== '0' && street.addRuntimeSignalHeads && traffic.pedestrianRoutes) {
     if (runtimeHeads === 'noshift') traffic.network.shiftStopLine = null;
+    const railLayout = layoutRailInfrastructure(traffic.network);
     street.addRuntimeSignalHeads(traffic.network, traffic.pedestrianRoutes,
-      [...tramLayout.poles, ...layoutRailInfrastructure(traffic.network).masts]);
+      [...tramLayout.poles, ...railLayout.masts], railLayout);
   }
   const { createTramSystem } = loadModule(js('trams.js'), {
     imports: {

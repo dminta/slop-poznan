@@ -2539,7 +2539,7 @@ function buildStreetDetails(scene, opts = {}) {
 
   // Shared by the diagnostic audit and boot-time placement. Clearance is conservative: a pole's 0.3 m square
   // is expanded by the exact margins used by lane, curve and pedestrian checks when the network is rebuilt.
-  function auditRuntimeSignalHeads(network, pedRoutes, place = false, supports = null) {
+  function auditRuntimeSignalHeads(network, pedRoutes, place = false, supports = null, railLayout = null) {
     const heads = [], entries = [], cell = 16, headReach = 30;
     // The tram/rail supports are only needed for span anchors and heads, but checking every support for every
     // sampled foot is quadratic; a 8 m bucket grid keeps each test to the few supports within 3.1 m.
@@ -2621,7 +2621,7 @@ function buildStreetDetails(scene, opts = {}) {
     }
     for (const c of buildingColliders) {
       if ((c.minY ?? 0) > SIGNAL_POLE_H + 0.1 || (c.maxY ?? Infinity) < 0.1) continue;
-      file(buildings, c, c.minX - 0.15, c.maxX + 0.15, c.minZ - 0.15, c.maxZ + 0.15);
+      file(buildings, c, c.minX - 0.3, c.maxX + 0.3, c.minZ - 0.3, c.maxZ + 0.3);
     }
     // Tall obstacles an arm at 5.55 m would hit: buildings, bridge decks and other colliders spanning the arm's
     // height. The ground index above stops at 4.3 m and misses the viaducts that cross several signal approaches.
@@ -2639,6 +2639,17 @@ function buildStreetDetails(scene, opts = {}) {
     for (const c of buildingColliders) {
       if ((c.minY ?? 0) > SPAN_TRAM_TOP + 0.6 || (c.maxY ?? Infinity) < SPAN_TRAM_TOP - 0.6) continue;
       file(lowOverhead, c, c.minX - 0.15, c.maxX + 0.15, c.minZ - 0.15, c.maxZ + 0.15);
+    }
+    // Viaduct colliders are built after signal placement. Reserve the rail bed and a conservative 6 m above its
+    // deck for the train and contact wire. Railway contact and messenger wires stand 5.6 m and 7 m above rail level;
+    // both span heights are below this envelope for the elevated decks.
+    for (const v of railLayout?.viaducts || []) for (const p of v.pieces) {
+      if (v.deckY + 6 < SPAN_TRAM_TOP) continue;
+      const margin = 2.7;
+      const c = { railPiece: p, minX: Math.min(p.ax, p.bx) - margin, maxX: Math.max(p.ax, p.bx) + margin,
+        minZ: Math.min(p.az, p.bz) - margin, maxZ: Math.max(p.az, p.bz) + margin };
+      if (v.deckY + 6 >= SPAN_Y) file(highOverhead, c, c.minX, c.maxX, c.minZ, c.maxZ);
+      file(lowOverhead, c, c.minX, c.maxX, c.minZ, c.maxZ);
     }
     // Segment intersects a square around the candidate (the rectangle query used by walkable/pathClear).
     const intersects = (s, x, z) => {
@@ -2835,8 +2846,14 @@ function buildStreetDetails(scene, opts = {}) {
           const steps = Math.max(1, Math.ceil(len / 0.5));
           for (let i = 0; i <= steps; i++) {
             const px = from.x + dx * i / steps, pz = from.z + dz * i / steps;
-            if (lookup(high, px, pz).some((c) => px >= c.minX - 0.15 && px <= c.maxX + 0.15 &&
-              pz >= c.minZ - 0.15 && pz <= c.maxZ + 0.15)) return false;
+            if (lookup(high, px, pz).some((c) => {
+              if (c.railPiece) {
+                const p = c.railPiece, dx = p.bx - p.ax, dz = p.bz - p.az, len2 = dx * dx + dz * dz;
+                const t = len2 ? Math.max(0, Math.min(1, ((px - p.ax) * dx + (pz - p.az) * dz) / len2)) : 0;
+                return Math.hypot(px - p.ax - t * dx, pz - p.az - t * dz) <= 2.7;
+              }
+              return px >= c.minX - 0.15 && px <= c.maxX + 0.15 && pz >= c.minZ - 0.15 && pz <= c.maxZ + 0.15;
+            })) return false;
           }
           return true;
         };
@@ -2901,8 +2918,12 @@ function buildStreetDetails(scene, opts = {}) {
           // The task keeps every span foot and head 3.1 m from a traction pole. The tram/rail layouts are built
           // after the network, so main.js hands their poles and masts in; without them (a bare fixture) the 3.1 m
           // track buffer below is the conservative stand-in.
-          const newFootClear = (px, pz) => clearOfRails(px, pz, 1.1) && supportClear(px, pz);
-          const existingFootClear = (px, pz) => clearOfRails(px, pz, 0.22) && supportClear(px, pz);
+          const footBuildingClear = (px, pz) => !lookup(buildings, px, pz).some((c) =>
+            px >= c.minX - 0.3 && px <= c.maxX + 0.3 && pz >= c.minZ - 0.3 && pz <= c.maxZ + 0.3);
+          const newFootClear = (px, pz) => clearOfRails(px, pz, 1.1) && supportClear(px, pz) &&
+            footBuildingClear(px, pz);
+          const existingFootClear = (px, pz) => clearOfRails(px, pz, 0.22) && supportClear(px, pz) &&
+            footBuildingClear(px, pz);
           const headClear = (px, pz) => clearOfRails(px, pz, 0.22) && supportClear(px, pz);
           const mastClear = newFootClear;
           const feet = [];
@@ -2932,19 +2953,22 @@ function buildStreetDetails(scene, opts = {}) {
             if (list.length < 2) return null;
             const cost = (item) => item.d + (item.existing ? 0 : 0.4);
             list.sort((a, b) => cost(a) - cost(b));
-            const left = list.filter((item) => item.lat < lane - 0.5).slice(0, 8);
-            const right = list.filter((item) => item.lat > lane + 0.5).slice(0, 8);
+            const left = list.filter((item) => item.lat < lane - 0.5).slice(0, 20);
+            const right = list.filter((item) => item.lat > lane + 0.5).slice(0, 20);
             const pairs = [];
             const add = (a, b, extra) => {
               if (Math.hypot(a.p.x - b.p.x, a.p.z - b.p.z) <= 2) return;
+              const ax = a.p.x - target.x, az = a.p.z - target.z;
+              const bx = b.p.x - target.x, bz = b.p.z - target.z;
+              if ((ax * bx + az * bz) / (a.d * b.d) > Math.cos(12 * Math.PI / 180)) return;
               pairs.push({ a, b, score: cost(a) + cost(b) + extra });
             };
             for (const a of left) for (const b of right) add(a, b, 0);
-            const top = list.slice(0, 12);
+            const top = list.slice(0, 30);
             for (let i = 0; i < top.length; i++) for (let j = i + 1; j < top.length; j++) add(top[i], top[j], 8);
             pairs.sort((a, b) => a.score - b.score);
             const topPoint = { x: target.x, y: SPAN_Y, z: target.z };
-            for (const pair of pairs.slice(0, 24)) {
+            for (const pair of pairs.slice(0, 64)) {
               const { a, b } = pair;
               if (!wireClear(a.p, a.p, highOverhead) || !wireClear(b.p, b.p, highOverhead) ||
                 !wireClear(a.p, topPoint, highOverhead) || !wireClear(b.p, topPoint, highOverhead) ||
@@ -2979,7 +3003,7 @@ function buildStreetDetails(scene, opts = {}) {
             if (!supports) return null;
             const anchors = [];
             for (const s of supports) {
-              if (!(s.h >= 7.4 && s.h <= 7.8)) continue;
+              if (!(s.h >= 7.4 && s.h <= 7.8) || !footBuildingClear(s.x, s.z)) continue;
               anchors.push({ p: { x: s.x, z: s.z }, lat: (s.x - x) * edge.rx + (s.z - z) * edge.rz,
                 existing: true, traction: true, y: s.h - 0.4 });
             }
@@ -3007,9 +3031,20 @@ function buildStreetDetails(scene, opts = {}) {
             const pickTraction = (target, lane) => {
               const near = anchors.filter((a) => Math.hypot(a.p.x - target.x, a.p.z - target.z) <= SPAN_REACH);
               let best = null;
+              const pairs = [];
               for (let i = 0; i < near.length; i++) for (let j = i + 1; j < near.length; j++) {
                 const a = near[i], b = near[j];
+                const score = Math.hypot(a.p.x - target.x, a.p.z - target.z) +
+                  Math.hypot(b.p.x - target.x, b.p.z - target.z);
+                pairs.push({ a, b, score });
+              }
+              pairs.sort((a, b) => a.score - b.score);
+              for (const { a, b, score } of pairs.slice(0, 64)) {
                 if (Math.hypot(a.p.x - b.p.x, a.p.z - b.p.z) <= 2) continue;
+                const ax = a.p.x - target.x, az = a.p.z - target.z;
+                const bx = b.p.x - target.x, bz = b.p.z - target.z;
+                if ((ax * bx + az * bz) / (Math.hypot(ax, az) * Math.hypot(bx, bz)) >
+                  Math.cos(12 * Math.PI / 180)) continue;
                 const straddles = (a.lat < lane - 0.5 && b.lat > lane + 0.5) ||
                   (b.lat < lane - 0.5 && a.lat > lane + 0.5);
                 if (!straddles) continue;
@@ -3018,8 +3053,6 @@ function buildStreetDetails(scene, opts = {}) {
                 if (!wireClear(a.p, top, lowOverhead) || !wireClear(b.p, top, lowOverhead) ||
                   !wireClear(top, target, overhead) || !wireSupportClear(a.p, top, a.p, b.p) ||
                   !wireSupportClear(b.p, top, a.p, b.p)) continue;
-                const score = Math.hypot(a.p.x - target.x, a.p.z - target.z) +
-                  Math.hypot(b.p.x - target.x, b.p.z - target.z);
                 if (!best || score < best.score) best = { target, anchors: [a, b], topY, score };
               }
               return best;
@@ -3101,7 +3134,75 @@ function buildStreetDetails(scene, opts = {}) {
             continue;
           }
           const spanSite = findSpan();
-          if (!spanSite) continue;
+          if (!spanSite) {
+            // Viaduct slab underside is yClearance (tram-infra.js); its 0.35 m slab ends at deckY.
+            // A 5.15 m head leaves 4.6 m below its 0.55 m backplate and 0.3 m to a 6 m underside.
+            const headY = 5.15;
+            let bridge = null;
+            for (const along of OVERHEAD_SPAN_ALONG) {
+              for (const lane of edge.lanes) for (const shift of [0, -0.5, 0.5, -1, 1, -1.5, 1.5]) {
+                const lat = lane + shift;
+                if (Math.abs(lat) > 15) continue;
+                const target = { x: x + edge.dx * along + edge.rx * lat,
+                  z: z + edge.dz * along + edge.rz * lat, along };
+                if (!clearOfRails(target.x, target.z, 0.22) || !supportClear(target.x, target.z)) continue;
+                for (const v of railLayout?.viaducts || []) {
+                  if (v.yClearance < headY + 0.55 + 0.3 - 1e-6) continue;
+                  for (const q of v.pieces) {
+                    const dx = q.bx - q.ax, dz = q.bz - q.az, len2 = dx * dx + dz * dz;
+                    const vx = v.bx - v.ax, vz = v.bz - v.az, vlen = Math.hypot(vx, vz);
+                    if (vlen <= 1) continue;
+                    const start = ((q.ax - v.ax) * vx + (q.az - v.az) * vz) / vlen;
+                    const end = ((q.bx - v.ax) * vx + (q.bz - v.az) * vz) / vlen;
+                    const delta = end - start;
+                    if (Math.abs(delta) < 1e-9) continue;
+                    const t0 = (0.5 - start) / delta, t1 = (vlen - 0.5 - start) / delta;
+                    const lo = Math.max(0, Math.min(t0, t1)), hi = Math.min(1, Math.max(t0, t1));
+                    if (lo > hi) continue;
+                    const t = len2 ? Math.max(lo, Math.min(hi,
+                      ((target.x - q.ax) * dx + (target.z - q.az) * dz) / len2)) : lo;
+                    const cx = q.ax + t * dx, cz = q.az + t * dz;
+                    const distance = Math.hypot(target.x - cx, target.z - cz);
+                    if (distance > 5.5) continue;
+                    const f = distance > 2.5 ? 2.5 / distance : 1;
+                    const anchor = { x: cx + (target.x - cx) * f, z: cz + (target.z - cz) * f };
+                    // The lateral fascia offset can also advance along a curved viaduct's end axis.
+                    const anchorAlong = ((anchor.x - v.ax) * vx + (anchor.z - v.az) * vz) / vlen;
+                    const correction = Math.max(0.5, Math.min(vlen - 0.5, anchorAlong)) - anchorAlong;
+                    anchor.x += correction * vx / vlen;
+                    anchor.z += correction * vz / vlen;
+                    const reach = Math.hypot(target.x - anchor.x, target.z - anchor.z);
+                    if (bridge && bridge.reach <= reach) continue;
+                    // A fascia arm must clear street-level tram track and other support poles along its whole reach.
+                    const steps = Math.max(1, Math.ceil(reach / 0.25));
+                    let clear = true;
+                    for (let i = 0; i <= steps; i++) {
+                      const px = anchor.x + (target.x - anchor.x) * i / steps;
+                      const pz = anchor.z + (target.z - anchor.z) * i / steps;
+                      if (railLayout.tramDist(px, pz, 2.22) < 2.22 || !supportClear(px, pz)) { clear = false; break; }
+                    }
+                    if (clear) bridge = { target, anchor, topY: v.yClearance, reach };
+                  }
+                }
+              }
+              if (bridge) break;
+            }
+            if (!bridge) continue;
+            const top = { x: bridge.anchor.x, y: bridge.topY, z: bridge.anchor.z };
+            const end = { x: bridge.target.x, y: bridge.topY, z: bridge.target.z };
+            addRod(top, end, OVERHEAD_ARM_R);
+            addRod(end, { ...end, y: headY + 0.55 }, OVERHEAD_ARM_R);
+            const site = { timing: node.signalTiming }, group0 = edge.axisIndex === 0;
+            const a = { ux: -edge.dx, uz: -edge.dz, w: edge.half * 2, lanes: edge.lanes.length };
+            const target = bridge.target;
+            const m = setFacing(target.x + a.ux * 0.18, headY, target.z + a.uz * 0.18, a.ux, a.uz);
+            recordHead({ site, a, p: target, group0, existing: true, node, edge, overhead: true,
+              bridge: true, pole: bridge.anchor, topY: bridge.topY, headY, m });
+            placedForNode = true;
+            entry.class = 'B';
+            entry.candidate = { x: target.x, z: target.z, side: 0, overhead: true, bridge: true };
+            continue;
+          }
           const topY = spanSite.topY ?? SPAN_Y;
           for (const anchor of spanSite.anchors) {
             if (anchor.traction) continue;
@@ -3193,7 +3294,7 @@ function buildStreetDetails(scene, opts = {}) {
 
   // Some mapped one-way arms acquire an incoming lane only after the network merges and centres the roads. Reuse
   // the left pole that the ordinary search already placed; the network, pedestrian routes and furniture stay fixed.
-  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null) {
+  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null, railLayout = null) {
     const matrices = [], ave = [], street = [], backplates = [], aveIndices = [], streetIndices = [];
     const planRoot = (plan) => {
       while (plan && plan.alias) plan = plan.alias;
@@ -3308,7 +3409,7 @@ function buildStreetDetails(scene, opts = {}) {
     }
     if (pedRoutes) {
       const poleStart = signalPoleMatrices.length;
-      const additions = auditRuntimeSignalHeads(network, pedRoutes, true, supports);
+      const additions = auditRuntimeSignalHeads(network, pedRoutes, true, supports, railLayout);
       result.runtimeHeads.push(...additions.heads);
       for (const head of additions.heads) {
         const { site, a, p, group0 } = head;

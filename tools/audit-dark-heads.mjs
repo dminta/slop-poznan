@@ -49,9 +49,9 @@ const liveGrid = { ...gridModule, ...gridModule.snapshot() };
 const audit = { meshes: [] };
 const streetSource = source('street-details')
   .replace(
-    '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null) {',
+    '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null, railLayout = null) {',
     '  Object.assign(audit, { signalArmPoles, vehicleHeadSites });\n' +
-    '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null) {'
+    '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null, railLayout = null) {'
   )
   .replace(
     '    const inst = new THREE.InstancedMesh(g, mat, matrices.length);',
@@ -95,7 +95,7 @@ vm.runInNewContext(`(${configure})`, {
   configureSignalClearance: config.configureSignalClearance
 })();
 
-street.addRuntimeSignalHeads(network, pedRoutes, supports);
+street.addRuntimeSignalHeads(network, pedRoutes, supports, railLayout);
 
 const rootOf = (t) => {
   while (t && t.alias) t = t.alias;

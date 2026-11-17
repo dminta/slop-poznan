@@ -260,7 +260,7 @@ async function main() {
   // 7. Runtime signal heads + lazy pedestrian links
   t0 = performance.now();
   const signalSupports = [...tramLayout.poles, ...railLayout.masts];
-  streetDetails.addRuntimeSignalHeads(trafficSystem.network, trafficSystem.pedestrianRoutes, signalSupports);
+  streetDetails.addRuntimeSignalHeads(trafficSystem.network, trafficSystem.pedestrianRoutes, signalSupports, railLayout);
   phases.signalHeads = performance.now() - t0;
 
   // 8. Road paint

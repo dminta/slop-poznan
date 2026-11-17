@@ -239,7 +239,8 @@ async function initApp() {
   const tramLayout = streetDetails.tramLayout || layoutTramInfrastructure(trafficSystem.network, cityGrid);
   const railLayout = layoutRailInfrastructure(trafficSystem.network);
   const signalSupports = [...tramLayout.poles, ...railLayout.masts];
-  streetDetails.addRuntimeSignalHeads(trafficSystem.network, trafficSystem.pedestrianRoutes, signalSupports);
+  streetDetails.addRuntimeSignalHeads(trafficSystem.network, trafficSystem.pedestrianRoutes, signalSupports,
+    railLayout);
   markInit('traffic');
   // The street furniture's player colliders join only now: its footprints already went to the network above
   allColliders.push(...streetDetails.colliders);

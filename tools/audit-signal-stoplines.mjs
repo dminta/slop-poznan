@@ -49,9 +49,9 @@ const grid = gridModule.buildCityGrid(inert());
 const liveGrid = { ...gridModule, ...gridModule.snapshot() };
 const audit = {};
 const streetSource = source('street-details').replace(
-  '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null) {',
+  '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null, railLayout = null) {',
   '  Object.assign(audit, { signalArmPoles, vehicleHeadSites });\n' +
-  '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null) {'
+  '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null, railLayout = null) {'
 );
 const street = loadModule(streetSource, {
   imports: {
@@ -89,7 +89,7 @@ vm.runInNewContext(`(${configure})`, {
 })();
 
 street.addRuntimeSignalHeads(network);
-street.addRuntimeSignalHeads(network, pedRoutes, supports);
+street.addRuntimeSignalHeads(network, pedRoutes, supports, railLayout);
 
 const heads = audit.vehicleHeadSites;
 console.log('heads', heads.length, 'runtime', street.runtimeHeads.length, 'nodes', network.nodes.length);

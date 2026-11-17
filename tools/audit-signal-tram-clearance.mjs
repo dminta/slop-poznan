@@ -63,9 +63,9 @@ const audit = {
 
 let streetSource = source('street-details');
 streetSource = streetSource.replace(
-  '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null) {',
+  '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null, railLayout = null) {',
   '  Object.assign(audit, { signalArmPoles, vehicleHeadSites });\n' +
-  '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null) {'
+  '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null, railLayout = null) {'
 );
 streetSource = streetSource.replace(
   '  const signalHeadMatrix = (p, a) => setFacing(p.x + a.ux * 0.18, S1_Y, p.z + a.uz * 0.18, a.ux, a.uz);',
@@ -136,7 +136,7 @@ vm.runInNewContext(`(${configure})`, {
 })();
 
 street.addRuntimeSignalHeads(network);
-street.addRuntimeSignalHeads(network, pedRoutes, supports);
+street.addRuntimeSignalHeads(network, pedRoutes, supports, railLayout);
 
 // Load trams.js for exact track graph, TRAM_MODELS, TRAM_HALF_WIDTH, edgePoint, poseSections.
 const tramsModule = loadModule(source('trams'), {
@@ -420,7 +420,8 @@ function summarize(name, items, extra = {}) {
 }
 
 // Classify items
-const runtimeCantilever = street.runtimeHeads.filter((h) => h.overhead && !h.span);
+const runtimeCantilever = street.runtimeHeads.filter((h) => h.overhead && !h.span && !h.bridge);
+const runtimeBridge = street.runtimeHeads.filter((h) => h.bridge);
 const runtimeSpan = street.runtimeHeads.filter((h) => h.overhead && h.span);
 
 const ordinaryPolesRes = audit.ordinaryPoles.map((p) => {
@@ -462,6 +463,16 @@ const cantileverHeadsRes = runtimeCantilever.map((h) => {
   const info = s1HeadClearance(h.p, h.a, OVERHEAD_Y);
   const hasBackplate = h.a.w >= 14.5 || h.a.lanes >= 3;
   return { x: info.cx, z: info.cz, clearance: info.clearance, yMin: OVERHEAD_Y - (hasBackplate ? 0.55 : 0.43), yMax: OVERHEAD_Y + (hasBackplate ? 0.55 : 0.43), ...info };
+});
+
+const bridgeHeadsRes = runtimeBridge.map((h) => {
+  const info = s1HeadClearance(h.p, h.a, h.headY);
+  const half = h.a.w >= 14.5 || h.a.lanes >= 3 ? 0.55 : 0.43;
+  return { ...info, x: info.cx, z: info.cz, yMin: h.headY - half, yMax: h.headY + half };
+});
+const bridgeArmsRes = runtimeBridge.map((h) => {
+  const worst = segmentSweepClearance(h.pole.x, h.pole.z, h.p.x, h.p.z, 0.045);
+  return { ...worst, yMin: h.topY - 0.045, yMax: h.topY + 0.045 };
 });
 
 const spanMastsRes = audit.overheadPoles.filter((p) => p.h >= 8).map((p) => {
@@ -568,8 +579,9 @@ for (const st of stays) {
 stayCrossings.sort((a, b) => a.clearContactWire - b.clearContactWire || a.minTramSpan3D - b.minTramSpan3D);
 
 // Vertical clearance for any cantilever arm or head that crosses the swept envelope
-const armCrossings = cantileverArmsRes.filter((a) => a.clearance <= 0);
-const headCrossings = [...cantileverHeadsRes, ...spanHeadsRes, ...ordinaryHeadsRes].filter((h) => h.clearance <= 0);
+const armCrossings = [...cantileverArmsRes, ...bridgeArmsRes].filter((a) => a.clearance <= 0);
+const headCrossings = [...cantileverHeadsRes, ...bridgeHeadsRes, ...spanHeadsRes, ...ordinaryHeadsRes]
+  .filter((h) => h.clearance <= 0);
 
 const report = {
   tramTracksCount: tramTracks.length,
@@ -583,6 +595,7 @@ const report = {
     cantileverExtensions: audit.mastExtensions.filter((e) => e.h < 8).length,
     cantileverArms: cantileverArmsRes.length,
     cantileverHeads: cantileverHeadsRes.length,
+    bridgeHeads: bridgeHeadsRes.length,
     spanMasts10m: spanMastsRes.length,
     spanExtensions: audit.mastExtensions.filter((e) => e.h >= 8).length,
     spanHeads: spanHeadsRes.length,
@@ -596,6 +609,8 @@ const report = {
     cantileverMasts6_2m: summarize('cantileverMasts6_2m', cantileverMastsRes, () => ({})),
     cantileverArms: summarize('cantileverArms', cantileverArmsRes, () => ({ y: 5.55 })),
     cantileverHeads: summarize('cantileverHeads', cantileverHeadsRes, (x) => ({ backplate: x.hasBackplate })),
+    bridgeHeads: summarize('bridgeHeads', bridgeHeadsRes, (x) => ({ backplate: x.hasBackplate })),
+    bridgeArms: summarize('bridgeArms', bridgeArmsRes, () => ({})),
     spanMasts10m: summarize('spanMasts10m', spanMastsRes, () => ({})),
     spanHeads: summarize('spanHeads', spanHeadsRes, (x) => ({
       traction: !!(runtimeSpan.find((h) => Math.abs(h.p.x - (x.cx - h.a.ux * 0.18)) < 0.01 && Math.abs(h.p.z - (x.cz - h.a.uz * 0.18)) < 0.01)?.anchorTraction?.some(Boolean))

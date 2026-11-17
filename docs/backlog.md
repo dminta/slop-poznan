@@ -380,15 +380,14 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   against feff6af, all within noise: holds > 120 s 32 → 37, deadlocks 2 → 3; the base already deadlocks at Rataje@1026,1671 (seed 211)
   and Jeżyce@−2069,−470 (seed 197, kept). **Open deadlock sites under L17.5:** Wilda@−108,1867;−123,1864;−123,1931;−138,1927 (seed 103)
   and Kaponiera@−1136,127 (seed 263), both new; (4) rear-queue and WebGL2 low checks of the new head positions.
-- **Defect: head 10's span stays cross an elevated mainline rail deck** (existing poles (−1551.0, 544.4, head 9's pole) / (−1547.0, 533.6),
-  head (−1506.1, 555.0)) at 10 m, only 3.65 m above the 6.35 m deck, through the train envelope for 20 m. Spans use
-  a ground-relative 10 m; over a viaduct they need the deck height plus the portal/catenary clearance, or a different
-  anchor pair. Also: head 22's left mast stands against a facade and its stay passes a balcony row in projection (possible
-  collision, not examined). [Record](observations/browser-checks-signals-2026-11-17.md).
-- Near-collinear spans are systemic: 11 of 44 span heads have stays under 12° apart in plan (head 16 at 8°, 90 at 1.5°);
-  cause is `pick` (`js/street-details.js` ~2689–2690) admitting same-side pairs at a +8 penalty. Low priority.
-- Remaining overhead-head checks: 81 of 114 overhead heads have no visual check yet; supports and coverage were checked on WebGPU only; low-level frames of head 10's stays against the portal
-  were not legible. Lead-car and rear-queue views will need repeating after the sign fix.
+- Balcony clearance around signal spans remains unexamined: balcony geometry is separate from building colliders.
+- Boot cost of the span rules: the signal-head phase grew 2284 → 2646 ms (+362 ms, three alternating headless pairs)
+  with the wider span-pair pool and the 12° / rail-envelope / facade checks; the 64-pair cap did not recover it.
+  Profile `findSpan` / `findTractionSpan` (pair evaluation, `wireClear`) before the next boot pass.
+  [Record](observations/signal-spans-2026-11-17.md).
+  [Signal span audit and browser check](observations/signal-spans-2026-11-17.md).
+- Remaining overhead-head checks: 81 of 113 furnished-grid overhead heads have no visual check yet; supports and
+  coverage were checked on WebGPU only. Lead-car and rear-queue views need further coverage after the sign fix.
   [Record](observations/browser-checks-signals-2026-11-17.md), earlier
   [visual coverage](observations/browser-checks-2026-11-16.md) and
   [geometric clearance audit](observations/signal-tram-clearance-2026-11-14.md).

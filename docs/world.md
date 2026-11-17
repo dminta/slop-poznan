@@ -432,6 +432,17 @@ Built before the road network, so everything that stands near a lane is checked 
   ([record](observations/browser-checks-signals-2026-11-17.md)). The span search samples targets at 10.7, 12.5, 14 and
   15 m and picks the pair of anchors with the lowest stay cost. An approach with no clear site past the line would stay without a head (audit class C, 0 in the furnished grid, pinned by
   `summary.unplaced`); nothing falls back to the old upstream side.
+  Span placement rejects anchors within 0.3 m of building collider AABBs and pairs whose stays are less than 12°
+  apart. It reserves each elevated rail deck's 2.7 m half-width and the 6 m above its deck for the train and contact
+  wire (the rail contact and messenger wires are 5.6 m and 7 m above rail level). The 10 m and 7.2 m stays cannot
+  enter that envelope. A head
+  otherwise unplaceable within the sight band can hang from a nearby viaduct underside: the bridge bracket uses the
+  rail layout's `yClearance` (the deck slab is 0.35 m thick), with its head centre at 5.15 m, leaving 4.6 m of road
+  clearance under its backplate and 0.3 m above it to the underside. The fascia arm and drop reuse the signal-pole
+  mesh and keep clear of tram tracks and traction supports. In the furnished fixture one head uses this support, 27 use spans and 85 use
+  cantilevers; all historical approaches remain served. The full-collider span audit found zero sampled rail-envelope,
+  near-collinear and facade AABB hits; balcony volumes are not included. See
+  [the audit and browser check](observations/signal-spans-2026-11-17.md).
   **Side heads** follow the 2.0 m row: after the heads are placed, an approach whose most forward ground head is less
   than 2.0 m (2.2 m to the pole) past the stop line gets its stop line moved upstream by the difference when at least
   5.5 m of the link remain to queue on (`shiftSideHeadStopLines`, `network.shiftStopLine`: the edge gets shorter, its
