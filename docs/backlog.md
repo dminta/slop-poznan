@@ -382,12 +382,27 @@ are listed below. The Główny hall / Garbary ramp track overlaps remain deliber
 - Check Dworzec's connected refuge route, signals and pedestrian/vehicle interactions on WebGL2; record a full
   rendered interaction with a naturally approaching bus, including rear clearance.
   [Dworzec checks](observations/dworzec-2026-10-30.md), [bus population check](observations/bus-population-2026-10-30.md).
-- Finish span/cantilever head checks on both backends: lead-car view, the head-position sign question
-  (`findOverhead` uses negative upstream offsets; `docs/world.md:423` describes the visibility band), head 16's
-  two unshown masts, both anchors for heads 15/22/67, a stronger view of head 75 (≈10 px), and a side view resolving
-  head 9's arm versus a dark traction pole. Górna Wilda's left stay is indistinguishable from a tram span wire;
-  its clearance and a signal stay crossing a mainline railway portal also remain unverified. Only 11 of 114
-  overhead heads were sampled. [Visual coverage](observations/browser-checks-2026-11-16.md),
+- **Defect: overhead heads stand on the wrong side of the stop line.** `findOverhead` (`js/street-details.js:2592–2644`)
+  puts 101 of 114 heads 8–15 m *behind* the line and 13 within 1.75 m of it; Table 7.2 (załącznik 3, pkt 7.2.2) and two ZDM
+  Poznań designs put overhead signals 8–30 m *beyond* the line, so the lead driver sees none of them (56° above the eye
+  at best). Fix proposed in [the record](observations/browser-checks-signals-2026-11-17.md): flip `search(-8/-10.5)`
+  to +8/+10.5, clamp to +10.5…+30, widen the along windows at `:2610,2620`, update `docs/world.md:423` and the sight
+  audit, or (B) move the approach stop line upstream (road-network/traffic, needs accept-traffic). The consolidated 2019
+  table is identical, so no re-read is needed.
+- **Defect: head 10's span stays cross an elevated mainline rail deck** (existing poles (−1551.0, 544.4, head 9's pole) / (−1547.0, 533.6),
+  head (−1506.1, 555.0)) at 10 m, only 3.65 m above the 6.35 m deck, through the train envelope for 20 m. Spans use
+  a ground-relative 10 m; over a viaduct they need the deck height plus the portal/catenary clearance, or a different
+  anchor pair. Also: head 22's left mast stands against a facade and its stay passes a balcony row in projection (possible
+  collision, not examined). [Record](observations/browser-checks-signals-2026-11-17.md).
+- Near-collinear spans are systemic: 11 of 44 span heads have stays under 12° apart in plan (head 16 at 8°, 90 at 1.5°);
+  cause is `pick` (`js/street-details.js` ~2689–2690) admitting same-side pairs at a +8 penalty. Low priority.
+- Related: Table 7.2 row 1 ("obok jezdni") needs the stop line ≥ 2,0 m before a side signal, but the ground-pole search
+  allows −15 … +1.75 m (`js/street-details.js` ~2807–2833, enforced by `tests/signal-placement.test.cjs` ~354); ordinary
+  ground heads probably share the misreading.
+- Remaining overhead-head checks: 81 of 114 overhead heads have no visual check yet; supports and coverage were checked on WebGPU only; low-level frames of head 10's stays against the portal
+  were not legible. Lead-car and rear-queue views will need repeating after the sign fix.
+  [Record](observations/browser-checks-signals-2026-11-17.md), earlier
+  [visual coverage](observations/browser-checks-2026-11-16.md) and
   [geometric clearance audit](observations/signal-tram-clearance-2026-11-14.md).
 - Frame the raised tram canopy with a visible pantograph on WebGPU; the 2026-11-16 WebGPU view shows the roof/wires,
   while only the WebGL2 frame shows the pantograph. [Record](observations/browser-checks-2026-11-16.md).
