@@ -45,6 +45,7 @@ function intersectionHarness() {
     mergingAhead: () => null,
     tramBlocks: () => state.tram,
     shortLinkTramBlocked: () => state.shortLink,
+    reservationRefused: () => false,
     tramRefusedClose: () => state.nextTram,
     refuse: (v, why) => { v.held = why; return false; },
     PED_COURTESY: 5, SHORT_SIGNAL_LINK: 12, BOX_WAIT_EXIT: 17.5
@@ -798,7 +799,7 @@ function tramLaneContext(trams) {
     conflict.node ||= { signal: false };
   }
   const context = {
-    trams, tramFrame: 7, tramProxies: [], tramProxiesUsed: 0, TRAM_REACH: 70, TRAM_PROXY_DRIVER: { a: 1.15, b: 1.4, T: 1.6, s0: 3 },
+    trams, tramFrame: 7, tramProxies: [], tramProxiesUsed: 0, TRAM_REACH: 70, ARRIVING_WAIT: 20, RELEASE_TRAM_SPEED: 1, TRAM_PROXY_DRIVER: { a: 1.15, b: 1.4, T: 1.6, s0: 3 },
     Math, Infinity,
     occupy(list, v, s) {
       list.push({ v, s });
@@ -1192,7 +1193,7 @@ test('a driver kept waiting at an unsignalised zebra gets its turn: people still
     shortOfZebra: () => 6.55, phaseOf: () => 'green', canStopBefore: () => true,
     stopAt: () => -3, boxBusy: () => false, ahead: () => null, connector: () => ({ len: 20 }), yieldToCrossTraffic: () => false,
     pedestrianOn: (n, side, coord, t0, t1, onIt) => (calls.push(onIt), !onIt), laneCoord: () => 0, timeTo: () => 1, room: () => true,
-    alongside: () => false, mergingAhead: () => null, tramBlocks: () => false, shortLinkTramBlocked: () => false,
+    alongside: () => false, mergingAhead: () => null, tramBlocks: () => false, shortLinkTramBlocked: () => false, reservationRefused: () => false,
     refuse: (v, why) => ((v.held = why), false)
   });
   car.speed = 0;
@@ -1458,4 +1459,90 @@ test('left-turner lateral shift stays clear of a tram track on its left', () => 
   for (let i = 0; i < 60; i++) drive(car, 1 / 15);
   // Max safe leftward shift: 2.7 - 0.88 - 1.3 = 0.52 m (never -0.85 m into the tram sweep)
   assert.ok(car.dl >= -0.521 && car.dl < -0.2, `expected clamped leftward shift in [-0.52, -0.2), got ${car.dl}`);
+});
+
+test('a car enters a tram-swept short link only with the whole body path reserved', () => {
+  const run = { te: { id: 'te' }, r: { s0: 0.9, s1: 10, pad: 1 } };
+  const g = { occ: [[]] };
+  const f = {
+    len: 10, axisIndex: 1, to: { signal: false, in: [] }, occ: [[]],
+    moves: [{ to: g, out: [0] }], _rsvRuns: [[run]]
+  };
+  const car = { half: 2.8, speed: 0, wait: 0 };
+  const tram = {
+    active: true, obstacle: null, speed: 0, length: 30,
+    path: { u: 0, n: 1, start: [-80], edges: [run.te], indexAt: () => 0 }
+  };
+  const state = { room: true, box: false, stops: false, trams: [tram] };
+  const context = {
+    Math, Number, RSV_SCAN_MARGIN: 10, RSV_TRAM_SPEED: 3, RSV_CLEAR: 2,
+    room: () => state.room, timeTo: () => 5, boxBusy: () => state.box, downstreamStops: () => state.stops,
+    leadOf: (list) => list[list.length - 1] || null,
+    get trams() { return state.trams; }
+  };
+  const refused = trafficFunction('reservationRefused', context);
+  const c = { len: 25.97 };
+  assert.equal(refused(car, f, 0, c, 0), false, 'a tram already past the run does not hold the car back');
+  tram.path.start = [0];
+  tram.path.u = 70; // the tram's rear (u - length = 40) is past the run's end at 10 + 1
+  assert.equal(refused(car, f, 0, c, 0), false);
+  tram.path.u = -10; // its nose 10 m before the run: 6 s of travel at the 3 m/s start-up speed is 18 m
+  assert.equal(refused(car, f, 0, c, 0), true, 'a tram that reaches the run before the rear clears it holds the car');
+  tram.obstacle = car;
+  assert.equal(refused(car, f, 0, c, 0), false, 'the tram waiting for this very car never holds it');
+  tram.obstacle = null;
+  tram.path.u = -400;
+  assert.equal(refused(car, f, 0, c, 0), false, 'a distant tram is not a forecast');
+  f.occ[0].push({ v: { half: 2.5, tram: null }, s: 4 });
+  assert.equal(refused(car, f, 0, c, 0), true, 'another body between the line and the far end holds the car');
+  f.occ[0][0].s = 14; // rear at 11.5: past the far line
+  assert.equal(refused(car, f, 0, c, 0), false);
+  state.room = false;
+  assert.equal(refused(car, f, 0, c, 0), true, 'an exit lane without room for its length holds the car');
+  state.room = true;
+  state.box = true;
+  assert.equal(refused(car, f, 0, c, 0), true, 'a busy far junction holds the car');
+  assert.equal(trafficFunction('reservationRefused', context)(car, { ...f, _rsvRuns: [[]] }, 0, c, 0), false, 'only marked lanes');
+});
+
+test('a tram\'s obstacle car stood 20 s on a connector keeps the tram\'s body band, not its forecast, while released', () => {
+  const road = { id: 1, occ: [[]], len: 200 };
+  const te = {
+    len: 300, junctions: [],
+    lanes: [{ edge: road, lane: 0, s0: 0, s1: 200, l0: 0, l1: 200, dir: 1, pad: 0.5 }]
+  };
+  const t = tramOn(te, 100, 0);
+  t.v0 = 13;
+  const context = tramLaneContext([t]);
+  context.protectTramFollower = () => {};
+  const car = { half: 2.2, halfWidth: 0.9, speed: 0, wait: 5, conn: {}, released: null, tram: null };
+  t.obstacle = car;
+  // the proxy lane entry's [rear, front] after a frame, or null
+  const frame = () => {
+    road.occ[0] = [{ v: car, s: 62 }]; // 2.5 m short of where the proxy starts, still on the connector
+    context.tramProxiesUsed = 0;
+    context.occupyTrams();
+    const p = road.occ[0].find((o) => o.v.tram);
+    return p ? [p.s - p.v.half, p.s + p.v.half] : null;
+  };
+  const full = frame();
+  assert.ok(full && full[1] > 100.9, `a car that has waited only 5 s still has the whole proxy ahead of it, got ${full}`);
+  car.wait = 20;
+  const band = frame();
+  assert.ok(band && Math.abs(band[0] - full[0]) < 1e-9 && band[1] < 100.7, `released: only the body band remains, got ${band}`);
+  car.speed = 0.6;
+  car.wait = 0; // it moved, which resets its wait
+  assert.deepEqual(frame(), band, 'the release stays latched while it creeps');
+  t.speed = 3; // the tram moves off: it no longer waits for the car
+  const moving = frame();
+  assert.ok(moving[1] > 100.9, 'a moving tram brings its proxy back');
+  assert.equal(car.released, null);
+  t.speed = 0;
+  car.speed = 0;
+  car.wait = 20;
+  frame();
+  assert.equal(car.released, t);
+  t.obstacle = null; // the tram waits for someone else
+  assert.deepEqual(frame(), full, 'a tram that no longer waits for the car brings its proxy back');
+  assert.equal(car.released, null);
 });

@@ -56,6 +56,7 @@ const label = (o) => (isTram(o) ? `tram ${o.line || o.id}` : `#${o.benchId}`);
 const junctionOf = (v) => v.edge.to;
 // Who o (a car or a tram) waits for, one vehicle or tram, from its waitReason and the state around it: the edges of the
 // wait-for graph
+let benchTrams = []; // the district's trams, for the 'reserve' wait
 function blocker(o, box) {
   if (isTram(o)) {
     if (o.waitReason === 'car') return o.obstacle && o.obstacle.edge ? o.obstacle : null;
@@ -94,6 +95,32 @@ function blocker(o, box) {
       let last = null;
       for (const q of list) if (q.v !== v && q.s - q.v.half < f.len && (!last || q.s < last.s)) last = q;
       return !last ? null : last.v.tram ? last.v.tram : last.v;
+    }
+    case 'reserve': {
+      // traffic.js reservationRefused: another body on the stub, then a tram heading for its run, then a full exit
+      const f = v.move.to;
+      const j = v.out >= 0 && v.out < f.lanes.length ? v.out : v.move.out[v.lane];
+      if (j < 0) return null;
+      let last = null;
+      for (const q of f.occ[j] || []) if (q.v !== v && q.s - q.v.half < f.len && (!last || q.s < last.s)) last = q;
+      if (last) return last.v.tram ? last.v.tram : last.v;
+      for (const run of (f._rsvRuns && f._rsvRuns[j]) || []) {
+        for (const t of benchTrams) {
+          if (!t.active || t.obstacle === v) continue;
+          const path = t.path;
+          for (let i = path.indexAt(Math.max(0, path.u - t.length)); i < path.n; i++) {
+            if (path.edges[i] === run.te && path.u - t.length <= path.start[i] + run.r.s1 + run.r.pad) return t;
+          }
+        }
+      }
+      for (const m of f.moves) {
+        const k = m.out[j];
+        const list = k >= 0 ? m.to.occ[k] : null;
+        let tail = null;
+        for (const q of list || []) if (q.v !== v && q.s - q.v.half < m.to.len && (!tail || q.s < tail.s)) tail = q;
+        if (tail) return tail.v.tram ? tail.v.tram : tail.v;
+      }
+      return null;
     }
     case 'oncoming': case 'crossing': {
       // the longest-waiting vehicle at the head of a lane v gives way to
@@ -137,6 +164,7 @@ function runDistrict(d) {
   Math.random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const world = buildWorld({ noPeds: NO_PEDS, noTrams: NO_TRAMS, noSignals: NO_SIGNALS });
   const { traffic, trams } = world;
+  benchTrams = NO_TRAMS ? [] : trams.trams;
   const vehicles = [...traffic.cars, ...traffic.buses];
   vehicles.forEach((v, i) => (v.benchId = i));
   const focus = { x: d.x, z: d.z };

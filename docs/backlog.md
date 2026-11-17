@@ -171,8 +171,17 @@ Implementation details and completed measurements live in the [topic docs](../AG
   `109.75 → 172.00 s` both read `worse`; Jeżyce mean `14.370 → 14.030 km/h`, Kaponiera `13.135 → 12.210 km/h`.
   The trial still leaves a stopped car on 4660 and a stopped bus on its incoming connector at seed 61. A clear
   exit at admission does not reserve passage over the 25.97 m incoming connector and downstream junction;
-  do not revive this instantaneous guard as proof of safe storage. A controlled-box/body-path reservation
-  remains untested. No game change is retained.
+  do not revive this instantaneous guard as proof of safe storage. No game change was retained.
+  [2026-11-16 body-path reservation](observations/car-tram-jezyce-4660-reserve-2026-11-16.md): **kept** for
+  unsignalised short links swept by an opposing tram (`reservationRefused`: one body on the link, exit-lane room, far
+  junction clear, no tram reaching the run in the car's travel time; `tramStandsAt`'s exemption kept). 20 fresh seeds:
+  pairs `95 → 69` (better, `462cd6f`), Jeżyce `53 → 27`, holds `> 120 s` `17 → 15`, deadlocks `2 → 0`, max-wait `-0.35 s`
+  per seed, other districts unchanged; zones limited to links whose far junction has an oncoming approach (`f.opposite`, not
+  a reverse lane) and a tram run of at least 5 m: exactly 4684/4685 city-wide (the one-way Centrum links gave a
+  deadlock; 6342 cost 19 s mean / 162 s max stops); a latched, bounded 20 s proxy release also fires elsewhere (Stare Miasto);
+  **trade-off: Jeżyce mean `-0.25 km/h` per seed** (CI [-0.6, +0.13], includes 0 but above the 0.1 limit).
+  Rejected variants, do not retry: holding both exit lanes' length for the car's connector transit (starves the main
+  road, holds `28 → 134`), dropping a tram proxy for any car on a connector (Stare Miasto pairs `4 → 17`; the kept release needs a 20 s stand), and applying the rule to signalised stubs / Kaponiera 6522 (pairs and holds rise).
   [2026-11-15 Jeżyce record](observations/car-tram-jezyce-2026-11-15.md),
   [Kaponiera and Stare diagnosis](observations/car-tram-kaponiera-stare-2026-11-10.md),
   [Jeżyce traces and follower fix](observations/car-tram-jezyce-2026-11-10.md),

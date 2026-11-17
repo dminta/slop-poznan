@@ -285,7 +285,7 @@ function createTrafficSystem(
       edge: null, lane: 0, s: 0, speed: 0, acc: 0, gap: Infinity, leaderSpeed: 0,
       move: null, out: 0, outEdge: null, conn: null, cs: 0, trail: null, commit: null, claimed: false, yielding: false, yieldAt: 0,
       wait: 0, pedWait: 0, mergeArrival: Infinity, waitReason: '', held: '', leader: null, laneTimer: Math.random() * 0.5,
-      _tramFollowGap: Infinity, _tramFollow: null,
+      _tramFollowGap: Infinity, _tramFollow: null, released: null,
       dl: 0, dlv: 0, blink: 0, blinkPhase: Math.random() * 0.8,
       x: 0, z: 0, prevX: 0, prevZ: 0, tx: 0, tz: 1, nose: 0, yaw: 0, yawRate: 0, steer: 0,
       pitch: 0, roll: 0, pitchVel: 0, rollVel: 0, vx: 0, vz: 0, yawOffset: 0, yawVel: 0,
@@ -1348,6 +1348,7 @@ function createTrafficSystem(
     if (!v.isPolice && (phase === 'red' || phase === 'redAmber' || (phase === 'amber' && stoppable))) return refuse(v, 'signal');
     if (boxBusy(n, e.axisIndex, v)) return refuse(v, 'box'); // crossing traffic inside
     if (tramBlocks(v, n, f, j)) return refuse(v, 'tram'); // a tram over its way across, or coming up to it
+    if (f._rsvRuns && reservationRefused(v, f, j, c, d)) return refuse(v, 'reserve'); // no safe storage on f
     const lead = ahead(e.occ[v.lane], v.s, v);
     if (lead && lead.v.yielding) {
       const clearsStraight = v.move.turn !== 'L' && lead.v.move.turn === 'L' && lead.v.conn &&
@@ -1657,6 +1658,7 @@ function createTrafficSystem(
     v.outEdge = null;
     v.trail = v.conn; // the rear axle is still on it
     v.conn = null;
+    v.released = null;
     v.commit = null;
     v.move = chooseMove(v, false);
   }
@@ -1973,13 +1975,41 @@ function createTrafficSystem(
   let tramFrame = 0;
   const TRAM_PROXY_DRIVER = { a: 1.15, b: 1.4, T: 1.6, s0: 3.0, aLat: 0.9 };
   const TRAM_REACH = 70; // furthest ahead of its front a tram holds lanes across or against it and junction curves
+  // s a tram's obstacle must have stood on a connector before the tram's proxy ahead is dropped
+  const RELEASE_TRAM_SPEED = 1; // m/s: a tram faster than this no longer waits for the car it released
+  const ARRIVING_WAIT = 20;
+  const RSV_SCAN_MARGIN = 10; // m: a track edge starting this far beyond the tram's travel cannot hold a run it reaches
+  const RSV_MAX_LEN = 12; // m: links shorter than this with an opposing tram run to the far line are reservation zones
+  const RSV_CLEAR = 2; // s: extra time the far junction must stay free of main-road traffic after the car's arrival
+  const RSV_MIN_RUN = 5; // m of lane the opposing tram run must cover
+  const RSV_FAR_LINE = 3; // m: how close to the far line that run must reach
+  const RSV_TRAM_SPEED = 3; // m/s: slowest speed a standing tram is assumed to start from when it is timed to the zone
   const tramProxies = [];
   let tramProxiesUsed = 0;
   function setTrams(system) {
     trams = system ? system.trams : [];
     tramGraph = system ? system.graph : null;
     for (const t of (system ? system.pool || trams : trams)) t._followerProxy = { tram: t, speed: 0 };
+    // Body-path reservation zones: links under RSV_MAX_LEN, unsignalised at both ends, whose lane an opposing tram
+    // runs along for at least RSV_MIN_RUN m of lane up to the far line, and whose far junction has an oncoming approach
+    // on the same axis (`e.opposite` of road-network.js: the straight-across arm, not the link's reverse lane; the
+    // one-way 20 km/h Centrum links 197/483 have none and gave a new deadlock and 2 pairs, seed 79). A 7.7 m link with
+    // a 0.7 m run (Matejki, 6342) cost 5 s mean and 162 s maximum stop per entry for no gain. Signalised and
+    // Kaponiera zones raised car-tram pairs and holds (see the record). A car stopped on a zone stands inside that
+    // tram's swept envelope (docs/observations/car-tram-sweep-2026-11-12.md).
+    for (const e of edges) {
+      e._rsvRuns = null;
+    }
     if (!tramGraph || !tramGraph.edges) return;
+    for (const te of tramGraph.edges) {
+      for (const r of te.lanes || []) {
+        const f = r.edge;
+        if (r.dir >= 0 || f.len >= RSV_MAX_LEN || f.from.signal || f.to.signal || !f.moves || !f.opposite) continue;
+        if (Math.max(r.l0, r.l1) < f.len - RSV_FAR_LINE || Math.abs(r.l1 - r.l0) < RSV_MIN_RUN) continue;
+        if (!f._rsvRuns) f._rsvRuns = f.lanes.map(() => []);
+        f._rsvRuns[r.lane].push({ te, r });
+      }
+    }
     // Precompute minimum distance from each 1-lane edge's lane centre to any tram track on its left, so left-turners
     // edging toward the road centreline do not shift into an opposing or adjacent tram envelope.
     const CELL = 40;
@@ -2116,13 +2146,31 @@ function createTrafficSystem(
             if (o.v.tram) continue;
             const cLo = o.s - o.v.half;
             const cHi = o.s + o.v.half;
-            if (cHi < lo || cLo > hi) continue;
+            // The tram's own obstacle on the connector into this lane, a few metres short of the proxy, is already in
+            // its way: without this the car waits behind the proxy of the tram that waits for it (seed 1, Jeżyce
+            // (-2023, -448)). Only once it has stood for ARRIVING_WAIT s: applying it to every moving car on a
+            // connector raised Stare Miasto pairs 4 -> 17. The release is latched on the car (`released`) until it
+            // leaves the connector: the proxy dropping brings the car off 0.5 m/s and resets its wait, so a
+            // momentary test let the proxy straight back and the car crept 0.2 m at a time for a minute.
+            if (o.v === t.obstacle && o.v.conn && o.v.speed < 0.5 && o.v.wait >= ARRIVING_WAIT) o.v.released = t;
+            // ...and it ends with the reason: once the tram no longer waits for this car, or moves, the proxy is back
+            // (seed 83, Stare Miasto (280, -246): the latch stayed 23 frames after the car stopped being its obstacle).
+            if (o.v.released === t && (t.obstacle !== o.v || t.speed > RELEASE_TRAM_SPEED)) o.v.released = null;
+            const arriving = o.v.released === t && o.v.conn && cHi >= lo - 8 && cLo <= hi;
+            if ((cHi < lo || cLo > hi) && !arriving) continue;
             // If the tram is already braking for this vehicle and it is inside the sweep, don't place a proxy across
             // its path: the vehicle must be allowed to clear, or car and tram deadlock each other. An obstacle farther
             // ahead (the tram waits behind a queue) kept dropping the whole proxy, so following cars rear-ended the
             // stopped tram in its own lane (Jeżyce buses at -2167, -498).
             if (o.v === t.obstacle) {
               if (r.dir > 0 && blo < bhi) protectTramFollower(t, list, o.v, blo);
+              // A released car still behind the tram's body band keeps that band as its leader: dropping the whole
+              // proxy let it creep into the standing tram's side (seed 79, Stare Miasto (289, -247), 2.5 m/s).
+              if (o.v.released === t && blo < bhi && cHi < blo) {
+                lo = blo;
+                hi = bhi;
+                continue;
+              }
               skip = true;
               break;
             }
@@ -2290,6 +2338,63 @@ function createTrafficSystem(
     return f.len < 12 && !canStandOn(v, f) && nextTramBlocked(v, f, j);
   }
 
+  // Body-path reservation for a short link an opposing tram's swept envelope covers (`setTrams` marks them from the
+  // mapped track runs, no edge ids). A car there cannot be stored: the tram turns through its stopped body, and a clear
+  // exit at the moment of admission did not keep one clear over the connector and the downstream junction
+  // (docs/observations/car-tram-jezyce-4660-2026-11-15.md). The car is admitted only while (1) nobody else is between
+  // the line and the link's far end, (2) every lane it can exit into has room for its length, (3) the far junction is
+  // free, with a green at arrival where signalled and no moving main-road car reaching its line before the rear is
+  // through, and (4) no tram reaches the run before the car's rear has crossed it. The car keeps (1) by being the only
+  // one on the link until its rear is past the far line. The tram it waits for is never the one waiting for this very
+  // car. Reserving the exit lanes' length during the transit starved the main road (docs/observations/
+  // car-tram-jezyce-4660-reserve-2026-11-16.md).
+  function reservationRefused(v, f, j, c, d) {
+    const runs = f._rsvRuns && f._rsvRuns[j];
+    if (!runs || !runs.length) return false;
+    for (const o of f.occ[j]) {
+      if (o.v === v || o.v.tram) continue;
+      if (o.s - o.v.half < f.len) return true;
+    }
+    for (const m of f.moves) {
+      const k = m.out[j];
+      if (k >= 0 && !room(m.to, k, v, true)) return true;
+    }
+    const travel = timeTo(v, d + c.len + f.len + 2 * v.half) + 1;
+    // The far junction must let it straight through: nobody inside it, a green (at its arrival) where signalled, and
+    // no moving car on the main road that reaches its line before the rear has passed (cars standing there are already
+    // waiting for something else; the main road keeps its right of way at the far line).
+    const n2 = f.to;
+    if (boxBusy(n2, f.axisIndex, null)) return true;
+    if (n2.signal) {
+      if (downstreamStops(f, j, v)) return true;
+    } else {
+      for (const a of n2.in) {
+        if (a.axisIndex !== 0 || a === f) continue;
+        for (const list of a.occ) {
+          const lead = leadOf(list);
+          if (!lead || lead.v.tram || lead.v.speed < 0.5) continue;
+          if (timeTo(lead.v, a.len - lead.s - lead.v.half) < travel + RSV_CLEAR) return true;
+        }
+      }
+    }
+    for (const t of trams) {
+      if (!t.active || t.obstacle === v) continue;
+      const path = t.path;
+      const vt = Math.max(t.speed, RSV_TRAM_SPEED);
+      for (let i = path.indexAt(Math.max(0, path.u - t.length)); i < path.n; i++) {
+        const base = path.start[i];
+        if (base - path.u > vt * travel + RSV_SCAN_MARGIN) break; // beyond what the tram covers in the car's time
+        for (const run of runs) {
+          if (run.te !== path.edges[i]) continue;
+          const r = run.r;
+          if (path.u - t.length > base + r.s1 + r.pad) continue; // its rear is past the run
+          if (base + r.s0 - r.pad - path.u < vt * travel) return true;
+        }
+      }
+    }
+    return false;
+  }
+
   // Either the curve v is taking or the one after it: the last check before the too-fast-to-stop fallback.
   function tramRefusedClose(v, f, j, reach = TRAM_STOP_REACH) {
     return tramHoldsClose(v, v.edge.to, f, j, v.edge, v.lane, reach) || nextTramHoldsClose(v, f, j, reach);
@@ -2378,6 +2483,7 @@ function createTrafficSystem(
 
   function place(v, e, lane, s) {
     v.mergeArrival = Infinity;
+    v.released = null;
     v.edge = e;
     v.lane = lane;
     v.s = s;
@@ -2405,6 +2511,7 @@ function createTrafficSystem(
   // Take v off the road until it is placed again; far off the map, so the radar draws no stale blip
   function park(v) {
     v.mergeArrival = Infinity;
+    v.released = null;
     v.edge = null;
     v.conn = null;
     v.commit = null;
