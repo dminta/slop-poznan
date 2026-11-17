@@ -56,7 +56,8 @@ test('pedestrian routes do not U-turn over a crossing line or cross into a dead 
   // to 38 / 33; tram-cut islands with no road-edge line at all get a short kerb track of their own. The 2026-11-08
   // same-block kerb step (up to 32 m, lane/rail/wall checked) then reaches 11 / 11. With no building or rail input the
   // bare network is more permissive than the furnished world (24 / 24), so these ceilings only catch a regression that
-  // reopens dead ends.
+  // reopens dead ends. Corner links no longer run over a carriageway (`laneFree`, 2026-11-16): the bare network went
+  // 12 -> 14 empty ends / tracks and the furnished world 28 -> 30 of 14,942 ends, so the original ceiling of 15 holds.
   assert.ok(emptyEnds <= 15, `the bare network leaves isolated crosswalk ends (${emptyEnds})`);
   assert.ok(emptyTracks <= 15, `the bare network leaves tracks with an empty end (${emptyTracks})`);
 

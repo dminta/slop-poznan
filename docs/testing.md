@@ -349,6 +349,18 @@ for all seven districts; `tests/traffic-flow.test.mjs` runs only the five-minute
 Results over eight seeds are in
 [observations/tram-overlaps-2026-11-04.md](observations/tram-overlaps-2026-11-04.md).
 
+## Pedestrians on carriageways
+
+`node tools/audit-ped-roadway.mjs [--static-only|--dynamic-only] [--envelope span --connectors off] [--seeds 61,67,71] [--only centrum] [--json out]`
+samples every pedestrian route track (sidewalk lines, corner links, way lines; crosswalk tracks are the crossings and are
+exempt) every 0.5 m and counts the samples inside a vehicle carriageway (static), and counts ped-seconds of placed
+walkers off crosswalks inside one over the eight districts (dynamic). `--envelope span` is the strict roadway (the lane-centre span plus 1 m, what the route builder rejects; `half` adds `edge.half - inset`, which reaches over curb paving), the default envelope is the lane span only plus the junction connector
+curves (noisy at corners: curb-hugging links graze the swept curves, 7.6 km before the 2026-11 regression too). It builds
+`buildWorld({ furnished: true })` (`tools/bench-world.mjs`): the city grid's sidewalks and park/plaza footprints reach the
+road network as in `main.js`; the default bench world omits them, so it never prunes (or restores) a road at a park and
+cannot show a park-related regression (`BENCH_FURNISHED=1` makes every tool that calls `buildWorld` use the furnished world). `tests/ped-roadway.test.mjs` (about 70 s) asserts the strict static total.
+Record: [ped-roadway-2026-11-16](observations/ped-roadway-2026-11-16.md).
+
 ## Accepting traffic changes
 
 Eight historical seeds (`1 2 3 5 7 11 99 4242`) were tuned against for several rounds, and `Math.random` is shared by

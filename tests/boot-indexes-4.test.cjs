@@ -25,8 +25,9 @@ const plain = `function cornerClear(a, b, block) {
   }
   return true;
 }`;
+// laneFree (the carriageway test of a corner link) is stubbed clear: this file pins only the 4 m band scan
 const load = (text, clear = () => true, math = Math) =>
-  vm.runInNewContext(`${text}\ncornerClear`, { Math: math, clear });
+  vm.runInNewContext(`${text}\ncornerClear`, { Math: math, clear, laneFree: () => true });
 
 test('cornerClear keeps the full-scan answer on real outlines, 4 m boundaries and degenerate edges', async () => {
   const { BLOCKS } = await import('../js/city-config.js');

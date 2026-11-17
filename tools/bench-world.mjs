@@ -44,6 +44,12 @@ const { GEO } = await import(pathToFileURL(join(ROOT, 'js/geodata.js')).href);
 // connectors out of walls. Landmark and bridge colliders stay omitted: they add little at this scale and would pull
 // the whole landmark/bridge builders into every benchmark process. Built once per process and shared by all districts.
 let buildingColliders = null;
+let cityBlocksResult = null;
+function loadCityBlocks() {
+  if (cityBlocksResult) return cityBlocksResult;
+  loadBuildingColliders();
+  return cityBlocksResult;
+}
 function loadBuildingColliders() {
   if (buildingColliders) return buildingColliders;
   const stub = inert();
@@ -57,7 +63,8 @@ function loadBuildingColliders() {
     },
     globals: { ...G, document: stub }, filename: 'buildings.js'
   });
-  buildingColliders = buildCityBlocks(stub).colliders;
+  cityBlocksResult = buildCityBlocks(stub);
+  buildingColliders = cityBlocksResult.colliders;
   return buildingColliders;
 }
 
@@ -190,24 +197,46 @@ function loadPedestrianRoutes(rn) {
 }
 
 // The furnished network as main.js builds it, less the buildings (none stands in a lane) and the curb rectangles
-function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSeed = 1922 } = {}) {
+// `furnished: true` also runs the city-grid builder and hands its sidewalks, park/plaza footprints and prop obstacles to
+// the road network and the traffic system, as main.js does (landmark, bridge and outskirts colliders stay omitted). The
+// default world omits them, so a carriageway that a park footprint or sidewalk rectangle prunes in the browser exists in
+// it (tools/audit-ped-roadway.mjs needs the furnished layout; docs/actors.md).
+function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSeed = 1922, furnished = process.env.BENCH_FURNISHED === '1' } = {}) {
   const rn = loadModule(js('road-network.js'), {
     imports: { './city-config.js': config, './geodata.js': { GEO } }, globals: G, filename: 'road-network.js'
   });
   const three = { 'three/webgpu': inert(), 'three/tsl': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert() };
-  const grid = loadModule(js('city-grid.js'), {
-    imports: { ...three, './city-config.js': config, './geodata.js': { GEO }, './tsl-materials.js': inert() },
+  const gridSource = js('city-grid.js') + (furnished ?
+    '\nexport function snapshot() { return { pavedPlazaRects, parkTreeSites, parkLampSites, sidewalkBlocks }; }' : '');
+  const grid = loadModule(gridSource, {
+    imports: {
+      ...three, './city-config.js': config, './geodata.js': { GEO }, './tsl-materials.js': inert(),
+      './trees.js': { SPECIES_CROWN_R: config.SPECIES_CROWN_R }
+    },
     globals: G, filename: 'city-grid.js'
   });
+  let cityGrid = null, gridSnap = null;
+  if (furnished) {
+    const blocks = loadCityBlocks();
+    cityGrid = grid.buildCityGrid(inert(), {
+      buildingFootprints: blocks.footprintsByBlock, buildingColliders: blocks.colliders
+    });
+    gridSnap = grid.snapshot();
+  }
   const { buildStreetDetails } = loadModule(js('street-details.js'), {
     imports: {
       ...three, './city-config.js': config, './road-network.js': rn, './tsl-materials.js': inert(),
       './trees.js': { createTreeField: () => ({ group: inert() }) },
-      './city-grid.js': { pavedPlazaRects: [], parkTreeSites: [], parkLampSites: [], clearOfRails: grid.clearOfRails }
+      './city-grid.js': furnished ? {
+        pavedPlazaRects: gridSnap.pavedPlazaRects, parkTreeSites: gridSnap.parkTreeSites,
+        parkLampSites: gridSnap.parkLampSites, clearOfRails: grid.clearOfRails
+      } : { pavedPlazaRects: [], parkTreeSites: [], parkLampSites: [], clearOfRails: grid.clearOfRails }
     },
     globals: { ...G, document: inert() }, filename: 'street-details.js'
   });
-  const { footprints, roadNetwork } = buildStreetDetails(inert());
+  const { footprints, roadNetwork } = furnished ? buildStreetDetails(inert(), {
+    buildingColliders: loadBuildingColliders(), grid: cityGrid
+  }) : buildStreetDetails(inert());
   const routes = loadPedestrianRoutes(rn);
   const actors = loadModule(js('actor-models.js'), {
     imports: { ...three, './tsl-materials.js': inert() },
@@ -247,7 +276,10 @@ function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSe
     },
     globals: { ...G, performance: { now: () => 0 }, document: inert() }, filename: 'traffic.js'
   });
-  const traffic = createTrafficSystem(inert(), [], footprints, roadNetwork, loadBuildingColliders());
+  const traffic = furnished ? createTrafficSystem(inert(), cityGrid.sidewalks, [
+    ...cityGrid.footprints, ...footprints,
+    ...loadBuildingColliders().filter((c) => !c.obb && (c.minY ?? 0) < 3.5)
+  ], roadNetwork, loadBuildingColliders()) : createTrafficSystem(inert(), [], footprints, roadNetwork, loadBuildingColliders());
   const { layoutTramInfrastructure } = loadModule(js('tram-infra.js'), {
     imports: { ...three, './geodata.js': { GEO }, './city-config.js': config, './tsl-materials.js': inert() },
     globals: G, filename: 'tram-infra.js'

@@ -115,19 +115,24 @@ test('a connector is keyed by the physical line it lands on, not its own span', 
     globals: { console: quiet, Math }, filename: 'pedestrian-routes.js'
   });
   assert.equal(typeof routes.physicalLine, 'function');
-  const block = { poly: [{ x: -1, z: -8 }, { x: 51, z: -8 }, { x: 51, z: 8 }, { x: -1, z: 8 }] };
+  // An L corner: the two roads start 8 m out of the node (their stop lines), so the curb corner lies between their
+  // lines and no corner link crosses a lane (a link over the mouth of a road is rejected, `laneFree`).
+  const block = { poly: [{ x: 3, z: -60 }, { x: 60, z: -60 }, { x: 60, z: -3 }, { x: 3, z: -3 }] };
   const blockAt = () => block;
   const walkable = () => true;
   const n = { x: 0, z: 0, in: [], out: [], arms: [], shape: false };
-  const m = { x: 50, z: 0, in: [], out: [], arms: [], shape: false };
-  const edge = { sx: 0, sz: 0, dx: 1, dz: 0, rx: 0, rz: 1, len: 50, half: 3, from: n, to: m };
-  n.out.push(edge);
+  const m = { x: 58, z: 0, in: [], out: [], arms: [], shape: false };
+  const p = { x: 0, z: -58, in: [], out: [], arms: [], shape: false };
+  const edge = { sx: 8, sz: 0, dx: 1, dz: 0, rx: 0, rz: 1, len: 50, half: 3, from: n, to: m };
+  const edge2 = { sx: 0, sz: -8, dx: 0, dz: -1, rx: 1, rz: 0, len: 50, half: 3, from: n, to: p };
+  n.out.push(edge, edge2);
   m.in.push(edge);
+  p.in.push(edge2);
   const built = routes.createPedestrianRoutes(
-    { nodes: [n, m], edges: [edge], walkable, configureCrosswalks: null }, blockAt, null, null, null
+    { nodes: [n, m, p], edges: [edge, edge2], walkable, configureCrosswalks: null }, blockAt, null, null, null
   );
-  const tracks = built.along(edge);
-  assert.equal(tracks.length, 4, 'two lateral lines on each side of the street');
+  const tracks = built.along(edge).concat(built.along(edge2));
+  assert.equal(tracks.length, 8, 'two lateral lines on each side of each street');
   const atNode = (track) => built.links(track, -1).filter((path) => path[0]?.track.walkKey);
   const first = atNode(tracks[0]), second = atNode(tracks[1]);
   assert.ok(first.length >= 2 && second.length >= 2, 'the node has several corner-link choices');

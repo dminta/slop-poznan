@@ -110,6 +110,23 @@ function createPedestrianRoutes(
     }
     return true;
   }
+  // The sub-runs of a way segment (as fractions of a-b) whose 0.5 m samples are off every roadway, at least 1 m long;
+  // the whole segment, [[0, 1]], when none is on one.
+  function wayRuns(a, b) {
+    const length = Math.hypot(b.x - a.x, b.z - a.z), steps = Math.max(1, Math.ceil(length / 0.5));
+    const runs = [];
+    let start = -1;
+    for (let i = 0; i <= steps; i++) {
+      const on = onRoadway(a.x + (b.x - a.x) * i / steps, a.z + (b.z - a.z) * i / steps);
+      if (!on && start < 0) start = i;
+      if ((on || i === steps) && start >= 0) {
+        const end = on ? i - 1 : i;
+        if ((end - start) * length / steps >= Math.min(1, length * 0.99)) runs.push([start === 0 ? 0 : start / steps, end === steps ? 1 : end / steps]);
+        start = -1;
+      }
+    }
+    return runs;
+  }
   function layOutWays() {
     if (waysLaid || !pedestrianWays || !pedestrianWays.length) return;
     waysLaid = true;
@@ -128,19 +145,31 @@ function createPedestrianRoutes(
             const a = line[i], b = line[i + 1];
             if (Math.hypot(b.x - a.x, b.z - a.z) < 0.5) continue;
             if (!wayClear(a, b)) { prev = null; continue; }
-            const track = segment(a, b, {
-              edge: way, way: true, wayName: way.name || '', walkKey: `way:${wi}:${sign}:${offset}`,
-              block: null, from: null, to: null, insetLane: 3
-            });
-            wayTracks.push(track);
-            filePort(track);
-            if (prev) {
-              prev.chain = prev.chain || [null, null];
-              track.chain = track.chain || [null, null];
-              prev.chain[1] = track;
-              track.chain[0] = prev;
+            // A mapped way may run on or end inside a driven road (a park alley on a service road, the end vertex of a
+            // deptak in the narrow street it joins): keep its clear runs, not nothing. A first run that starts after the
+            // segment's start, and every gap between runs, breaks the chain.
+            const runs = wayRuns(a, b);
+            if (!runs.length || runs[0][0] > 0) prev = null;
+            for (let r = 0; r < runs.length; r++) {
+              const [t0, t1] = runs[r];
+              if (r > 0) prev = null;
+              const pa = t0 === 0 ? a : { x: a.x + (b.x - a.x) * t0, z: a.z + (b.z - a.z) * t0 };
+              const pb = t1 === 1 ? b : { x: a.x + (b.x - a.x) * t1, z: a.z + (b.z - a.z) * t1 };
+              const track = segment(pa, pb, {
+                edge: way, way: true, wayName: way.name || '', walkKey: `way:${wi}:${sign}:${offset}`,
+                block: null, from: null, to: null, insetLane: 3
+              });
+              wayTracks.push(track);
+              filePort(track);
+              if (prev) {
+                prev.chain = prev.chain || [null, null];
+                track.chain = track.chain || [null, null];
+                prev.chain[1] = track;
+                track.chain[0] = prev;
+              }
+              prev = track;
             }
-            prev = track;
+            if (runs.length && runs[runs.length - 1][1] < 1) prev = null;
           }
         }
       }
@@ -481,7 +510,7 @@ function createPedestrianRoutes(
         const blkA = blockAt(a.x, a.z);
         const blkB = blockAt(b.x, b.z);
         if (blkA && blkB && blkA === blkB) {
-          if (!clear(a, b, blkA)) {
+          if (!clear(a, b, blkA) || !laneFree(a, b)) {
             splitAlong(a, b, e, key, result);
             continue;
           }
@@ -858,7 +887,7 @@ function createPedestrianRoutes(
 
   // Stay in the sidewalk band even where angled building colliders are deliberately omitted from the road graph.
   function cornerClear(a, b, block) {
-    if (!clear(a, b, block)) return false;
+    if (!clear(a, b, block) || !laneFree(a, b, 1)) return false;
     const poly = block.poly;
     const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z)));
     for (let i = 0; i <= steps; i++) {
@@ -965,6 +994,51 @@ function createPedestrianRoutes(
       const s = (x - e.sx) * e.dx + (z - e.sz) * e.dz;
       if (s < 0 || s > e.len) continue;
       if (Math.abs((x - e.sx) * e.rx + (z - e.sz) * e.rz) < e.half + 0.8) return false;
+    }
+    return true;
+  }
+  // The roadway of one edge as lateral bounds: the span of its lane centres plus a car's half width either side. The
+  // edge's `half` is deliberately not used: it reaches over curb paving (Termalna: half 4.9, one lane at -0.58, the
+  // sidewalk block from +1.6 m), while an outer lane can sit near `half` (Kaponiera: lanes 1.1 and 4.7). An edge with no
+  // lane (synthetic tests) falls back to half - 1 m.
+  const ROADWAY_CAR = 1.0;
+  function roadwayBounds(e) {
+    if (e._roadLo === undefined) {
+      if (e.lanes && e.lanes.length) {
+        let lo = Infinity, hi = -Infinity;
+        for (const o of e.lanes) { if (o < lo) lo = o; if (o > hi) hi = o; }
+        e._roadLo = lo - ROADWAY_CAR;
+        e._roadHi = hi + ROADWAY_CAR;
+      } else {
+        e._roadLo = -e.half + 1;
+        e._roadHi = e.half - 1;
+      }
+    }
+  }
+  function onRoadway(x, z) {
+    const list = indexStreets().get(Math.floor(x / 64) * 100000 + Math.floor(z / 64));
+    if (!list) return false;
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i];
+      const s = (x - e.sx) * e.dx + (z - e.sz) * e.dz;
+      if (s < 0 || s > e.len) continue;
+      roadwayBounds(e);
+      const lat = (x - e.sx) * e.rx + (z - e.sz) * e.rz;
+      if (lat > e._roadLo && lat < e._roadHi) return true;
+    }
+    return false;
+  }
+  // Every 0.5 m sample of a straight walk is off every carriageway (`onRoadway`). A sidewalk line, a way line or a corner
+  // link that `clear` accepts whole (same block, walkable ground) can still run over a carriageway of another edge: park
+  // blocks are walkable ground since 177bdc3, so the roads restored through them lie inside accepted walks.
+  // `skip` exempts the first and last metres: a crosswalk landing (or a track end) can stand inside a short or service
+  // edge's lane band, and the link that leaves it must not be rejected at sample 0.
+  function laneFree(a, b, skip = 0) {
+    const length = Math.hypot(b.x - a.x, b.z - a.z), steps = Math.max(1, Math.ceil(length / 0.5));
+    for (let i = 0; i <= steps; i++) {
+      const d = length * i / steps;
+      if (d < skip || length - d < skip) continue;
+      if (onRoadway(a.x + (b.x - a.x) * i / steps, a.z + (b.z - a.z) * i / steps)) return false;
     }
     return true;
   }
