@@ -250,7 +250,7 @@ async function main() {
 
   // 6. Tram & Rail layouts
   t0 = performance.now();
-  const tramLayout = streetDetails.tramLayout || tramInfraMod.layoutTramInfrastructure(trafficSystem.network);
+  const tramLayout = streetDetails.tramLayout || tramInfraMod.layoutTramInfrastructure(trafficSystem.network, cityGrid);
   phases.tramLayout = performance.now() - t0;
 
   t0 = performance.now();

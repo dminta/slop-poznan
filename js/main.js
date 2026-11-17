@@ -234,7 +234,7 @@ async function initApp() {
     population: qualitySettings.population,
     pedestrianHits: carmaEnabled ? createPedestrianHits() : null
   });
-  const tramLayout = streetDetails.tramLayout || layoutTramInfrastructure(trafficSystem.network);
+  const tramLayout = streetDetails.tramLayout || layoutTramInfrastructure(trafficSystem.network, cityGrid);
   const railLayout = layoutRailInfrastructure(trafficSystem.network);
   const signalSupports = [...tramLayout.poles, ...railLayout.masts];
   streetDetails.addRuntimeSignalHeads(trafficSystem.network, trafficSystem.pedestrianRoutes, signalSupports);

@@ -109,7 +109,7 @@ test.before(async () => {
   const original = furnished(uncutConfig, uncutGrid, uncutGridModule);
   const layout = loadModule(source('tram-infra'), {
     imports: { ...rendering, './city-config.js': config, './geodata.js': { GEO } }, globals
-  }).layoutTramInfrastructure(network);
+  }).layoutTramInfrastructure(network, grid);
   world = { config, GEO, raised, grid, network, layout, uncutGrid, uncutNetwork, uncutRaised, actual, original };
 });
 

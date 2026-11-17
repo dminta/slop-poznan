@@ -348,22 +348,6 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   [Tree-placement audit and pins](observations/street-tree-clearance-2026-11-06.md),
   [OSM tree record](observations/osm-street-trees-2026-11-08.md),
   [2026-11-14 headless audit](observations/street-tree-audit-2026-11-14.md).
-- Keep everything but the shelter out of tram-shelter footprints: the 2026-11-17 browser pass found 14 of 224 shelters with
-  something standing in them (local coordinates in the shelter frame; the headless scan that found only two skipped lamp masts,
-  pits and trees):
-  - parking machine and hydrant, from `place()` in `street-details.js`: Dworzec Zachodni `(−1637.99, 878.92)` local
-    `(−1.45, 0.32)`; Żeromskiego `(−2961.0, −791.4)` local `(1.76, 0.28)`;
-  - lamp masts, from the lamp placer: Wilczak `(843.3, −2048.1)`, Małe Garbary `(205.2, −262.7)` and `(234.1, −244.5)`,
-    Łomżyńska `(3492.2, −106.9)`, Kórnicka `(1314.6, 1046.2)`, Polanka `(1927.5, 1293.8)` (at the bench);
-  - street trees with their pits, from the tree placement: Łąkowa `(13.9, 737.7)`, Uniwersytet Przyrodniczy `(−1885.4, −2046.6)`,
-    Most Teatralny `(−1313.5, −360.8)`, Św. Leonarda `(−1541.1, −2702.1)`, Serbska `(801.8, −2556.1)`, Budziszyńska
-    `(−5851.2, 2271.6)`;
-  - borderline: the stop sign at Rondo Kaponiera `(−1414.4, 88.4)`, local `(1.93, 0.70)`, on the edge of the open front.
-
-  The 2026-11-14 street-tree audit's "0 shelter violations" needs re-checking. Shots and local coordinates in
-  [the record](observations/browser-checks-props-2026-11-17.md#defects-found-while-framing-the-shelters-14-shelters-after-review-round-1).
-  The browser walk/drive check of the named diagonal shelters at Dworzec Zachodni and Żniwna itself passed (person stops at the
-  back glass, ends and bench, enters the open front; car stops at the glass or bench).
 - Browser check: lamps stepped onto lawns in narrow-walk parks (the 122 `onLawn` lamps, 1.0–1.59 m inside the walk edge, a count that may be stale;
   e.g. block 212 near `−953, −1928`, Skwer Sybiraków block 303, Moniuszki block 421). The 2026-11-17 browser pass
   ([record](observations/browser-checks-props-2026-11-17.md#3-park-lamps--ok-for-the-sampled-lamps-the-lawn-lamp-placement-itself-not-exercised))

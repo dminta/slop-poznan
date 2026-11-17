@@ -125,15 +125,16 @@ test('seeded species assignment preserves the full built city tree sites and col
   // -92 trees inside the 0.8 m tilted-zebra margin, and walkable parks update park-block footprints.
   // Last pruned carriageways (2026-11-16): six signal poles move off turning curves and crosswalk landings; one street
   // tree and one park tree follow the restored lanes.
-  assert.deepEqual(before, [45639, 48751, 21936, 1979]);
-  assert.deepEqual(after, [43770, 46723, 21022, 6790]);
-  assert.equal(siteHash, '9b52d659a850ecac23a5ae2f8dea726927357b4fdbe806d80cbbb34a482acc59');
+  // Shelter clearance (2026-11-17): street trees move clear of shelters, pits and machines; mapped trees stay.
+  assert.deepEqual(before, [45639, 48753, 21936, 1979]);
+  assert.deepEqual(after, [43770, 46725, 21022, 6790]);
+  assert.equal(siteHash, 'd5eb4ae993a5d7e98f73e78960db597ce4d77d28688eccbb7fe8d96778ff50cc');
   // The rail crown filter drops grid park trunk colliders before construction; lamps and other props stay fixed.
   assert.equal(digest(grid.propColliders), '40be654e880d47d4d9f05d78cb6dc7e3c7b01775ed877d91b435cfd5441875c6');
   // Street-details loses only the rejected street/mapped trunk colliders; surviving colliders stay identical.
-  assert.equal(digest(details.colliders), '4b1ebc6d1ba1d7aa044253836710fdc7597ccbe84cf215887295cd3758204cf3');
-  assert.equal(meshCount((t) => t.species || 0), 25321);
-  assert.equal(meshCount(treeSpecies), 30158);
+  assert.equal(digest(details.colliders), '739576356c0722498aec66cd2ff1266c3e710dbb1254fd9660f5a7ba31b8c4f8');
+  assert.equal(meshCount((t) => t.species || 0), 25323);
+  assert.equal(meshCount(treeSpecies), 30160);
   // Every surveyed node the clearance rules accept reaches the field exactly at its OSM position. The rest are dropped
   // where a wall, lane, track, water or building doorway leaves no room, or within 4 m of a plaza planter whose own tree
   // stands for them, rather than moved off the surveyed point.
@@ -143,7 +144,11 @@ test('seeded species assignment preserves the full built city tree sites and col
   // which the wall/lane checks still reject; the nine garden crowns are source 'site' and stay out of this count:
   // 32,742 -> 32,755.
   // Restored SCC roads + 0.8 m tilted-zebra keepout margin drop 68 mapped trees (32,868 -> 32,800).
+  // Shelter clearance (2026-11-17) preserves every previously accepted OSM tree.
   assert.equal(osm.length, 32800);
+  assert.ok(osm.some((t) => t.x === -647.4 && t.z === 45.6), 'Teatr Polski keeps the mapped curb-row tree and pit');
+  assert.ok(sites.some((t) => t.source === 'site' && t.x === -658 && t.z === 45),
+    'Teatr Polski keeps the mapped garden tree beside the shelter');
   // The garden, car-park and promenade sites the task restored are planted, not merely configured.
   const westLawnTrees = sites.filter((t) => t.source === 'site' && t.x > -740 && t.x < -711 && t.z > 12 && t.z < 42);
   assert.ok(westLawnTrees.length >= 6, `the west lawn keeps its surveyed trees: ${westLawnTrees.length}`);

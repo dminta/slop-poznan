@@ -75,7 +75,7 @@ export async function runAudit({ streetSource = source('street-details'), full =
     ...(buildingObstacles ? buildingColliders.filter((c) => !c.obb && (c.minY ?? 0) < 3.5) : [])]);
   const routes = load('pedestrian-routes', { './road-network.js': road })
     .createPedestrianRoutes(network, config.blockAt, gridModule.railClearance);
-  tramLayout = details.tramLayout && reuseNetwork && buildingObstacles ? details.tramLayout : tram.layoutTramInfrastructure(network);
+  tramLayout = details.tramLayout && reuseNetwork && buildingObstacles ? details.tramLayout : tram.layoutTramInfrastructure(network, grid);
   const result = auditStreetTrees({ sites, network, routes, config, clearOfCrosswalks, grid, details, movedSites, buildMs,
     helpers, tram, tramLayout });
   if (osm) result.osmReport = auditOsmWindows({ sites, trees: result.trees, config, helpers });
@@ -197,7 +197,7 @@ export function auditStreetTrees({ sites, network, routes, config, clearOfCrossw
         const tr = trackByRail.get(st.railIndex);
         for (const rect of tram.platformPieceRects(tr, st.platform)) platformRects.push(rect);
       }
-      if (st.shelter) shelterRects.push(tram.shelterRect(st.shelter));
+      if (st.shelter) shelterRects.push(tram.shelterRect(st.shelter.x, st.shelter.z, st.shelter.yaw, st.shelter.len));
     }
     for (const p of tramLayout.poles) {
       const k = `${Math.floor(p.x / 8)},${Math.floor(p.z / 8)}`;
@@ -219,9 +219,9 @@ export function auditStreetTrees({ sites, network, routes, config, clearOfCrossw
         }
       }
       for (const sh of shelterRects) {
-        const dx = t.x - sh.cx, dz = t.z - sh.cz;
+        const dx = t.x - sh.x, dz = t.z - sh.z;
         if (dx * dx + dz * dz > 25) continue;
-        if (Math.abs(dx * sh.dx + dz * sh.dz) < sh.hx + r && Math.abs(-dx * sh.dz + dz * sh.dx) < sh.hz + r) {
+        if (Math.abs(dx * sh.ux + dz * sh.uz) < sh.hx + r && Math.abs(dx * sh.vx + dz * sh.vz) < sh.hz + r) {
           extraCounts.tramShelter++; break;
         }
       }

@@ -131,7 +131,7 @@ const tram = loadModule(source('tram-infra'), {
   filename: 'tram-infra.js'
 });
 
-const layout = tram.layoutTramInfrastructure(network);
+const layout = tram.layoutTramInfrastructure(network, grid.buildCityGrid(inert()));
 const built = tram.buildTramInfrastructure(three.Group(), network, { tram: layout });
 const stops = layout.stops;
 

@@ -87,11 +87,13 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
     filename: 'road-network.js'
   });
   // street furniture keeps off the tram tracks through city-grid.js's track index (the module, not the built grid)
-  const { clearOfRails } = loadModule(readFileSync(join(__dirname, '../js/city-grid.js'), 'utf8'), {
+  const gridModule = loadModule(readFileSync(join(__dirname, '../js/city-grid.js'), 'utf8'), {
     imports: { 'three/webgpu': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert(), './city-config.js': config,
       './geodata.js': { GEO }, './tsl-materials.js': inert() },
     filename: 'city-grid.js'
   });
+  const { clearOfRails } = gridModule;
+  const grid = gridModule.buildCityGrid(inert());
   const { buildStreetDetails } = loadModule(readFileSync(join(__dirname, '../js/street-details.js'), 'utf8'), {
     imports: {
       'three/webgpu': inert(), 'three/tsl': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert(),
@@ -119,7 +121,7 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
 
   const { footprints } = buildStreetDetails(inert());
   const network = buildRoadNetwork([], footprints);
-  const layout = layoutTramInfrastructure(network);
+  const layout = layoutTramInfrastructure(network, grid);
   const { stops, poles, spans, arms, laneDist, tracks } = layout;
 
   assert.ok(stops.length >= 100, `${stops.length} stops`);
@@ -144,7 +146,7 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
   // Behavioural check against the built scene: a point just behind a diagonal shelter's glass must be free, while the
   // glass plane and the inside stay blocked. Uses controllers.js's own broad and narrow phases, as the player does.
   {
-    const infra = buildTramInfrastructure(inert(), network);
+    const infra = buildTramInfrastructure(inert(), network, { tram: layout });
     const src = readFileSync(join(__dirname, '../js/controllers.js'), 'utf8');
     const cut = (a, b) => src.slice(src.indexOf(a), src.indexOf(b, src.indexOf(a)));
     const fnSrc = cut('function collisionBody(', '\n// The taxi');

@@ -284,7 +284,7 @@ function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSe
     imports: { ...three, './geodata.js': { GEO }, './city-config.js': config, './tsl-materials.js': inert() },
     globals: G, filename: 'tram-infra.js'
   });
-  const { stops } = layoutTramInfrastructure(traffic.network);
+  const { stops } = layoutTramInfrastructure(traffic.network, cityGrid || grid.buildCityGrid(inert()));
   const { createTramSystem } = loadModule(js('trams.js'), {
     imports: {
       'three/webgpu': inert(), './geodata.js': { GEO }, './city-config.js': config,

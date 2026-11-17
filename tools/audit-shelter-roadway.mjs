@@ -95,7 +95,7 @@ const layoutSource = before
   ? execFileSync('git', ['show', 'de70d64:js/tram-infra.js'], { cwd: root, encoding: 'utf8' })
   : source('tram-infra');
 const { layoutTramInfrastructure } = before ? loadModule(layoutSource, tramImports) : tram;
-const layout = layoutTramInfrastructure(network);
+const layout = layoutTramInfrastructure(network, grid.buildCityGrid(inert()));
 const { platformPieceRects, shelterRect, shelterSamples, shelterRaisedAt, poleInShelterRect } = tram;
 const TRACK_KEEP = 1.75;
 const LANE_HALF = 1.8;

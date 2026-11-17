@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import { Fn, attribute, color, float, vec2, mix, smoothstep, step, abs, fract, floor, fwidth, max, clamp, normalGeometry, positionGeometry, screenCoordinate, texture, uv } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GEO } from './geodata.js';
-import { BRIDGES, RAIL_BRIDGES, RAIL_BED_W, PLAZAS, OUTSKIRTS, OUTSKIRTS_HOLES, blockAt, isLand, isWater, roadClearance } from './city-config.js';
+import { BRIDGES, RAIL_BRIDGES, RAIL_BED_W, PLAZAS, OUTSKIRTS, OUTSKIRTS_HOLES, blockAt, isLand, isWater, roadClearance, OSM_TREES, TEATR_POLSKI_GARDEN_TREES, TEATR_POLSKI_SITE, TEATR_POLSKI_PROMENADE, createPolygonIndex, pointInPolyIndexed } from './city-config.js';
 import { cityUniforms, createCurbMaterial, transparentEffectMRT } from './tsl-materials.js';
 
 // js/tram-infra.js
@@ -75,6 +75,9 @@ const SHELTER_EDGE = 0.05; // roof edge samples: the old 0.4 m grid missed a 0.0
 const SHELTER_GRID = 0.8; // ...and this coarse interior grid
 const SHELTER_EPS = 1e-3; // platform pieces overlap by 0.05 m; a boundary sample is still on the paving
 const POLE_KEEP = 0.15; // a catenary pole centre stays this far outside the shelter roof footprint
+const SHELTER_MARGIN = 0.3; // keep-out margin around the shelter roof footprint for all props, poles, trees & signs
+const SHELTER_ACCESS = 1.2; // open-front (+z) access strip in front of the shelter
+const POLE_RADIUS = 0.16; // catenary pole shaft radius
 const PLATFORM_EDGE = 1.35; // track centreline to platform edge
 const PLATFORM_W = 2.6;
 const PLATFORM_L = 33; // a 32 m Moderus Gamma or Tramino
@@ -250,6 +253,122 @@ function poleInShelterRect(rect, p, pad = POLE_KEEP) {
   const dz = p.z - rect.z;
   return Math.abs(dx * rect.ux + dz * rect.uz) <= rect.hx + pad &&
     Math.abs(dx * rect.vx + dz * rect.vz) <= rect.hz + pad;
+}
+
+function makeObb(x, z, hx, hz, yaw = 0) {
+  const cs = Math.cos(yaw), sn = Math.sin(yaw);
+  return { x, z, hx, hz, ux: cs, uz: -sn, vx: sn, vz: cs };
+}
+
+function obbOverlap(a, b) {
+  const dx = b.x - a.x, dz = b.z - a.z;
+  const uu = Math.abs(a.ux * b.ux + a.uz * b.uz), uv = Math.abs(a.ux * b.vx + a.uz * b.vz);
+  const vu = Math.abs(a.vx * b.ux + a.vz * b.uz), vv = Math.abs(a.vx * b.vx + a.vz * b.vz);
+  return Math.abs(dx * a.ux + dz * a.uz) < a.hx + b.hx * uu + b.hz * uv &&
+    Math.abs(dx * a.vx + dz * a.vz) < a.hz + b.hx * vu + b.hz * vv &&
+    Math.abs(dx * b.ux + dz * b.uz) < b.hx + a.hx * uu + a.hz * vu &&
+    Math.abs(dx * b.vx + dz * b.vz) < b.hz + a.hx * uv + a.hz * vv;
+}
+
+function obbCircleOverlap(a, cx, cz, r) {
+  const dx = cx - a.x, dz = cz - a.z;
+  const lx = dx * a.ux + dz * a.uz;
+  const lz = dx * a.vx + dz * a.vz;
+  const qx = Math.max(-a.hx, Math.min(a.hx, lx));
+  const qz = Math.max(-a.hz, Math.min(a.hz, lz));
+  const rx = lx - qx, rz = lz - qz;
+  return rx * rx + rz * rz < r * r;
+}
+
+function shelterZones(rect) {
+  return {
+    footMargin: { ...rect, hx: rect.hx + SHELTER_MARGIN, hz: rect.hz + SHELTER_MARGIN },
+    accessZone: {
+      ...rect,
+      x: rect.x + rect.vx * (rect.hz + SHELTER_ACCESS * 0.5),
+      z: rect.z + rect.vz * (rect.hz + SHELTER_ACCESS * 0.5),
+      hz: SHELTER_ACCESS * 0.5
+    }
+  };
+}
+
+/**
+ * Shared spatial keep-out index for all tram shelters (footprint + 0.3 m margin + 1.2 m open-front access strip).
+ * Used by street-details.js placers (lamps, curbside props, kiosks, trees, runtime signals) and tram-infra.js.
+ */
+function createShelterKeepout(stops) {
+  const CELL = 16;
+  const cells = new Map();
+  const key = (ix, iz) => ix * 100003 + iz;
+  const fileIn = (map, x, z, r, entry) => {
+    for (let ix = Math.floor((x - r) / CELL); ix <= Math.floor((x + r) / CELL); ix++) {
+      for (let iz = Math.floor((z - r) / CELL); iz <= Math.floor((z + r) / CELL); iz++) {
+        const k = key(ix, iz);
+        const list = map.get(k);
+        if (list) list.push(entry);
+        else map.set(k, [entry]);
+      }
+    }
+  };
+  for (const st of stops || []) {
+    if (st.shelter) {
+      const rect = shelterRect(st.shelter.x, st.shelter.z, st.shelter.yaw, st.shelter.len);
+      const { footMargin, accessZone } = shelterZones(rect);
+      const r = Math.hypot(rect.hx + SHELTER_MARGIN, rect.hz + SHELTER_MARGIN + SHELTER_ACCESS) + 0.5;
+      fileIn(cells, rect.x, rect.z, r, { footMargin, accessZone, stamp: 0 });
+    }
+    if (st.machine) {
+      fileIn(cells, st.machine.x, st.machine.z, 0.5, { obb: makeObb(st.machine.x, st.machine.z, 0.31, 0.24, st.machine.yaw || 0), stamp: 0 });
+    }
+    if (st.sign) {
+      fileIn(cells, st.sign.x, st.sign.z, 0.2, { x: st.sign.x, z: st.sign.z, r: 0.08, stamp: 0 });
+    }
+  }
+  let queryId = 0;
+  const isClear = (x, z, r = 0) => {
+    const q = ++queryId;
+    const pad = r;
+    const ix0 = Math.floor((x - pad) / CELL), ix1 = Math.floor((x + pad) / CELL);
+    const iz0 = Math.floor((z - pad) / CELL), iz1 = Math.floor((z + pad) / CELL);
+    for (let ix = ix0; ix <= ix1; ix++) for (let iz = iz0; iz <= iz1; iz++) {
+      const list = cells.get(key(ix, iz));
+      if (!list) continue;
+      for (let i = 0; i < list.length; i++) {
+        const e = list[i];
+        if (e.stamp === q) continue;
+        e.stamp = q;
+        if (e.footMargin ? (obbCircleOverlap(e.footMargin, x, z, r) || obbCircleOverlap(e.accessZone, x, z, r))
+          : e.obb ? obbCircleOverlap(e.obb, x, z, r) : Math.hypot(x - e.x, z - e.z) < r + e.r) return false;
+      }
+    }
+    return true;
+  };
+  const isRectClear = (x, z, hx, hz, yaw = 0) => {
+    let obb = null;
+    const q = ++queryId;
+    const pad = Math.hypot(hx, hz);
+    const ix0 = Math.floor((x - pad) / CELL), ix1 = Math.floor((x + pad) / CELL);
+    const iz0 = Math.floor((z - pad) / CELL), iz1 = Math.floor((z + pad) / CELL);
+    for (let ix = ix0; ix <= ix1; ix++) for (let iz = iz0; iz <= iz1; iz++) {
+      const list = cells.get(key(ix, iz));
+      if (!list) continue;
+      for (let i = 0; i < list.length; i++) {
+        const e = list[i];
+        if (e.stamp === q) continue;
+        e.stamp = q;
+        if (!obb) obb = makeObb(x, z, hx, hz, yaw);
+        if (e.footMargin ? (obbOverlap(e.footMargin, obb) || obbOverlap(e.accessZone, obb))
+          : e.obb ? obbOverlap(e.obb, obb) : obbCircleOverlap(obb, e.x, e.z, e.r)) return false;
+      }
+    }
+    return true;
+  };
+  return { isClear, isRectClear };
+}
+
+// Every layout caller supplies its built city grid; mapped trees remain part of the same input recipe.
+function tramLayoutInputs(grid) {
+  return { propColliders: grid?.propColliders || [], osmTrees: OSM_TREES, gardenTrees: TEATR_POLSKI_GARDEN_TREES };
 }
 
 // Uniform grid of line segments for nearest-segment queries. `walk` files each segment only in the cells it crosses
@@ -597,7 +716,8 @@ function layoutTrackRails(tracks, decks = []) {
  *   platform: { s0, s1, o0, o1 } (o = lateral offsets right of the points' direction; null on a curb stop).
  * - poles: [{ x, z, h }], spans: [{ ax, az, bx, bz }] (wires at SPAN_Y), arms: cantilevers, droppers: [{ x, z, y0 }]
  */
-function layoutTramInfrastructure(network) {
+function layoutTramInfrastructure(network, grid = null) {
+  const extraKeepouts = tramLayoutInputs(grid);
   const tracks = loadTracks();
   const trackGrid = segmentGrid();
   for (const tr of tracks) {
@@ -739,18 +859,95 @@ function layoutTramInfrastructure(network) {
   const skipped = []; // [{ name, x, z, why }] stop nodes left without a stop
   // A catenary pole centre inside the roof footprint (plus POLE_KEEP) would put the mast through the shelter. Use the
   // pole cell index so a search candidate only looks at the few poles in its 4 m cells.
-  const poleInShelter = (rect) => {
-    // World AABB of the turned roof rectangle plus the pole keep; using hx/hz alone would miss a pole along the roof's
-    // long diagonal axis (the 2026-11-12 check found three such misses).
-    const ex = Math.abs(rect.ux) * rect.hx + Math.abs(rect.vx) * rect.hz + POLE_KEEP;
-    const ez = Math.abs(rect.uz) * rect.hx + Math.abs(rect.vz) * rect.hz + POLE_KEEP;
-    const minX = rect.x - ex, maxX = rect.x + ex;
-    const minZ = rect.z - ez, maxZ = rect.z + ez;
-    for (let ix = Math.floor(minX / 4); ix <= Math.floor(maxX / 4); ix++) {
-      for (let iz = Math.floor(minZ / 4); iz <= Math.floor(maxZ / 4); iz++) {
-        for (const i of poleCells.get(poleCellKey(ix, iz)) || []) {
-          if (poleInShelterRect(rect, poles[i])) return true;
-        }
+  const extraCells = new Map();
+  const stopZoneCells = new Map();
+  const extraKey = (ix, iz) => ix * 100003 + iz;
+  const stopNearCells = new Set();
+  for (const st of GEO.tramStops) {
+    const sx = Math.floor(st.x / 32), sz = Math.floor(st.z / 32);
+    for (let ix = sx - 2; ix <= sx + 2; ix++) for (let iz = sz - 2; iz <= sz + 2; iz++) stopNearCells.add(extraKey(ix, iz));
+  }
+  const nearAnyStop = (x, z) => stopNearCells.has(extraKey(Math.floor(x / 32), Math.floor(z / 32)));
+  const fileInCell = (map, x, z, r, item) => {
+    for (let ix = Math.floor((x - r) / 16); ix <= Math.floor((x + r) / 16); ix++) {
+      for (let iz = Math.floor((z - r) / 16); iz <= Math.floor((z + r) / 16); iz++) {
+        const k = extraKey(ix, iz);
+        const list = map.get(k);
+        if (list) list.push(item);
+        else map.set(k, [item]);
+      }
+    }
+  };
+  for (const c of extraKeepouts?.propColliders || []) {
+    const cx = c.obb ? (c.obb.cx ?? c.obb.x ?? (c.minX + c.maxX) * 0.5) : (c.minX + c.maxX) * 0.5;
+    const cz = c.obb ? (c.obb.cz ?? c.obb.z ?? (c.minZ + c.maxZ) * 0.5) : (c.minZ + c.maxZ) * 0.5;
+    if (!nearAnyStop(cx, cz)) continue;
+    if (c.obb) {
+      fileInCell(extraCells, cx, cz, Math.hypot(c.obb.hx, c.obb.hz),
+        { x: cx, z: cz, obb: { x: cx, z: cz, hx: c.obb.hx, hz: c.obb.hz, ux: c.obb.cs, uz: -c.obb.sn, vx: c.obb.sn, vz: c.obb.cs } });
+    } else {
+      const hx = (c.maxX - c.minX) * 0.5, hz = (c.maxZ - c.minZ) * 0.5;
+      fileInCell(extraCells, cx, cz, Math.hypot(hx, hz), { x: cx, z: cz, obb: makeObb(cx, cz, hx, hz, 0) });
+    }
+  }
+  const promenadeIndex = TEATR_POLSKI_PROMENADE ? createPolygonIndex(TEATR_POLSKI_PROMENADE) : null;
+  const reserveMappedTree = (t) => {
+    if (!nearAnyStop(t.x, t.z)) return;
+    const b = blockAt(t.x, t.z);
+    let best = Infinity, edge = null;
+    const promenade = !!TEATR_POLSKI_PROMENADE && pointInPolyIndexed(TEATR_POLSKI_PROMENADE, promenadeIndex, t.x, t.z);
+    const pts = promenade ? TEATR_POLSKI_SITE.paths[0].pts : b?.poly;
+    if (pts) for (let i = 0; i < pts.length - (promenade ? 1 : 0); i++) {
+      const a = pts[i], c = pts[(i + 1) % pts.length];
+      const dx = c.x - a.x, dz = c.z - a.z, len = Math.hypot(dx, dz);
+      if (len < 1e-6) continue;
+      const u = Math.max(0, Math.min(1, ((t.x - a.x) * dx + (t.z - a.z) * dz) / (len * len)));
+      const d = Math.hypot(a.x + u * dx - t.x, a.z + u * dz - t.z);
+      if (d < best) { best = d; edge = { a, c, dx, dz, len }; }
+    }
+    // Match the street placer: back-garden trees have trunks only; curb-row and promenade trees have oriented pits.
+    if (!edge || (!promenade && (best > 6 || b.park > 0.6))) {
+      fileInCell(extraCells, t.x, t.z, 0.35, { x: t.x, z: t.z, r: 0.35 });
+      return;
+    }
+    const { a, c, dx, dz, len } = edge;
+    let inx = -dz / len, inz = dx / len;
+    const mx = (a.x + c.x) * 0.5, mz = (a.z + c.z) * 0.5;
+    if (blockAt(mx + inx * 1.6, mz + inz * 1.6) !== b) { inx = -inx; inz = -inz; }
+    const ps = !promenade && blockAt(mx - inx * 14, mz - inz * 14) ? 0.7 : 1;
+    fileInCell(extraCells, t.x, t.z, Math.hypot(0.85, 1.3) * ps,
+      { obb: makeObb(t.x, t.z, 0.85 * ps, 1.3 * ps, Math.atan2(dx, dz)) });
+  };
+  for (const t of extraKeepouts.osmTrees || []) reserveMappedTree(t);
+  for (const t of extraKeepouts.gardenTrees || []) reserveMappedTree(t);
+  let shelterPoles = [];
+  const poleInShelter = (rect, footMargin, accessZone, strict = true) => {
+    for (const p of shelterPoles) {
+      if (poleInShelterRect(rect, p) || (strict && (obbCircleOverlap(footMargin, p.x, p.z, POLE_RADIUS) ||
+          obbCircleOverlap(accessZone, p.x, p.z, POLE_RADIUS)))) return true;
+    }
+    return false;
+  };
+  let extraQuery = 0;
+  const shelterHitsStopsOrExtras = (rect, footMargin, accessZone) => {
+    const q = ++extraQuery;
+    const ex = Math.abs(rect.ux) * footMargin.hx + Math.abs(rect.vx) * (rect.hz + SHELTER_ACCESS);
+    const ez = Math.abs(rect.uz) * footMargin.hx + Math.abs(rect.vz) * (rect.hz + SHELTER_ACCESS);
+    const ix0 = Math.floor((rect.x - ex) / 16), ix1 = Math.floor((rect.x + ex) / 16);
+    const iz0 = Math.floor((rect.z - ez) / 16), iz1 = Math.floor((rect.z + ez) / 16);
+    for (let ix = ix0; ix <= ix1; ix++) for (let iz = iz0; iz <= iz1; iz++) {
+      const k = extraKey(ix, iz);
+      for (const s of stopZoneCells.get(k) || []) {
+        if (s._visit === q) continue;
+        s._visit = q;
+        if (s.obb ? (obbOverlap(footMargin, s.obb) || obbOverlap(accessZone, s.obb))
+          : (obbCircleOverlap(footMargin, s.x, s.z, s.r) || obbCircleOverlap(accessZone, s.x, s.z, s.r))) return true;
+      }
+      for (const e of extraCells.get(k) || []) {
+        if (e._visit === q) continue;
+        e._visit = q;
+        if (e.obb ? (obbOverlap(footMargin, e.obb) || obbOverlap(accessZone, e.obb))
+          : (obbCircleOverlap(footMargin, e.x, e.z, e.r) || obbCircleOverlap(accessZone, e.x, e.z, e.r))) return true;
       }
     }
     return false;
@@ -759,15 +956,36 @@ function layoutTramInfrastructure(network) {
   // in the tram reservation included) or a raised sidewalk block. This replaces the old "not inside a road rectangle"
   // test, which could not see junction interiors, roundabout rings, bays or the notch between two platform pieces.
   // `edge` is the perimeter sampling step: the search's cheap pre-check uses 0.4 m, the accepted candidate 0.05 m.
-  const shelterClear = (x, z, yaw, len, needBlock, pieces, edge = SHELTER_EDGE) => {
+  let sampleNeedBlock = false, samplePieces = null;
+  const clearSample = (x, z) => (!sampleNeedBlock || !!blockAt(x, z)) &&
+    shelterRaisedAt(x, z, samplePieces) && !laneDist.within(x, z, LANE_HALF - 1e-6) &&
+    !trackWithin(x, z, TRACK_KEEP - 1e-6);
+  const shelterClear = (x, z, yaw, len, needBlock, pieces, edge = SHELTER_EDGE, strict = true) => {
     const rect = shelterRect(x, z, yaw, len);
-    for (const [px, pz] of shelterSamples(rect, edge)) {
-      if (laneDist.within(px, pz, LANE_HALF - 1e-6)) return false;
-      if (trackWithin(px, pz, TRACK_KEEP - 1e-6)) return false;
-      if (needBlock && !blockAt(px, pz)) return false;
-      if (!shelterRaisedAt(px, pz, pieces)) return false;
+    const { footMargin, accessZone } = shelterZones(rect);
+    if (poleInShelter(rect, footMargin, accessZone, strict)) return false;
+    if (shelterHitsStopsOrExtras(rect, footMargin, accessZone)) return false;
+    // Stream the same perimeter/interior samples as shelterSamples: rejected candidates need no point arrays.
+    const cs = rect.ux, sn = rect.vx, hx = rect.hx, hz = rect.hz;
+    sampleNeedBlock = needBlock;
+    samplePieces = pieces;
+    const nx = Math.max(1, Math.ceil(2 * hx / edge)), nz = Math.max(1, Math.ceil(2 * hz / edge));
+    for (let i = 0; i <= nx; i++) {
+      const lx = -hx + 2 * hx * i / nx;
+      if (!clearSample(x + cs * lx - sn * hz, z - sn * lx - cs * hz) ||
+          !clearSample(x + cs * lx + sn * hz, z - sn * lx + cs * hz)) return false;
     }
-    return !poleInShelter(rect);
+    for (let j = 1; j < nz; j++) {
+      const lz = -hz + 2 * hz * j / nz;
+      if (!clearSample(x - cs * hx + sn * lz, z + sn * hx + cs * lz) ||
+          !clearSample(x + cs * hx + sn * lz, z - sn * hx + cs * lz)) return false;
+    }
+    const gx = Math.max(1, Math.ceil(2 * hx / SHELTER_GRID)), gz = Math.max(1, Math.ceil(2 * hz / SHELTER_GRID));
+    for (let i = 1; i < gx; i++) for (let j = 1; j < gz; j++) {
+      const lx = -hx + 2 * hx * i / gx, lz = -hz + 2 * hz * j / gz;
+      if (!clearSample(x + cs * lx + sn * lz, z - sn * lx + cs * lz)) return false;
+    }
+    return true;
   };
   const platformClear = (tr, s0, s1, o0, o1) => {
     for (let s = s0; s <= s1 + 1e-6; s += 1) {
@@ -862,7 +1080,15 @@ function layoutTramInfrastructure(network) {
     // real footprint (roof, advert, track and lane envelopes, raised ground, poles) is clear, else leave the stop
     // without a shelter.
     if (width >= 2.0) {
-      const len = width >= 2.4 ? 4.4 : 3.2;
+      // A 33 m island or the ±6 m curb search, its lateral offset and roof/access zone all fit within 28 m of C.
+      // Resolve these few poles once per stop rather than probing 4 m cells for every search candidate.
+      shelterPoles = [];
+      for (let ix = Math.floor((C.x - 28) / 4); ix <= Math.floor((C.x + 28) / 4); ix++) {
+        for (let iz = Math.floor((C.z - 28) / 4); iz <= Math.floor((C.z + 28) / 4); iz++) {
+          for (const i of poleCells.get(poleCellKey(ix, iz)) || []) shelterPoles.push(poles[i]);
+        }
+      }
+      let len = width >= 2.4 ? 4.4 : 3.2;
       const mixed = stop.kind === 'island' && platformMixed(tr, stop.platform);
       const current = { ...at(-2, base + width - 0.85), y, yaw: yaw + Math.PI, len };
       const pieceRects = platformPieceRects(tr, stop.platform);
@@ -872,37 +1098,72 @@ function layoutTramInfrastructure(network) {
       if (shelterClear(current.x, current.z, current.yaw, current.len, needBlock, pieceRects)) {
         stop.shelter = current;
       } else {
-        const half = SHELTER_HALF_LEN * len / 4.4;
-        let fLo = -6, fHi = 6;
-        if (stop.kind === 'island') {
-          const fA = (stop.platform.s0 + half - stop.sc) / stop.dir;
-          const fB = (stop.platform.s1 - half - stop.sc) / stop.dir;
-          fLo = Math.min(fA, fB);
-          fHi = Math.max(fA, fB);
-        }
-        const search = (step) => {
-          // Try candidates in order of distance from the old fixed spot, so the first valid one is the nearest (the old
-          // exhaustive scan kept the same minimum). A 0.4 m pre-check rejects most candidates before the 0.05 m pass.
-          const candidates = [];
+        let half = SHELTER_HALF_LEN * len / 4.4;
+        const search = (step, reach = 6) => {
+          // Search outward from the old fixed spot (-2, r0) so the first valid candidate is near-optimal and
+          // bestD immediately prunes the remaining grid without allocating or sorting a candidate array.
           const r0 = base + width - 0.85;
-          for (let f = fLo; f <= fHi + 1e-6; f += step) {
-            for (let r = base + SHELTER_HALF_DEPTH; r <= base + width - SHELTER_HALF_DEPTH + 1e-9; r += 0.05) {
-              candidates.push({ f, r, d: (f + 2) * (f + 2) + (r - r0) * (r - r0) });
+          const rLo = base + SHELTER_HALF_DEPTH, rHi = base + width - SHELTER_HALF_DEPTH + 1e-9;
+          let sLo = -reach, sHi = reach;
+          if (stop.kind === 'island') {
+            const fA = (stop.platform.s0 + half - stop.sc) / stop.dir;
+            const fB = (stop.platform.s1 - half - stop.sc) / stop.dir;
+            sLo = Math.min(fA, fB);
+            sHi = Math.max(fA, fB);
+          }
+          let best = null, bestD = Infinity, fallback = null, fallbackD = Infinity;
+          const tryF = (f) => {
+            if (f < sLo - 1e-9 || f > sHi + 1e-9) return;
+            const df2 = (f + 2) * (f + 2);
+            if (df2 >= bestD) return;
+            for (let dr = 0; r0 + dr <= rHi || r0 - dr >= rLo; dr += 0.05) {
+              if (dr * dr + df2 >= bestD) break;
+              for (const sign of dr === 0 ? [0] : [1, -1]) {
+                const r = r0 + sign * dr;
+                if (r < rLo || r > rHi) continue;
+                const d = df2 + dr * dr;
+                if (d >= bestD) continue;
+                const x = C.x + fx * f + rx * r;
+                const z = C.z + fz * f + rz * r;
+                const rect = shelterRect(x, z, current.yaw, len);
+                const zones = shelterZones(rect);
+                const strictPoleBlocked = poleInShelter(rect, zones.footMargin, zones.accessZone, true);
+                if (strictPoleBlocked && d >= fallbackD) continue;
+                if (!shelterClear(x, z, current.yaw, len, needBlock, pieceRects, 0.4, false)) continue;
+                if (!shelterClear(x, z, current.yaw, len, needBlock, pieceRects, SHELTER_EDGE, false)) continue;
+                if (d < fallbackD) { fallback = { f, r, x, z }; fallbackD = d; }
+                if (strictPoleBlocked) continue;
+                best = { f, r, x, z };
+                bestD = d;
+              }
             }
+          };
+          const fCenter = Math.max(sLo, Math.min(sHi, -2));
+          const maxSpan = Math.max(fCenter - sLo, sHi - fCenter);
+          tryF(fCenter);
+          for (let off = step; off <= maxSpan + step; off += step) {
+            if (off * off >= bestD && Math.abs(fCenter + off + 2) > Math.sqrt(bestD) && Math.abs(fCenter - off + 2) > Math.sqrt(bestD)) break;
+            tryF(fCenter - off);
+            tryF(fCenter + off);
           }
-          candidates.sort((a, b) => a.d - b.d);
-          for (const c of candidates) {
-            const x = C.x + fx * c.f + rx * c.r;
-            const z = C.z + fz * c.f + rz * c.r;
-            if (!shelterClear(x, z, current.yaw, len, needBlock, pieceRects, 0.4)) continue;
-            if (!shelterClear(x, z, current.yaw, len, needBlock, pieceRects)) continue;
-            return { f: c.f, r: c.r, x, z };
-          }
-          return null;
+          return { best, fallback };
         };
-        // The 0.5 m pass keeps the old results where it can. Only a stop with no spot there pays for the 0.1 m pass, so
-        // a 4 cm platform notch does not cost a shelter that still has a valid position nearby.
-        let best = search(0.5) || search(0.1);
+        // Search geometry once per candidate. Keep the nearest pole-rule fallback during the strict search rather
+        // than repeating every failed geometry test in two further passes.
+        const coarse = search(0.5);
+        let best = coarse.best;
+        if (!best && !coarse.fallback && len > 3.2) {
+          // The existing short model can fit between mapped pits and benches where the wide roof cannot.
+          len = 3.2;
+          half = SHELTER_HALF_LEN * len / 4.4;
+          const shorter = search(0.5);
+          best = shorter.best || shorter.fallback;
+          if (!best) { len = current.len; half = SHELTER_HALF_LEN * len / 4.4; }
+        }
+        if (!best) {
+          const fine = search(0.1);
+          best = fine.best || coarse.fallback || fine.fallback;
+        }
         if (best) {
           stop.shelter = { x: best.x, z: best.z, y, yaw: current.yaw, len };
           // Move the machine with the shelter, keeping its 4.2 m / 0.4 m offset; the sign marks the stop and stays.
@@ -920,20 +1181,83 @@ function layoutTramInfrastructure(network) {
     } else {
       stop.shelter = null;
     }
-    // Place the stop sign by stepping along the curved track rather than extrapolating the centre tangent
+    // Place the stop sign by stepping along the curved track rather than extrapolating the centre tangent;
+    // keep it clear of this stop's and any earlier stop's shelter footprint + margin + access zone.
     const sRaw = stop.sc + stop.dir * (stop.kind === 'island' ? 12 : 9);
-    const sSign = stop.kind === 'island'
-      ? Math.max(stop.platform.s0 + 0.5, Math.min(stop.platform.s1 - 0.5, sRaw))
-      : Math.max(0, Math.min(tr.len, sRaw));
-    const SP = pointAt(tr, sSign);
-    const srx = -SP.dz * stop.side;
-    const srz = SP.dx * stop.side;
-    stop.sign = {
-      x: SP.x + srx * (base + 0.55),
-      z: SP.z + srz * (base + 0.55),
-      y,
-      yaw: Math.atan2(SP.dx * stop.dir, SP.dz * stop.dir)
+    const sMin = stop.kind === 'island' ? stop.platform.s0 + 0.5 : 0;
+    const sMax = stop.kind === 'island' ? stop.platform.s1 - 0.5 : tr.len;
+    const sBase = Math.max(sMin, Math.min(sMax, sRaw));
+    const signAtS = (sCand) => {
+      const SP = pointAt(tr, sCand);
+      const srx = -SP.dz * stop.side;
+      const srz = SP.dx * stop.side;
+      return {
+        x: SP.x + srx * (base + 0.55),
+        z: SP.z + srz * (base + 0.55),
+        y,
+        yaw: Math.atan2(SP.dx * stop.dir, SP.dz * stop.dir)
+      };
     };
+    const ownZones = stop.shelter ? shelterZones(shelterRect(stop.shelter.x, stop.shelter.z, stop.shelter.yaw, stop.shelter.len)) : null;
+    const signHitsShelter = (sg) => {
+      if (ownZones && (obbCircleOverlap(ownZones.footMargin, sg.x, sg.z, 0.08) ||
+          obbCircleOverlap(ownZones.accessZone, sg.x, sg.z, 0.08))) return true;
+      for (let ix = Math.floor((sg.x - 6) / 16); ix <= Math.floor((sg.x + 6) / 16); ix++) {
+        for (let iz = Math.floor((sg.z - 6) / 16); iz <= Math.floor((sg.z + 6) / 16); iz++) {
+          for (const s of stopZoneCells.get(extraKey(ix, iz)) || []) {
+            if (!s.isShelter) continue;
+            if (obbCircleOverlap(s.footMargin, sg.x, sg.z, 0.08) || obbCircleOverlap(s.accessZone, sg.x, sg.z, 0.08)) return true;
+          }
+        }
+      }
+      return false;
+    };
+    stop.sign = signAtS(sBase);
+    if (signHitsShelter(stop.sign)) {
+      for (let step = 1; step <= 18; step++) {
+        let found = null;
+        for (const dir of [-1, 1]) {
+          const sCand = sBase + dir * step;
+          if (sCand < sMin || sCand > sMax) continue;
+          const cand = signAtS(sCand);
+          if ((stop.kind !== 'curb' || onCurb(cand.x, cand.z)) && !signHitsShelter(cand)) { found = cand; break; }
+        }
+        if (found) { stop.sign = found; break; }
+      }
+    }
+    if (stop.machine) {
+      const machineHits = (m) => {
+        const mObb = makeObb(m.x, m.z, 0.31, 0.24, m.yaw || 0);
+        if (ownZones && (obbOverlap(ownZones.footMargin, mObb) || obbOverlap(ownZones.accessZone, mObb))) return true;
+        for (let ix = Math.floor((m.x - 6) / 16); ix <= Math.floor((m.x + 6) / 16); ix++) {
+          for (let iz = Math.floor((m.z - 6) / 16); iz <= Math.floor((m.z + 6) / 16); iz++) {
+            for (const s of stopZoneCells.get(extraKey(ix, iz)) || []) {
+              if (!s.isShelter) continue;
+              if (obbOverlap(s.footMargin, mObb) || obbOverlap(s.accessZone, mObb)) return true;
+            }
+            for (const e of extraCells.get(extraKey(ix, iz)) || []) {
+              if (e.obb ? obbOverlap(mObb, e.obb) : obbCircleOverlap(mObb, e.x, e.z, e.r)) return true;
+            }
+          }
+        }
+        return false;
+      };
+      if (machineHits(stop.machine)) {
+        let movedM = null;
+        const rM = base + width - 0.45;
+        const fMin = stop.kind === 'island' ? Math.min((stop.platform.s0 + 0.5 - stop.sc) / stop.dir, (stop.platform.s1 - 0.5 - stop.sc) / stop.dir) : -12;
+        const fMax = stop.kind === 'island' ? Math.max((stop.platform.s0 + 0.5 - stop.sc) / stop.dir, (stop.platform.s1 - 0.5 - stop.sc) / stop.dir) : 12;
+        for (const fCand of [-6.2, 2.2, ...Array.from({ length: 25 }, (_, i) => (i % 2 ? -1 : 1) * (Math.floor(i / 2) + 1))]) {
+          if (fCand < fMin || fCand > fMax) continue;
+          const cand = { ...at(fCand, rM), y, yaw: yaw + Math.PI };
+          if ((stop.kind !== 'curb' || onCurb(cand.x, cand.z)) && clearSpot(cand.x, cand.z) && !machineHits(cand)) {
+            movedM = cand;
+            break;
+          }
+        }
+        stop.machine = movedM;
+      }
+    }
     // Curb stops keep their furniture on the sidewalk and off the tracks
     if (stop.kind === 'curb' && ![stop.shelter, stop.sign, stop.machine].every((p) => !p || onCurb(p.x, p.z))) {
       if (!onCurb(stop.sign.x, stop.sign.z)) {
@@ -941,7 +1265,17 @@ function layoutTramInfrastructure(network) {
         continue;
       }
       if (stop.shelter && !onCurb(stop.shelter.x, stop.shelter.z)) stop.shelter = null;
-      if (!onCurb(stop.machine.x, stop.machine.z)) stop.machine = null;
+      if (stop.machine && !onCurb(stop.machine.x, stop.machine.z)) stop.machine = null;
+    }
+    if (stop.shelter) {
+      const shRect = shelterRect(stop.shelter.x, stop.shelter.z, stop.shelter.yaw, stop.shelter.len);
+      const zones = shelterZones(shRect);
+      const rSh = Math.hypot(shRect.hx + SHELTER_MARGIN, shRect.hz + SHELTER_MARGIN + SHELTER_ACCESS) + 0.5;
+      fileInCell(stopZoneCells, shRect.x, shRect.z, rSh, { isShelter: true, obb: shRect, ...zones });
+    }
+    if (stop.sign) fileInCell(stopZoneCells, stop.sign.x, stop.sign.z, 0.2, { x: stop.sign.x, z: stop.sign.z, r: 0.08 });
+    if (stop.machine) {
+      fileInCell(stopZoneCells, stop.machine.x, stop.machine.z, 0.5, { obb: makeObb(stop.machine.x, stop.machine.z, 0.31, 0.24, stop.machine.yaw || 0) });
     }
     stops.push({
       name: st.name,
@@ -983,7 +1317,7 @@ function layoutTramInfrastructure(network) {
   }
 
   return { tracks, pieces, decks, stops, skipped, poles, spans, arms, rosettes, droppers, footprints, laneDist, trackDist,
-    sheltersMoved, sheltersDropped };
+    sheltersMoved, sheltersDropped, shelterKeepout: createShelterKeepout(stops) };
 }
 
 /**
@@ -2484,5 +2818,6 @@ function buildTramInfrastructure(scene, network, layouts = null) {
 
 export {
   layoutTramInfrastructure, layoutRailInfrastructure, buildTramInfrastructure, stopFurnitureColliders,
-  platformPieceRects, pointInRect, shelterRect, shelterSamples, shelterRaisedAt, poleInShelterRect
+  platformPieceRects, pointInRect, shelterRect, shelterSamples, shelterRaisedAt, poleInShelterRect,
+  createShelterKeepout, tramLayoutInputs
 };

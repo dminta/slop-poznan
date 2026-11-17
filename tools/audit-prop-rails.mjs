@@ -482,7 +482,7 @@ export async function runAudit() {
     imports: { ...inertRendering, './geodata.js': { GEO }, './city-config.js': config },
     globals: { ...globals, _plateCounter: plateCounter }
   });
-  const tramLayout = tramInfraMod.layoutTramInfrastructure(network);
+  const tramLayout = tramInfraMod.layoutTramInfrastructure(network, cityGrid);
   const railLayout = tramInfraMod.layoutRailInfrastructure(network);
   const signalSupports = [...tramLayout.poles, ...railLayout.masts];
   streetDetails.addRuntimeSignalHeads(network, pedestrianRoutes, signalSupports);

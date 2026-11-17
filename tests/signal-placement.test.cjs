@@ -313,7 +313,7 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
   const oldCount = street.vehicleHeads, oldFootprints = street.footprints.length, oldColliders = street.colliders.length;
   const sitesBefore = testInternals[0].length;
   const footprintSnapshot = JSON.stringify(street.footprints), colliderSnapshot = JSON.stringify(street.colliders);
-  const supports = [...world.tramInfra.layoutTramInfrastructure(network).poles,
+  const supports = [...world.tramInfra.layoutTramInfrastructure(network, world.grid).poles,
     ...world.tramInfra.layoutRailInfrastructure(network).masts];
   street.addRuntimeSignalHeads(network, routes, supports);
   assert.ok(street.runtimeHeads.some((h) => h.existing && Math.hypot(h.node.x + 2086.95, h.node.z - 2421.3) < 0.1));
@@ -426,7 +426,7 @@ test('runtime poles preserve the furnished network and nearby pedestrian routes'
 // checks the finished arms against the masts that the real build places, not only the 2.6 m track setback.
 test('overhead and span heads keep 3.1 m from tram poles and railway masts', () => {
   const { network, street, tramInfra } = world;
-  const tram = tramInfra.layoutTramInfrastructure(network);
+  const tram = tramInfra.layoutTramInfrastructure(network, world.grid);
   const rail = tramInfra.layoutRailInfrastructure(network);
   const supports = [...tram.poles, ...rail.masts];
   const segDist = (x, z, ax, az, bx, bz) => {

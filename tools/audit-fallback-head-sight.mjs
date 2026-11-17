@@ -73,7 +73,7 @@ const tramInfra = loadModule(source('tram-infra'), {
   imports: { ...rendering, './geodata.js': { GEO }, './city-config.js': config },
   globals
 });
-const tramLayout = tramInfra.layoutTramInfrastructure(network);
+const tramLayout = tramInfra.layoutTramInfrastructure(network, grid);
 const railLayout = tramInfra.layoutRailInfrastructure(network);
 const supports = [...tramLayout.poles, ...railLayout.masts];
 

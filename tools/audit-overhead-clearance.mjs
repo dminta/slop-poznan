@@ -135,7 +135,7 @@ const tramInfraMod = loadModule(source('tram-infra'), {
   },
   globals
 });
-const tramLayout = tramInfraMod.layoutTramInfrastructure(network);
+const tramLayout = tramInfraMod.layoutTramInfrastructure(network, grid);
 const railLayout = tramInfraMod.layoutRailInfrastructure(network);
 
 // Build landmarks (using real three-stub so fitToSite computes world transforms/colliders)

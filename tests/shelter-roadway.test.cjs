@@ -23,11 +23,13 @@ test('no tram shelter footprint leaves raised ground', () => {
   const r = report();
   assert.equal(r.label, 'after');
   assert.equal(r.stops, 232);
+  // Shelter clearance (2026-11-17): margin (0.3 m) and open-front access zone (1.2 m) move 16 more shelters
+  // while falling back to the 0.15 m roof-pole rule at Rondo Rataje (1007.6, 1379.1) so all 224 shelters stay.
   assert.equal(r.shelters, 224);
   assert.equal(r.overlaps, 0, JSON.stringify(r.rows));
   assert.equal(r.raisedOverlaps, 0, JSON.stringify(r.raisedShelters));
   assert.equal(r.poleOverlaps, 0, JSON.stringify(r.poleShelters));
-  assert.equal(r.moved, 41);
+  assert.equal(r.moved, 57);
   assert.equal(r.dropped, 4);
   assert.deepEqual(r.droppedShelters.map((s) => s.name).sort(), ['AWF', 'Gwarna', 'Rondo Śródka', 'Sołacz']);
 });

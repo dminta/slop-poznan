@@ -406,6 +406,14 @@ function buildStreetDetails(scene, opts = {}) {
     if (list) list.push(p);
     else poleCells.set(k, [p]);
   };
+  const removePole = (p) => {
+    const k = poleKey(Math.floor(p.x / POLE_CELL), Math.floor(p.z / POLE_CELL));
+    const list = poleCells.get(k);
+    if (list) {
+      const idx = list.indexOf(p);
+      if (idx >= 0) list.splice(idx, 1);
+    }
+  };
 
   const plazaRects = pavedPlazaRects || [];
   // A 64 m bucket index over the plaza/park slabs: inPlaza runs for every furniture candidate and the rect list
@@ -1145,23 +1153,56 @@ function buildStreetDetails(scene, opts = {}) {
   const ledHeadMatrices = [];
   const gasPostMatrices = [];
   const lampCount = { main: 0, side: 0, old: 0 };
-  for (const { b, p0, dx, dz, len, inx, inz, outX, outZ, cls } of curbEdges) {
+  const placedLamps = [];
+  const gasCheckCandidate = (edge, f, inDist) => {
+    const { p0, dx, dz, inx, inz, outX, outZ } = edge;
+    const cx = p0.x + dx * f;
+    const cz = p0.z + dz * f;
+    const px = cx + inx * inDist;
+    const pz = cz + inz * inDist;
+    if (!isOnSidewalk(px, pz, 0.5) || blockAt(cx + outX * 2.2, cz + outZ * 2.2) || !isClearOfPoles(px, pz, 5.2) ||
+      !clearOfRoads(px, pz, 0.25) || !clearOfCrosswalks(px, pz, 0.2) || !clearOfRails(px, pz, 0.29)) return null;
+    return { px, pz, cx, cz, f, inDist };
+  };
+  const ledCheckCandidate = (edge, scale, f, inDist) => {
+    const { p0, dx, dz, inx, inz, outX, outZ } = edge;
+    const cx = p0.x + dx * f;
+    const cz = p0.z + dz * f;
+    const lx = cx + inx * inDist;
+    const lz = cz + inz * inDist;
+    const headX = lx + outX * LED_REACH * scale;
+    const headZ = lz + outZ * LED_REACH * scale;
+    if (
+      !isOnSidewalk(lx, lz, 0.55) ||
+      !clearOfRoads(lx, lz, 0.3) ||
+      !clearOfCrosswalks(lx, lz, 0.225) ||
+      blockAt(cx + outX * 2.5, cz + outZ * 2.5) ||
+      blockAt(headX, headZ) ||
+      !isClearOfPoles(lx, lz, 6.5) ||
+      !clearOfRails(lx, lz, 0.32) ||
+      Math.hypot(lx - 3191.5, lz - 1609.5) < 3 ||
+      Math.hypot(lx - 2522.4, lz - 1006.9) < 3 ||
+      Math.hypot(lx - 2115.2, lz - 1908.0) < 3 ||
+      // Keep LED poles off straightened chord cuts that bow past roadClearance (Szelągowska, Maczka, Szeherezady, Dąbrowskiego)
+      Math.hypot(lx - 406.1, lz - -980.6) < 3 ||
+      Math.hypot(lx - -1105.5, lz - -1857.5) < 3 ||
+      Math.hypot(lx - -6856.0, lz - -145.3) < 3 ||
+      Math.hypot(lx - -6869.0, lz - -114.8) < 3 ||
+      Math.hypot(lx - -3961.2, lz - -1257.2) < 3
+    ) {
+      return null;
+    }
+    return { lx, lz, headX, headZ, cx, cz, f, inDist };
+  };
+  for (const edge of curbEdges) {
+    const { b, p0, dx, dz, len, inx, inz, outX, outZ, cls } = edge;
     if (cls === 'old') {
       const poleRadius = 0.20;
       const reqDist = poleRadius + CURB_CLEARANCE;
       const m = Math.max(1, Math.floor(len / GAS_SP));
       for (let j = 0; j < m; j++) {
         const nomF = (j + 0.5) / m;
-        const checkCandidate = (f, inDist) => {
-          const cx = p0.x + dx * f;
-          const cz = p0.z + dz * f;
-          const px = cx + inx * inDist;
-          const pz = cz + inz * inDist;
-          if (!isOnSidewalk(px, pz, 0.5) || blockAt(cx + outX * 2.2, cz + outZ * 2.2) || !isClearOfPoles(px, pz, 5.2) ||
-            !clearOfRoads(px, pz, 0.25) || !clearOfCrosswalks(px, pz, 0.2) || !clearOfRails(px, pz, 0.29)) return null;
-          return { px, pz, cx, cz, f, inDist };
-        };
-        const nom = checkCandidate(nomF, 0.9);
+        const nom = gasCheckCandidate(edge, nomF, 0.9);
         if (!nom) continue;
         let placed = nom;
         if (blockCurbDist(nom.px, nom.pz, b, reqDist) < reqDist) {
@@ -1170,29 +1211,35 @@ function buildStreetDetails(scene, opts = {}) {
             for (const dir of [1, -1]) {
               const f = nomF + (dir * s) / len;
               if (f < 0.05 || f > 0.95) continue;
-              const cand = checkCandidate(f, 0.9);
+              const cand = gasCheckCandidate(edge, f, 0.9);
               if (cand && blockCurbDist(cand.px, cand.pz, b, reqDist) >= reqDist) { placed = cand; break; }
             }
             if (placed) break;
           }
           if (!placed) {
             for (const delta of [0.05, -0.05, 0.10, -0.10, 0.15, -0.15, 0.20, -0.20]) {
-              const cand = checkCandidate(nomF, 0.9 + delta);
+              const cand = gasCheckCandidate(edge, nomF, 0.9 + delta);
               if (cand && blockCurbDist(cand.px, cand.pz, b, reqDist) >= reqDist) { placed = cand; break; }
             }
           }
         }
         if (!placed) continue;
         const { px, pz } = placed;
-        addPole({ x: px, z: pz, r: 0.18 });
+        const pole = { x: px, z: pz, r: 0.18 };
+        addPole(pole);
+        const fpIdx = footprints.length;
         addFootprint(px, pz, 0.4, 0.4, 'gas');
+        const colIdx = colliders.length;
         addCollider(px, pz, 0.18, 0.18, 4.36);
         dummy.position.set(px, 0.18, pz);
         dummy.rotation.set(0, Math.atan2(dx, dz), 0);
         dummy.scale.set(1, 1, 1);
         dummy.updateMatrix();
+        const matIdx = gasPostMatrices.length;
         gasPostMatrices.push(dummy.matrix.clone());
+        const siteIdx = streetPointSites.length;
         streetPointSites.push({ x: px, y: 3.86, z: pz, color: 0xffd9a0, intensity: 27, dist: 13.5 });
+        placedLamps.push({ type: 'gas', edge, nomF, reqDist, pole, fpIdx, colIdx, matIdx, siteIdx });
         lampCount.old++;
       }
       continue;
@@ -1204,37 +1251,7 @@ function buildStreetDetails(scene, opts = {}) {
     const n = Math.max(1, Math.floor(len / sp));
     for (let i = 0; i < n; i++) {
       const nomF = (i + 0.5) / n;
-      const checkCandidate = (f, inDist) => {
-        const cx = p0.x + dx * f;
-        const cz = p0.z + dz * f;
-        const lx = cx + inx * inDist;
-        const lz = cz + inz * inDist;
-        const headX = lx + outX * LED_REACH * scale;
-        const headZ = lz + outZ * LED_REACH * scale;
-        if (
-          !isOnSidewalk(lx, lz, 0.55) ||
-          !clearOfRoads(lx, lz, 0.3) ||
-          !clearOfCrosswalks(lx, lz, 0.225) ||
-          blockAt(cx + outX * 2.5, cz + outZ * 2.5) ||
-          blockAt(headX, headZ) ||
-          !isClearOfPoles(lx, lz, 6.5) ||
-          !clearOfRails(lx, lz, 0.32) ||
-          Math.hypot(lx - 3191.5, lz - 1609.5) < 3 ||
-          Math.hypot(lx - 2522.4, lz - 1006.9) < 3 ||
-          Math.hypot(lx - 2115.2, lz - 1908.0) < 3 ||
-          // Keep LED poles off straightened chord cuts that bow past roadClearance (Szelągowska, Maczka, Szeherezady, Dąbrowskiego)
-          Math.hypot(lx - 406.1, lz - -980.6) < 3 ||
-          Math.hypot(lx - -1105.5, lz - -1857.5) < 3 ||
-          Math.hypot(lx - -6856.0, lz - -145.3) < 3 ||
-          Math.hypot(lx - -6869.0, lz - -114.8) < 3 ||
-          Math.hypot(lx - -3961.2, lz - -1257.2) < 3
-        ) {
-          return null;
-        }
-        return { lx, lz, headX, headZ, cx, cz, f, inDist };
-      };
-
-      const nom = checkCandidate(nomF, 1.08);
+      const nom = ledCheckCandidate(edge, scale, nomF, 1.08);
       if (!nom) continue;
 
       let placed = nom;
@@ -1242,7 +1259,7 @@ function buildStreetDetails(scene, opts = {}) {
         placed = null;
         // 1. Prefer moving pole further onto the sidewalk (or centering on narrow island)
         for (const delta of [0.05, 0.10, 0.15, 0.20, 0.25, -0.05, -0.10, -0.15, -0.20]) {
-          const cand = checkCandidate(nomF, 1.08 + delta);
+          const cand = ledCheckCandidate(edge, scale, nomF, 1.08 + delta);
           if (cand && blockCurbDist(cand.lx, cand.lz, b, reqDist) >= reqDist) {
             placed = cand; break;
           }
@@ -1253,7 +1270,7 @@ function buildStreetDetails(scene, opts = {}) {
             for (const dir of [1, -1]) {
               const f = nomF + (dir * s) / len;
               if (f < 0.05 || f > 0.95) continue;
-              const cand = checkCandidate(f, 1.08);
+              const cand = ledCheckCandidate(edge, scale, f, 1.08);
               if (cand && blockCurbDist(cand.lx, cand.lz, b, reqDist) >= reqDist) {
                 placed = cand; break;
               }
@@ -1268,7 +1285,7 @@ function buildStreetDetails(scene, opts = {}) {
               const f = nomF + (dir * s) / len;
               if (f < 0.05 || f > 0.95) continue;
               for (const delta of [0.10, 0.20, -0.10, 0.30, -0.20]) {
-                const cand = checkCandidate(f, 1.08 + delta);
+                const cand = ledCheckCandidate(edge, scale, f, 1.08 + delta);
                 if (cand && blockCurbDist(cand.lx, cand.lz, b, reqDist) >= reqDist) {
                   placed = cand; break;
                 }
@@ -1281,16 +1298,21 @@ function buildStreetDetails(scene, opts = {}) {
       }
       if (!placed) continue;
       const { lx, lz, headX, headZ } = placed;
-      addPole({ x: lx, z: lz, r: 0.14 });
+      const pole = { x: lx, z: lz, r: 0.14 };
+      addPole(pole);
+      const fpIdx = footprints.length;
       addFootprint(lx, lz, 0.45, 0.45, 'led');
+      const colIdx = colliders.length;
       addCollider(lx, lz, 0.14, 0.14, 0.1 + 8.6 * scale);
       dummy.position.set(lx, 0.1, lz);
       dummy.rotation.set(0, armYaw, 0);
       dummy.scale.set(scale, scale, scale);
       dummy.updateMatrix();
+      const matIdx = mastMatrices.length;
       mastMatrices.push(dummy.matrix.clone());
       ledHeadMatrices.push(dummy.matrix.clone());
       dummy.scale.set(1, 1, 1);
+      const siteIdx = ledLampSites.length;
       ledLampSites.push({
         x: headX,
         y: 0.1 + 9.9 * scale,
@@ -1298,6 +1320,7 @@ function buildStreetDetails(scene, opts = {}) {
         tx: lx + outX * 3.4,
         tz: lz + outZ * 3.4
       });
+      placedLamps.push({ type: 'led', cls, edge, nomF, scale, armYaw, reqDist, pole, fpIdx, colIdx, matIdx, siteIdx });
       lampCount[cls]++;
     }
   }
@@ -1336,10 +1359,6 @@ function buildStreetDetails(scene, opts = {}) {
     pedAve: addMatrixArrayInstanced(pedPanelGeo, aveWalkMat, pedAveMatrices, false, signalAttrs(pedAveIndices)),
     pedStreet: addMatrixArrayInstanced(pedPanelGeo, streetWalkMat, pedStreetMatrices, false, signalAttrs(pedStreetIndices))
   };
-  addMatrixArrayInstanced(mastAndHeadGeo, poleMetalMat, mastMatrices);
-  addMatrixArrayInstanced(ledLensGeo, lampBulbGlow, ledHeadMatrices, false);
-  addMatrixArrayInstanced(gasPostGeo, castIronMat, gasPostMatrices);
-  addMatrixArrayInstanced(gasGlassGeo, gasGlassGlow, gasPostMatrices, false);
   for (const [size, set] of Object.entries(plates)) {
     if (!set.matrices.length) continue;
     const { w, h, cell: px } = PLATE_SIZES[size];
@@ -1369,41 +1388,47 @@ function buildStreetDetails(scene, opts = {}) {
   const bollardMatrices = [];
   const PARKING_ZONE = new Set(['Stare Miasto', 'Jeżyce', 'Łazarz', 'Wilda']);
   const FURNITURE_TOP = { hydrant: [0.14, 1.46], postbox: [0.2, 1.56], parking: [0.2, 1.76], bollard: [0.07, 1.13] };
-  const place = (list, p, yaw, w, kind, clear) => {
+  const placedCurb = [];
+  const place = (list, p, yaw, w, kind, clear, edge = null, u = 0, inset = 0) => {
     if (!isClearOfPoles(p.x, p.z, clear) || !clearOfRoads(p.x, p.z, w / 2 + 0.05) || !clearOfCrosswalks(p.x, p.z, w / 2) ||
       !clearOfRails(p.x, p.z, w * 0.71) ||
       // Keep curbside furniture clear of chord cuts where a lane sweeps close to curb (Park Rataje border, Wiejska)
       Math.hypot(p.x - 2027.8, p.z - 1970.1) < 3 ||
       Math.hypot(p.x - 2757.0, p.z - -1490.1) < 3) return false;
-    addPole({ ...p, r: FURNITURE_TOP[kind][0] });
+    const pole = { ...p, r: FURNITURE_TOP[kind][0] };
+    addPole(pole);
+    const fpIdx = footprints.length;
     addFootprint(p.x, p.z, w, w, kind);
+    const colIdx = colliders.length;
     addCollider(p.x, p.z, FURNITURE_TOP[kind][0], FURNITURE_TOP[kind][0], FURNITURE_TOP[kind][1]);
     dummy.position.set(p.x, 0.2, p.z);
     dummy.rotation.set(0, yaw, 0);
     dummy.scale.set(1, 1, 1);
     dummy.updateMatrix();
+    const matIdx = list.length;
     list.push(dummy.matrix.clone());
+    placedCurb.push({ list, p, e: edge, u, inset, yaw, w, kind, clear, pole, fpIdx, colIdx, matIdx });
     return true;
   };
   for (const e of curbEdges) {
     const { p0, len, b, cls } = e;
     if (len >= 30 && hashPos(p0.x, 5.3, p0.z) >= 0.45) {
       const p = curbSpot(e, 0.14, 0.8);
-      if (isOnSidewalk(p.x, p.z, 0.45)) place(hydrantMatrices, p, yawIn(e), 0.35, 'hydrant', 1.5);
+      if (isOnSidewalk(p.x, p.z, 0.45)) place(hydrantMatrices, p, yawIn(e), 0.35, 'hydrant', 1.5, e, 0.14, 0.8);
     }
     if (len >= 30 && hashPos(p0.x, 7.7, p0.z) < 0.08) {
       const p = curbSpot(e, 0.62, 0.8);
-      if (isOnSidewalk(p.x, p.z, 0.45)) place(postBoxMatrices, p, yawIn(e), 0.4, 'postbox', 1.5);
+      if (isOnSidewalk(p.x, p.z, 0.45)) place(postBoxMatrices, p, yawIn(e), 0.4, 'postbox', 1.5, e, 0.62, 0.8);
     }
     if (cls !== 'main' && len >= 40 && PARKING_ZONE.has(b.district) && hashPos(p0.z, 2.1, p0.x) < 0.45) {
       const p = curbSpot(e, 0.33, 0.7);
-      if (isOnSidewalk(p.x, p.z, 0.45)) place(parkingMatrices, p, yawIn(e), 0.4, 'parking', 1.5);
+      if (isOnSidewalk(p.x, p.z, 0.45)) place(parkingMatrices, p, yawIn(e), 0.4, 'parking', 1.5, e, 0.33, 0.7);
     }
     if ((cls === 'old' || (cls === 'side' && b.district === 'Stare Miasto')) && len >= 30 && hashPos(p0.x, 9.4, p0.z) < 0.6) {
       for (const fromEnd of [7, 8.25, 9.5, 10.75, 12]) {
         for (const u of [fromEnd / len, 1 - fromEnd / len]) {
           const p = curbSpot(e, u, 0.35);
-          if (isOnSidewalk(p.x, p.z, 0.2)) place(bollardMatrices, p, 0, 0.18, 'bollard', 0.9);
+          if (isOnSidewalk(p.x, p.z, 0.2)) place(bollardMatrices, p, 0, 0.18, 'bollard', 0.9, e, u, 0.35);
         }
       }
     }
@@ -1423,8 +1448,6 @@ function buildStreetDetails(scene, opts = {}) {
   const hydrantBandGeo = new THREE.CylinderGeometry(0.103, 0.103, 0.08, 10, 1, true).translate(0, 0.9, 0);
   const hydrantMat = new THREE.MeshStandardNodeMaterial({ color: 0xc21a1e, roughness: 0.45, metalness: 0.3 });
   const reflectiveWhiteMat = new THREE.MeshStandardNodeMaterial({ color: 0xf2f2ee, roughness: 0.3 });
-  addMatrixArrayInstanced(hydrantGeo, hydrantMat, hydrantMatrices);
-  addMatrixArrayInstanced(hydrantBandGeo, reflectiveWhiteMat, hydrantMatrices, false);
   // Poczta Polska post box: a red box with a rounded top on a dark post, its slot and a yellow band on the front
   const postBoxGeo = mergeGeometries([
     new THREE.BoxGeometry(0.4, 0.5, 0.3).translate(0, 1.05, 0),
@@ -1437,9 +1460,6 @@ function buildStreetDetails(scene, opts = {}) {
   const postBoxBandGeo = new THREE.PlaneGeometry(0.4, 0.07).translate(0, 0.95, 0.151);
   const postBoxMat = new THREE.MeshStandardNodeMaterial({ color: 0xc8161d, roughness: 0.42, metalness: 0.35 });
   const yellowMat = new THREE.MeshStandardNodeMaterial({ color: 0xf5c400, roughness: 0.4 });
-  addMatrixArrayInstanced(postBoxGeo, postBoxMat, postBoxMatrices);
-  addMatrixArrayInstanced(postBoxPostGeo, castIronMat, postBoxMatrices);
-  addMatrixArrayInstanced(postBoxBandGeo, yellowMat, postBoxMatrices, false);
   // Parking machine: a grey cabinet facing the sidewalk with a sloped head, a screen and a blue "P" panel
   const parkingGeo = mergeGeometries([
     new THREE.BoxGeometry(0.36, 1.45, 0.26).translate(0, 0.725, 0),
@@ -1450,9 +1470,6 @@ function buildStreetDetails(scene, opts = {}) {
   const parkingMat = new THREE.MeshStandardNodeMaterial({ color: 0x8e959c, roughness: 0.4, metalness: 0.6 });
   const parkingPanelMat = new THREE.MeshStandardNodeMaterial({ color: 0x1f4fa8, roughness: 0.4 });
   const screenMat = new THREE.MeshStandardNodeMaterial({ color: 0x1c2a2e, roughness: 0.15, metalness: 0.2 });
-  addMatrixArrayInstanced(parkingGeo, parkingMat, parkingMatrices);
-  addMatrixArrayInstanced(parkingPanelGeo, parkingPanelMat, parkingMatrices, false);
-  addMatrixArrayInstanced(parkingScreenGeo, screenMat, parkingMatrices, false);
   // Bollard: a 0.9 m cast-iron post with a domed top and a white reflective ring. The post is open at both ends (the
   // foot is in the pavement, the top inside the cap) and the cap has 8 x 3 rings, so 1,981 bollards cost 56 rather than
   // 88 triangles each.
@@ -1461,8 +1478,6 @@ function buildStreetDetails(scene, opts = {}) {
     new THREE.SphereGeometry(0.065, 8, 3, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 0.86, 0)
   ].map((g) => g.toNonIndexed()));
   const bollardRingGeo = new THREE.CylinderGeometry(0.063, 0.063, 0.06, 8, 1, true).translate(0, 0.74, 0);
-  addMatrixArrayInstanced(bollardGeo, castIronMat, bollardMatrices);
-  addMatrixArrayInstanced(bollardRingGeo, reflectiveWhiteMat, bollardMatrices, false);
 
   // =========================================================================
   // 3B. KIOSKS AND ADVERTISING COLUMNS ON WIDE SIDEWALKS
@@ -1489,6 +1504,7 @@ function buildStreetDetails(scene, opts = {}) {
   const flowerMatrices = [];
   const columnMatrices = [];
   const bigSites = [];
+  const placedKiosks = [];
   const farFrom = (x, z, kind, d) => !bigSites.some((s) => (s.kind === kind ? Math.hypot(s.x - x, s.z - z) < d : Math.hypot(s.x - x, s.z - z) < 15));
   for (const e of curbEdges) {
     const { b, p0, dx, dz, len, inx, inz, outX, outZ } = e;
@@ -1512,11 +1528,15 @@ function buildStreetDetails(scene, opts = {}) {
         ok = isBlockAt(qx, qz, b) && !inLot(b, qx, qz, 0.3) && !inPlaza(qx, qz, 0.5);
       }
       if (!ok) continue;
+      const bigSiteIdx = bigSites.length;
       bigSites.push({ x, z, kind });
-      addPole({ x, z, r: Math.hypot(halfW, halfD) });
+      const pole = { x, z, r: Math.hypot(halfW, halfD) };
+      addPole(pole);
       const w = Math.abs(ux) * halfW * 2 + Math.abs(inx) * halfD * 2;
       const d = Math.abs(uz) * halfW * 2 + Math.abs(inz) * halfD * 2;
+      const fpIdx = footprints.length;
       addFootprint(x, z, w, d, kind);
+      const colIdx = colliders.length;
       if (kind === 'column') addCollider(x, z, 0.62, 0.62, 3.4);
       else {
         // kiosks and flower stands face the street: an oriented box (its x axis along the curb, z out to the street)
@@ -1533,7 +1553,10 @@ function buildStreetDetails(scene, opts = {}) {
       dummy.rotation.set(0, Math.atan2(outX, outZ), 0); // fronts face the street
       dummy.scale.set(1, 1, 1);
       dummy.updateMatrix();
-      (kind === 'column' ? columnMatrices : kind === 'kiosk' ? kioskMatrices : flowerMatrices).push(dummy.matrix.clone());
+      const list = kind === 'column' ? columnMatrices : kind === 'kiosk' ? kioskMatrices : flowerMatrices;
+      const matIdx = list.length;
+      list.push(dummy.matrix.clone());
+      placedKiosks.push({ e, s, kind, halfW, halfD, depth, pole, fpIdx, colIdx, list, matIdx, bigSiteIdx });
       break;
     }
   }
@@ -1550,9 +1573,6 @@ function buildStreetDetails(scene, opts = {}) {
   const kioskMat = new THREE.MeshStandardNodeMaterial({ color: 0xd8d0bc, roughness: 0.6, metalness: 0.15 });
   const kioskBandMat = new THREE.MeshStandardNodeMaterial({ color: 0xb8262a, roughness: 0.45 });
   const kioskGlassMat = new THREE.MeshStandardNodeMaterial({ color: 0x223038, roughness: 0.12, metalness: 0.3 });
-  addMatrixArrayInstanced(kioskGeo, kioskMat, kioskMatrices);
-  addMatrixArrayInstanced(kioskBandGeo, kioskBandMat, kioskMatrices);
-  addMatrixArrayInstanced(kioskGlassGeo, kioskGlassMat, kioskMatrices, false);
   // Flower stand: a green cabin, a sloping awning out front over tiered shelves of buckets in flower
   const flowerStandGeo = mergeGeometries([
     new THREE.BoxGeometry(1.8, 2.1, 1.0).translate(0, 1.05, -0.45),
@@ -1570,8 +1590,6 @@ function buildStreetDetails(scene, opts = {}) {
     const h = fract(sin(c.x.mul(12.9898).add(c.y.mul(78.233)).add(c.z.mul(37.719))).mul(43758.5453));
     return mix(mix(color(0xc81e3a), color(0xf0c030), step(0.4, h)), color(0xe86aa2), step(0.72, h));
   })();
-  addMatrixArrayInstanced(flowerStandGeo, flowerStandMat, flowerMatrices);
-  addMatrixArrayInstanced(flowerShelfGeo, flowerMat, flowerMatrices);
   // Advertising column: a green cast-iron plinth, a poster drum 1.1 m across and 2.4 m tall, a cornice and a dome
   // The 16-sided plinth/cornice and dome go to 14 sides and four rings (a 0.55 m dome seen from 4 m); the poster drum
   // keeps its 20 sides because its curve is what the eye reads up close.
@@ -1584,14 +1602,6 @@ function buildStreetDetails(scene, opts = {}) {
   const columnDrumGeo = new THREE.CylinderGeometry(0.55, 0.55, 2.4, 20, 1, true).translate(0, 1.52, 0);
   const columnFrameMat = new THREE.MeshStandardNodeMaterial({ color: 0x2a4636, roughness: 0.55, metalness: 0.4 });
   const posterMat = new THREE.MeshStandardNodeMaterial({ map: createPosterTexture(), roughness: 0.75 });
-  addMatrixArrayInstanced(columnFrameGeo, columnFrameMat, columnMatrices);
-  addMatrixArrayInstanced(columnDrumGeo, posterMat, columnMatrices);
-
-  console.info(`[streetDetails] ${s1Matrices.length} signal heads and ${pedHeadMatrices.length} pedestrian heads on ` +
-    `${signalPoleMatrices.length} poles at ${builtJunctions.size} junctions, ${plateCount} name plates; lamps ` +
-    `${lampCount.main} main, ${lampCount.side} side, ${lampCount.old} gas; ${hydrantMatrices.length} hydrants, ` +
-    `${postBoxMatrices.length} post boxes, ${parkingMatrices.length} parking machines, ${bollardMatrices.length} bollards, ` +
-    `${kioskMatrices.length} kiosks, ${flowerMatrices.length} flower stands, ${columnMatrices.length} advertising columns`);
 
 
   // =========================================================================
@@ -1643,7 +1653,43 @@ function buildStreetDetails(scene, opts = {}) {
     ...(grid?.footprints || []), ...footprints,
     ...buildingColliders.filter((c) => !c.obb && (c.minY ?? 0) < 3.5)
   ]);
-  const tramLayout = layoutTramInfrastructure ? layoutTramInfrastructure(treeNetwork) : null;
+  const tramLayout = layoutTramInfrastructure
+    ? layoutTramInfrastructure(treeNetwork, grid)
+    : null;
+  const shelterKeepout = tramLayout?.shelterKeepout || null;
+  const clearOfShelters = (x, z, r = 0) => !shelterKeepout ||
+    shelterKeepout.isClear(x, z, r);
+  const rectClearOfShelters = (x, z, hx, hz, yaw = 0) => !shelterKeepout ||
+    shelterKeepout.isRectClear(x, z, hx, hz, yaw);
+  const shelterPlacement = { moved: {}, dropped: {} };
+  const recordShelterAction = (bucket, kind) => { bucket[kind] = (bucket[kind] || 0) + 1; };
+  const badLamps = [], badCurb = [], badKiosks = [];
+  if (shelterKeepout) {
+    // Unregister colliding lamps/props from poleCells before tree placement so they don't block valid nearby trees;
+    // they are relocated after trees so they cannot displace valid existing trees.
+    for (const item of placedLamps) {
+      const hw = item.type === 'gas' ? 0.2 : 0.225;
+      if (!rectClearOfShelters(item.pole.x, item.pole.z, hw, hw, 0)) {
+        removePole(item.pole);
+        badLamps.push(item);
+      }
+    }
+    for (const item of placedCurb) {
+      const hw = item.w / 2;
+      if (!rectClearOfShelters(item.p.x, item.p.z, hw, hw, 0)) {
+        removePole(item.pole);
+        badCurb.push(item);
+      }
+    }
+    for (const item of placedKiosks) {
+      const yaw = Math.atan2(item.e.outX, item.e.outZ);
+      const cur = bigSites[item.bigSiteIdx];
+      if (!rectClearOfShelters(cur.x, cur.z, item.halfW, item.halfD, yaw)) {
+        removePole(item.pole);
+        badKiosks.push(item);
+      }
+    }
+  }
   const tramPoleCells = new Map();
   if (tramLayout) {
     for (const p of tramLayout.poles) {
@@ -1739,6 +1785,7 @@ function buildStreetDetails(scene, opts = {}) {
     }
     if (!clearOfCrosswalks(x, z, r * Math.SQRT2)) return false;
     if (!clearOfTramPoles(x, z, scale)) return false;
+    if (!clearOfShelters(x, z, r)) return false;
     for (const s of treeKeepouts.get(Math.floor(x / TREE_LANE_CELL) * 100000 + Math.floor(z / TREE_LANE_CELL)) || []) {
       const dx = s.bx - s.ax, dz = s.bz - s.az, len = Math.hypot(dx, dz);
       const along = ((x - s.ax) * dx + (z - s.az) * dz) / len;
@@ -1959,6 +2006,10 @@ function buildStreetDetails(scene, opts = {}) {
       site.tier = 0;
     }
     if (!clearOfRails(x, z, 0.4 * scale, site)) { osmPlacement.dropped++; continue; }
+    if (site.tier > 0 && !rectClearOfShelters(x, z, 0.85 * site.pitS, 1.3 * site.pitS, site.pitRot)) {
+      osmPlacement.dropped++;
+      continue;
+    }
     if (site.tier > 0) {
       sidewalkTreePositions.push(site);
       osmPlacement.street++;
@@ -2036,10 +2087,14 @@ function buildStreetDetails(scene, opts = {}) {
         p0, dx, dz, len, inx, inz, inset, u });
     }
   }
+  const clearStreetTreePit = (x, z, pitRot, narrow) => {
+    const ps = narrow ? 0.7 : 1;
+    return rectClearOfShelters(x, z, 0.85 * ps, 1.3 * ps, pitRot);
+  };
   // Reserve unchanged trees first, including those later in the curb iteration. Existing close pairs stay intact;
   // a replacement must keep 3.5 m from every unchanged or already moved tree, even on a different curb edge.
   for (const t of streetTreeCandidates) {
-    t.clear = clearStreetTree(t.x, t.z, t.scale);
+    t.clear = clearStreetTree(t.x, t.z, t.scale) && clearStreetTreePit(t.x, t.z, t.pitRot, t.narrow);
     if (t.clear) reserveTree(t);
   }
   for (const t of streetTreeCandidates) {
@@ -2053,7 +2108,8 @@ function buildStreetDetails(scene, opts = {}) {
         if (su < 0.02 || su > 0.98) continue;
         const sx = p0.x + dx * su + inx * inset;
         const sz = p0.z + dz * su + inz * inset;
-        if (!clearOfTrees(sx, sz) || !clearStreetTree(sx, sz, scale) || !onSidewalk(sx, sz) || inPlaza(sx, sz, 1.5) ||
+        if (!clearOfTrees(sx, sz) || !clearStreetTree(sx, sz, scale) || !clearStreetTreePit(sx, sz, pitRot, narrow) ||
+            !onSidewalk(sx, sz) || inPlaza(sx, sz, 1.5) ||
             nearOsmTree(sx, sz) || !isClearOfPoles(sx, sz, 2.2) || !clearOfRails(sx, sz, 0.4 * scale, streetTreeShape(sx, sz, scale, species, acrossX, squeeze)) ||
             !isClearOfWalls(sx, sz, scale, species, squeeze, SIDEWALK_Y, tier)) continue;
         x = sx;
@@ -2069,6 +2125,179 @@ function buildStreetDetails(scene, opts = {}) {
       tier, pitRot, grate: !narrow, pitS: narrow ? 0.7 : 1, squeeze
     });
   }
+  const clearOfPlacedTrees = (x, z, minD = 2.2) => {
+    const ix = Math.floor(x / 4), iz = Math.floor(z / 4);
+    const d2 = minD * minD;
+    for (let i = ix - 1; i <= ix + 1; i++) for (let j = iz - 1; j <= iz + 1; j++) {
+      for (const t of placedTreeCells.get(i * 100000 + j) || []) {
+        if ((x - t.x) ** 2 + (z - t.z) ** 2 < d2) return false;
+      }
+    }
+    return true;
+  };
+  if (shelterKeepout) {
+    for (const item of badLamps) {
+      if (item.type === 'gas') {
+        const { edge, nomF, reqDist } = item;
+        const { b, dx, dz, len } = edge;
+        let placed = null;
+        for (let s = 0.5; s <= 16.0 && !placed; s += 0.5) {
+          for (const dir of [1, -1]) {
+            const f = nomF + (dir * s) / len;
+            if (f < 0.05 || f > 0.95) continue;
+            const cand = gasCheckCandidate(edge, f, 0.9);
+            if (cand && rectClearOfShelters(cand.px, cand.pz, 0.2, 0.2, 0) &&
+                clearOfPlacedTrees(cand.px, cand.pz, 2.2) &&
+                blockCurbDist(cand.px, cand.pz, b, reqDist) >= reqDist) { placed = cand; break; }
+          }
+        }
+        if (placed) {
+          item.pole.x = placed.px;
+          item.pole.z = placed.pz;
+          addPole(item.pole);
+          footprints[item.fpIdx] = { minX: placed.px - 0.2, maxX: placed.px + 0.2, minZ: placed.pz - 0.2, maxZ: placed.pz + 0.2, kind: 'gas' };
+          colliders[item.colIdx] = { minX: placed.px - 0.18, maxX: placed.px + 0.18, minZ: placed.pz - 0.18, maxZ: placed.pz + 0.18, maxY: 4.36 };
+          dummy.position.set(placed.px, 0.18, placed.pz);
+          dummy.rotation.set(0, Math.atan2(dx, dz), 0);
+          dummy.scale.set(1, 1, 1);
+          dummy.updateMatrix();
+          gasPostMatrices[item.matIdx] = dummy.matrix.clone();
+          streetPointSites[item.siteIdx].x = placed.px;
+          streetPointSites[item.siteIdx].z = placed.pz;
+          recordShelterAction(shelterPlacement.moved, 'gas');
+        } else {
+          footprints[item.fpIdx] = null;
+          colliders[item.colIdx] = null;
+          gasPostMatrices[item.matIdx] = null;
+          streetPointSites[item.siteIdx] = null;
+          lampCount.old--;
+          recordShelterAction(shelterPlacement.dropped, 'gas');
+        }
+      } else {
+        const { edge, nomF, scale, armYaw, reqDist, cls } = item;
+        const { b, len, outX, outZ } = edge;
+        let placed = null;
+        for (let s = 0.5; s <= 18.0 && !placed; s += 0.5) {
+          for (const dir of [1, -1]) {
+            const f = nomF + (dir * s) / len;
+            if (f < 0.05 || f > 0.95) continue;
+            for (const delta of [0, 0.1, -0.1, 0.2, -0.2]) {
+              const cand = ledCheckCandidate(edge, scale, f, 1.08 + delta);
+              if (cand && rectClearOfShelters(cand.lx, cand.lz, 0.225, 0.225, 0) &&
+                  clearOfPlacedTrees(cand.lx, cand.lz, 2.2) &&
+                  blockCurbDist(cand.lx, cand.lz, b, reqDist) >= reqDist) { placed = cand; break; }
+            }
+            if (placed) break;
+          }
+        }
+        if (placed) {
+          item.pole.x = placed.lx;
+          item.pole.z = placed.lz;
+          addPole(item.pole);
+          footprints[item.fpIdx] = { minX: placed.lx - 0.225, maxX: placed.lx + 0.225, minZ: placed.lz - 0.225, maxZ: placed.lz + 0.225, kind: 'led' };
+          colliders[item.colIdx] = { minX: placed.lx - 0.14, maxX: placed.lx + 0.14, minZ: placed.lz - 0.14, maxZ: placed.lz + 0.14, maxY: 0.1 + 8.6 * scale };
+          dummy.position.set(placed.lx, 0.1, placed.lz);
+          dummy.rotation.set(0, armYaw, 0);
+          dummy.scale.set(scale, scale, scale);
+          dummy.updateMatrix();
+          mastMatrices[item.matIdx] = dummy.matrix.clone();
+          ledHeadMatrices[item.matIdx] = dummy.matrix.clone();
+          dummy.scale.set(1, 1, 1);
+          ledLampSites[item.siteIdx].x = placed.headX;
+          ledLampSites[item.siteIdx].z = placed.headZ;
+          ledLampSites[item.siteIdx].tx = placed.lx + outX * 3.4;
+          ledLampSites[item.siteIdx].tz = placed.lz + outZ * 3.4;
+          recordShelterAction(shelterPlacement.moved, 'led');
+        } else {
+          footprints[item.fpIdx] = null;
+          colliders[item.colIdx] = null;
+          mastMatrices[item.matIdx] = null;
+          ledHeadMatrices[item.matIdx] = null;
+          ledLampSites[item.siteIdx] = null;
+          lampCount[cls]--;
+          recordShelterAction(shelterPlacement.dropped, 'led');
+        }
+      }
+    }
+    for (const item of badCurb) {
+      const hw = item.w / 2;
+      let movedP = null;
+      if (item.kind !== 'bollard' && item.e) {
+        for (let s = 1; s <= 12 && !movedP; s += 0.5) {
+          for (const dir of [1, -1]) {
+            const su = item.u + (dir * s) / item.e.len;
+            if (su < 0.05 || su > 0.95) continue;
+            const cand = curbSpot(item.e, su, item.inset);
+            if (!isOnSidewalk(cand.x, cand.z, 0.45) || !rectClearOfShelters(cand.x, cand.z, hw, hw, 0)) continue;
+            if (!clearOfPlacedTrees(cand.x, cand.z, 2.2)) continue;
+            if (!isClearOfPoles(cand.x, cand.z, item.clear) || !clearOfRoads(cand.x, cand.z, hw + 0.05) ||
+                !clearOfCrosswalks(cand.x, cand.z, hw) || !clearOfRails(cand.x, cand.z, item.w * 0.71)) continue;
+            movedP = cand;
+            break;
+          }
+        }
+      }
+      if (movedP) {
+        item.pole.x = movedP.x;
+        item.pole.z = movedP.z;
+        addPole(item.pole);
+        const rTop = FURNITURE_TOP[item.kind][0];
+        footprints[item.fpIdx] = { minX: movedP.x - hw, maxX: movedP.x + hw, minZ: movedP.z - hw, maxZ: movedP.z + hw, kind: item.kind };
+        colliders[item.colIdx] = { minX: movedP.x - rTop, maxX: movedP.x + rTop, minZ: movedP.z - rTop, maxZ: movedP.z + rTop, maxY: FURNITURE_TOP[item.kind][1] };
+        dummy.position.set(movedP.x, 0.2, movedP.z);
+        dummy.rotation.set(0, item.yaw, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        item.list[item.matIdx] = dummy.matrix.clone();
+        recordShelterAction(shelterPlacement.moved, item.kind);
+      } else {
+        footprints[item.fpIdx] = null;
+        colliders[item.colIdx] = null;
+        item.list[item.matIdx] = null;
+        recordShelterAction(shelterPlacement.dropped, item.kind);
+      }
+    }
+    for (const item of badKiosks) {
+      footprints[item.fpIdx] = null;
+      colliders[item.colIdx] = null;
+      item.list[item.matIdx] = null;
+      recordShelterAction(shelterPlacement.dropped, item.kind);
+    }
+    const compact = (arr) => {
+      let w = 0;
+      for (let i = 0; i < arr.length; i++) if (arr[i] !== null) arr[w++] = arr[i];
+      arr.length = w;
+    };
+    for (const arr of [footprints, colliders, mastMatrices, ledHeadMatrices, gasPostMatrices,
+      streetPointSites, ledLampSites, hydrantMatrices, postBoxMatrices, parkingMatrices,
+      bollardMatrices, kioskMatrices, flowerMatrices, columnMatrices]) compact(arr);
+  }
+  addMatrixArrayInstanced(mastAndHeadGeo, poleMetalMat, mastMatrices);
+  addMatrixArrayInstanced(ledLensGeo, lampBulbGlow, ledHeadMatrices, false);
+  addMatrixArrayInstanced(gasPostGeo, castIronMat, gasPostMatrices);
+  addMatrixArrayInstanced(gasGlassGeo, gasGlassGlow, gasPostMatrices, false);
+  addMatrixArrayInstanced(hydrantGeo, hydrantMat, hydrantMatrices);
+  addMatrixArrayInstanced(hydrantBandGeo, reflectiveWhiteMat, hydrantMatrices, false);
+  addMatrixArrayInstanced(postBoxGeo, postBoxMat, postBoxMatrices);
+  addMatrixArrayInstanced(postBoxPostGeo, castIronMat, postBoxMatrices);
+  addMatrixArrayInstanced(postBoxBandGeo, yellowMat, postBoxMatrices, false);
+  addMatrixArrayInstanced(parkingGeo, parkingMat, parkingMatrices);
+  addMatrixArrayInstanced(parkingPanelGeo, parkingPanelMat, parkingMatrices, false);
+  addMatrixArrayInstanced(parkingScreenGeo, screenMat, parkingMatrices, false);
+  addMatrixArrayInstanced(bollardGeo, castIronMat, bollardMatrices);
+  addMatrixArrayInstanced(bollardRingGeo, reflectiveWhiteMat, bollardMatrices, false);
+  addMatrixArrayInstanced(kioskGeo, kioskMat, kioskMatrices);
+  addMatrixArrayInstanced(kioskBandGeo, kioskBandMat, kioskMatrices);
+  addMatrixArrayInstanced(kioskGlassGeo, kioskGlassMat, kioskMatrices, false);
+  addMatrixArrayInstanced(flowerStandGeo, flowerStandMat, flowerMatrices);
+  addMatrixArrayInstanced(flowerShelfGeo, flowerMat, flowerMatrices);
+  addMatrixArrayInstanced(columnFrameGeo, columnFrameMat, columnMatrices);
+  addMatrixArrayInstanced(columnDrumGeo, posterMat, columnMatrices);
+  console.info(`[streetDetails] ${s1Matrices.length} signal heads and ${pedHeadMatrices.length} pedestrian heads on ` +
+    `${signalPoleMatrices.length} poles at ${builtJunctions.size} junctions, ${plateCount} name plates; lamps ` +
+    `${lampCount.main} main, ${lampCount.side} side, ${lampCount.old} gas; ${hydrantMatrices.length} hydrants, ` +
+    `${postBoxMatrices.length} post boxes, ${parkingMatrices.length} parking machines, ${bollardMatrices.length} bollards, ` +
+    `${kioskMatrices.length} kiosks, ${flowerMatrices.length} flower stands, ${columnMatrices.length} advertising columns`);
   console.info(`[streetDetails] ${treePositions.length} trees (${sidewalkTreePositions.length} street trees, ` +
     `${osmPlacement.placed} OSM mapped, ${osmPlacement.street} OSM street, ${osmPlacement.dropped} mapped dropped, ` +
     `${osmPlacement.planter} kept as plaza planters)`);
@@ -3032,7 +3261,7 @@ function buildStreetDetails(scene, opts = {}) {
   // The plaza/park outline indexes are boot-only; a late inPlaza() (addRuntimeSignalHeads) rebuilds them lazily.
   plazaIndexes = new WeakMap();
   ringGrids = new WeakMap();
-  const result = { group, footprints, colliders, signalClock, audioSignals, treePlacement, roadNetwork: treeNetwork,
+  const result = { group, footprints, colliders, signalClock, audioSignals, treePlacement, shelterPlacement, roadNetwork: treeNetwork,
     tramLayout, vehicleHeads: s1Matrices.length, runtimeHeads: [], addRuntimeSignalHeads, auditRuntimeSignalHeads, update };
   return result;
 }
