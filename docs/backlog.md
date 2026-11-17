@@ -318,9 +318,11 @@ The [2026-11-16 signals/trams/clearance pass](observations/browser-checks-2026-1
 heads, four ordinary span heads and the Górna Wilda head on WebGPU high and WebGL2 low: visible from 13–30 m
 behind the queue at 1.2 m eye height; lead-car view not checked. Mast/anchor and stay coverage is partial.
 It framed the Rynek Łazarski road-cleared columns, raised 6.1 m tram canopies and elevated railway portals on both
-backends; a canopy pantograph is visible only on WebGL2. Natural WebGPU sequences cover a whole Zawady switch
-passage, a Kaponiera road-crossing passage and a left turn without a nearby tram. Remaining checks and two defects
-are listed below. The Główny hall / Garbary ramp track overlaps remain deliberately unchanged, as documented in
+backends; the 2026-11-17 [tram pass](observations/browser-checks-trams-2026-11-17.md) then showed the pantograph on
+WebGPU too. Natural WebGPU sequences cover a whole Zawady switch passage, a Kaponiera road-crossing passage and a left
+turn without a nearby tram; the 2026-11-17 pass added an occupied-stop admission, a tram passing a stopped car, a left
+turn just after clearing a braking tram's path, the Zawady/Ogrody dwells and a Jeżyce reservation. Remaining checks and defects are listed
+below. The Główny hall / Garbary ramp track overlaps remain deliberately unchanged, as documented in
 [the earlier clearance audit](observations/overhead-clearance-2026-11-14.md#3-document-only-findings-no-code-change).
 
 ### Interface and performance
@@ -407,20 +409,34 @@ are listed below. The Główny hall / Garbary ramp track overlaps remain deliber
   [Record](observations/browser-checks-signals-2026-11-17.md), earlier
   [visual coverage](observations/browser-checks-2026-11-16.md) and
   [geometric clearance audit](observations/signal-tram-clearance-2026-11-14.md).
-- Frame the raised tram canopy with a visible pantograph on WebGPU; the 2026-11-16 WebGPU view shows the roof/wires,
-  while only the WebGL2 frame shows the pantograph. [Record](observations/browser-checks-2026-11-16.md).
-- Watch a tram pass a car stopped at a crossing and a left-turner turning with a tram approaching at Kaponiera,
-  including the approximately 1 s forecast-gap case. The 2026-11-16 completed left turn has no tram within 30 m,
-  so it does not verify the tram interaction or the close passing pair.
-  [Record](observations/browser-checks-2026-11-16.md).
-- Observe a follower held outside an occupied boarding stop, then admitted after the leader departs; whole-tram
-  switch and road-crossing passages were sampled on WebGPU 2026-11-16. Also finish the unobserved Starołęka line 13
-  southbound direction. [Coverage and limits](observations/browser-checks-2026-11-16.md).
 - Fix the Starołęka rendered corridor boundary near `(658, 2855)`: simulated trams continue across coarse lawn/road
   surfaces after the visible rails and wires end. `TRAM_ROUTE_EXTENSIONS` extends lines 7/12/13 to z ≈ 3125,
   but `layoutTrackRails` rejects `!isLand` pieces outside the detail box (z max 2844.2). Lay rails/wires on outskirts
-  ground, or end tracks at the box edge and retire trams there. Sampled route assignments remain intact.
-  [Screenshots](observations/browser-checks-2026-11-16.md).
+  ground, or end tracks at the box edge and retire trams there. Sampled route assignments remain intact. Confirmed
+  2026-11-17 for line 13 southbound (top-down `star13top-01…03`: a tram crosses the box edge at z ≈ 2844 and runs on
+  coarse road/lawn); with the camera focus at `(658, 2800)` about 9–10 southbound and 8–15 northbound passages per 5 min
+  cross z = 2848 (all lines 1/7/11/12/13; line 13 southbound 2.4 per 5 min). The spawn focus inflates this, so read it
+  as an order of magnitude. [Record](observations/browser-checks-trams-2026-11-17.md#4-starołęka-line-13-southbound).
+- **Defect (to confirm with the user): trams reach the −9 m/s² floor.** About 3.6 times per tram-hour headless (bench
+  world, 7 districts, seeds 4242 and 7, 5 min, 20 fps, 25.5 tram-hours: 157 episodes below −3 m/s², 117 below −5,
+  93 at the cap; at-cap by wait reason room 36, car 28, switch 17, signal 9, stop 3; Wilda `(−929, 1954)` hits `'room'`
+  about 10 times per run), mostly for late room/switch/signal gates (cars about a third). Fix the late gates (lookahead /
+  `bMax`-aware gating; `bMax: 3.0` at `js/trams.js:53` is used only by the amber check) rather than just lowering the cap
+  (`t.acc = Math.max(-9, _acc)`, `:1817`), which would cause overruns. Needs accept-traffic. Browser rates of 9–11 m/s²
+  were a harness timebase artefact. [Record](observations/browser-checks-trams-2026-11-17.md#3-kaponiera).
+- **Defect (minor): open doorways are barely readable in some lighting (Zawady Tramino).** Open leaf RGB (27, 31, 33) vs
+  closed (9, 21, 31) in `zawadyA3-10` / `-12`; the open colour `0x2b2622` (`js/actor-models.js:3697`) is shared by all
+  models, and Ogrody's Combino reads better (`ogrody-09` / `-11`), so it is lighting and angle. Model labels are inferred
+  from livery. [Record](observations/browser-checks-trams-2026-11-17.md#5-dwells-and-the-jeżyce-reservation).
+- **Defect (not investigated): high-tier (SSR) reflection on the tram canopy underside.** The 6.1 m canopy at Piaśnicka
+  Rynek `(3274, 2324)` shows semi-transparent ghost reflections on WebGPU high (`pano-webgpu-back`, `pano-webgpu-side`);
+  the comparison frame was WebGL2 **low**, which has no SSR (`pano-webgl2-back`); WebGL2 high was not checked. Likely cause:
+  the canopy roof material `roughness: 0.5, metalness: 0.42` (`js/canopies.js:48`), under the 0.75 SSR roughness mask.
+  [Record](observations/browser-checks-trams-2026-11-17.md#1-pantograph-under-a-raised-canopy).
+- Kaponiera left turn with a tram approaching: the close crossing ahead of the tram's nose was **not framed**. The frames
+  (`kapL3`) show the car just after it cleared the path of a braking tram (≈ 0.25 s after), the crossing itself is inferred
+  from the log. The per-frame tram-reservation value (`c.held`, `tramConflictGap`) was not read, so the ~1 s
+  forecast-gap case is unverified. [Record](observations/browser-checks-trams-2026-11-17.md#3-kaponiera).
 - Listen to sirens, bells, tram motors/squeal and the noon show; verify local timing and audible range.
 
 For each fix, record measurements and regression checks in the topic docs or observation records, and state which
