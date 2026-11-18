@@ -1,0 +1,106 @@
+diff --git a/docs/actors.md b/docs/actors.md
+index 2bad66e..b5d63f6 100644
+--- a/docs/actors.md
++++ b/docs/actors.md
+@@ -584,8 +584,9 @@ Trams follow the associated road signal phase; dedicated tram signal heads are n
+   far out as the stop line of the road arm the tram arrives along (the in-edge within 60° of the track tangent 12 m
+   before the junction). Its group is that arm's (`axisIndex === 0` → group 0), else the group the roads don't use.
+   The phase is `signalPhase(elapsed, group === 0, node)` from `city-config.js`, the same local plan the cars and
+-  heads use. Trams stop on red and red+amber, and on amber when they can stop at 3 m/s². The effective stop line
+-  moves upstream over a protected complex when the whole body cannot fit between its crossings. Entry on green is
++  heads use. Trams stop on red and red+amber, and on amber when they can stop at 3 m/s² before that same effective stop
++  line (a gate behind the front or under 0.2 m ahead counts as go). The effective stop line
++  moves upstream over a protected complex when the whole body cannot fit between its crossings. Entry on green or amber is
+   recorded in a fixed pool: a later red at an interior head allows the tram to finish clearing that complex. A
+   boarding dwell clears that commitment before the next departure.
+ - **Driving**: IDM (`TRAM_DRIVER`: a 1.15, b 1.4, T 1.6 s, s0 3 m; 50 km/h street-running, 65 km/h segregated, ×0.9–1.0
+diff --git a/js/trams.js b/js/trams.js
+index 672a768..da7a907 100644
+--- a/js/trams.js
++++ b/js/trams.js
+@@ -1371,7 +1371,11 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
+     for (let j = 0; j < path.n; j++) {
+       for (const sig of path.edges[j].signals) {
+         const gate = complexStopGate(path, path.start[j] + sig.s - 0.5, t.length);
+-        if (gate < from || gate > to || signalPhase(t._signalTime, sig.group === 0, sig.node) !== 'green') continue;
++        if (gate < from || gate > to) continue;
++        // Amber is a lawful entry too (the hold test lets a tram through when it cannot stop), so it commits
++        // the tram just like green; red and red+amber do not, because those crossings are overruns.
++        const phase = signalPhase(t._signalTime, sig.group === 0, sig.node);
++        if (phase !== 'green' && phase !== 'amber') continue;
+         let known = false;
+         for (let k = 0; k < t._signalCommitN; k++) if (t._signalCommits[k] === sig.node) known = true;
+         if (!known && t._signalCommitN < PATH_CAP) t._signalCommits[t._signalCommitN++] = sig.node;
+@@ -1794,7 +1798,6 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
+         if (gap < 0.2 || gap > LOOKAHEAD) continue;
+         const phase = signalPhase(elapsed, sig.group === 0, sig.node);
+         if (phase === 'green') continue; // red and red+amber hold the tram
+-        if (phase === 'amber' && gap < (_v * _v) / (2 * D.bMax) + 1) continue;
+         // The signal's effective stop line is before the whole protected complex, on green as well as red.
+         // After crossing that entry on green, finish clearing it: a later red at an interior head must not
+         // strand the rear across an earlier road crossing (Św. Marcin / aleja Niepodległości).
+@@ -1802,6 +1805,9 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
+         for (let k = 0; k < t._signalCommitN; k++) if (t._signalCommits[k] === sig.node) committed = true;
+         if (committed) continue;
+         const gate = complexStopGate(path, sj + sig.s - 0.5, t.length) - u;
++        // Amber is judged by that gate, not by the head: the complex can move the real stop point far upstream,
++        // so a head-distance test let a tram already past its gate think it had room and brake at the cap.
++        if (phase === 'amber' && (gate < 0.2 || gate < (_v * _v) / (2 * D.bMax) + 1)) continue;
+         considerGate(gate, 'signal');
+       }
+     }
+diff --git a/tests/trams.test.cjs b/tests/trams.test.cjs
+index dea0b16..3c58465 100644
+--- a/tests/trams.test.cjs
++++ b/tests/trams.test.cjs
+@@ -943,6 +943,50 @@ test('a tram committed past a complex entry on green clears it when the downstre
+   assert.ok(t.path.u - t.length > 981.5, 'a later red cannot strand its body across the previous crossing');
+ });
+ 
++test('amber is judged by the complex gate, and an amber entry commits the tram', () => {
++  let phase = 'amber';
++  const { createTramSystem } = load(() => phase, true);
++  const n = { x: 980, z: 0, in: [], out: [] };
++  const e = roadEdge(0, 980, -30, 0, 1, 28, [0]);
++  const f = roadEdge(1, 980, 2, 0, 1, 28, [0]);
++  e.to = n;
++  e.moves = [{ to: f, turn: 'S', out: [0] }];
++  n.in.push(e);
++  const signal = { x: 1010, z: 0, signal: true, in: [{ dx: 1, dz: 0, axisIndex: 0, sx: 980, sz: 0, len: 20 }] };
++  const network = {
++    nodes: [n, signal], edges: [],
++    connector: () => ({ x0: 980, z0: -2, x3: 980, z3: 2, len: 4 }),
++    curvePoint(c, s, out) { out.x = c.x0; out.z = c.z0 + s; return out; }
++  };
++  const sys = createTramSystem(inert(), { network, rail: [tram([0, 0, 3000, 0])], stops: [] });
++  const t = sys.pool[0];
++  t.active = true;
++  t.path.reset(sys.graph.edges[0], 968, t.length + 8, () => 0);
++  t.path.extend(200, () => 0);
++  t.speed = 8;
++  t.x = 968;
++  t.z = 0;
++  let time = 0;
++  const step = () => {
++    sys.occupy(t);
++    sys.drive(t, time);
++    sys.advance(t, 1 / 30);
++    t.path.pointAt(t.path.u, t);
++    time += 1 / 30;
++  };
++  // The complex gate sits about 9.5 m ahead, over 8 m/s²·3 m/s² of braking, while the head is 21.5 m off:
++  // judged by the head the tram would hold at it, but it is already inside the gate's stopping window.
++  assert.ok(t.speed * t.speed / (2 * 3) + 1 > 9.5, 'gate distance is beyond the 3 m/s² amber budget');
++  step();
++  assert.notEqual(t.waitReason, 'signal');
++  assert.ok(t.acc > 0, 'an amber tram too close to its complex gate keeps going');
++  while (t.path.u < 980 && time < 3) step();
++  assert.ok(t.path.u >= 980, 'crosses the complex entry on amber');
++  phase = 'red';
++  for (let i = 0; i < 600; i++) step();
++  assert.ok(t.path.u - t.length > 981.5, 'the amber entry commits the tram past a later red');
++});
++
+ test('a tram held before a switch or crossing does not claim its future approach', () => {
+   for (const kind of ['switch', 'crossing']) {
+     const { createTramSystem } = load(() => 'green', true);

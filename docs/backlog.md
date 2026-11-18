@@ -404,8 +404,9 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   2.30 per tram-hour over 20 fresh paired seeds (mean change −1.42, 95% CI [−1.63, −1.21]); it remains possible to
   reach the −9 m/s² floor. Car–tram and tram–tram contacts, holds over 120 s and deadlocks were within noise; observed
   closed-gate crossings fell, but that audit misses gates first observed behind the tram and does not prove red or
-  occupied-switch compliance. Investigate the remaining abrupt braking, including the amber check's use of the signal
-  head distance instead of the upstream complex stop point, and build a more complete overrun audit.
+  occupied-switch compliance. Investigate the remaining abrupt braking (car gates lead: 306 of 584 cap episodes;
+  signal caps are red arrivals after the green tail or interior complex heads, not amber: judging amber by the
+  upstream gate was measured and rejected) and build a more complete overrun audit.
   [Record](observations/tram-braking-2026-11-18.md).
 - **Canopy follow-up (low priority):** Railway mast openings in mapped platform roofs are accepted; two #1 masts
   outside the source roof ring remain audit hits. Review #18's elevated track overlap and #19's rectangle overbuild.

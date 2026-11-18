@@ -172,3 +172,27 @@ they do not prove that every tram can stop without emergency braking or that all
 
 Post-change verification: `node --test tests/` passed all 690 tests. A one-minute Wilda smoke run had identical active
 tram time, distance and braking episode counts with and without the trace instrumentation.
+
+## Amber check against the complex gate (2026-11-18, rejected)
+
+Variant ([patch](tram-amber-gate-variant-2026-11-18.patch)): judge amber "room to stop" by the distance to the
+upstream complex stop gate instead of the signal head, and record amber entries in `recordSignalEntries` as green
+ones are. Measured against `0f0053a` on the 20 fresh seeds (61 … 157), 7 districts, 5 min, paired per-seed
+bootstrap CIs, about 254 tram-hours per tree:
+
+| metric | base | variant | mean diff / seed | 95 % CI |
+|---|---:|---:|---:|---|
+| signal-held ≤ −8.5 per tram-hour | 0.390 (99) | 0.370 (94) | −0.019 | [−0.102, +0.063] |
+| all ≤ −8.5 per tram-hour | 2.30 (584) | 2.40 (609) | +0.100 | [−0.073, +0.293] |
+| below −5 per tram-hour | 3.24 | 3.45 | +0.219 | [+0.015, +0.455] |
+| below −3 per tram-hour | 4.09 | 4.42 | +0.334 | [+0.090, +0.649] |
+| observed closed-gate crossings | 208 | 229 | +1.05 | [−0.55, +2.70] |
+| tram–tram pairs | 33 | 33 | 0 | [−0.15, +0.15] |
+| car–tram pairs | 70 | 70 | 0 | [−0.4, +0.45] |
+| holds > 120 s | 30 | 24 | −0.3 | [−0.75, 0] |
+| deadlocks | 2 | 2 | 0 | [0, 0] |
+
+The fix does what it says: signal-held cap episodes bound by an amber head fell 29 → 4. Red-bound ones rose 68 → 90,
+so the total did not move, and the milder thresholds got worse, consistent with more amber holds at upstream gates.
+The remaining signal caps are therefore red arrivals after the green tail or interior heads of a complex the tram has
+not committed to, not an amber misjudgement. Not merged.
