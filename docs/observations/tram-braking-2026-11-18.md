@@ -1,6 +1,7 @@
 # Tram braking investigation, 2026-11-18
 
-Status: three experiments screened on two historical seeds; the wider scan passed the stated 20-fresh-seed rule.
+Status: three experiments screened on two historical seeds; the wider scan passed the stated 20-fresh-seed rule; the
+comfortable-distance car scan was accepted after a pre-registered 5 cm tram–tram penetration-tolerance re-judgement.
 
 `node tools/audit-tram-braking.mjs --seed 4242` and `--seed 7` each ran the seven bench districts for five minutes
 at 20 fps. The audit excludes the first 20 s, counts active tram time thereafter, and counts threshold crossings only
@@ -360,6 +361,8 @@ noise, and none of the added ones is a follower released into a leader or a tram
 observation opportunities on the two sides, so it is evidence of no worsening, not a safety proof. Both raw and
 tolerant counts should be quoted together: the tolerance measures body-rectangle penetration at sampled frames, not
 a continuous sweep. On this pre-agreed rule the variant is **accepted** and the comfort scan is retained in
-`js/trams.js`; per-seed data are in `.agent-task/paired.json` and `.agent-task/accept.json` in the measuring worktree.
+`js/trams.js`. Per-seed data lived in the scratch `.agent-task/` of the measuring worktree (not committed); the
+tables above are the retained record, and the baseline side reproduced the earlier 20-seed pair, cap and crossing
+totals exactly.
 
 

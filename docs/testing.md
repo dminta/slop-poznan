@@ -424,7 +424,7 @@ node tools/accept-traffic.mjs --base poznan --ped --demand --jobs 6
   `within noise`. Gates (their `worse` fails the run): car–tram pairs, holds > 120 s, deadlocks, max wait, overall
   km/h, and with the options ped clusters and the demand audit's road-green counts. Per-district km/h, ped pairs/s,
   starved requests and `car–tram pairs (5 cm tolerant)` are `(info)`. The tolerant car–tram count and the tram audits'
-  `overlapPairsTolerant` use the depth metric from `tools/rect-penetration.mjs` (see the audits below); the raw count
+  `overlapPairsTolerant` use the depth metric from `tools/rect-penetration.mjs` (see the audits above); the raw count
   stays the gate, so a body-rectangle tangency cannot fail a run on its own. A baseline ref older than the tolerance
   flag reports no tolerant count, and the metric is then left out of the table. A new deadlock pattern also fails: the same
   district and junction set in ≥ 3 working seeds and in none of the baseline's. Exit status 0 is "no statistically clear
