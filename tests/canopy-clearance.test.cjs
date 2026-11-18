@@ -20,6 +20,12 @@ test('tram decks clear tall furniture and support contact wires', () => {
   }
   assert.ok(data.hangers.every((h) => h.top > 5.8 && h.top <= 6.1));
   assert.deepEqual(data.missingSignalSupports, []);
+  assert.equal(data.acceptedRoofOpeningCount, 36);
+  assert.equal(data.acceptedRoofOpenings.length, 36);
+  assert.ok([18, 19].every((index) => data.acceptedRoofOpenings.some((h) => h.index === index)));
+  const remainingRail = data.hits.filter((h) => h.kind === 'rail-mast');
+  assert.equal(remainingRail.length, 2);
+  assert.ok(remainingRail.every((h) => h.index === 1));
   const nearby = (p) => Math.hypot(p.x + 380, p.z - 229) < 5;
   const poles = data.tramPoles.filter(nearby);
   assert.equal(poles.length, 1, 'the low roof keeps one nearby traction pole');
@@ -43,4 +49,26 @@ test('overlapping decks choose the highest qualifying underside regardless of or
     assert.equal(k.at(0, 0, 0.001, 5).source, low);
     assert.equal(k.at(20, 20), null);
   }
+});
+
+test('railway opening acceptance respects source rings and the track-free fallback', () => {
+  const { readFileSync } = require('node:fs');
+  const vm = require('node:vm');
+  const source = readFileSync(join(__dirname, '../tools/audit-canopy-clearance.mjs'), 'utf8');
+  const segment = source.slice(source.indexOf('function segmentHits('), source.indexOf('// Match the generator'));
+  const points = source.slice(source.indexOf('function pointInRing('), source.indexOf('const railSegments = []'));
+  const accept = source.slice(source.indexOf('function acceptedRoofOpening('), source.indexOf('const objects = []'));
+  const context = { Math, ring: null, railSegments: [], sourceRoofRing: () => context.ring };
+  vm.runInNewContext(segment + points + accept, context);
+  const deck = { cx: 0, cz: 0, w: 10, d: 10, ang: 0 };
+  const mast = { x: 0, z: 0 };
+  assert.equal(context.acceptedRoofOpening(0, deck, mast), true);
+  context.railSegments = [{ ax: -6, az: 4, bx: 6, bz: 4 }];
+  assert.equal(context.acceptedRoofOpening(0, deck, mast), false, 'a track crosses the deck');
+  context.railSegments = [{ ax: 6, az: 0, bx: 6, bz: 1 }];
+  assert.equal(context.acceptedRoofOpening(0, deck, { x: 4, z: 0 }), false, 'track clearance is below 2.5 m');
+  context.ring = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+  context.railSegments = [{ ax: -6, az: 0, bx: 6, bz: 0 }];
+  assert.equal(context.acceptedRoofOpening(0, deck, mast), true, 'source ring takes precedence');
+  assert.equal(context.acceptedRoofOpening(0, deck, { x: 4, z: 0 }), false, 'outside the source ring');
 });

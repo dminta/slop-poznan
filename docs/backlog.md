@@ -404,8 +404,9 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   `bMax`-aware gating; `bMax: 3.0` at `js/trams.js:53` is used only by the amber check) rather than just lowering the cap
   (`t.acc = Math.max(-9, _acc)`, `:1817`), which would cause overruns. Needs accept-traffic. Browser rates of 9–11 m/s²
   were a harness timebase artefact. [Record](observations/browser-checks-trams-2026-11-17.md#3-kaponiera).
-- **Canopy follow-up:** Survey the remaining 37 station-platform and one station-roof railway-mast intersections.
-  [Clearance record](observations/canopy-clearance-2026-11-17.md#review-follow-up-lamp-loss-and-night-appearance).
+- **Canopy follow-up (low priority):** Railway mast openings in mapped platform roofs are accepted; two #1 masts
+  outside the source roof ring remain audit hits. Review #18's elevated track overlap and #19's rectangle overbuild.
+  [Survey and decision](observations/canopy-clearance-2026-11-17.md#railway-mast-survey-2026-11-18-headless-classification).
 - **Defect (minor): open doorways are barely readable in some lighting (Zawady Tramino).** Open leaf RGB (27, 31, 33) vs
   closed (9, 21, 31) in `zawadyA3-10` / `-12`; the open colour `0x2b2622` (`js/actor-models.js:3697`) is shared by all
   models, and Ogrody's Combino reads better (`ogrody-09` / `-11`), so it is lighting and angle. Model labels are inferred

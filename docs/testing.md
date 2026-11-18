@@ -525,3 +525,12 @@ latency (min/p50/max), minimum road green (>= 20 s), 2 s request delay, red clea
 curb-wait starvation (> 60 s without a request), road-green crossing violations, and unvisited nodes.
 `tests/demand-crossings.test.mjs` runs a 1.5-minute seed `4242` subset on nodes `2634` (`(415.5, 523)`), `139` and
 `1662` ([record](observations/demand-crossings-2026-11-15.md)).
+
+## Canopy clearance audit
+
+`node tools/audit-canopy-clearance.mjs --json` reports remaining intersections in `hits` and `counts`. Railway
+masts whose centres fall inside their matched OSM platform/roof ring are reported separately in
+`acceptedRoofOpenings` and `acceptedRoofOpeningCount`, and excluded from hit totals. If a source ring is unavailable,
+the audit accepts only centres inside a rectangle containing no rail centreline and at least 2.5 m from every rail
+centreline. The non-JSON summary reports this as `acceptedRoofOpening`. The audit does not check railway wires or
+cantilevers against decks; the station survey records those geometric limitations.

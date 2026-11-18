@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { elemRings, ringArea } from './geo-util.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
@@ -184,6 +185,66 @@ function segmentHits(c, s) {
   }
   return true;
 }
+// Match the generator's source roof rings by rounded area and the bounds in the stored rectangle frame. Ambiguous
+// matches are treated as unavailable; the conservative fallback requires a track-free rectangle and 2.5 m clearance.
+let roofRings = [];
+try {
+  const snapshot = JSON.parse(readFileSync(join(root, 'tools/data/poz_buildings.json'), 'utf8'));
+  const [a, b, c, d, e, f] = GEO.frame.ll;
+  const project = (lon, lat) => [a * lon + b * lat + c, d * lon + e * lat + f];
+  for (const element of snapshot.elements) if (element.tags?.building === 'roof') {
+    for (const ring of elemRings(element, project)) if (ring.length >= 3) {
+      roofRings.push({ ring, area: Math.round(Math.abs(ringArea(ring))) });
+    }
+  }
+} catch (error) {
+  if (error.code !== 'ENOENT') throw error;
+}
+const roofRingCache = new Map();
+function sourceRoofRing(index, canopy) {
+  if (roofRingCache.has(index)) return roofRingCache.get(index);
+  const cs = Math.cos(canopy.ang), sn = Math.sin(canopy.ang);
+  const matches = roofRings.filter((entry) => {
+    if (entry.area !== canopy.area) return false;
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+    for (const [x, z] of entry.ring) {
+      const dx = x - canopy.cx, dz = z - canopy.cz;
+      const u = dx * cs + dz * sn, v = -dx * sn + dz * cs;
+      u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
+    }
+    return Math.abs(u0 + canopy.w / 2) < 0.2 && Math.abs(u1 - canopy.w / 2) < 0.2 &&
+      Math.abs(v0 + canopy.d / 2) < 0.2 && Math.abs(v1 - canopy.d / 2) < 0.2;
+  });
+  const ring = matches.length === 1 ? matches[0].ring : null;
+  roofRingCache.set(index, ring);
+  return ring;
+}
+function pointInRing(x, z, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const a = ring[i], b = ring[j];
+    if ((a[1] > z) !== (b[1] > z) && x < (b[0] - a[0]) * (z - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
+  }
+  return inside;
+}
+const railSegments = [];
+for (const track of GEO.rail) if (track.kind === 'rail') {
+  for (let i = 2; i < track.pts.length; i += 2) {
+    railSegments.push({ ax: track.pts[i - 2], az: track.pts[i - 1], bx: track.pts[i], bz: track.pts[i + 1] });
+  }
+}
+function acceptedRoofOpening(index, canopy, mast) {
+  const ring = sourceRoofRing(index, canopy);
+  if (ring) return pointInRing(mast.x, mast.z, ring);
+  const dx = mast.x - canopy.cx, dz = mast.z - canopy.cz, cs = Math.cos(canopy.ang), sn = Math.sin(canopy.ang);
+  if (Math.abs(dx * cs + dz * sn) > canopy.w / 2 || Math.abs(-dx * sn + dz * cs) > canopy.d / 2 ||
+      railSegments.some((segment) => segmentHits(canopy, segment))) return false;
+  return railSegments.every(({ ax, az, bx, bz }) => {
+    const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz;
+    const t = l2 ? Math.max(0, Math.min(1, ((mast.x - ax) * dx + (mast.z - az) * dz) / l2)) : 0;
+    return Math.hypot(mast.x - ax - t * dx, mast.z - az - t * dz) >= 2.5;
+  });
+}
 const objects = [];
 for (const p of capturedLamps) objects.push({ kind: p.type + '-lamp', x: p.x, z: p.z, r: p.type === 'led' ? 0.225 : 0.2,
   top: p.type === 'led' ? 0.1 + 10 * p.scale : 4.36 });
@@ -198,10 +259,15 @@ for (const p of details.footprints) if (p.kind === 'signal') objects.push({ kind
 for (const st of tramLayout.stops) if (st.shelter) objects.push({ kind: 'shelter', x: st.shelter.x,
   z: st.shelter.z, r: 0.1, top: 2.8 });
 const hits = [];
+const acceptedRoofOpenings = [];
 for (const [index, c] of GEO.canopies.entries()) {
-  for (const o of objects) if (o.top > c.clearance && circleHits(c, o.x, o.z, o.r)) hits.push({ index,
-    canopyKind: c.kind, cx: c.cx, cz: c.cz, clearance: c.clearance, ...o,
-    top: Number.isFinite(o.top) ? o.top : null });
+  for (const o of objects) if (o.top > c.clearance && circleHits(c, o.x, o.z, o.r)) {
+    const hit = { index, canopyKind: c.kind, cx: c.cx, cz: c.cz, clearance: c.clearance, ...o,
+      top: Number.isFinite(o.top) ? o.top : null };
+    if ((c.kind === 'platform' || c.kind === 'roof') && o.kind === 'rail-mast' && acceptedRoofOpening(index, c, o)) {
+      acceptedRoofOpenings.push(hit);
+    } else hits.push(hit);
+  }
   for (const [kind, segments] of [['tram-arm', tramLayout.arms], ['tram-span', tramLayout.spans]]) {
     if (SPAN_Y <= c.clearance) continue;
     for (const s of segments) if (segmentHits(c, s)) hits.push({ index, canopyKind: c.kind,
@@ -227,7 +293,8 @@ for (const h of details.runtimeHeads) {
   }
 }
 const data = {
-  canopies: GEO.canopies.length, targetCanopies, counts, hits, hangers, missingSignalSupports,
+  canopies: GEO.canopies.length, targetCanopies, counts, hits, acceptedRoofOpeningCount: acceptedRoofOpenings.length,
+  acceptedRoofOpenings, hangers, missingSignalSupports,
   parkLampsUnderTransitDecks: GEO.canopies.flatMap((c, index) =>
     c.kind === 'tram' || c.kind === 'platform'
       ? (liveGrid.parkLampSites || []).filter((p) => circleHits(c, p.x, p.z, 0.27))
@@ -235,4 +302,5 @@ const data = {
   tramPoles: tramLayout.poles, tramArms: tramLayout.arms
 };
 if (jsonMode) console.log(JSON.stringify(data, null, 2));
-else { console.log(JSON.stringify(counts, null, 2)); for (const h of hits) console.log(JSON.stringify(h)); }
+else { console.log(JSON.stringify({ ...counts, acceptedRoofOpening: acceptedRoofOpenings.length }, null, 2));
+  for (const h of hits) console.log(JSON.stringify(h)); }

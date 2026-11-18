@@ -174,3 +174,84 @@ needs separate design and review.
 
 After the pole simplification, `node --test tests/` passed 682/682. The clearance regression also checks that one
 nearby pole remains and carries a cantilever at #184; the full audit's hanger lookup uses the layout's `SPAN_Y`.
+
+## Railway mast survey, 2026-11-18; headless classification
+
+The baseline audit records 37 platform and one station-roof mast hits. These are footprint-circle hits against the rendered oriented rectangle; source-ring membership below tests the mast centre, so an outside centre can still have an intersecting footprint. The track IDs are indexes into GEO.rail, not OSM way IDs. Distances use every mainline GEO.rail segment, including layout cuts. Support IDs are captured at the actual railway layout's mark sites, including all crossings of an arm or portal and the initiating track; a shared mast receives the union of its attached structures.
+
+Lengths below are exact line/polygon intersection lengths for the stored, rounded GEO.rail centrelines, summed per track. Rectangle coordinates use the stored rounded centre, dimensions and angle; original rings use the unrounded projected OSM snapshot. Each source roof was matched uniquely by rounded area and rectangle bounds. The <1 ratio for #12 is a rounding artifact. The OSM ring is a roof footprint, not a platform surface. The input snapshots do not contain platform polygons or edges for these sites, so no mast-to-platform-edge gap can be derived. On-platform classifications are provisional, not a claim that the exact platform boundary has been surveyed.
+
+| Deck | OSM roof way | Rectangle / source area (m²); ratio | Rail track: length in rectangle / source ring (m) | Mast centres in source ring |
+| ---: | ---: | --- | --- | --- |
+| 1 | 423454695 | 3604.6 / 3322; 1.085 | none / none | 11 / 13 |
+| 6 | 260857411 | 2389.2 / 2347; 1.018 | none / none | 5 / 5 |
+| 12 | 686717766 | 1330.6 / 1339; 0.994 | none / none | 11 / 11 |
+| 18 | 263320509 | 878.8 / 882; 0.996 | 194: 90.6 / 90.6 | 2 / 2 |
+| 19 | 1097786439 | 995.5 / 857; 1.162 | 376: 12.3 / 0.0 | 2 / 2 |
+| 29 | 431366877 | 610.6 / 610; 1.001 | none / none | 2 / 2 |
+| 49 | 917142540 | 373.1 / 369; 1.011 | none / none | 2 / 2 |
+| 81 | 1097786440 | 250.4 / 249; 1.006 | none / none | 1 / 1 |
+
+**Wire heights.** The platform slabs span 5.0–5.4 m and #81 spans 4.6–5.0 m. The nominal contact and messenger wires are at 5.6 and 7.0 m above rail elevation. A slab intersection requires the actual wire height to be between the underside and roof top, not merely above the underside. The rendered wires use straight chords over up to three railway pieces, which can differ from the centreline. The scratch audit clips those actual chords in plan against each deck. On #18, track 194 has 90.6 m of wire-chord overlap and rail elevation along the clipped chords spans 1.61–2.73 m: contact height is 7.21–8.33 m and messenger 8.61–9.73 m. On #19, track 376 has 15.7 m of wire-chord overlap and clipped-chord rail elevation spans 2.89–3.80 m: contact is 8.49–9.40 m and messenger 9.89–10.80 m. Both are above the 5.4 m roof. The other six rectangles have no rendered mainline wire-chord overlap. This check does not test cantilevers, wire radius at slab boundaries, or the shape of the real-world catenary.
+
+| Station / deck | Mast x, z (m) | Top / underside (m) | Nearest rail ID, distance (m) | Supported rail IDs | Mast centre in OSM roof ring | Platform edge gap |
+| --- | --- | --- | --- | --- | --- | --- |
+| Poznań Główny / 1 | -1550.4, 632.9 | 8.2 / 5.0 | 415, 2.63 | 267, 415 | no | unavailable |
+| Poznań Główny / 1 | -1556.8, 663.4 | 8.2 / 5.0 | 415, 2.60 | 415 | no | unavailable |
+| Poznań Główny / 1 | -1567.8, 718.4 | 8.2 / 5.0 | 415, 2.60 | 415 | yes | unavailable |
+| Poznań Główny / 1 | -1578.8, 773.4 | 8.2 / 5.0 | 415, 2.60 | 415 | yes | unavailable |
+| Poznań Główny / 1 | -1589.8, 828.4 | 8.2 / 5.0 | 415, 2.60 | 415 | yes | unavailable |
+| Poznań Główny / 1 | -1600.7, 883.4 | 8.2 / 5.0 | 415, 2.85 | 415 | yes | unavailable |
+| Poznań Główny / 1 | -1612.0, 938.3 | 8.2 / 5.0 | 415, 2.85 | 415 | yes | unavailable |
+| Poznań Główny / 1 | -1545.7, 648.6 | 8.2 / 5.0 | 521, 2.85 | 521 | yes | unavailable |
+| Poznań Główny / 1 | -1556.4, 702.1 | 8.2 / 5.0 | 521, 2.85 | 521 | yes | unavailable |
+| Poznań Główny / 1 | -1567.1, 755.6 | 8.2 / 5.0 | 521, 2.85 | 521 | yes | unavailable |
+| Poznań Główny / 1 | -1577.7, 809.1 | 8.2 / 5.0 | 521, 2.60 | 521 | yes | unavailable |
+| Poznań Główny / 1 | -1588.7, 862.5 | 8.2 / 5.0 | 521, 2.60 | 521 | yes | unavailable |
+| Poznań Główny / 1 | -1599.7, 916.0 | 8.2 / 5.0 | 521, 2.60 | 521 | yes | unavailable |
+| Poznań Główny / 6 | -1583.9, 714.1 | 8.2 / 5.0 | 253, 2.60 | 253 | yes | unavailable |
+| Poznań Główny / 6 | -1583.9, 747.6 | 8.2 / 5.0 | 267, 2.85 | 267 | yes | unavailable |
+| Poznań Główny / 6 | -1594.6, 801.2 | 8.2 / 5.0 | 267, 2.85 | 267 | yes | unavailable |
+| Poznań Główny / 6 | -1605.4, 854.9 | 8.2 / 5.0 | 267, 2.85 | 267 | yes | unavailable |
+| Poznań Główny / 6 | -1616.0, 908.5 | 8.2 / 5.0 | 267, 2.60 | 267 | yes | unavailable |
+| Poznań Główny / 12 | -1594.5, 987.1 | 8.2 / 5.0 | 67, 2.60 | 67 | yes | unavailable |
+| Poznań Główny / 12 | -1605.0, 1038.6 | 8.2 / 5.0 | 67, 2.60 | 67 | yes | unavailable |
+| Poznań Główny / 12 | -1615.4, 1090.1 | 8.2 / 5.0 | 67, 2.60 | 67 | yes | unavailable |
+| Poznań Główny / 12 | -1625.9, 1141.6 | 8.2 / 5.0 | 67, 2.60 | 67 | yes | unavailable |
+| Poznań Główny / 12 | -1633.0, 1149.6 | 8.2 / 5.0 | 82, 2.60 | 82, 132, 253, 254, 256, 264, 267, 367, 442, 521 | yes | unavailable |
+| Poznań Główny / 12 | -1621.8, 1095.1 | 8.2 / 5.0 | 82, 2.60 | 82, 132, 521 | yes | unavailable |
+| Poznań Główny / 12 | -1610.7, 1040.6 | 8.2 / 5.0 | 82, 2.60 | 82, 132, 521 | yes | unavailable |
+| Poznań Główny / 12 | -1599.1, 984.6 | 8.2 / 5.0 | 407, 2.75 | 83, 132, 407, 521 | yes | unavailable |
+| Poznań Główny / 12 | -1624.3, 1107.2 | 9.6 / 5.0 | 82, 2.67 | 82, 132, 253, 254, 256, 264, 267, 367, 442, 521 | yes | unavailable |
+| Poznań Główny / 12 | -1595.6, 992.0 | 9.6 / 5.0 | 67, 2.70 | 67, 271, 441 | yes | unavailable |
+| Poznań Główny / 12 | -1606.8, 1047.0 | 9.6 / 5.0 | 67, 2.78 | 67, 270, 271, 441 | yes | unavailable |
+| Poznań Główny / 18 | -1481.7, 381.4 | 9.6 / 5.0 | 514, 2.78 | 16, 171, 514, 519 | yes | unavailable |
+| Poznań Główny / 18 | -1482.3, 384.7 | 8.2 / 5.0 | 194, 2.85 | 194 | yes | unavailable |
+| Poznań Główny / 19 | -1392.8, 566.1 | 8.2 / 5.0 | 376, 2.60 | 376 | yes | unavailable |
+| Poznań Główny / 19 | -1383.7, 499.5 | 8.2 / 5.0 | 376, 2.60 | 376 | yes | unavailable |
+| Garbary / 29 | 192.0, -872.7 | 8.2 / 5.0 | 0, 2.60 | 0 | yes | unavailable |
+| Garbary / 29 | 244.8, -858.7 | 8.2 / 5.0 | 0, 2.60 | 0 | yes | unavailable |
+| Garbary / 49 | 256.4, -865.3 | 8.2 / 5.0 | 2, 2.60 | 2 | yes | unavailable |
+| Garbary / 49 | 203.0, -879.4 | 8.2 / 5.0 | 2, 2.60 | 2 | yes | unavailable |
+| Poznań Główny / 81 | -1402.7, 615.8 | 8.2 / 4.6 | 376, 2.60 | 376 | yes | unavailable |
+
+**Classification and next steps.** These classify the mapped geometry, not verified real-world construction:
+
+- **#1: mixed (c/a).** Eleven mast centres lie inside the original roof ring; two lie outside it but hit the rectangle. No rail centreline lies inside either shape. Treat the eleven as possible platform masts through roof openings, pending platform/photographic verification; use the source ring for the two overbuild hits.
+- **#6, #12, #29, #49 and #81: provisional (c).** Every hit centre is in the source roof ring and no railway centreline enters the deck. A source-ring roof alone will not remove these intersections. Confirm the platform edges and actual mast/roof arrangement before accepting openings or adding collars; #81 is classified as a roof by proximity/tags, not necessarily a platform canopy.
+- **#18: geometric (b), with an elevation caveat.** Track 194 lies within both the original roof ring and the rectangle. Its simulated rail and wires are elevated well above the slab, so the overlapping plan view does not establish a real roof over a running track; verify the source geometry and track elevation against the station before raising a roof or accepting a physical crossing. Its two mast centres are in the original ring.
+- **#19: mixed (a/c).** Rectangle overbuild puts 12.3 m of track 376 under the deck in plan, while the source ring contains none; both mast centres nevertheless lie in the source ring. Use the original ring for the overbuild and separately verify whether those masts belong in roof openings.
+
+Estimated effort: source-ring geometry requires a moderate generator, renderer and clearance-audit change plus regeneration and browser review (roughly 1–3 days); it is not implemented by the present rectangular canopy generator. Platform/source and station imagery review is a separate small survey (hours, dependent on sources); accurately modeling openings/collars or a high station roof and its catenary is a larger rendering and placement task (roughly 1–3 days each after design). These are estimates, not a prescribed relocation rule.
+
+General Polish practice includes portal and cantilever supports ([PKP PLK Iet-107](https://www.plk-sa.pl/files/public/user_upload/pdf/Akty_prawne_i_przepisy/Instrukcje/Wydruk/Iet/WCAG_Iet-107.pdf)) and canopy-mounted wiring ([3 kV DC support construction](https://transportszynowy.pl/kolej/siectrakckolkonstrukcje)); these sources do not identify the actual supports at these locations.
+
+
+### Decision (2026-11-18)
+
+The user accepts railway masts passing through openings in platform and station roofs. The audit now reports mast
+centres inside their original OSM roof ring as accepted openings, separate from its hit totals. If the ring cannot be
+matched, it accepts only a centre inside a track-free deck rectangle at least 2.5 m from every rail centreline. Of
+the original 38 hits, 36 qualify, including both #18 and both #19 masts and the #81 roof mast. The two #1 masts
+outside their source ring remain hits. Track 194 under #18 and the #19 rectangle overbuild remain survey notes;
+accepting the mast openings does not resolve either geometry. No placement or rendering change was made.
