@@ -253,3 +253,68 @@ deadlocks 2 → 2, 0 [−0.15, +0.15]. No new deadlock pattern met the runner's 
 results from the earlier acceptance record after confirming the same simulation code and matching the first six seeds
 of each benchmark. These traffic results do not override the
 20 fps tram-pair regression above.
+
+#### Pair classification (2026-11-18)
+
+The patch was applied again and both trees were re-measured on the 20 fresh seeds at 20 fps (5 min, seven districts).
+The pair and braking audits reproduced the recorded values exactly (33 → 41 pairs; 584 → 452 cap episodes; 208 → 167
+observed closed-gate crossings). Pair identities were matched by district, id pair, time and position: 14 pair keys
+were added and 6 disappeared, for the net +8. The sites and classes are:
+
+| Site (district, world m) | Class | Track centre spacing | Base seeds | Variant seeds | Added / lost |
+|---|---|---|---|---|---|
+| Wilda (−604, 1207) | opposing pass | 2.63 m | all 20 | all 20 | 0 / 0 |
+| Stare Miasto north (−248…−230, −165…−158) | opposing pass | 2.78 m | 61 (5:6), 71/79/127/139 (5:18), 83 (5:6 and 11:23) | 61 (5:6), 71/73/79/83/127/151 (5:18) | 3 / 3 |
+| Stare Miasto south (−165…−144, −290…−288) | opposing pass | 2.62 m | 89 (0:18) | 73/107 (10:18), 89 (0:18), 109 (9:18), 157 (18:21) | 4 / 0 |
+| Jeżyce (−2439, −599) | opposing pass | 2.39 m | 103/107/113 (5:6) | 83/101/107/113/139 (5:6) | 3 / 1 |
+| Jeżyce merge (−2038, −451) | branch corner | – | 101 (13:17) | 61 (1:13) | 1 / 1 |
+| Jeżyce junction (−1417, −223) | branch corner | – | – | 107 (7:14) | 1 / 0 |
+| Kaponiera (−1465, 100) | branch corner | – | – | 83 (11:22) | 1 / 0 |
+| Centrum (−1520, 232) | switch crossing | – | – | 127 (6:12) | 1 / 0 |
+| Centrum (−1393, −238) | switch crossing | – | 131 (6:15) | – | 0 / 1 |
+
+The Wilda pair is present in every seed in both trees. Trams 19 and 22 pass there at 65.3 s and 6.57/6.50 m/s, and the
+audit counts their section rectangles as touching. It is a fixed floor of this metric, not a change.
+
+The added contacts, with the trace's A/B order (ids and models), speeds, `waitReason`, leader gap and smallest
+separating-axis penetration of any section pair:
+
+| Seed | District, time, position | Pair (models) | Speeds m/s | waitReason | gap to leader m | Penetration m |
+|---|---|---|---|---|---|---|
+| 61 | Jeżyce, 245.1 s, (−2038, −451) | 1:13 (Gamma:Gamma) | 0.66 / 3.48 | car / car | – / – | 0.048 |
+| 73 | Stare Miasto, 104.2 s, (−245, −158) | 5:18 (Tramino:Gamma) | 3.69 / 5.41 | curve / curve | – / 42.7 | 0.005 |
+| 73 | Stare Miasto, 175.9 s, (−154, −288) | 10:18 (Gamma:Gamma) | 6.13 / 5.04 | curve / curve | 100.2 / – | 0.007 |
+| 83 | Jeżyce, 69.5 s, (−2439, −599) | 5:6 (Tramino:Gamma) | 8.15 / 5.79 | – / room | – / 63.1 | 0.005 |
+| 83 | Stare Miasto, 103.2 s, (−242, −159) | 5:18 (Tramino:Gamma) | 3.70 / 5.47 | curve / curve | – / 44.3 | 0.017 |
+| 83 | Kaponiera, 278.2 s, (−1465, 100) | 11:22 (Tramino:Gamma) | 1.17 / 0.01 | car / car | 5.5 / 3.0 | 0.017 |
+| 101 | Jeżyce, 69.5 s, (−2439, −599) | 5:6 (Tramino:Gamma) | 8.15 / 5.79 | – / room | – / 63.1 | 0.005 |
+| 107 | Stare Miasto, 180.6 s, (−165, −289) | 10:18 (Gamma:Gamma) | 5.07 / 5.04 | curve / curve | 110.7 / – | 0.002 |
+| 107 | Jeżyce, 266.8 s, (−1417, −223) | 7:14 (Combino:Tramino) | 5.03 / 1.60 | curve / curve | 137.9 / – | 0.029 |
+| 109 | Stare Miasto, 181.1 s, (−147, −289) | 9:18 (Gamma:Gamma) | 6.47 / 5.08 | curve / curve | 145.9 / – | 0.000 |
+| 127 | Centrum, 138.6 s, (−1520, 232) | 6:12 (Gamma:Gamma) | 0 / 4.95 | switch / curve | 88.9 / – | 0.129 |
+| 139 | Jeżyce, 69.5 s, (−2439, −599) | 5:6 (Tramino:Gamma) | 8.15 / 5.79 | – / room | – / 63.1 | 0.005 |
+| 151 | Stare Miasto, 100.3 s, (−237, −159) | 5:18 (Tramino:Gamma) | 3.71 / 4.86 | curve / curve | – / 37.3 | 0.031 |
+| 157 | Stare Miasto, 185.8 s, (−144, −288) | 18:21 (Gamma:Gamma) | 5.09 / 6.44 | curve / curve | – / 165 | 0.023 |
+
+The trams are `TRAM_HALF_WIDTH` 1.2 m wide (2.4 m bodies). The three parallel-track pinches have centre separations
+of 2.39, 2.62 and 2.78 m; on their bends the 10.6 m section chords swing a few centimetres further, and the audit counts
+touching as overlap. The traced contacts penetrate the other body by 0–3.1 cm at the pinches and 1.7–12.9 cm at the
+branch corners (median 1.2 cm). At 4–8 m/s a 5–30 mm overlap lasts well under one 20 fps frame, so whether a sampled
+frame catches it depends on phase. The Jeżyce pinch shows this directly: the same 5:6 pass at 69.5 s with the same
+8.15/5.79 m/s speeds appears in base seeds 103/107/113 and variant seeds 83/101/107/113/139, with a 5 mm penetration;
+seed 103 loses it and seeds 83/101/139 gain it when the surrounding phase shifts.
+
+None of the traced added pairs had a far road-car gate (`farRoad`) in the preceding 40 s, and none is a same-direction
+follower with the other tram as its leader: the two same-direction cases (`61` Jeżyce 1:13 and `83` Kaponiera 11:22)
+are both waiting for road cars on different branches, with no finite gap to each other. The variant therefore does not
+release a tram past a far wall into another body, and no follower fails to anticipate a leader's earlier or harder
+braking. Earlier car braking changes tram phase by seconds elsewhere, which adds or removes knife-edge body-rectangle
+tangencies at fixed geometry. The six lost contacts are the reverse of the same effect (four pinch passes and two
+junction contacts swapped for others).
+
+No rule change was retained. Removing these contacts by a driving rule would mean holding one of two opposite trams
+back from passing on adjacent 2.4–2.8 m tracks, which is neither correct nor cheap, and it would add holds. A retry of
+the comfortable-distance scan should judge tram contacts with a penetration tolerance or a real body sweep, or correct
+the mapped spacing at these pinches; the road-car rule itself is not the cause. The `accept-traffic` rerun reproduced
+the traffic result: car–tram pairs 70 → 54, holds over 120 s 30 → 22, deadlocks 2 → 2 and no new deadlock pattern.
+
