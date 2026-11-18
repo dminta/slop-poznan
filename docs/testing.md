@@ -336,6 +336,24 @@ under 130 s) so the known cycle cannot hide a new one. The same file runs `tools
 all stopped shared-lane touches. The pre-proxy baseline was eight, all with `tramWait = car`, six in the
 `-2167, -498` cluster.
 
+## Tram braking and tram–tram overlap audits
+
+`node tools/audit-tram-braking.mjs [--seed 4242] [--minutes 5] [--fps 20] [--only wilda]` reports episodes below
+−3 / −5 m/s² and at or below −8.5 m/s² by district, reason and position, per active tram-hour after the 20 s warmup.
+Only post-update speeds above 0.5 m/s count as braking. `--trace [--trace-out file]` instruments a headless copy of
+`trams.js` and streams each active tram's binding gate and gate changes to JSONL (default `/tmp/tram-braking-trace-SEED.jsonl`);
+the summary includes gate-closure diagnostics and detected overruns. `--trace-summary` gathers the same diagnostics
+without writing per-frame JSONL. The summary also reports active tram time and distance for mean speed. The trace can
+be hundreds of MB. Its comparison
+of observed gates can leave a cause unresolved. Overruns only count crossings of observed closed gates within a frame;
+they miss gates first observed behind the front, unobserved red crossings and buffer ends. These are lower bounds, not
+a safety proof. The benchmark world and its omissions are the same as for the traffic benchmark.
+
+`node tools/audit-tram-pairs.mjs [--seed 4242] [--minutes 5] [--fps 15] [--only wilda]` uses the overlap audit's
+oriented-rectangle test on sections of distinct active trams after warmup, and reports pooled pairs, pair-frames and
+first contacts. Pooled IDs can be reused, and between-frame and rendered contacts are not covered.
+[Round 2 investigation](observations/tram-braking-2026-11-18.md) records the baseline and rejected variants.
+
 ## Car–tram body overlap audit
 
 `node tools/audit-tram-overlaps.mjs` runs the same independent seeded worlds and update order as the traffic

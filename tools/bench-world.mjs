@@ -201,7 +201,7 @@ function loadPedestrianRoutes(rn) {
 // the road network and the traffic system, as main.js does (landmark, bridge and outskirts colliders stay omitted). The
 // default world omits them, so a carriageway that a park footprint or sidewalk rectangle prunes in the browser exists in
 // it (tools/audit-ped-roadway.mjs needs the furnished layout; docs/actors.md).
-function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSeed = 1922, furnished = process.env.BENCH_FURNISHED === '1' } = {}) {
+function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSeed = 1922, tramSource = null, furnished = process.env.BENCH_FURNISHED === '1' } = {}) {
   const rn = loadModule(js('road-network.js'), {
     imports: { './city-config.js': config, './geodata.js': { GEO } }, globals: G, filename: 'road-network.js'
   });
@@ -303,7 +303,7 @@ function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSe
     street.addRuntimeSignalHeads(traffic.network, traffic.pedestrianRoutes,
       [...tramLayout.poles, ...railLayout.masts], railLayout);
   }
-  const { createTramSystem } = loadModule(js('trams.js'), {
+  const { createTramSystem } = loadModule(tramSource ? tramSource(js('trams.js')) : js('trams.js'), {
     imports: {
       'three/webgpu': inert(), './geodata.js': { GEO }, './city-config.js': config,
       './tsl-materials.js': { cityUniforms: { uInteriorGlow: { value: 0.3 } } }, './actor-models.js': inert(),

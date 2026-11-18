@@ -400,13 +400,13 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   [Record](observations/browser-checks-signals-2026-11-17.md), earlier
   [visual coverage](observations/browser-checks-2026-11-16.md) and
   [geometric clearance audit](observations/signal-tram-clearance-2026-11-14.md).
-- **Defect (to confirm with the user): trams reach the −9 m/s² floor.** About 3.6 times per tram-hour headless (bench
-  world, 7 districts, seeds 4242 and 7, 5 min, 20 fps, 25.5 tram-hours: 157 episodes below −3 m/s², 117 below −5,
-  93 at the cap; at-cap by wait reason room 36, car 28, switch 17, signal 9, stop 3; Wilda `(−929, 1954)` hits `'room'`
-  about 10 times per run), mostly for late room/switch/signal gates (cars about a third). Fix the late gates (lookahead /
-  `bMax`-aware gating; `bMax: 3.0` at `js/trams.js:53` is used only by the amber check) rather than just lowering the cap
-  (`t.acc = Math.max(-9, _acc)`, `:1817`), which would cause overruns. Needs accept-traffic. Browser rates of 9–11 m/s²
-  were a harness timebase artefact. [Record](observations/browser-checks-trams-2026-11-17.md#3-kaponiera).
+- **Tram braking follow-up:** The wider room/switch scan reduced cap-level episodes (≤ −8.5 m/s²) from 3.72 to
+  2.30 per tram-hour over 20 fresh paired seeds (mean change −1.42, 95% CI [−1.63, −1.21]); it remains possible to
+  reach the −9 m/s² floor. Car–tram and tram–tram contacts, holds over 120 s and deadlocks were within noise; observed
+  closed-gate crossings fell, but that audit misses gates first observed behind the tram and does not prove red or
+  occupied-switch compliance. Investigate the remaining abrupt braking, including the amber check's use of the signal
+  head distance instead of the upstream complex stop point, and build a more complete overrun audit.
+  [Record](observations/tram-braking-2026-11-18.md).
 - **Canopy follow-up (low priority):** Railway mast openings in mapped platform roofs are accepted; two #1 masts
   outside the source roof ring remain audit hits. Review #18's elevated track overlap and #19's rectangle overbuild.
   [Survey and decision](observations/canopy-clearance-2026-11-17.md#railway-mast-survey-2026-11-18-headless-classification).

@@ -1658,11 +1658,17 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     t.gap = gapMin;
     t.leader = leader;
 
+    // Distant conflicts affect braking only. Keep the existing nearby reservation policy.
+    function farConflict(dist, why) {
+      const gate = complexStopGate(path, u + dist, t.length, u) - u;
+      consider(wall(gate), why);
+    }
+
     // Switches & crossings ahead: wait before node N while another tram holds it, or reaches it first from another
     // approach (closer, or as close and lower id), unless that tram is ahead on this path anyway
     for (let j = ic + 1; j < path.n; j++) {
       const distA = path.start[j] - u;
-      if (distA > CONFLICT_REACH) break;
+      if (distA > LOOKAHEAD) break;
       const N = path.edges[j].from;
       if (N.in.length < 2 && N.out.length < 2) continue;
       const mine = path.edges[j - 1];
@@ -1670,40 +1676,50 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
       // entered the fouling area, keep moving through it; stopping there would defeat the reservation.
       const entry = distA - mine.foulEnd;
       if (entry > 0.2 && tramGap < distA + path.edges[j].foulStart + t.length + 2) {
-        t.clearance = Math.min(t.clearance, entry);
-        considerGate(entry - 0.5, 'room');
+        if (distA > CONFLICT_REACH) farConflict(entry - 0.5, 'room');
+        else {
+          t.clearance = Math.min(t.clearance, entry);
+          considerGate(entry - 0.5, 'room');
+        }
       }
       for (const o of pool) {
         if (o === t || !o.active) continue;
-        if (Math.abs(o.x - N.x) > CONFLICT_REACH + 40 || Math.abs(o.z - N.z) > CONFLICT_REACH + 40) continue;
+        if (Math.abs(o.x - N.x) > LOOKAHEAD + 40 || Math.abs(o.z - N.z) > LOOKAHEAD + 40) continue;
         if (occupies(o, mine) || occupies(o, path.edges[j])) continue; // a leader on this path
         let block = holds(o, N);
         if (!block) {
           const distB = reaches(o, N, distA);
           block = distB >= 0 && !(o.clearance < distB) && _arrive !== mine && (distB < distA || (distB === distA && o.id < t.id));
         }
-        if (block) considerGate(distA - mine.foulEnd, 'switch');
+        if (block) {
+          if (distA > CONFLICT_REACH) farConflict(distA - mine.foulEnd, 'switch');
+          else considerGate(distA - mine.foulEnd, 'switch');
+        }
       }
     }
 
     // Level crossings off the nodes: as switches
     for (let j = ic; j < path.n; j++) {
       const sj = path.start[j];
-      if (sj - u > CONFLICT_REACH) break;
+      if (sj - u > LOOKAHEAD) break;
       for (const c of path.edges[j].crossings) {
         const distA = sj + c.s - u;
-        if (distA <= 0 || distA > CONFLICT_REACH) continue;
+        if (distA <= 0 || distA > LOOKAHEAD) continue;
         const entry = distA - FOUL;
         if (entry > 0.2 && tramGap < distA + FOUL + t.length + 2) {
-          t.clearance = Math.min(t.clearance, entry);
-          considerGate(entry - 0.5, 'room');
+          if (distA > CONFLICT_REACH) farConflict(entry - 0.5, 'room');
+          else {
+            t.clearance = Math.min(t.clearance, entry);
+            considerGate(entry - 0.5, 'room');
+          }
         }
         const B = c.other;
         for (const o of pool) {
           if (o === t || !o.active) continue;
-          if (Math.abs(o.x - t.x) > CONFLICT_REACH + 80 || Math.abs(o.z - t.z) > CONFLICT_REACH + 80) continue;
+          if (Math.abs(o.x - t.x) > LOOKAHEAD + 80 || Math.abs(o.z - t.z) > LOOKAHEAD + 80) continue;
           if (crossHeld(o, B, c.os) || crossApproach(o, B, c.os, distA, t.id)) {
-            considerGate(distA - FOUL, 'switch');
+            if (distA > CONFLICT_REACH) farConflict(distA - FOUL, 'switch');
+            else considerGate(distA - FOUL, 'switch');
             break;
           }
         }
@@ -1714,12 +1730,15 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
     if (tramGap < Infinity) {
       for (let j = ic; j < path.n; j++) {
         const sj = path.start[j];
-        if (sj - u > CONFLICT_REACH) break;
+        if (sj - u > LOOKAHEAD) break;
         for (const c of path.edges[j].keepClear) {
           const entry = sj + c.start - u;
-          if (entry > 0.2 && entry <= CONFLICT_REACH && tramGap < sj + c.end - u + t.length + 2) {
-            t.clearance = Math.min(t.clearance, entry);
-            considerGate(entry - 0.5, 'room');
+          if (entry > 0.2 && entry <= LOOKAHEAD && tramGap < sj + c.end - u + t.length + 2) {
+            if (entry > CONFLICT_REACH) farConflict(entry - 0.5, 'room');
+            else {
+              t.clearance = Math.min(t.clearance, entry);
+              considerGate(entry - 0.5, 'room');
+            }
           }
         }
       }

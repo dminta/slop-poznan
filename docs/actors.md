@@ -594,7 +594,12 @@ Trams follow the associated road signal phase; dedicated tram signal heads are n
   clearance point while it is still on another branch; head-on on two-way track counts as stopped), switches, crossings
   and blocks another tram holds or reaches first, the next stop, red signals, curves and a buffer stop. `waitReason`
   names the binding one (`tram`, `room`, `switch`, `block`, `stop`, `signal`, `curve`, `end`,
-  `car`, `player`, `pedestrian`, or empty).
+  `car`, `player`, `pedestrian`, or empty). Switch, level-crossing and keep-clear conflicts are scanned to 140 m;
+  beyond the existing 60 m reservation range they influence braking at the upstream complex stop point only. The nearby
+  reservation and clearance rules are unchanged. Over 20 fresh paired seeds, cap-level episodes (≤ −8.5 m/s² at speeds
+  above 0.5 m/s) fell from 3.72 to 2.30 per tram-hour; the mean paired change was −1.42 [−1.63, −1.21]. The measured
+  tram mean speed including dwells changed by +0.07 km/h [−0.02, +0.16], within noise. The gate-crossing audit is a
+  lower bound and does not establish absence of overruns; see the [investigation](observations/tram-braking-2026-11-18.md).
 - **Population**: 24 pooled trams (~12% Combino, ~29% Tramino, ~58% Gamma), kept within 900 m of the camera focus and respawned
   120–800 m away, never within 300 m in view or 70 m from another tram. After a camera jump of more than 140 m they are
   all respawned. `createTramSystem` takes an optional `seed` (default 1922, passed through as `buildWorld({ tramSeed })`
