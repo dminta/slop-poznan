@@ -500,6 +500,21 @@ rail clearance (`>= 2.22 m`), the 8 m/10.5 m visibility bands, foot rail clearan
 registrations. It also builds the tram/rail catenary layouts and checks every overhead arm, foot and head against
 every pole and mast (`>= 0.5 m`).
 
+## Balcony span audit
+
+`node tools/audit-balcony-spans.mjs [--margin 0.3] [--near 8] [--top N] [--json] [--before]` builds the full-collider
+fixture (`runAudit({ worldOnly: true })`, no browser), places the runtime signal heads, captures the static boot-time
+signal poles/heads through exact source markers, and tests every raised element against every balcony slab+railing
+volume from `world.blocks[].balconies` (one 1.0 m deep box per landing, using the renderer's slab and railing heights).
+It covers span stays/drops/masts/heads, cantilever masts/arms/heads, ground heads/poles, the bridge fascia and the
+static side poles with their vehicle and pedestrian heads. Segment distances are exact (ternary search); head box edges
+are sampled every 2 cm. It prints the intersecting elements, volumes and worst overlaps, and the nearest gaps up to
+`--near`. Measured 2026-11-18: 189 runtime heads + 4,926 static elements, 19,426 stacks / 59,939 volumes; spans,
+cantilevers, ground and bridge heads are clear at 0.3 m (nearest 1.010 m span mast), but a **static pole/head at
+Głogowska (junction 3045) comes within 0.044 m of a Łazarz balcony** (block 936; pole 0.096 m)
+([record](observations/balcony-spans-2026-11-18.md)). The fixture omits airport, canopy, outskirts and city-grid
+colliders; no rendered check is possible headless.
+
 ## Demand-crossing audit
 
 `node tools/audit-demand-crossings.mjs [--seeds 4242,77] [--minutes 5] [--fps 15] [--only id1,id2] [--json]`

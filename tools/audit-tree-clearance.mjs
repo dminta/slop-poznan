@@ -240,7 +240,8 @@ async function runAudit({ worldOnly = false, gridSource = source('city-grid'), s
 
   if (worldOnly) return { sites, details, grid: cityGridBuilt, gridModule, liveGrid,
     buildingColliders: allBuildingColliders, routeColliders: [...landmarkColliders, ...blockColliders],
-    footprintsByBlock: cityBlocksBuilt.footprintsByBlock, roadMod, tramMod, treesMod, config, GEO,
+    footprintsByBlock: cityBlocksBuilt.footprintsByBlock, blocks: cityBlocksBuilt.allBlocks,
+    roadMod, tramMod, treesMod, config, GEO,
     buildMs: Date.now() - streetStart };
 
   const keptColliders = new Set(sites.map((s) => s.collider).filter(Boolean));

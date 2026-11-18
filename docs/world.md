@@ -441,8 +441,12 @@ Built before the road network, so everything that stands near a lane is checked 
   clearance under its backplate and 0.3 m above it to the underside. The fascia arm and drop reuse the signal-pole
   mesh and keep clear of tram tracks and traction supports. In the furnished fixture one head uses this support, 27 use spans and 85 use
   cantilevers; all historical approaches remain served. The full-collider span audit found zero sampled rail-envelope,
-  near-collinear and facade AABB hits; balcony volumes are not included. See
-  [the audit and browser check](observations/signal-spans-2026-11-17.md).
+  near-collinear and facade AABB hits. Balcony volumes are not part of that audit; a separate one tested every raised
+  signal element (spans, cantilevers, ground heads, the bridge fascia and the static side poles/heads) against the
+  19,426 balcony stacks. All runtime heads are clear at a 0.3 m margin (nearest span mast 1.01 m), but one static pole
+  and its S-1 head at Głogowska (junction 3045) come within 0.044 m of a first-floor Łazarz balcony; no fix is applied
+  yet. See [the span audit and browser check](observations/signal-spans-2026-11-17.md) and
+  [the balcony audit](observations/balcony-spans-2026-11-18.md).
   **Side heads** follow the 2.0 m row: after the heads are placed, an approach whose most forward ground head is less
   than 2.0 m (2.2 m to the pole) past the stop line gets its stop line moved upstream by the difference when at least
   5.5 m of the link remain to queue on (`shiftSideHeadStopLines`, `network.shiftStopLine`: the edge gets shorter, its
