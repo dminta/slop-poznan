@@ -2968,11 +2968,16 @@ function buildStreetDetails(scene, opts = {}) {
             for (let i = 0; i < top.length; i++) for (let j = i + 1; j < top.length; j++) add(top[i], top[j], 8);
             pairs.sort((a, b) => a.score - b.score);
             const topPoint = { x: target.x, y: SPAN_Y, z: target.z };
+            // A foot occurs in many candidate pairs for this target; both wire tests depend only on that foot.
+            const clearFeet = new Map();
+            const footWireClear = (item) => {
+              if (!clearFeet.has(item)) clearFeet.set(item, wireClear(item.p, item.p, highOverhead) &&
+                wireClear(item.p, topPoint, highOverhead));
+              return clearFeet.get(item);
+            };
             for (const pair of pairs.slice(0, 64)) {
               const { a, b } = pair;
-              if (!wireClear(a.p, a.p, highOverhead) || !wireClear(b.p, b.p, highOverhead) ||
-                !wireClear(a.p, topPoint, highOverhead) || !wireClear(b.p, topPoint, highOverhead) ||
-                !wireClear(topPoint, target, overhead)) continue;
+              if (!footWireClear(a) || !footWireClear(b) || !wireClear(topPoint, target, overhead)) continue;
               return { target, anchors: [a, b] };
             }
             return null;
@@ -3039,6 +3044,11 @@ function buildStreetDetails(scene, opts = {}) {
                 pairs.push({ a, b, score });
               }
               pairs.sort((a, b) => a.score - b.score);
+              const clearStays = new Map();
+              const stayClear = (anchor, top) => {
+                if (!clearStays.has(anchor)) clearStays.set(anchor, wireClear(anchor.p, top, lowOverhead));
+                return clearStays.get(anchor);
+              };
               for (const { a, b, score } of pairs.slice(0, 64)) {
                 if (Math.hypot(a.p.x - b.p.x, a.p.z - b.p.z) <= 2) continue;
                 const ax = a.p.x - target.x, az = a.p.z - target.z;
@@ -3050,7 +3060,7 @@ function buildStreetDetails(scene, opts = {}) {
                 if (!straddles) continue;
                 const topY = Math.min(a.y, b.y);
                 const top = { x: target.x, y: topY, z: target.z };
-                if (!wireClear(a.p, top, lowOverhead) || !wireClear(b.p, top, lowOverhead) ||
+                if (!stayClear(a, top) || !stayClear(b, top) ||
                   !wireClear(top, target, overhead) || !wireSupportClear(a.p, top, a.p, b.p) ||
                   !wireSupportClear(b.p, top, a.p, b.p)) continue;
                 if (!best || score < best.score) best = { target, anchors: [a, b], topY, score };

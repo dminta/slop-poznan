@@ -381,11 +381,10 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   and Jeżyce@−2069,−470 (seed 197, kept). **Open deadlock sites under L17.5:** Wilda@−108,1867;−123,1864;−123,1931;−138,1927 (seed 103)
   and Kaponiera@−1136,127 (seed 263), both new; (4) rear-queue and WebGL2 low checks of the new head positions.
 - Balcony clearance around signal spans remains unexamined: balcony geometry is separate from building colliders.
-- Boot cost of the span rules: the signal-head phase grew 2284 → 2646 ms (+362 ms, three alternating headless pairs)
-  with the wider span-pair pool and the 12° / rail-envelope / facade checks; the 64-pair cap did not recover it.
-  Profile `findSpan` / `findTractionSpan` (pair evaluation, `wireClear`) before the next boot pass.
-  [Record](observations/signal-spans-2026-11-17.md).
-  [Signal span audit and browser check](observations/signal-spans-2026-11-17.md).
+- Span boot cost: caching per-target anchor clearance reduced median `signalHeads` 2285 → 2162 ms (−5.4%,
+  five interleaved pairs) with identical benchmark and runtime-head/anchor hashes. The older +362 ms measurement
+  used different runs, so the remaining gap is not directly established. [Performance record](observations/perf-span-boot-2026-11-18.md),
+  [signal span audit and browser check](observations/signal-spans-2026-11-17.md).
 - Remaining overhead-head checks: 81 of 113 furnished-grid overhead heads have no visual check yet; supports and
   coverage were checked on WebGPU only. Lead-car and rear-queue views need further coverage after the sign fix.
   [Record](observations/browser-checks-signals-2026-11-17.md), earlier
