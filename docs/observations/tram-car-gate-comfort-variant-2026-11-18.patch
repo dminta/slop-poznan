@@ -1,0 +1,32 @@
+diff --git a/js/trams.js b/js/trams.js
+index 672a768..2d93df8 100644
+--- a/js/trams.js
++++ b/js/trams.js
+@@ -1610,13 +1610,14 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
+     // tail still on it, one that cannot stop on a short link, or one on a connector into a short link. A car that can
+     // still stop before the link does not hold the tram.
+     let roadCarGate = false;
++    const roadLookahead = Math.max(ROAD_GATE_REACH, t.speed * t.speed / (2 * D.b) + 3);
+     if (traffic) {
+       for (let j = ic; j < path.n; j++) {
+         const base = path.start[j];
+-        if (base - u > ROAD_GATE_REACH) break;
++        if (base - u > roadLookahead) break;
+         for (const c of path.edges[j].junctions) {
+           const entry = base + c.s0 - u;
+-          if (entry <= 0.2 || entry > ROAD_GATE_REACH) continue;
++          if (entry <= 0.2 || entry > roadLookahead) continue;
+           for (let pass = 0; pass < 2; pass++) {
+             const list = pass ? traffic.buses : traffic.cars;
+             if (!list) continue;
+@@ -1644,6 +1645,10 @@ function createTramSystem(scene, { network = null, rail = GEO.rail, stops = GEO.
+               // the tram otherwise reads as clear before its body is checked (Stare Miasto (288, -244), seed 5).
+               if (queuedBehindTram(v, t) &&
+                 obstacleGap(v.x, v.z, v.yaw + v.yawOffset, v.halfWidth, v.half, 0, 0, true, true) === Infinity) continue;
++              if (entry > ROAD_GATE_REACH) {
++                consider(wall(entry - 0.5), 'car');
++                continue;
++              }
+               roadCarGate = true;
+               t.clearance = Math.min(t.clearance, entry);
+               const before = _acc;

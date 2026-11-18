@@ -196,3 +196,60 @@ The fix does what it says: signal-held cap episodes bound by an amber head fell 
 so the total did not move, and the milder thresholds got worse, consistent with more amber holds at upstream gates.
 The remaining signal caps are therefore red arrivals after the green tail or interior heads of a complex the tram has
 not committed to, not an amber misjudgement. Not merged.
+
+## Road-car gate trace follow-up (2026-11-18)
+
+An instrumented baseline trace classified nine car-bound cap episodes in Jeżyce (seeds 61, 67 and 71;
+Jeżyce and Łazarz were run for 61, but the latter had no car-bound cap episodes). The binding predicate was
+`entering` in five, `arriving` in three and `unable` in one; none was `tail`. These are a small diagnostic sample,
+not a population estimate. At first closure the effective gate distances and stopping distances (metres, using the
+pre-update speed) were:
+
+| Seed / tram / time | Predicate | Gate | b = 1.4 | bMax = 3 |
+|---|---|---:|---:|---:|
+| 61 / 21 / 111.80 | entering | 7.4 | 17.9 | 8.4 |
+| 61 / 21 / 130.05 | entering | 7.2 | 17.3 | 8.1 |
+| 61 / 1 / 188.10 | arriving | 7.4 | 36.4 | 17.0 |
+| 61 / 17 / 255.30 | entering | 7.2 | 18.6 | 8.7 |
+| 61 / 13 / 257.45 | arriving | 1.2 | 23.8 | 11.1 |
+| 67 / 20 / 150.75 | arriving | 1.4 | 14.1 | 6.6 |
+| 67 / 19 / 291.90 | entering | 1.6 | 11.2 | 5.2 |
+| 71 / 13 / 233.30 | unable | 6.7 | 19.8 | 9.2 |
+| 71 / 13 / 257.25 | entering | 7.3 | 17.3 | 8.1 |
+
+The 67 / 19 gate was pulled upstream by a complex. A diagnostic replay scanned committed cars to 40 m without
+changing the 8 m driving gate: in seed 61 the same car and junction were already committed and observable before
+four of the five closures, at 39.1, 34.2, 14.8 and 32.0 m respectively. The fifth had no earlier committed probe
+in the preceding 20 s. This does not establish when an uncommitted car became visible, or prove a wider rule safe.
+The trace instrumentation and raw diagnostic outputs were not kept.
+
+### Comfortable-distance road scan (rejected)
+
+The experiment ([patch](tram-car-gate-comfort-variant-2026-11-18.patch)) scans the existing committed-car predicates up to
+`max(8 m, v²/(2 × 1.4 m/s²) + 3 m)`. Beyond 8 m the raw road entry wall influences braking only: it does not
+reserve the crossing or alter clearance. The nearby gate, queued-car exclusion and −9 m/s² cap are unchanged. This
+is distinct from the earlier two-seed road screen's shorter `bMax` distance. The 20-fresh-seed, 20 fps braking and
+tram-pair audits were compared per seed against the previously recorded `0f0053a` baseline; `poznan` has identical
+`js/` and `tools/` to that commit. Results use 10,000 paired-bootstrap resamples of per-seed differences, with
+braking expressed per tram-hour. Baseline and candidate covered 254.04 and 254.15 tram-hours respectively.
+
+| Metric | Baseline | Candidate | Mean difference / seed | 95% CI |
+|---|---:|---:|---:|---|
+| Cap episodes per tram-hour | 2.30 (584) | 1.78 (452) | −0.520 | [−0.682, −0.358] |
+| Below −5 per tram-hour | 3.24 | 2.48 | −0.761 | [−0.915, −0.614] |
+| Below −3 per tram-hour | 4.09 | 3.32 | −0.765 | [−0.975, −0.564] |
+| Observed closed-gate crossings | 208 | 167 | −2.05 | [−3.95, −0.10] |
+| Tram–tram pairs | 33 | 41 | +0.40 | [+0.05, +0.75] |
+
+The candidate had 156 car-bound cap episodes versus the earlier baseline's 306; a per-seed car-reason baseline was
+not retained, so no paired interval is claimed for that subset. The gate-crossing diagnostic remains a lower bound,
+and the longer scan changes which closed gates it can observe. Despite the reduction in total cap episodes, the
+paired tram–tram increase excludes zero, so this variant fails the stated acceptance rule and is not merged. The
+per-seed data and intervals are in [tram-car-gate-comfort-paired-2026-11-18.json](tram-car-gate-comfort-paired-2026-11-18.json).
+
+The 15 fps traffic acceptance (`node tools/accept-traffic.mjs --base poznan --jobs 6`) found no statistically clear
+regression: car–tram pairs 70 → 54, mean −0.80 [−1.95, +0.25]; holds over 120 s 30 → 22, −0.40 [−1.85, +0.90];
+deadlocks 2 → 2, 0 [−0.15, +0.15]. No new deadlock pattern met the runner's threshold. The baseline cache reused
+results from the earlier acceptance record after confirming the same simulation code and matching the first six seeds
+of each benchmark. These traffic results do not override the
+20 fps tram-pair regression above.
