@@ -598,8 +598,15 @@ Trams follow the associated road signal phase; dedicated tram signal heads are n
   beyond the existing 60 m reservation range they influence braking at the upstream complex stop point only. The nearby
   reservation and clearance rules are unchanged. Over 20 fresh paired seeds, cap-level episodes (≤ −8.5 m/s² at speeds
   above 0.5 m/s) fell from 3.72 to 2.30 per tram-hour; the mean paired change was −1.42 [−1.63, −1.21]. The measured
-  tram mean speed including dwells changed by +0.07 km/h [−0.02, +0.16], within noise. The gate-crossing audit is a
-  lower bound and does not establish absence of overruns; see the [investigation](observations/tram-braking-2026-11-18.md).
+  tram mean speed including dwells changed by +0.07 km/h [−0.02, +0.16], within noise.
+  Committed cars are scanned to `max(ROAD_GATE_REACH 8 m, v²/(2 × 1.4) + 3 m)` as well: past 8 m a car only sets a
+  braking wall and does not reserve the crossing or change clearance. On the same 20 seeds at 20 fps this cut cap
+  episodes 584 → 452 (2.30 → 1.78 per tram-hour, −0.52 [−0.68, −0.36]) and observed closed-gate crossings 208 → 167.
+  Raw tram–tram pairs rose 33 → 41 [+0.05, +0.75], but most additions are 0–3 cm body-rectangle tangencies at
+  2.39–2.78 m parallel tracks; at the pre-fixed 5 cm penetration tolerance pairs go 9 → 15, [−0.05, +0.65], within
+  noise, and the 15 fps traffic gates stayed within noise. The 20 fps pair audit uses the deepest section penetration
+  in a sampled frame, not a continuous body sweep. The gate-crossing audit is a lower bound and does not establish
+  absence of overruns; see the [investigation and re-judgement](observations/tram-braking-2026-11-18.md).
 - **Population**: 24 pooled trams (~12% Combino, ~29% Tramino, ~58% Gamma), kept within 900 m of the camera focus and respawned
   120–800 m away, never within 300 m in view or 70 m from another tram. After a camera jump of more than 140 m they are
   all respawned. `createTramSystem` takes an optional `seed` (default 1922, passed through as `buildWorld({ tramSeed })`

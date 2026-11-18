@@ -1,6 +1,7 @@
 // Headless tram–tram section overlap audit. Uses the traffic benchmark world and update order.
-// node tools/audit-tram-pairs.mjs [--minutes 5] [--fps 15] [--seed 4242] [--only centrum,kaponiera]
+// node tools/audit-tram-pairs.mjs [--minutes 5] [--fps 15] [--seed 4242] [--only centrum,kaponiera] [--tolerance 0.05]
 import { buildWorld } from './bench-world.mjs';
+import { exceedsTolerance, penetration } from './rect-penetration.mjs';
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -11,6 +12,9 @@ const minutes = Number(opt('minutes', 5));
 const fps = Number(opt('fps', 15));
 const initialSeed = Number(opt('seed', 4242));
 const only = opt('only', null);
+// A pair is only tolerant-overlapping when its deepest penetration over the run exceeds this margin. Default 0 keeps
+// the recorded raw counts; 5 cm discards parallel-track tangencies that a 20 fps sample catches by phase alone.
+const tolerance = Number(opt('tolerance', 0));
 const districts = [
   { key: 'jezyce', x: -2056, z: -391 },
   { key: 'lazarz', x: -1900, z: 1500 },
@@ -22,22 +26,9 @@ const districts = [
 ];
 if (!Number.isFinite(minutes) || minutes <= 0 || !Number.isFinite(fps) || fps <= 0 ||
     !Number.isInteger(initialSeed) || initialSeed <= 0 || initialSeed >= 2147483647 ||
+    !Number.isFinite(tolerance) || tolerance < 0 ||
     (only && only.split(',').some((key) => !districts.some((d) => d.key === key)))) {
-  throw new Error('Invalid minutes, fps, seed or district');
-}
-
-// Separating-axis test for two oriented rectangles. Touching counts as overlap, matching the original audit.
-function overlap(a, b) {
-  for (const rect of [a, b]) {
-    for (const angle of [rect.h, rect.h + Math.PI / 2]) {
-      const x = Math.sin(angle), z = Math.cos(angle);
-      const distance = Math.abs((a.x - b.x) * x + (a.z - b.z) * z);
-      const radius = (r) => r.hl * Math.abs(Math.sin(r.h) * x + Math.cos(r.h) * z) +
-        r.hw * Math.abs(Math.cos(r.h) * x - Math.sin(r.h) * z);
-      if (distance > radius(a) + radius(b)) return false;
-    }
-  }
-  return true;
+  throw new Error('Invalid minutes, fps, seed, tolerance or district');
 }
 
 for (const district of districts) {
@@ -63,18 +54,31 @@ for (const district of districts) {
       for (let j = i + 1; j < trams.trams.length; j++) {
         const b = trams.trams[j];
         if (!b.active || Math.abs(a.x - b.x) > a.length + b.length || Math.abs(a.z - b.z) > a.length + b.length) continue;
-        const hit = a.sections.some((s) => b.sections.some((t) => overlap(
-          { x: s.x, z: s.z, h: s.heading, hl: s.halfLength, hw: s.halfWidth },
-          { x: t.x, z: t.z, h: t.heading, hl: t.halfLength, hw: t.halfWidth })));
-        if (!hit) continue;
+        let deepest = -Infinity;
+        for (const s of a.sections) {
+          const rectA = { x: s.x, z: s.z, h: s.heading, hl: s.halfLength, hw: s.halfWidth };
+          for (const t of b.sections) {
+            const depth = penetration(rectA, { x: t.x, z: t.z, h: t.heading, hl: t.halfLength, hw: t.halfWidth });
+            if (depth > deepest) deepest = depth;
+          }
+        }
+        if (deepest < 0) continue;
         frames++;
         const key = `${a.id}:${b.id}`;
-        if (!pairs.has(key)) pairs.set(key, { pair: key, time: +time.toFixed(1),
+        const event = pairs.get(key);
+        if (!event) pairs.set(key, { pair: key, time: +time.toFixed(1),
           x: Math.round((a.x + b.x) / 2), z: Math.round((a.z + b.z) / 2),
-          speedA: +a.speed.toFixed(1), speedB: +b.speed.toFixed(1), waitA: a.waitReason, waitB: b.waitReason });
+          speedA: +a.speed.toFixed(1), speedB: +b.speed.toFixed(1), waitA: a.waitReason, waitB: b.waitReason,
+          maxPenetration: deepest });
+        else if (deepest > event.maxPenetration) event.maxPenetration = deepest;
       }
     }
   }
-  console.log(JSON.stringify({ district: district.key, seed: initialSeed, minutes, fps,
-    overlapPairs: pairs.size, overlapFrames: frames, events: [...pairs.values()] }));
+  const events = [...pairs.values()];
+  console.log(JSON.stringify({ district: district.key, seed: initialSeed, minutes, fps, tolerance,
+    overlapPairs: pairs.size,
+    overlapPairsTolerant: events.filter((e) => exceedsTolerance(e.maxPenetration, tolerance)).length,
+    overlapFrames: frames,
+    events: events.map((e) => ({ ...e, tolerant: exceedsTolerance(e.maxPenetration, tolerance),
+      maxPenetration: +e.maxPenetration.toFixed(4) })) }));
 }

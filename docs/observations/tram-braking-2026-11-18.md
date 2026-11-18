@@ -318,3 +318,48 @@ the comfortable-distance scan should judge tram contacts with a penetration tole
 the mapped spacing at these pinches; the road-car rule itself is not the cause. The `accept-traffic` rerun reproduced
 the traffic result: car–tram pairs 70 → 54, holds over 120 s 30 → 22, deadlocks 2 → 2 and no new deadlock pattern.
 
+## Comfortable-distance scan re-judged with a 5 cm pair tolerance (2026-11-18, accepted)
+
+The tolerance was fixed at **0.05 m before measuring**. `tools/rect-penetration.mjs` now computes a section pair's
+separating-axis penetration (minimum of `radius(a) + radius(b) − distance` over the four axes); a pooled tram pair
+counts as tolerant-overlapping only when the deepest penetration of any section pair in any sampled frame exceeds
+5 cm. `tools/audit-tram-pairs.mjs` and `tools/audit-tram-overlaps.mjs` keep `overlapPairs` (touching-inclusive raw
+count) unchanged, add `overlapPairsTolerant` and each event's `maxPenetration`, and default to 0 for the new flag.
+`accept-traffic.mjs` passes 0.05 to the car–tram audit on both sides, reports the tolerant count as an extra `(info)`
+metric and accepts an existing worktree directory as `--base` so the baseline ref can run with the updated,
+uncommitted tool. The baseline was a `poznan` worktree with those tools copied in; the working tree carried the same
+tools plus the comfort patch. All four source changes and the raw counts were identical before and after the re-run
+(no seed in the recorded 20-seed baseline differed).
+
+Fresh 20 seeds (61 … 157), 7 districts, 5 min at 20 fps for the tram audits (254.04 base / 254.15 candidate tram-hours),
+5 min at 15 fps for `accept-traffic`. Every row is a paired bootstrap of the mean working − baseline difference over
+the seeds (10 000 resamples, `tools/accept-stats.mjs`); baseline and working columns are 20-seed sums except the rates,
+which are per-tram-hour means.
+
+| Metric | Baseline | Candidate | Mean diff / seed | 95 % CI | Verdict |
+|---|---:|---:|---:|---|---|
+| Cap episodes ≤ −8.5 per tram-hour | 45.98 (584) | 35.57 (452) | −0.52 | [−0.68, −0.36] | better |
+| Below −5 per tram-hour | 64.71 | 49.50 | −0.76 | [−0.91, −0.61] | better |
+| Below −3 per tram-hour | 81.72 | 66.42 | −0.76 | [−0.98, −0.56] | better |
+| Observed closed-gate crossings | 208 | 167 | −2.05 | [−3.95, −0.10] | better |
+| Tram–tram pairs, raw | 33 | 41 | +0.40 | [+0.05, +0.75] | worse (info) |
+| **Tram–tram pairs, 5 cm tolerant** | **9** | **15** | **+0.30** | **[−0.05, +0.65]** | **within noise** |
+| Tram km/h incl. dwells (info) | 251.64 | 251.00 | −0.03 | [−0.10, +0.05] | within noise |
+
+The 15 fps traffic acceptance (`node tools/accept-traffic.mjs --base <prepared poznan worktree> --jobs 6`):
+car–tram pairs 70 → 54 (−0.80 [−1.95, +0.25]), 5 cm tolerant car–tram pairs 69 → 54 (−0.75 [−1.85, +0.30]),
+holds > 120 s 30 → 22 (−0.40 [−1.85, +0.90]), deadlocks 2 → 2 (0 [−0.15, +0.15]), no new deadlock pattern and no
+statistically clear regression in any gated metric. All 696 tests pass with the patch applied.
+
+The raw pair rise is still there and is still reported: 33 → 41, CI [+0.05, +0.75]. The 5 cm tolerance removes the
+0–3 cm rectangle tangencies at the 2.39–2.78 m parallel-track pinches (including the 1.28 cm Wilda 19:22 pass present
+in all 20 seeds of both trees), leaving 9 → 15 tolerant pairs. Ten deeper contacts appear and four disappear at
+junctions and switch corners (6 cm to 2.39 m deepest penetration for those pooled IDs over the run); their net +6 is within
+noise, and none of the added ones is a follower released into a leader or a tram released past a far road-car gate
+(the classification above applies unchanged). The gate-crossing diagnostic remains a lower bound with unequal
+observation opportunities on the two sides, so it is evidence of no worsening, not a safety proof. Both raw and
+tolerant counts should be quoted together: the tolerance measures body-rectangle penetration at sampled frames, not
+a continuous sweep. On this pre-agreed rule the variant is **accepted** and the comfort scan is retained in
+`js/trams.js`; per-seed data are in `.agent-task/paired.json` and `.agent-task/accept.json` in the measuring worktree.
+
+

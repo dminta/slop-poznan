@@ -349,23 +349,31 @@ of observed gates can leave a cause unresolved. Overruns only count crossings of
 they miss gates first observed behind the front, unobserved red crossings and buffer ends. These are lower bounds, not
 a safety proof. The benchmark world and its omissions are the same as for the traffic benchmark.
 
-`node tools/audit-tram-pairs.mjs [--seed 4242] [--minutes 5] [--fps 15] [--only wilda]` uses the overlap audit's
-oriented-rectangle test on sections of distinct active trams after warmup, and reports pooled pairs, pair-frames and
-first contacts. Pooled IDs can be reused, and between-frame and rendered contacts are not covered.
+`node tools/audit-tram-pairs.mjs [--seed 4242] [--minutes 5] [--fps 15] [--only wilda] [--tolerance 0.05]` uses the
+overlap audit's separating-axis test on sections of distinct active trams after warmup, and reports pooled pairs,
+pair-frames and first contacts. Each event carries `maxPenetration`, the deepest overlap of any section pair over the
+run (metres). `overlapPairs` keeps the touching-inclusive raw count; `overlapPairsTolerant` counts only pairs whose
+deepest penetration exceeds `--tolerance` (default 0, which keeps the raw touching-inclusive definition). A structural
+contact at a mapped parallel-track pinch is often a few centimetres deep and only sampled in some phases, so the
+tolerant count is the one to pair across seeds; always report the raw count too. Pooled IDs can be reused, and
+between-frame and rendered contacts are not covered.
 [Round 2 investigation](observations/tram-braking-2026-11-18.md) records the baseline and rejected variants.
+`tests/tram-pair-penetration.test.mjs` pins the shared function (`tools/rect-penetration.mjs`) at separation,
+tangency, 3 cm and 10 cm.
 
 ## Car–tram body overlap audit
 
-`node tools/audit-tram-overlaps.mjs` runs the same independent seeded worlds and update order as the traffic
-benchmark. It accepts `--minutes`, `--fps`, `--seed` and `--only` with the same defaults and district keys. Each JSON
-line reports a district's overlapping pooled vehicle–tram pairs, the number of pair-frames and the first observed
-contact for each pair. After the 20 s warmup, it compares each car and bus's oriented body rectangle against each
-active tram section on every frame; touching counts as an overlap. Pooled IDs may be reused after respawning, so a pair
-is counted once even if those objects meet again. It uses the benchmark's headless scene and omissions described above;
-it neither proves collision-free behavior between frames nor checks the rendered scene. Each seed takes a few minutes
-for all seven districts; `tests/traffic-flow.test.mjs` runs only the five-minute Jeżyce pass at seed 4242 as a bound.
-Results over eight seeds are in
-[observations/tram-overlaps-2026-11-04.md](observations/tram-overlaps-2026-11-04.md).
+`node tools/audit-tram-overlaps.mjs [--tolerance 0.05]` runs the same independent seeded worlds and update order as the
+traffic benchmark. It accepts `--minutes`, `--fps`, `--seed`, `--only` and `--tolerance` with the same defaults and
+district keys. Each JSON line reports a district's overlapping pooled vehicle–tram pairs, the number of pair-frames and
+the first observed contact for each pair, plus each event's `maxPenetration` and the
+`overlapPairsTolerant` count (pairs whose deepest section overlap clears the tolerance). After the 20 s warmup, it
+compares each car and bus's oriented body rectangle against each active tram section on every frame; touching counts as
+an overlap and leaves the default counts unchanged. Pooled IDs may be reused after respawning, so a pair is counted
+once even if those objects meet again. It uses the benchmark's headless scene and omissions described above; it neither
+proves collision-free behavior between frames nor checks the rendered scene. Each seed takes a few minutes for all
+seven districts; `tests/traffic-flow.test.mjs` runs only the five-minute Jeżyce pass at seed 4242 as a bound. Results
+over eight seeds are in [observations/tram-overlaps-2026-11-04.md](observations/tram-overlaps-2026-11-04.md).
 
 ## Pedestrians on carriageways
 
@@ -395,7 +403,9 @@ node tools/accept-traffic.mjs --base poznan --ped --demand --jobs 6
   `--ped` adds `audit-ped-overlaps.mjs` (3 min, 8 focus points), `--demand` adds `audit-demand-crossings.mjs`. The baseline
   is `git worktree add --detach` in a temp dir (removed afterwards, also on Ctrl-C); each tree runs its own `tools/`.
   `--work REF` replaces the working tree with another ref (to re-measure an old commit pair); `--base worktree`
-  compares the working tree with itself.
+  compares the working tree with itself. `--base` may also name an existing worktree directory, which is used as the
+  baseline and never removed: that lets a baseline ref run with an uncommitted `tools/` change, such as the
+  penetration-tolerant tram audit (see the [tram-pair record](observations/tram-braking-2026-11-18.md)).
 - **Seeds:** default `61 67 71 73 79 83 89 97 101 103 107 109 113 127 131 137 139 149 151 157` — none is a historical
   seed or one of the curb-fix record's twelve (`13 17 19 23 29 31 37 41 43 47 53 59`). `--seeds a,b,c` overrides
   (positive integers below 2147483647). `--minutes`, `--fps`, `--jobs` (default half the cores), `--json out`.
@@ -412,10 +422,13 @@ node tools/accept-traffic.mjs --base poznan --ped --demand --jobs 6
   difference per seed (working − baseline) and its 95 % paired-bootstrap CI (10 000 resamples over seeds, fixed
   PRNG). Verdict `better` / `worse` only when the whole interval lies on one side of zero; touching zero is
   `within noise`. Gates (their `worse` fails the run): car–tram pairs, holds > 120 s, deadlocks, max wait, overall
-  km/h, and with the options ped clusters and the demand audit's road-green counts. Per-district km/h, ped pairs/s and
-  starved requests are `(info)`. A new deadlock pattern also fails: the same district and junction set in ≥ 3 working
-  seeds and in none of the baseline's. Exit status 0 is "no statistically clear regression"; 1 is a gate failure; 2 is a
-  crash.
+  km/h, and with the options ped clusters and the demand audit's road-green counts. Per-district km/h, ped pairs/s,
+  starved requests and `car–tram pairs (5 cm tolerant)` are `(info)`. The tolerant car–tram count and the tram audits'
+  `overlapPairsTolerant` use the depth metric from `tools/rect-penetration.mjs` (see the audits below); the raw count
+  stays the gate, so a body-rectangle tangency cannot fail a run on its own. A baseline ref older than the tolerance
+  flag reports no tolerant count, and the metric is then left out of the table. A new deadlock pattern also fails: the same
+  district and junction set in ≥ 3 working seeds and in none of the baseline's. Exit status 0 is "no statistically clear
+  regression"; 1 is a gate failure; 2 is a crash.
 - **Limits:** each gate has about a 5 % false-alarm rate (more across the ten gated metrics), and 20 seeds only resolve
   shifts above the floor in [observations/traffic-noise-2026-11-15.md](observations/traffic-noise-2026-11-15.md).
   `within noise` means "not shown", not "equal"; a suspected small regression needs more seeds (`--seeds`, the cache keeps

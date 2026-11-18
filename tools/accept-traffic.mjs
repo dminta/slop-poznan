@@ -6,8 +6,8 @@
 // --base worktree compares the working tree with itself (use with --baseline-seed-shift to measure the noise floor).
 import { spawn, execFileSync } from 'node:child_process';
 import { cpus, tmpdir } from 'node:os';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   compareMetric, failures, newDeadlockPatterns, perSeedTable, summarizeBench, summaryTable
@@ -19,6 +19,8 @@ const CACHE_DIR = join(ROOT, '.accept-cache');
 // twelve of the curb-fix record (13 17 19 23 29 31 37 41 43 47 53 59).
 const DEFAULT_SEEDS = [61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157];
 const DISTRICT_KEYS = ['Jeżyce', 'Łazarz', 'Centrum', 'Kaponiera', 'Stare Miasto', 'Rataje', 'Wilda'];
+// Fixed 5 cm penetration margin for the extra tolerant car–tram metric; the audits' own default stays 0.
+const TRAM_TOLERANCE = 0.05;
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -77,11 +79,19 @@ const TOOLS = {
     return summarizeBench(JSON.parse(readFileSync(file, 'utf8')));
   },
   tram: async (dir, seed) => {
-    const out = await run(dir, 'audit-tram-overlaps.mjs', ['--seed', String(seed), '--minutes', String(MINUTES), '--fps', String(FPS)]);
+    const out = await run(dir, 'audit-tram-overlaps.mjs', ['--seed', String(seed), '--minutes', String(MINUTES),
+      '--fps', String(FPS), '--tolerance', String(TRAM_TOLERANCE)]);
     const rows = out.split('\n').filter((l) => l.startsWith('{')).map((l) => JSON.parse(l));
+    // A baseline ref older than the --tolerance flag ignores it and reports no tolerant count; the metric is then
+    // left out rather than failing the whole comparison.
+    const tolerant = rows.length && rows.every((r) => Number.isFinite(r.overlapPairsTolerant));
     const byDistrict = {};
     for (const r of rows) byDistrict[r.district] = r.overlapPairs;
-    return { pairs: rows.reduce((n, r) => n + r.overlapPairs, 0), byDistrict };
+    return {
+      pairs: rows.reduce((n, r) => n + r.overlapPairs, 0),
+      tolerantPairs: tolerant ? rows.reduce((n, r) => n + r.overlapPairsTolerant, 0) : null,
+      byDistrict
+    };
   },
   ped: async (dir, seed, tmp) => {
     const file = join(tmp, `ped-${seed}.json`);
@@ -120,8 +130,12 @@ async function main() {
   const tmp = mkdtempSync(join(tmpdir(), 'accept-traffic-'));
   let baseDir = null;
   let workDir = null;
+  // --base can also name an existing worktree directory, so a ref can be measured with an updated tool that is not
+  // committed on that ref (e.g. a baseline that must report the same penetration tolerance). We never delete it.
+  const preparedBase = BASE !== 'worktree' && isAbsolute(BASE) && existsSync(BASE) && statSync(BASE).isDirectory()
+    ? resolve(BASE) : null;
   const cleanup = () => {
-    for (const dir of [baseDir, workDir]) {
+    for (const dir of [preparedBase ? null : baseDir, workDir]) {
       if (dir) {
         try { git(ROOT, ['worktree', 'remove', '--force', dir]); } catch { /* already gone */ }
       }
@@ -130,8 +144,8 @@ async function main() {
   };
   for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { cleanup(); process.exit(130); });
   try {
-    if (BASE === 'worktree') {
-      baseDir = null;
+    if (BASE === 'worktree' || preparedBase) {
+      baseDir = preparedBase;
     } else {
       baseDir = join(tmp, 'baseline');
       git(ROOT, ['worktree', 'add', '--detach', baseDir, BASE]);
@@ -157,7 +171,7 @@ async function main() {
         for (const kind of kinds) {
           // the bench variants (tools/bench-world.mjs) change a tree's result, whichever side it is on
           const variant = [process.env.BENCH_RUNTIME_HEADS && `h${process.env.BENCH_RUNTIME_HEADS}`,
-            process.env.BENCH_STOP_MIN_LINK && `l${process.env.BENCH_STOP_MIN_LINK}`].filter(Boolean).join('-');
+            process.env.BENCH_STOP_MIN_LINK && `l${process.env.BENCH_STOP_MIN_LINK}`, `tol${TRAM_TOLERANCE}`].filter(Boolean).join('-');
           const cacheFile = join(CACHE_DIR, `${hashes[side]}-${kind}-s${actual}-m${MINUTES}-f${FPS}${variant ? `-${variant}` : ''}.json`);
           tasks.push(async () => {
             if (!inflight.has(cacheFile)) {
@@ -200,6 +214,9 @@ async function main() {
     }
     const patterns = (side) => Object.fromEntries(SEEDS.map((s) => [s, data[side][s].bench.deadlockPatterns]));
     const newPatterns = newDeadlockPatterns(patterns('base'), patterns('work'));
+    if (['base', 'work'].every((side) => SEEDS.every((s) => data[side][s].tram?.tolerantPairs != null))) {
+      comparisons.splice(1, 0, metric('car–tram pairs (5 cm tolerant)', 'lower', false, (d) => d.tram.tolerantPairs));
+    }
     const failed = failures(comparisons, newPatterns);
 
     console.log(`## Traffic acceptance: ${BASE} vs ${WORK === 'worktree' ? 'working tree' : WORK} (${SEEDS.length} seeds, ${MINUTES} min, ${FPS} fps)\n`);
