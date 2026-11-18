@@ -509,11 +509,18 @@ volume from `world.blocks[].balconies` (one 1.0 m deep box per landing, using th
 It covers span stays/drops/masts/heads, cantilever masts/arms/heads, ground heads/poles, the bridge fascia and the
 static side poles with their vehicle and pedestrian heads. Segment distances are exact (ternary search); head box edges
 are sampled every 2 cm. It prints the intersecting elements, volumes and worst overlaps, and the nearest gaps up to
-`--near`. Measured 2026-11-18: 189 runtime heads + 4,926 static elements, 19,426 stacks / 59,939 volumes; spans,
-cantilevers, ground and bridge heads are clear at 0.3 m (nearest 1.010 m span mast), but a **static pole/head at
-Głogowska (junction 3045) comes within 0.044 m of a Łazarz balcony** (block 936; pole 0.096 m)
-([record](observations/balcony-spans-2026-11-18.md)). The fixture omits airport, canopy, outskirts and city-grid
-colliders; no rendered check is possible headless.
+`--near`. Measured 2026-11-18: 189 runtime heads + 4,926 static elements, 19,426 stacks / 59,938 volumes after the
+production filter; spans, cantilevers, ground and bridge heads are clear at 0.3 m (nearest 1.010 m span mast). Before
+the fix a **static pole/head at Głogowska (junction 3045) came within 0.044 m of a Łazarz balcony** (block 936; pole
+0.096 m), and `--before` still reproduces those two rows. The audit calls `street.pruneBalconies` on its own blocks
+before reading them, exactly as `main.js` does, so the default run reports 0 rows and `balconyFilter` in the summary
+counts the trimmed landing(s). The filter's pure geometry and trim/drop rule are pinned by
+`tests/balcony-clearance.test.cjs`, which slices the block out of `js/street-details.js` between the
+`// --- Balcony clearance against signal elements` and `// --- End balcony clearance helpers` markers and checks the
+recorded 0.096 m / 0.044 m gaps. The full-world audit is not a test (a second world build would add ~14 s); run it by
+hand after changing signal or balcony geometry: it should report 0 rows. The fixture omits airport, canopy, outskirts and city-grid
+colliders; no rendered check is possible headless
+([record](observations/balcony-spans-2026-11-18.md)).
 
 ## Demand-crossing audit
 

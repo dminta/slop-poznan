@@ -6,8 +6,8 @@ raised signal element against every balcony slab+railing volume in the full-coll
 
 **Result:** all 30 span heads, 84 cantilever heads, 74 ground heads and the one bridge head are clear at a 0.3 m margin.
 **One static boot-time pole and its S-1 head at Głogowska (junction 3045) come within 0.044 m of a first-floor balcony in
-block 936** (0.096 m for the pole), so the pair eats 0.256 m of the margin. No fix was made; the cases are listed below
-for a decision.
+block 936** (0.096 m for the pole), so the pair eats 0.256 m of the margin. The user chose to drop the balcony, not move
+the signal; the implemented guard and its measured result are in **Fix** below, and the audit now reports 0 rows.
 
 ## Method
 
@@ -88,22 +88,47 @@ The nearest real building collider is an oriented generic block collider (minY 0
 **1.196 m** from the pole; the balcony projects 1.0 m from that wall, so the pole stands roughly 0.20 m from its street
 face and the head box (0.15 m half-width, 0.18 m in front of the pole) reaches within 0.044 m. This is a real narrow
 gap in the generated frontage, not an AABB artefact: the world AABB reports 0 m, but the OBB frame gives 1.196 m.
-Whether the right response is to move the static pole/head along the curb, drop that side's pole, or accept it is left
-for the user; no placement code was changed.
+The user chose to drop the balcony rather than move the signal (see **Fix** below).
 
-## Boot order and the proposed guard
+## Fix (2026-11-18)
+
+The rule is implemented on the balcony side, as a general guard: after the static poles/heads (`buildStreetDetails`)
+and both runtime head passes (`addRuntimeSignalHeads`), `main.js` calls `streetDetails.pruneBalconies(allBlocks)`.
+Balconies are cosmetic and have no collider, so this cannot change traffic, pedestrians or player collision.
+
+- `js/street-details.js` holds the audit's exact geometry as a top-level pure block: the slab+railing volume
+  (`w` clamped 1.5–3 m, local z −0.55…0.45, slab soffit −0.14 m to railing top +1.0 m, turned by `ry + facing`), the
+  ternary-search segment distance (80 steps, radius subtracted) and the head box sampled along its 12 edges every 2 cm.
+  `pruneBalconyClashes(blocks, obstacles)` buckets the ~5k signal elements in the audit's 16 m cells, tests each stack,
+  and returns `{ stacks, trimmed, dropped, landingsRemoved }`.
+- The obstacle set is the audit's: static side poles and the Dworzec refuge, live static and left-reuse S-1 heads,
+  static pedestrian heads, and every runtime span (stays, drop, masts), cantilever (mast, arm), ground pole and bridge
+  fascia arm/drop, with the same heights, radii and big-head boxes. Disabled signal plans are read after
+  `addRuntimeSignalHeads` compacts them.
+- A clashing bottom landing is trimmed from the bottom (`y += storey`, `landings -= 1`, `h -= storey`, which keeps the
+  far box correct); a clash above that prefix drops the whole stack. A 1-landing stack renders correctly (`balconies.js`
+  loops `landings` and sizes the far box from `h`), so one landing may remain.
+- The audit calls the production method on its own fixture before reading `world.blocks[].balconies`, so it measures
+  the filtered records; `--before` (the `HEAD` street-details) has no method and keeps reproducing the pre-fix rows.
+
+**Measured 2026-11-18:** `node tools/audit-balcony-spans.mjs --json` → **0 rows at 0.3 m**, 19,426 stacks and 59,938
+volumes (one less than the pre-fix 59,939); `balconyFilter` trimmed **one** stack by **one landing** (the Głogowska
+block 936 landing 0) and dropped no stack. `--before` still reports the two rows at 0.044 m (head) and 0.096 m (pole).
+The filter cost **23.1 ms** median in `bench-boot-headless` (3 interleaved pairs against `poznan` 26c1110); that run's
+only changed hash is `blocks.allBlocks`, and inside it only `blk.balconies` records (trimmed `y`/`landings`/`h`).
+
+## Boot order and the rejected signal-placement guard
 
 Balconies are known before any of this geometry is placed: `main.js` runs `buildCityBlocks` (`:199`, returns `allBlocks`
 with `blk.balconies` in world coordinates), `buildCityGrid`, then `buildStreetDetails` (`:224`) and
 `addRuntimeSignalHeads` (`:242`). The static signal poles are built inside `buildStreetDetails` after that first point,
 so both the static and runtime placements can see the records.
 
-A guard would pass the flat balcony list into `buildStreetDetails` (`balconies: allBlocks.flatMap((b) => b.balconies)`),
-index the slab+railing boxes in the existing 16 m grid inside `auditRuntimeSignalHeads` for the runtime heads, and add a
-0.3 m test where the static pole spot is accepted (`spot()`/`signalPoleSpot`), to `footBuildingClear` (span/cantilever
-masts), to `footWireClear`/`stayClear` (stays and drops) and to `headClear` (hanging heads). An intersecting candidate
-is then skipped and the existing search takes the next one; no existing threshold moves. It is not implemented yet
-because the task asks to stop and report the first intersection found.
+The first proposal was the opposite direction: pass the flat balcony list into `buildStreetDetails`, index the
+slab+railing boxes and add a 0.3 m test to `spot()`/`signalPoleSpot`, `footBuildingClear`, `footWireClear`/`stayClear`
+and `headClear`, so an intersecting candidate is skipped and the existing search takes the next one. It was rejected:
+the user's rule is to drop the balcony, not move the signal, because the signal geometry is traffic-critical while the
+balcony is decorative.
 
 ## Limits
 
@@ -121,6 +146,7 @@ because the task asks to stop and report the first intersection found.
 - The head box is sampled along its edges at 2 cm; the exact OBB-OBB distance could differ by under 1 cm, far below the
   0.3 m threshold.
 
-Reproduce: `node tools/audit-balcony-spans.mjs --json` (about 14 s) or without `--json` for the worst rows as text.
-`--before` loads `js/street-details.js` from `HEAD` for a pre-change comparison; the current tree is unchanged, so its
-numbers match.
+Reproduce: `node tools/audit-balcony-spans.mjs --json` (about 14 s) or without `--json` for the worst rows as text; it
+runs the production pruner and reports 0 rows on the current tree. `--before` loads `js/street-details.js` from `HEAD`
+(pre-fix, no `pruneBalconies`) and reports the two Głogowska rows above. `tests/balcony-clearance.test.cjs` checks the
+same volume/segment/head geometry against the recorded 0.096 m and 0.044 m gaps and the trim/drop rule.

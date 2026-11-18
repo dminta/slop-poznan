@@ -242,6 +242,9 @@ async function initApp() {
   streetDetails.addRuntimeSignalHeads(trafficSystem.network, trafficSystem.pedestrianRoutes, signalSupports,
     railLayout);
   markInit('traffic');
+  // Cosmetic balconies must not clip the signal poles, masts, arms, stays or heads now that both sets exist.
+  streetDetails.pruneBalconies(cityBlocks.allBlocks);
+  markInit('balconyClearance');
   // The street furniture's player colliders join only now: its footprints already went to the network above
   allColliders.push(...streetDetails.colliders);
   // Likewise the square & park benches, lampposts, planters and tree trunks: none on the network's sidewalks

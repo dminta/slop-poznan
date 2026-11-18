@@ -41,7 +41,9 @@
    `createTrafficSystem`, `buildRoadPaint`, `buildTramInfrastructure`, `createTramSystem`, then
    `trafficSystem.setTrams(tramSystem)`. After
    traffic configures the road network, street details add vehicle heads on existing or newly placed poles,
-   after checking the materialised pedestrian routes and before colliders reach the player and the scene is culled. The
+   after checking the materialised pedestrian routes and before colliders reach the player and the scene is culled;
+   `streetDetails.pruneBalconies(allBlocks)` then drops cosmetic balcony landings that would clip those poles, masts,
+   arms, stays or heads (`docs/world.md` "Balconies"). The
    order matters because of constructor injection and the live `let` exports below
    ([`world.md`](world.md#build-order-mainjs-initapp-and-why-it-is-fixed)).
 3. `ThirdPersonControllerManager(scene, allColliders, { keepOut: tramInfra.railCorridor })`. Saved player state is

@@ -263,6 +263,10 @@ async function main() {
   streetDetails.addRuntimeSignalHeads(trafficSystem.network, trafficSystem.pedestrianRoutes, signalSupports, railLayout);
   phases.signalHeads = performance.now() - t0;
 
+  t0 = performance.now();
+  streetDetails.pruneBalconies?.(cityBlocks.allBlocks);
+  phases.balconyClearance = performance.now() - t0;
+
   // 8. Road paint
   t0 = performance.now();
   const capturedPaint = [];

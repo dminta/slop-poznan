@@ -380,14 +380,17 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   against feff6af, all within noise: holds > 120 s 32 → 37, deadlocks 2 → 3; the base already deadlocks at Rataje@1026,1671 (seed 211)
   and Jeżyce@−2069,−470 (seed 197, kept). **Open deadlock sites under L17.5:** Wilda@−108,1867;−123,1864;−123,1931;−138,1927 (seed 103)
   and Kaponiera@−1136,127 (seed 263), both new; (4) rear-queue and WebGL2 low checks of the new head positions.
-- **Balcony clearance around signal spans and raised signal elements (audited 2026-11-18).**
-  `tools/audit-balcony-spans.mjs` now tests all 189 runtime heads (30 spans, 84 cantilevers, 74 ground, 1 bridge) and
-  4,926 live static boot-time poles/heads against all 19,426 balcony stacks (59,939 slab+railing volumes) in the
+- **Balcony clearance around signal spans and raised signal elements (fixed 2026-11-18).**
+  `tools/audit-balcony-spans.mjs` tests all 189 runtime heads (30 spans, 84 cantilevers, 74 ground, 1 bridge) and
+  4,926 live static boot-time poles/heads against all 19,426 balcony stacks (59,938 slab+railing volumes) in the
   full-collider fixture. **Spans, cantilevers, ground heads and the bridge head are clear at 0.3 m** (nearest span mast
   1.01 m, cantilever mast 3.18 m, ground pole 3.16 m). **One static side pole and its S-1 head at Głogowska
-  (junction 3045) clip a first-floor balcony at block 936, Łazarz**: head gap 0.044 m, pole gap 0.096 m, y overlap
-  3.76–3.98 / 3.76–4.30; the real oriented wall is 1.196 m from the pole and the balcony projects 1.0 m. No fix made —
-  needs a decision on moving/removing that pole or accepting it. [Record](observations/balcony-spans-2026-11-18.md).
+  (junction 3045) clipped a first-floor balcony at block 936, Łazarz** (head gap 0.044 m, pole gap 0.096 m, y overlap
+  3.76–3.98 / 3.76–4.30; the real oriented wall is 1.196 m from the pole and the balcony projects 1.0 m). The user
+  chose to drop the balcony, not move the signal: `main.js` now calls `streetDetails.pruneBalconies(allBlocks)` after
+  the runtime heads exist and before balconies stream. It trims clashing bottom landings and drops a stack for a
+  middle clash; citywide it removed **one landing, no stack**, cost **23.1 ms** in the headless boot (3 interleaved
+  pairs), and the audit reports **0 rows** at 0.3 m. [Record](observations/balcony-spans-2026-11-18.md).
 - Span boot cost: caching per-target anchor clearance reduced median `signalHeads` 2285 → 2162 ms (−5.4%,
   five interleaved pairs) with identical benchmark and runtime-head/anchor hashes. The older +362 ms measurement
   used different runs, so the remaining gap is not directly established. [Performance record](observations/perf-span-boot-2026-11-18.md),

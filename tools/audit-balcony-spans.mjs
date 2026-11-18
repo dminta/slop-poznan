@@ -81,6 +81,9 @@ vm.runInNewContext(`(${configure})`, { nodes: network.nodes, pedRoutes, KERB: 1.
   configureSignalClearance: config.configureSignalClearance })();
 street.addRuntimeSignalHeads(network);
 street.addRuntimeSignalHeads(network, pedRoutes, supports, railLayout);
+// main.js runs the same production filter after both head passes (`--before` loads the pre-fix module, which has no
+// pruneBalconies method, so its numbers stay the recorded pre-fix ones).
+const balconyFilter = street.pruneBalconies ? street.pruneBalconies(world.blocks) : null;
 
 // --- Balcony slab+railing volumes (js/balconies.js, near and far proxies share this footprint) ---------------
 // Local frame: slab top y 0, railing top y 1.0, slab soffit y -0.14, depth z -0.55 (wall) .. 0.45 (street).
@@ -442,6 +445,7 @@ const summary = {
   masts: countOf('cantilever', 'mast') + countOf('span', 'mast'),
   staticCaptured: captured.length,
   staticDisabled,  balconyStacks: world.blocks.reduce((n, blk) => n + blk.balconies.length, 0),
+  balconyFilter,
   balconyVolumes: volumes.length,
   rows: rows.length,
   intersectingSpans: spanSet.size,

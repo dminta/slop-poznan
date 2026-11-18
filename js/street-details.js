@@ -143,6 +143,194 @@ function plateLabel(name, district) {
   return { kind: [kind, head].filter(Boolean).join(' '), name: words.slice(Math.max(0, k)).join(' '), district: district || '' };
 }
 
+// --- Balcony clearance against signal elements (docs/world.md "Balconies") -------------------------
+// The balcony slab+railing volume is the audit's exact shape (tools/audit-balcony-spans.mjs): one 1.0 m deep box per
+// landing, w clamped to 1.5-3 m, y from the slab soffit (-0.14 m) to the railing top (+1.0 m), turned by the
+// stack's block frame (ry) plus facing. A landing whose volume comes within 0.3 m of any signal pole, mast, arm,
+// stay, drop or head box is dropped from the bottom of its stack; a middle clash drops the whole stack. Balconies
+// are cosmetic (no collider), so this cannot change traffic or collision behaviour.
+const BALCONY_MARGIN = 0.3;
+const BALCONY_SLAB = 0.14;
+const BALCONY_RAIL = 1.0;
+const BALCONY_BACK = -0.55;
+const BALCONY_FRONT = 0.45;
+const BALCONY_WIDTH = 2.4;
+const BALCONY_CELL = 16; // m, the audit's bucket size
+const BALCONY_EDGE_STEP = 0.02; // m, the audit's head box edge sampling
+
+// Point to the oriented balcony box, in the box's own frame (the box only turns about y).
+function balconyPointGap2(px, py, pz, v) {
+  const dx = px - v.x, dz = pz - v.z;
+  const lx = v.cs * dx - v.sn * dz;
+  const lz = v.sn * dx + v.cs * dz;
+  const ex = Math.max(Math.abs(lx) - v.hw, 0);
+  const ey = Math.max(v.y0 - py, 0, py - v.y1);
+  const ez = Math.max(Math.abs(lz - v.zc) - v.hz, 0);
+  return ex * ex + ey * ey + ez * ez;
+}
+
+// Exact segment-to-box distance. The squared distance to a convex box is convex along a line, so the ternary
+// search on the segment parameter converges to the closest point (the audit uses the same 80 steps).
+function balconySegmentGap(s, v) {
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 80; i++) {
+    const m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3;
+    const d1 = balconyPointGap2(s.ax + (s.bx - s.ax) * m1, s.ay + (s.by - s.ay) * m1,
+      s.az + (s.bz - s.az) * m1, v);
+    const d2 = balconyPointGap2(s.ax + (s.bx - s.ax) * m2, s.ay + (s.by - s.ay) * m2,
+      s.az + (s.bz - s.az) * m2, v);
+    if (d1 <= d2) hi = m2; else lo = m1;
+  }
+  const t = (lo + hi) * 0.5;
+  return Math.sqrt(balconyPointGap2(s.ax + (s.bx - s.ax) * t, s.ay + (s.by - s.ay) * t,
+    s.az + (s.bz - s.az) * t, v)) - s.r;
+}
+
+// A head is a small convex box: the audit samples its 12 edges every 2 cm; the true OBB minimum differs by under a
+// centimetre, far below the 0.3 m threshold.
+function balconyHeadPoints(e) {
+  const cs = Math.cos(e.angle), sn = Math.sin(e.angle);
+  const corners = [];
+  for (const [sx, sy, sz] of [[-1, -1, -1], [1, -1, -1], [1, -1, 1], [-1, -1, 1],
+    [-1, 1, -1], [1, 1, -1], [1, 1, 1], [-1, 1, 1]]) {
+    const lx = sx * e.hx, lz = e.zc + sz * e.hz;
+    corners.push([e.x + cs * lx + sn * lz, e.y + sy * e.hy, e.z - sn * lx + cs * lz]);
+  }
+  const edges = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
+  const pts = [];
+  for (const [i, j] of edges) {
+    const a = corners[i], b = corners[j];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+    const steps = Math.max(1, Math.ceil(len / BALCONY_EDGE_STEP));
+    for (let s = 0; s <= steps; s++) {
+      pts.push([a[0] + (b[0] - a[0]) * s / steps, a[1] + (b[1] - a[1]) * s / steps,
+        a[2] + (b[2] - a[2]) * s / steps]);
+    }
+  }
+  return pts;
+}
+
+// Filter blk.balconies for every block in place. Obstacles are the audit's two shapes: a capped segment
+// { ax, ay, az, bx, by, bz, r } for a pole/mast/arm/stay/drop, and a head box { x, y, z, angle, hx, hy, zc, hz }.
+// Returns how many stacks were trimmed or dropped, so the caller and audits can report the result.
+function pruneBalconyClashes(blocks, obstacles, margin = BALCONY_MARGIN) {
+  const stats = { stacks: 0, trimmed: 0, dropped: 0, landingsRemoved: 0 };
+  if (!blocks?.length) return stats;
+  const n = obstacles?.length || 0;
+  // 16 m buckets over the obstacles (about 5k at boot): each stack then tests only its own neighbourhood.
+  const grid = new Map();
+  const x0 = new Float64Array(n), x1 = new Float64Array(n), z0 = new Float64Array(n), z1 = new Float64Array(n);
+  const y0 = new Float64Array(n), y1 = new Float64Array(n);
+  for (let k = 0; k < n; k++) {
+    const o = obstacles[k];
+    let minX, maxX, minY, maxY, minZ, maxZ;
+    if (o.r !== undefined) {
+      minX = Math.min(o.ax, o.bx) - o.r; maxX = Math.max(o.ax, o.bx) + o.r;
+      minZ = Math.min(o.az, o.bz) - o.r; maxZ = Math.max(o.az, o.bz) + o.r;
+      minY = Math.min(o.ay, o.by) - o.r; maxY = Math.max(o.ay, o.by) + o.r;
+    } else {
+      // Head box world AABB: centre plus the turned half extents.
+      const cs = Math.cos(o.angle), sn = Math.sin(o.angle);
+      const ox = o.x + sn * o.zc, oz = o.z + cs * o.zc;
+      const ex = Math.abs(cs) * o.hx + Math.abs(sn) * o.hz;
+      const ez = Math.abs(sn) * o.hx + Math.abs(cs) * o.hz;
+      minX = ox - ex; maxX = ox + ex; minZ = oz - ez; maxZ = oz + ez;
+      minY = o.y - o.hy; maxY = o.y + o.hy;
+    }
+    x0[k] = minX; x1[k] = maxX; z0[k] = minZ; z1[k] = maxZ; y0[k] = minY; y1[k] = maxY;
+    const gx0 = Math.floor((minX - margin) / BALCONY_CELL), gx1 = Math.floor((maxX + margin) / BALCONY_CELL);
+    const gz0 = Math.floor((minZ - margin) / BALCONY_CELL), gz1 = Math.floor((maxZ + margin) / BALCONY_CELL);
+    for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+      const key = gx * 100000 + gz;
+      const list = grid.get(key);
+      if (list) list.push(k); else grid.set(key, [k]);
+    }
+  }
+  const seen = new Int32Array(n);
+  let stamp = 0;
+  const volume = { x: 0, z: 0, cs: 1, sn: 0, hw: 0, hz: 0, zc: 0, y0: 0, y1: 0 };
+  for (const blk of blocks) {
+    const stacks = blk.balconies;
+    if (!stacks?.length) continue;
+    let write = 0;
+    for (let si = 0; si < stacks.length; si++) {
+      const b = stacks[si];
+      stats.stacks++;
+      const angle = (b.ry || 0) + b.facing;
+      const cs = Math.cos(angle), sn = Math.sin(angle);
+      const width = b.w ? Math.min(3, Math.max(1.5, b.w)) : BALCONY_WIDTH;
+      const hw = width * 0.5, hz = (BALCONY_FRONT - BALCONY_BACK) * 0.5, zc = (BALCONY_FRONT + BALCONY_BACK) * 0.5;
+      const sx = b.x + sn * zc, sz = b.z + cs * zc;
+      const ex = hw * Math.abs(cs) + hz * Math.abs(sn), ez = hw * Math.abs(sn) + hz * Math.abs(cs);
+      const sx0 = sx - ex, sx1 = sx + ex, sz0 = sz - ez, sz1 = sz + ez;
+      const sy0 = b.y - BALCONY_SLAB, sy1 = b.y + (b.landings - 1) * b.storey + BALCONY_RAIL;
+      stamp++;
+      let clash = null;
+      const gx0 = Math.floor((sx0 - margin) / BALCONY_CELL), gx1 = Math.floor((sx1 + margin) / BALCONY_CELL);
+      const gz0 = Math.floor((sz0 - margin) / BALCONY_CELL), gz1 = Math.floor((sz1 + margin) / BALCONY_CELL);
+      volume.x = b.x; volume.z = b.z; volume.cs = cs; volume.sn = sn; volume.hw = hw; volume.hz = hz;
+      volume.zc = zc;
+      for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+        const list = grid.get(gx * 100000 + gz);
+        if (!list) continue;
+        for (const k of list) {
+          if (seen[k] === stamp) continue;
+          seen[k] = stamp;
+          // Whole-stack and per-landing AABB rejects before the exact distance.
+          if (y1[k] + margin <= sy0 || y0[k] - margin >= sy1) continue;
+          if (x1[k] + margin <= sx0 || x0[k] - margin >= sx1 ||
+            z1[k] + margin <= sz0 || z0[k] - margin >= sz1) continue;
+          const o = obstacles[k];
+          const pts = o.r === undefined ? balconyHeadPoints(o) : null;
+          for (let i = 0; i < b.landings; i++) {
+            if (clash && clash[i]) continue;
+            volume.y0 = b.y + i * b.storey - BALCONY_SLAB;
+            volume.y1 = volume.y0 + BALCONY_SLAB + BALCONY_RAIL;
+            let hit;
+            if (pts) {
+              let best = Infinity;
+              for (const p of pts) {
+                const d2 = balconyPointGap2(p[0], p[1], p[2], volume);
+                if (d2 < best) best = d2;
+              }
+              hit = best < margin * margin;
+            } else {
+              hit = balconySegmentGap(o, volume) < margin;
+            }
+            if (hit) {
+              if (!clash) clash = new Array(b.landings).fill(false);
+              clash[i] = true;
+            }
+          }
+        }
+      }
+      if (clash) {
+        // Trim only a bottom prefix of clashing landings; any other clash drops the whole stack. A 1-landing stack
+        // renders correctly (balconies.js loops landings and sizes the far box from h), so one may remain.
+        let trim = 0, drop = false;
+        for (let i = 0; i < b.landings; i++) {
+          if (!clash[i]) continue;
+          if (i === trim && i < b.landings - 1) trim++;
+          else { drop = true; break; }
+        }
+        if (drop) { stats.dropped++; continue; }
+        if (trim) {
+          b.y += trim * b.storey;
+          b.landings -= trim;
+          b.h -= trim * b.storey;
+          stats.trimmed++;
+          stats.landingsRemoved += trim;
+        }
+      }
+      stacks[write++] = b;
+    }
+    stacks.length = write;
+  }
+  return stats;
+}
+
+// --- End of balcony clearance helpers ---------------------------------------------------------------
+
 // Advertising column posters: a seeded patchwork of bills (no text), wrapped round the column
 function createPosterTexture() {
   const c = document.createElement('canvas');
@@ -870,7 +1058,9 @@ function buildStreetDetails(scene, opts = {}) {
   // Register it before building that network so its shaft participates in obstacle and player collision checks.
   const dworzec = SIGNAL_SITES.find((site) => Math.hypot(site.x + 1566.1, site.z - 566.1) < 1);
   const refugePole = { x: -1580.5, z: 552 };
+  let refugePoleBuilt = false;
   if (dworzec && signalPoleSpot(refugePole.x, refugePole.z)) {
+    refugePoleBuilt = true;
     const dx = -1557.93 - refugePole.x, dz = 579.52 - refugePole.z;
     const length = Math.hypot(dx, dz);
     addSignalPole(refugePole, dworzec.timing);
@@ -3441,13 +3631,84 @@ function buildStreetDetails(scene, opts = {}) {
     result.vehicleHeads += matrices.length;
     return matrices.length;
   }
+  // Signal geometry for the balcony clearance, at the same heights and radii the audit measures: static side poles
+  // (including the Dworzec refuge), the live static and left-reuse vehicle heads, the static pedestrian heads, and
+  // every runtime span/cantilever/ground/bridge head. `vehicleHeadSites` is live after addRuntimeSignalHeads, so
+  // disabled plans are already spliced out; `pedHeadMatrices` is compacted the same way.
+  function balconyObstacles(heads) {
+    const out = [];
+    const segment = (ax, ay, az, bx, by, bz, r) => out.push({ ax, ay, az, bx, by, bz, r });
+    const headBox = (x, y, z, angle, big, ped = false) => {
+      if (ped) out.push({ x, y, z, angle, hx: 0.15, hy: 0.3, zc: -0.025, hz: 0.245 });
+      else out.push({ x, y, z, angle, hx: big ? 0.27 : 0.15, hy: big ? 0.55 : 0.43, zc: -0.015, hz: 0.285 });
+    };
+    const bigHead = (a) => a.w >= 14.5 || a.lanes >= 3;
+    for (const h of vehicleHeadSites) {
+      headBox(h.p.x + h.a.ux * 0.18, S1_Y, h.p.z + h.a.uz * 0.18, Math.atan2(h.a.ux, h.a.uz), bigHead(h.a));
+    }
+    for (const record of signalArmPoles.values()) {
+      // A disabled plan's record was cleared by addRuntimeSignalHeads.
+      for (const item of record.poles) {
+        segment(item.p.x, 0.1, item.p.z, item.p.x, 0.1 + SIGNAL_POLE_H, item.p.z, 0.1);
+      }
+    }
+    if (refugePoleBuilt) {
+      segment(refugePole.x, 0.1, refugePole.z, refugePole.x, 0.1 + SIGNAL_POLE_H, refugePole.z, 0.1);
+    }
+    for (const m of pedHeadMatrices) {
+      const e = m.elements;
+      headBox(e[12], PED_Y, e[14], Math.atan2(e[8], e[0]), false, true);
+    }
+    for (const h of heads) {
+      const a = h.a, p = h.p;
+      const spot = { x: p.x + a.ux * 0.18, z: p.z + a.uz * 0.18 };
+      const angle = Math.atan2(a.ux, a.uz), big = bigHead(a);
+      if (h.span) {
+        const topY = h.topY ?? SPAN_Y;
+        segment(h.anchors[0].x, topY, h.anchors[0].z, p.x, topY, p.z, SPAN_WIRE_R);
+        segment(h.anchors[1].x, topY, h.anchors[1].z, p.x, topY, p.z, SPAN_WIRE_R);
+        segment(p.x, topY, p.z, p.x, OVERHEAD_Y + 0.05, p.z, SPAN_WIRE_R);
+        headBox(spot.x, OVERHEAD_Y, spot.z, angle, big);
+        h.anchors.forEach((anchor, j) => {
+          // A traction pole tapers 0.15 -> 0.1 m; the new/reused signal mast is 0.1 m.
+          segment(anchor.x, 0.1, anchor.z, anchor.x, topY, anchor.z, h.anchorTraction?.[j] ? 0.15 : 0.1);
+        });
+      } else if (h.bridge) {
+        const headY = h.headY ?? 5.15, foot = h.pole, topY = h.topY;
+        segment(foot.x, topY, foot.z, p.x, topY, p.z, OVERHEAD_ARM_R);
+        segment(p.x, topY, p.z, p.x, headY + 0.55, p.z, OVERHEAD_ARM_R);
+        headBox(spot.x, headY, spot.z, angle, big);
+      } else if (h.overhead) {
+        const foot = h.pole;
+        segment(foot.x, 0.1, foot.z, foot.x, 0.1 + OVERHEAD_MAST_H, foot.z, 0.1);
+        segment(foot.x, OVERHEAD_ARM_Y, foot.z, p.x, OVERHEAD_ARM_Y, p.z, OVERHEAD_ARM_R);
+        headBox(spot.x, OVERHEAD_Y, spot.z, angle, big);
+      } else {
+        segment(p.x, 0.1, p.z, p.x, 0.1 + SIGNAL_POLE_H, p.z, 0.1);
+        headBox(spot.x, S1_Y, spot.z, angle, big);
+      }
+    }
+    return out;
+  }
+
   scene.add(group);
   // The plaza/park outline indexes are boot-only; a late inPlaza() (addRuntimeSignalHeads) rebuilds them lazily.
   plazaIndexes = new WeakMap();
   ringGrids = new WeakMap();
   const result = { group, footprints, colliders, signalClock, audioSignals, treePlacement, shelterPlacement, roadNetwork: treeNetwork,
-    tramLayout, vehicleHeads: s1Matrices.length, runtimeHeads: [], addRuntimeSignalHeads, auditRuntimeSignalHeads, update };
+    tramLayout, vehicleHeads: s1Matrices.length, runtimeHeads: [], balconyClearance: null,
+    addRuntimeSignalHeads, auditRuntimeSignalHeads, update,
+    // main.js calls this once, after addRuntimeSignalHeads and before the buildings stream balconies.
+    pruneBalconies(blocks) {
+      const stats = pruneBalconyClashes(blocks, balconyObstacles(result.runtimeHeads));
+      result.balconyClearance = stats;
+      if (stats.trimmed || stats.dropped) {
+        console.info(`[streetDetails] balconies: ${stats.trimmed} trimmed (${stats.landingsRemoved} landings), ` +
+          `${stats.dropped} dropped for signal clearance`);
+      }
+      return stats;
+    } };
   return result;
 }
 
-export { buildStreetDetails, plateLabel };
+export { buildStreetDetails, plateLabel, pruneBalconyClashes };
