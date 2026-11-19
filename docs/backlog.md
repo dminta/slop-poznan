@@ -15,7 +15,9 @@ Implementation details and completed measurements live in the [topic docs](../AG
 
 - **Piotrowo heights:** confirm the new rectorate against a post-completion survey; its 16.5 m model height now
   follows the documented 16.31 m above-ground portion. A28/A29 use 2024 elevation data; A30 uses PP’s 11.80 m dimension.
-  Vault profiles, tagged pitch surfaces/markings and the circular lecture forecourt are implemented. See [world](world.md#piotrowo-campus-landmarks-2026-11-12-round-2) and
+  Vault profiles, tagged pitch surfaces/markings and the circular lecture forecourt are implemented. The 2026-11-19
+  source check found no post-completion product yet — GEOPOZ's city model carries the rectorate only as a 12 m
+  storey-derived LoD1 mass ([height sources](observations/height-sources-2026-11-19.md)). See [world](world.md#piotrowo-campus-landmarks-2026-11-12-round-2) and
   [height evidence](geodata.md#piotrowo-campus-snapshot-2026-11-12).
 
 - **Pedestrian overlap residual:** **current (`637105e`, 2026-11-15 remeasurement):** eight districts,
@@ -305,7 +307,15 @@ share are not thinned; [central-density record](observations/central-density-202
      [record](observations/perf-tree-sweep-2026-11-16.md)).
   [Ranked opportunities](observations/perf-older-devices-2026-11-11.md).
 - Road levels and richer road-priority classification; revisit only with a runtime consumer.
-- Additional height sources (nDSM/LoD1/LoD2) and GEOPOZ machine-readable data: research candidates.
+- **Height sources (researched 2026-11-19):** GEOPOZ's LoD2 3D Tiles are the only new machine-readable per-building
+  height source for Poznań — 946 public `.b3dm` tiles with `measuredHeight` and ground/highest/lowest roof elevations,
+  free with attribution; join by EGiB `E_IDG5` (the batch-table `GOOGLE_URL` sits ~160–170 m south and explains the old
+  "position links did not match" failure), re-ground on the local DTM because `measuredHeight` uses minimum terrain,
+  and remember the roof geometry is 2020–2021 (the 2026-04-27 layer update is an attribute refresh). There is no
+  national LoD2 for Poznań (TERYT 3064, archive 404) and the latest dated elevation sheet remains the 2024-09-17
+  LiDAR/NMPT already used, so the rectorate's 16.31 m needs a future post-completion flight or an as-built survey;
+  a city-wide LoD2 crawl stays an optional research tool, not a runtime source.
+  [Record](observations/height-sources-2026-11-19.md).
 
 ## Browser checks still outstanding
 
