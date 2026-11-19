@@ -770,6 +770,13 @@ function buildStreetDetails(scene, opts = {}) {
         return 0;
       };
       const l = { x: j.x, z: j.z, ux: a.ux, uz: a.uz, left: a.w / 2 + reach(-1), right: a.w / 2 + reach(1), mid };
+      // Cached footprint centre and radius for the query below: a landing only ever contains points within this
+      // Chebyshev box, so the box rejects most of the 1.76 M landing tests in the 2026-11-19 headless build (1.70 M,
+      // 96.6 %) before the two dot products; it is the triangle-inequality bound of the rotated rectangle, so it can
+      // never reject a hit.
+      l._cx = l.x + l.ux * mid;
+      l._cz = l.z + l.uz * mid;
+      l._rad = CROSSWALK * 0.5 + Math.max(l.left, l.right) + 2.6;
       const ix = Math.floor((j.x + a.ux * mid) / LANDING_CELL);
       const iz = Math.floor((j.z + a.uz * mid) / LANDING_CELL);
       const k = ix * 100000 + iz;
@@ -787,6 +794,8 @@ function buildStreetDetails(scene, opts = {}) {
         const list = landingGrid.get(row + iz);
         if (!list) continue;
         for (const l of list) {
+          const bx = x - l._cx, bz = z - l._cz;
+          if (bx < -l._rad - 2 * r || bx > l._rad + 2 * r || bz < -l._rad - 2 * r || bz > l._rad + 2 * r) continue;
           const ox = x - l.x;
           const oz = z - l.z;
           const along = ox * l.ux + oz * l.uz;
@@ -1253,7 +1262,11 @@ function buildStreetDetails(scene, opts = {}) {
     }
     // 8 m of margin so a tree or lamp standing on the sidewalk outside the curb bbox still starts inside the grid
     // (nearestCurbFrame's ring bound needs the query point in its own cell; farther points take the full scan)
-    const cell = 4;
+    // 32 m cells: nearestCurbFrame's ring search is what this grid is for, and its 22,257 queries in the 2026-11-19
+    // headless build visited 18.1 M cells for just 86 k edges at 4 m. At 32 m the same searches visit 0.57 M cells
+    // (235 k edges: the coarser cell holds more of the outline), and the built grids shrink from 9.0 M to 0.14 M cells
+    // (36 MB to 0.6 MB of offsets). blockCurbDist's 24.8 k reach queries scan 1-4 of these cells and 57 k edges.
+    const cell = 32;
     x0 -= 8;
     z0 -= 8;
     x1 += 8;
@@ -1947,6 +1960,14 @@ function buildStreetDetails(scene, opts = {}) {
   const treeKeepouts = new Map();
   const TREE_LANE_CELL = 64;
   const fileTreeKeepout = (s, pad) => {
+    // clearStreetTree visits these same few hundred objects once per candidate tree (510 k visits in the 2026-11-19
+    // headless build): the chord and its length are fixed at filing time.
+    const kdx = s.bx - s.ax, kdz = s.bz - s.az;
+    const klen = Math.hypot(kdx, kdz);
+    s._dx = kdx;
+    s._dz = kdz;
+    s._len = klen;
+    s._pad = (Math.abs(kdx) + Math.abs(kdz)) / klen;
     for (let ix = Math.floor((Math.min(s.ax, s.bx) - pad) / TREE_LANE_CELL); ix <= Math.floor((Math.max(s.ax, s.bx) + pad) / TREE_LANE_CELL); ix++) {
       for (let iz = Math.floor((Math.min(s.az, s.bz) - pad) / TREE_LANE_CELL); iz <= Math.floor((Math.max(s.az, s.bz) + pad) / TREE_LANE_CELL); iz++) {
         const key = ix * 100000 + iz;
@@ -1995,10 +2016,10 @@ function buildStreetDetails(scene, opts = {}) {
     if (!clearOfTramPoles(x, z, scale)) return false;
     if (!clearOfShelters(x, z, r) || !treeClearOfCanopies(x, z, r)) return false;
     for (const s of treeKeepouts.get(Math.floor(x / TREE_LANE_CELL) * 100000 + Math.floor(z / TREE_LANE_CELL)) || []) {
-      const dx = s.bx - s.ax, dz = s.bz - s.az, len = Math.hypot(dx, dz);
+      const dx = s._dx, dz = s._dz, len = s._len;
       const along = ((x - s.ax) * dx + (z - s.az) * dz) / len;
       const side = Math.abs((x - s.ax) * dz - (z - s.az) * dx) / len;
-      const pad = r * (Math.abs(dx) + Math.abs(dz)) / len;
+      const pad = r * s._pad;
       if (s.zebra) {
         if (along > -pad && along < len + pad && side < CROSSWALK / 2 + 0.8 + pad) return false;
       } else if (Math.hypot(Math.max(0, -along, along - len), side) < Math.max(1.2, 0.9 + r * Math.SQRT2)) return false;
