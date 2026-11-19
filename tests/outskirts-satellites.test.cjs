@@ -100,3 +100,47 @@ test('the limited satelliteClearance query keeps every answer below its limit', 
     }
   }
 });
+
+test('pole-outskirts --band keeps outside poles and only interior poles within --band of the box edge', async () => {
+  const vm = require('node:vm');
+  const { GEO } = await import('../js/geodata.js');
+  const auditSource = readFileSync(join(__dirname, '../tools/audit-pole-outskirts.mjs'), 'utf8');
+  assert.ok(auditSource.includes('if (!inBand(x, z)) continue;'), 'street-details loop filters by inBand');
+  const block = auditSource.slice(
+    auditSource.indexOf('const [BX0, BX1, BZ0, BZ1] = GEO.frame.detailBox;'),
+    auditSource.indexOf('// Poles:')
+  );
+  const context = { Math, GEO, BAND: 300 };
+  vm.runInNewContext(block + '\nthis.exports = { outside, inwardDist, inBand };', context);
+  const { outside, inwardDist, inBand } = context.exports;
+  const [BX0, BX1, BZ0, BZ1] = GEO.frame.detailBox;
+
+  // Deep interior (e.g. city centre): excluded at both --band 0 and --band 300.
+  assert.equal(outside(0, 0), false);
+  assert.ok(inwardDist(0, 0) > 2500);
+  assert.equal(inBand(0, 0, 0), false);
+  assert.equal(inBand(0, 0, 300), false);
+
+  // Inside within 300 m of an edge (like the south-edge Franowo lamp row): --band 300 only, not --band 0.
+  assert.equal(outside(3748.8, BZ1 - 1.78), false);
+  assert.ok(Math.abs(inwardDist(3748.8, BZ1 - 1.78) - 1.78) < 1e-9);
+  assert.equal(inBand(3748.8, BZ1 - 1.78, 0), false);
+  assert.equal(inBand(3748.8, BZ1 - 1.78, 300), true);
+  assert.equal(inwardDist(BX0 + 300, 0), 300);
+  assert.equal(inBand(BX0 + 300, 0, 300), true);
+  assert.equal(inBand(BX0 + 300.01, 0, 300), false);
+
+  // On the box edge and outside (both near and > 300 m beyond the edge): always included regardless of --band.
+  for (const [x, z] of [[BX0, 0], [BX1, 0], [0, BZ0], [0, BZ1]]) {
+    assert.equal(outside(x, z), true);
+    assert.equal(inwardDist(x, z), 0);
+    assert.equal(inBand(x, z, 0), true);
+    assert.equal(inBand(x, z, 300), true);
+  }
+  for (const [x, z] of [[BX0 - 10, 0], [BX0 - 2000, 0], [0, BZ1 + 2000]]) {
+    assert.equal(outside(x, z), true);
+    assert.ok(inwardDist(x, z) < 0);
+    assert.equal(inBand(x, z, 0), true);
+    assert.equal(inBand(x, z, 300), true);
+  }
+});

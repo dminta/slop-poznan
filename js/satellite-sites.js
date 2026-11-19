@@ -143,19 +143,16 @@ const SATELLITE_SITES = [
 
 // Flat spatial lookup for the outskirts generator: no generic shed may grow through a satellite footprint. Each part
 // carries its local frame so distance is a clamped point-to-rectangle test; structures are circles.
-const FOOTPRINTS = [];
 const SITE_PARTS = [];
 for (const site of SATELLITE_SITES) {
   const parts = [];
   for (const p of site.parts) {
     const a = (p.angle * Math.PI) / 180;
     const f = { x: p.x, z: p.z, hw: p.w * 0.5, hd: p.d * 0.5, cs: Math.cos(a), sn: Math.sin(a) };
-    FOOTPRINTS.push(f);
     parts.push(f);
   }
   for (const s of site.structures || []) {
     const f = { x: s.x, z: s.z, radius: s.radius };
-    FOOTPRINTS.push(f);
     parts.push(f);
   }
   SITE_PARTS.push(parts);

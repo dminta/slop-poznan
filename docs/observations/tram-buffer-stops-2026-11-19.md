@@ -264,7 +264,8 @@ offset.
 
 ### Counts
 
-Lamp masts in the 300 m band round the detail box: **24,501 before → 24,483 after**, i.e. 18 dropped. The audit's 17
+Lamp masts in the 300 m band round the detail box: **3,793 before → 3,775 after**, i.e. 18 dropped (the pre-band-fix
+run printed 24,501 → 24,483 across the whole box). The audit's 17
 surface clashes were 9 M1 Poznań (6 main + 3 glass), 6 IKEA and 2 Selgros. The eighteenth is the Selgros mast at
 x **811.5** (z 2842.63): its pole centre is 1.35 m outside the rectangle, but its luminaire over the road is
 inside, which the head check catches. Per part:
@@ -278,8 +279,9 @@ inside, which the head check catches. Per part:
 | **total** | **18** | |
 
 The closest surviving LED mast is at (3748.8, 2842.42), **1.177 m** from the IKEA box surface (1.402 m at the pole
-centre). Audit distribution: `inside` 17 → 0, 0.3–1 m 0 → 0, 1–3 m 3 → 2, 3–10 m 22, >10 m 509; poles checked
-33,032 → 33,014 (the 18 masts), other classes unchanged (4,948 tram, 1,648 railway, 1,935 signal).
+centre). Audit distribution: `inside` 17 → 0, 0.3–1 m 0 → 0, 1–3 m 3 → 2, 3–10 m 22, >10 m 509; poles checked in the
+300 m band **10,604 → 10,586** (the 18 masts; pre-band-fix run printed 33,032 → 33,014), other classes unchanged
+(4,948 tram, 1,648 railway, 215 signal in the 300 m band).
 
 Trees: **12 procedural street trees inside → 0** (6 M1 Poznań, 6 IKEA Franowo; the Selgros stretch plants none). All
 12 are dropped by the new trunk rule. **0 mapped OSM trees** stand inside any satellite rectangle, so no real surveyed
@@ -293,14 +295,17 @@ satellite and only those 12 were inside.
 
 ```
 {"margin":0.3,"band":300,"nearQuery":60,"detailBox":[-9119.5,4490.7,-2830.8,2844.2],
- "poles":{"total":33014,"byClass":{"tram":4948,"rail":1648,"signal":1935,"lamp":24483},"outsideBox":{"tram":486,"rail":0,"signal":0,"lamp":0}},
+ "poles":{"total":10586,"byClass":{"tram":4948,"rail":1648,"signal":215,"lamp":3775},"outsideBox":{"tram":486,"rail":0,"signal":0,"lamp":0}},
  "buildings":{"total":46753,"satelliteParts":71,"generated":46682},
- "distribution":{"inside":0,"under03":0,"m03to1":0,"m1to3":2,"m3to10":22,"over10":509,"none":32481},
+ "distribution":{"inside":0,"under03":0,"m03to1":0,"m1to3":2,"m3to10":22,"over10":509,"none":10053},
  "clashes":0,"clashByClass":{},"deepestPenetration":0, ...}
 ```
 
-(quoted from the `--json` line; the omitted keys are the nearest rows, all positive). Before the change the same tool
-reported 17 clashes, 53.956 m deep.
+(quoted from the `--json` line after fixing the inverted `--band` filter in `tools/audit-pole-outskirts.mjs`, where
+`distToBox` had measured outward distance and kept the whole interior instead of only `inwardDist <= 300`, which made
+the earlier post-trim run print 33,014 total / 24,483 lamps / 1,935 signals / 32,481 none; `--band 0` checks only the
+6,596 outside-box tram/rail poles — 4,948 tram, 1,648 rail, 0 clashes; the omitted keys are the nearest rows, all
+positive). Before the trim the pre-fix run reported 17 clashes, 53.956 m deep.
 
 ### Boot cost
 

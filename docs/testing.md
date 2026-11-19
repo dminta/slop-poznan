@@ -245,11 +245,12 @@ It exits non-zero if any structure has `maxGap > 0.1 m`, `maxPenetration > 0.1 m
 `runAudit({ worldOnly: true })` from `audit-tree-clearance.mjs`, the real tram/rail layouts and the production outskirts
 building list (the private generators exported through a source suffix; `city-grid.railRectClear` is the live
 predicate). It measures every tram catenary pole and railway mast, plus the street-details signal poles and lamp/column
-masts within `--band` of the detail box, against the turned building boxes at pole-surface clearance `--margin` (default
-0.3 m, the balcony audit's threshold). `--near` is the reported nearest-building search radius; a class with none inside
-it reports `null`. It prints the worst rows and a JSON summary. `--fail-on-clash` exits 1 while a clash remains; the
-default run does not. Measured 33,014 poles against 46,753 boxes on 2026-11-19 after the box-edge trim: **0 clashes** in
-every class (nearest tram pole 1.058 m, nearest LED mast 1.177 m at (3748.8, 2842.42)). Before the trim the same run
+masts outside the detail box or within `--band` m inside its edge, against the turned building boxes at pole-surface
+clearance `--margin` (default 0.3 m, the balcony audit's threshold). `--near` is the reported nearest-building search
+radius; a class with none inside it reports `null`. It prints the worst rows and a JSON summary. `--fail-on-clash`
+exits 1 while a clash remains; the default run does not. Measured 10,586 poles against 46,753 boxes on 2026-11-19 after
+the box-edge trim and the `--band` filter fix (6,596 poles at `--band 0`): **0 clashes** in every class (nearest tram
+pole 1.058 m, nearest LED mast 1.177 m at (3748.8, 2842.42)). Before the trim the same run
 found 17 street LED masts inside the M1/IKEA/Selgros satellite rectangles, which `street-details.js` now rejects with a
 0.45 m `SATELLITE_KEEP` ([record](observations/tram-buffer-stops-2026-11-19.md#follow-up-2026-11-19-the-box-edge-rows-stop-at-the-satellite-malls)).
 The audit is a static box check; it does not render the scene and does not test tree sites. `tests/outskirts-satellites.test.cjs`

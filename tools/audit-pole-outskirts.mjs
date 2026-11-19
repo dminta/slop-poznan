@@ -95,11 +95,13 @@ const satelliteName = (b) => {
 
 const [BX0, BX1, BZ0, BZ1] = GEO.frame.detailBox;
 const outside = (x, z) => x <= BX0 || x >= BX1 || z <= BZ0 || z >= BZ1;
-const distToBox = (x, z) => Math.hypot(Math.max(BX0 - x, 0, x - BX1), Math.max(BZ0 - z, 0, z - BZ1));
+const inwardDist = (x, z) => Math.min(x - BX0, BX1 - x, z - BZ0, BZ1 - z);
+const inBand = (x, z, band = BAND) => outside(x, z) || inwardDist(x, z) <= band;
 
-// Poles: every tram catenary pole and railway mast, plus the street-details signal poles and lamp/column masts within
-// --band of the detail box. Heights come from the renderers (tram poles 7.0-7.6 m, signal pole 4.2 m, LED mast 6 m,
-// gas lantern 4.45 m, advertising column 4 m); a pole only clashes with a building box whose vertical span it meets.
+// Poles: every tram catenary pole and railway mast, plus the street-details signal poles and lamp/column masts outside
+// the detail box or within --band m inside its edge. Heights come from the renderers (tram poles 7.0-7.6 m, signal
+// pole 4.2 m, LED mast 6 m, gas lantern 4.45 m, advertising column 4 m); a pole only clashes with a building box whose
+// vertical span it meets.
 const poles = [];
 for (const q of tramLayout.poles) {
   poles.push({ cls: 'tram', label: 'tram catenary pole', x: q.x, z: q.z, r: 0.16, y0: 0, y1: q.h });
@@ -112,7 +114,7 @@ for (const f of street.footprints) {
   const height = STREET_HEIGHT[f.kind];
   if (height === undefined) continue;
   const x = (f.minX + f.maxX) / 2, z = (f.minZ + f.maxZ) / 2;
-  if (distToBox(x, z) > BAND) continue;
+  if (!inBand(x, z)) continue;
   const label = f.kind === 'signal' ? 'signal pole' : (f.kind === 'led' ? 'street LED mast'
     : (f.kind === 'gas' ? 'gas lantern mast' : 'advertising column'));
   poles.push({ cls: f.kind === 'signal' ? 'signal' : 'lamp', label, x, z,

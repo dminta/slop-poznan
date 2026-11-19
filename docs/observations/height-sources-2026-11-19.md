@@ -4,7 +4,7 @@ Research record for the open backlog item "Additional height sources (nDSM/LoD1/
 machine-readable data: research candidates". The immediate consumer is the
 [Piotrowo height verification](../backlog.md): A28/A29 use the 2024-09-17 NMPT−NMT, A30 uses the PP
 11.80 m dimension, and the new rectorate's 16.31 m above-ground portion still needs a post-completion
-check. No code, data or backlog file was changed; this is the only file written.
+check. No code or data file was changed; only this record and `docs/backlog.md` were updated.
 
 ## What was asked
 

@@ -1973,6 +1973,7 @@ function buildStreetDetails(scene, opts = {}) {
     // headless build): the chord and its length are fixed at filing time.
     const kdx = s.bx - s.ax, kdz = s.bz - s.az;
     const klen = Math.hypot(kdx, kdz);
+    if (!(klen > 0)) return;
     s._dx = kdx;
     s._dz = kdz;
     s._len = klen;
