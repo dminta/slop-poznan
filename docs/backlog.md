@@ -366,16 +366,6 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   [Hall-roof evidence, 2026-11-13](observations/kit-roofs-2026-11-13.md#hall-weather-roof-review-2026-11-13).
 - Continue landmark-placement and scenic-camera checks, panel-material shimmer, balcony LOD transitions and
   platform/slab flicker where surfaces are only 1 cm apart.
-- Browser check still open for the street trees: an in-frame overlay of OSM points on the pits (the 2026-11-17 attempt drew no
-  marker meshes in the WebGPU frame, cause not investigated), and GPU frame time plus the WebGL2/low tier on the tree scene. The
-  2026-11-17 pass matched 302 of 712 old-town pits and 362 of 1,496 Cytadela-area pits to OSM nodes within 0.3 m (all the rest are
-  procedural rows), found every OSM node within 45 m of two sample discs rendered at its exact point, and measured WebGPU high at
-  60 fps (vsync-capped) with 754–1,236 draw calls at street level and the drone, CPU frame 7–15 ms
-  ([record](observations/browser-checks-props-2026-11-17.md#4-street-trees-vs-osm-frame-rate-and-draw-calls)). The Rybaki collision was
-  checked 2026-11-11: the player deflected 0.57 m around a tree with a player collider at `(-285.9, 874.5)`.
-  [Tree-placement audit and pins](observations/street-tree-clearance-2026-11-06.md),
-  [OSM tree record](observations/osm-street-trees-2026-11-08.md),
-  [2026-11-14 headless audit](observations/street-tree-audit-2026-11-14.md).
 - Watch the black locust wind motion in a strong-gust phase: the 2026-11-17 check sampled 7.2 s of a ≈ 12.6 s gust period
   (crown drift ≤ 2 px / 6 px, leaf flutter, no popping) and could not separate branch motion from foliage motion in stills
   ([record](observations/browser-checks-props-2026-11-17.md#5-black-locust-wind--plausible-amplitude-small-not-resolved-for-strong-gusts)).
