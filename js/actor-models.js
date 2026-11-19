@@ -3617,8 +3617,8 @@ let _tramMat = null;
  * - Cab ends: a large raked windscreen with the LED destination display above it (row `tramState.w` of `signMap`, which
  *   holds `rows` rows, the first at the top; without a map, a generic dot pattern); LED headlamps (front cab) or
  *   red tail / brake lamps (rear cab)
- * - Continuous dark window band with thin pillars, glazed double doors on the right (-x) side, opening dark (doors
- *   open, `tramState.z`); interiors glow at night
+ * - Continuous dark window band with thin pillars, glazed double doors on the right (-x) side, sliding open
+ *   (`tramState.z`) to reveal the lit cabin vestibule (ceiling LED strip, opposite windows, yellow grab pole & step)
  * - MPK Poznań livery (approximate): livery 0 (Gamma) green below the windows with yellow sill & cornice stripes and a
  *   yellow cab front; livery 1 (Tramino) metallic green with thin yellow accents, yellow door frames and a yellow
  *   front band; light grey roof & fairings, dark skirt, ribbed black bellows
@@ -3660,16 +3660,66 @@ function createTramMaterial(signMap = null, rows = 1) {
     ? texture(signMap, vec2(signU, signV.add(float(rows - 1).sub(state.w)).div(rows))).rgb.mul(1.6)
     : color(0xffa020).mul(step(0.45, fract(p.x.mul(9.0))).mul(roundedRect(vec2(p.x.add(0.1), p.y.sub(2.9)), vec2(0.46, 0.06), 0.01)));
 
-  // Window band (pillars every 1.6 m), doors with glazed leaves
+  // Window band (pillars every 1.6 m), doors with glazed leaves (open portal clears the center stile to show the cabin)
   const band = smoothstep(1.1, 1.14, p.y).mul(smoothstep(2.6, 2.56, p.y)).mul(side).mul(step(abs(p.z), halfLen.sub(0.3)));
   const pillar = smoothstep(0.035, 0.05, abs(fract(p.z.mul(0.625).add(0.5)).sub(0.5)));
   const doorAt = (dz) => roundedRect(vec2(p.z.sub(dz), p.y.sub(1.33)), vec2(0.68, 1.03), 0.06).mul(side).mul(curb);
   const leafAt = (dz) => roundedRect(vec2(abs(p.z.sub(dz)).sub(0.33), p.y.sub(1.45)), vec2(0.28, 0.86), 0.04).mul(side).mul(curb);
+  const openAt = (dz) => roundedRect(vec2(p.z.sub(dz), p.y.sub(1.42)), vec2(0.58, 0.90), 0.04).mul(side).mul(curb);
   const door = max(doorAt(info.z), doorAt(info.w));
   const leaf = max(leafAt(info.z), leafAt(info.w));
+  const openPortal = max(openAt(info.z), openAt(info.w));
   const doorsOpen = state.z;
-  const glass = clamp(max(max(band.mul(pillar).mul(one.sub(door)), windscreen), leaf.mul(one.sub(doorsOpen))), 0.0, 1.0);
-  const doorway = leaf.mul(doorsOpen);
+  const closedLeaf = leaf.mul(one.sub(doorsOpen));
+  const doorway = openPortal.mul(doorsOpen);
+  const doorFrame = door.mul(one.sub(max(closedLeaf, doorway)));
+  const glass = clamp(max(max(band.mul(pillar).mul(one.sub(door)), windscreen), closedLeaf), 0.0, 1.0);
+  const night = smoothstep(0.6, 1.15, cityUniforms.uInteriorGlow);
+
+  // Open doorway cabin vestibule: matte interior surfaces, yellow stanchion & sill step, ceiling LED & opposite window
+  // bounce so an open portal reads clearly even when the curb side is shadowed or backlit, and at night without glass tint
+  const doorZ = mix(info.w, info.z, step(abs(p.z.sub(info.z)), abs(p.z.sub(info.w))));
+  const uDoor = p.z.sub(doorZ);
+  const seatBack = smoothstep(0.66, 0.70, p.y).mul(smoothstep(1.16, 1.12, p.y))
+    .mul(smoothstep(0.20, 0.24, abs(uDoor))).mul(smoothstep(0.54, 0.50, abs(uDoor)));
+  const oppWin = smoothstep(1.16, 1.20, p.y).mul(smoothstep(2.04, 2.00, p.y))
+    .mul(smoothstep(0.47, 0.43, abs(uDoor)));
+  const cabinFloor = smoothstep(0.72, 0.68, p.y);
+  const doorStep = smoothstep(0.50, 0.52, p.y).mul(smoothstep(0.58, 0.56, p.y))
+    .mul(smoothstep(0.57, 0.53, abs(uDoor)));
+  const ceilStrip = smoothstep(2.11, 2.14, p.y).mul(smoothstep(2.25, 2.22, p.y))
+    .mul(smoothstep(0.48, 0.43, abs(uDoor)));
+  const poleFw = max(fwidth(uDoor), 0.002);
+  const poleHalf = max(float(0.024), poleFw.mul(0.5));
+  const poleMask = smoothstep(poleHalf.add(poleFw), poleHalf.sub(poleFw), abs(uDoor))
+    .mul(min(float(1.0), float(0.024).div(poleHalf)))
+    .mul(smoothstep(0.62, 0.65, p.y)).mul(smoothstep(2.24, 2.21, p.y));
+  const oppDayCol = mix(color(0x8fb0c7), color(0xc6dfee), clamp(p.y.sub(1.18).mul(1.15), 0.0, 1.0));
+  const oppWinCol = mix(oppDayCol, color(0x1b2533), night);
+  const cabinAO = smoothstep(0.58, 0.46, abs(uDoor)).mul(0.32).add(0.68)
+    .mul(smoothstep(2.32, 2.18, p.y).mul(0.38).add(0.62));
+  const yellow = color(0xf3c316);
+  let cabinCol = mix(color(0xb6b0a4), color(0xdcd6ca), smoothstep(2.00, 2.04, p.y));
+  cabinCol = mix(cabinCol, color(0x274c66), seatBack);
+  cabinCol = mix(cabinCol, color(0x42474e), cabinFloor);
+  cabinCol = mix(cabinCol, oppWinCol, oppWin);
+  cabinCol = cabinCol.mul(cabinAO);
+  cabinCol = mix(cabinCol, yellow, max(doorStep, poleMask));
+  cabinCol = mix(cabinCol, color(0xfff4de), ceilStrip);
+
+  const oppGlass = oppWin.mul(one.sub(poleMask));
+  const cabinFloorShade = mix(float(1.0), float(0.32), cabinFloor.mul(one.sub(doorStep)));
+  const cabinDayEmit = mix(
+    mix(cabinCol.mul(0.18).mul(cabinFloorShade), oppDayCol.mul(0.32), oppGlass),
+    color(0xfff4de).mul(0.50),
+    ceilStrip
+  );
+  const cabinNightEmit = mix(
+    mix(cabinCol.mul(color(0xffe8c4)).mul(0.78).mul(cabinFloorShade), color(0xffe2b8).mul(0.20), oppGlass),
+    color(0xfff4de).mul(0.92),
+    ceilStrip
+  );
+  const cabinEmit = mix(cabinDayEmit, cabinNightEmit, night);
 
   // Livery
   const lower = smoothstep(1.03, 0.99, p.y);
@@ -3677,21 +3727,20 @@ function createTramMaterial(signMap = null, rows = 1) {
   const cornice = smoothstep(2.6, 2.63, p.y).mul(smoothstep(2.9, 2.87, p.y));
   const thin = smoothstep(1.0, 1.02, p.y).mul(smoothstep(1.08, 1.06, p.y));
   const skirt = smoothstep(0.46, 0.42, p.y);
-  const yellow = color(0xf3c316);
   const gammaCol = mix(mix(color(0x15703a), color(0x1c7d42), lower), yellow, max(max(sill, cornice), cabFace.mul(step(p.y, 1.62))));
   const traminoFrontBand = cabFace.mul(smoothstep(0.62, 0.66, p.y)).mul(smoothstep(0.84, 0.8, p.y));
-  const traminoCol = mix(color(0x2a6a4b), yellow, max(thin, max(door.mul(one.sub(leaf)), traminoFrontBand)));
+  const traminoCol = mix(color(0x2a6a4b), yellow, max(thin, max(doorFrame, traminoFrontBand)));
   const combinoSill = smoothstep(0.94, 0.98, p.y).mul(smoothstep(1.14, 1.10, p.y));
   const combinoCornice = smoothstep(2.82, 2.85, p.y).mul(smoothstep(2.96, 2.93, p.y));
   const combinoFrontYellow = cabFace.mul(smoothstep(0.48, 0.55, p.y)).mul(smoothstep(1.65, 1.58, p.y)).mul(step(ax, 0.92));
   const combinoCol = mix(color(0x18753e), yellow, max(max(combinoSill, combinoCornice), combinoFrontYellow));
   let body = mix(mix(gammaCol, traminoCol, isTramino), combinoCol, isCombino);
-  body = mix(body, color(0x1f2327), door.mul(one.sub(leaf)).mul(isGamma.add(isCombino)));
+  body = mix(body, color(0x1f2327), doorFrame.mul(isGamma.add(isCombino)));
   body = mix(body, color(0xd9dcde), roof.mul(one.sub(cabFace)));
   body = mix(body, color(0x1a1d21), skirt);
   body = mix(body, color(0x15191d), band.mul(one.sub(pillar)).mul(one.sub(door)));
   body = mix(body, color(0x0c0e10), display);
-  body = mix(body, color(0x2b2622), doorway);
+  body = mix(body, cabinCol, doorway);
 
   // Lamps on the cab faces
   const sharpHead = roundedRect(vec2(ax.sub(0.82), p.y.sub(0.9)), vec2(0.15, 0.055), 0.04).mul(cabFace).mul(isFront);
@@ -3711,16 +3760,18 @@ function createTramMaterial(signMap = null, rows = 1) {
   mat.colorNode = col;
   const paintRough = mix(mix(float(0.38), float(0.30), isTramino), float(0.36), isCombino);
   const paintMetal = mix(mix(float(0.12), float(0.50), isTramino), float(0.06), isCombino).mul(one.sub(max(sill, cornice)));
-  mat.roughnessNode = mix(mix(mix(paintRough, float(0.12), glass), float(0.7), max(isTrim, isBellows)), float(0.45), max(isPod, isPanto));
-  mat.metalnessNode = mix(mix(paintMetal, float(0.6), glass), float(0.05), max(max(isTrim, isBellows), isPod)).add(isPanto.mul(0.5));
+  // Open cabin interior stays matte (0.88 > 0.75 SSR threshold) and non-metallic so Tramino's metallic coat never
+  // turns an open doorway into a dark sky mirror
+  mat.roughnessNode = mix(mix(mix(mix(paintRough, float(0.12), glass), float(0.88), doorway), float(0.7), max(isTrim, isBellows)), float(0.45), max(isPod, isPanto));
+  mat.metalnessNode = mix(mix(mix(paintMetal, float(0.6), glass), float(0.0), doorway), float(0.05), max(max(isTrim, isBellows), isPod)).add(isPanto.mul(0.5));
 
   const brake = state.x;
-  const night = smoothstep(0.6, 1.15, cityUniforms.uInteriorGlow);
   mat.emissiveNode = color(0xd9efff)
     .mul(headLamp.mul(night.mul(1.3).add(0.12)))
     .add(color(0xff0a12).mul(tailLamp.mul(brake.mul(1.5).add(0.7))))
     .add(displayText.mul(display).mul(0.9))
-    .add(color(0xffe2b8).mul(max(band.mul(pillar).mul(one.sub(door)), max(leaf, doorway)).mul(night).mul(0.32)));
+    .add(color(0xffe2b8).mul(max(band.mul(pillar).mul(one.sub(door)), closedLeaf).mul(night).mul(0.22)))
+    .add(cabinEmit.mul(doorway));
 
   _tramMat = mat;
   return mat;

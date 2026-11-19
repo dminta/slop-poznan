@@ -427,3 +427,135 @@ test('rear plate lamp follows running lights and preserves printed ink', () => {
   assert.match(controllers, /rearPlateMat\.emissiveNode = createPlateLampNode\(texture\(plateTex\)\.rgb\)/);
   assert.match(controllers, /dir < 0 \? rearPlateMat : plateMat/);
 });
+
+test('createTramMaterial distinguishes open cabin doorways from closed tinted glass in day and night', () => {
+  const srgbToLin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const toNode = (fn) => {
+    const node = {
+      eval: fn,
+      get x() { return toNode((s) => [fn(s)[0]]); },
+      get y() { return toNode((s) => [fn(s)[1]]); },
+      get z() { return toNode((s) => [fn(s)[2]]); },
+      get w() { return toNode((s) => [fn(s)[3]]); },
+      add: (o) => bin(node, o, (a, b) => a + b),
+      sub: (o) => bin(node, o, (a, b) => a - b),
+      mul: (o) => bin(node, o, (a, b) => a * b),
+      div: (o) => bin(node, o, (a, b) => a / b),
+      negate: () => toNode((s) => fn(s).map((a) => -a)),
+      toVar: () => node
+    };
+    return node;
+  };
+  const evalArg = (x, s) => (typeof x === 'number' ? [x] : x.eval(s));
+  const bin = (a, b, op) => toNode((s) => {
+    const av = evalArg(a, s), bv = evalArg(b, s);
+    const n = Math.max(av.length, bv.length);
+    return Array.from({ length: n }, (_, i) => op(av[i % av.length], bv[i % bv.length]));
+  });
+  const map1 = (x, op) => toNode((s) => evalArg(x, s).map(op));
+  const map2 = (a, b, op) => bin(a, b, op);
+  const map3 = (a, b, c, op) => toNode((s) => {
+    const av = evalArg(a, s), bv = evalArg(b, s), cv = evalArg(c, s);
+    const n = Math.max(av.length, bv.length, cv.length);
+    return Array.from({ length: n }, (_, i) => op(av[i % av.length], bv[i % bv.length], cv[i % cv.length]));
+  });
+
+  const glow = toNode((s) => [s.glow]);
+  const TSL = {
+    Fn: (fn) => (...args) => fn(args),
+    float: (x) => toNode((s) => [evalArg(x, s)[0]]),
+    vec2: (a, b) => toNode((s) => (b === undefined ? evalArg(a, s).slice(0, 2) : [evalArg(a, s)[0], evalArg(b, s)[0]])),
+    vec4: (a, b, c, d) => toNode((s) => [a, b, c, d].map((x) => evalArg(x, s)[0])),
+    color: (hex) => {
+      const rgb = [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255].map(srgbToLin);
+      return toNode(() => rgb);
+    },
+    attribute: (name) => toNode((s) => s[name]),
+    sin: (x) => map1(x, Math.sin),
+    abs: (x) => map1(x, Math.abs),
+    fract: (x) => map1(x, (v) => v - Math.floor(v)),
+    floor: (x) => map1(x, Math.floor),
+    min: (a, b) => map2(a, b, Math.min),
+    max: (a, b) => map2(a, b, Math.max),
+    clamp: (x, lo, hi) => map3(x, lo, hi, (v, a, b) => Math.max(a, Math.min(b, v))),
+    mix: (a, b, t) => map3(a, b, t, (x, y, k) => x * (1 - k) + y * k),
+    step: (edge, x) => map2(edge, x, (e, v) => (v < e ? 0 : 1)),
+    smoothstep: (e0, e1, x) => map3(e0, e1, x, (a, b, v) => {
+      const t = Math.max(0, Math.min(1, (v - a) / (b - a)));
+      return t * t * (3 - 2 * t);
+    }),
+    length: (v) => toNode((s) => [Math.hypot(...evalArg(v, s))]),
+    fwidth: () => toNode(() => [0.004]),
+    dFdx: () => toNode(() => [0.004]),
+    dFdy: () => toNode(() => [0.004]),
+    uniform: (x) => toNode(() => [x]),
+    texture: () => toNode(() => [0, 0, 0]),
+    time: toNode(() => [0]),
+    instanceIndex: toNode(() => [0]),
+    uv: () => toNode(() => [0, 0])
+  };
+  const M = inert();
+  M.MeshStandardNodeMaterial = class { constructor() {} };
+  const { TRAM_PARTS, createTramMaterial } = loadModule(
+    readFileSync(join(__dirname, '../js/actor-models.js'), 'utf8'),
+    {
+      imports: {
+        'three/webgpu': M,
+        'three/tsl': TSL,
+        'three/addons/utils/BufferGeometryUtils.js': inert(),
+        './tsl-materials.js': { cityUniforms: { uInteriorGlow: glow } }
+      }
+    }
+  );
+  const mat = createTramMaterial(null, 1);
+  assert.equal(createTramMaterial(null, 1), mat, 'material remains cached across calls');
+
+  const evalAt = (livery, doorsOpen, glowVal, z, y) => {
+    const s = {
+      glow: glowVal,
+      position: [-1.2, y, z],
+      normal: [-1, 0, 0],
+      partId: [TRAM_PARTS.BODY],
+      tramInfo: [4.1, 1, 1.5, 99],
+      tramState: [0, livery, doorsOpen, 0]
+    };
+    return {
+      color: mat.colorNode.eval(s),
+      rough: mat.roughnessNode.eval(s)[0],
+      metal: mat.metalnessNode.eval(s)[0],
+      emit: mat.emissiveNode.eval(s)
+    };
+  };
+  const luma = (rgb) => 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+
+  // Midday shadowed/backlit check on Tramino (livery 1) and Combino (livery 2)
+  for (const livery of [1, 2]) {
+    const closedPane = evalAt(livery, 0, 0.24, 1.83, 1.6);
+    assert.equal(closedPane.rough, 0.12, 'closed leaf is glossy glass');
+    assert.equal(closedPane.metal, 0.6, 'closed leaf keeps reflective glass metalness');
+    assert.deepEqual(closedPane.emit, [0, 0, 0], 'closed glass has zero daytime emission');
+
+    // Open doorway: opposite window, yellow grab pole, ceiling LED strip, yellow step
+    const openWin = evalAt(livery, 1, 0.24, 1.75, 1.6);
+    const openPole = evalAt(livery, 1, 0.24, 1.5, 1.4);
+    const openCeil = evalAt(livery, 1, 0.24, 1.5, 2.18);
+    const openStep = evalAt(livery, 1, 0.24, 1.5, 0.54);
+    for (const s of [openWin, openPole, openCeil, openStep]) {
+      assert.ok(s.rough > 0.75, 'open doorway stays matte above the 0.75 SSR cutoff');
+      assert.equal(s.metal, 0, 'open doorway is non-metallic even on Tramino');
+      assert.ok(luma(s.emit) > 0.1, 'open doorway retains interior bounce in shadow');
+    }
+    assert.ok(openPole.color[0] > openPole.color[2] * 5, 'central grab pole reads yellow over the opposite window');
+    assert.ok(openStep.color[0] > openStep.color[2] * 5, 'door sill step reads yellow');
+    assert.ok(luma(openCeil.emit) > luma(openWin.emit), 'ceiling LED strip is brighter than the opposite window');
+
+    // Midnight check: open interior and LED strip stand out cleanly over closed tinted glass without blowing bloom
+    const nightClosed = evalAt(livery, 0, 1.55, 1.83, 1.6);
+    const nightOpenWall = evalAt(livery, 1, 1.55, 1.98, 1.5);
+    const nightOpenCeil = evalAt(livery, 1, 1.55, 1.5, 2.18);
+    const nightOpenPole = evalAt(livery, 1, 1.55, 1.5, 1.4);
+    assert.ok(luma(nightOpenWall.emit) > luma(nightClosed.emit) * 1.4, 'lit interior wall exceeds tinted closed door');
+    assert.ok(luma(nightOpenPole.emit) > luma(nightClosed.emit) * 1.4, 'yellow stanchion stands out at night');
+    assert.ok(Math.max(...nightOpenCeil.emit) < 1.0, 'ceiling LED stays below the 1.0 midnight bloom threshold');
+  }
+});

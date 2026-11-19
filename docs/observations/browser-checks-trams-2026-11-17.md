@@ -203,7 +203,8 @@ the nose, the rails and the shelter with the switch fan clear ahead of the nose.
 face the platform side (the doors are on the right-hand side) and show the platform edge and the *Zawady* stop sign
 (`zawadyD-00-t18`).
 
-**Defect (minor): open doorways are barely readable in some lighting (Zawady Tramino).** The Zawady trams are Traminos
+**Defect (minor, resolved 2026-11-19): open doorways are barely readable in some lighting (Zawady Tramino).**
+See [open-doorway fix and verification](tram-doorways-2026-11-19.md). Historically, the Zawady trams are Traminos
 (yellow door frames and stripe, `traminoCol`); tram models are not logged, so every model label here is inferred from
 livery. The leaf area reads RGB (27, 31, 33) with doors open and (9, 21, 31) closed (`zawadyA3-10-t62` vs `-12-t66`, same
 camera, a 65 × 210 px crop at `(335, 270)`), a visible but subtle change. The open-doorway colour `0x2b2622`

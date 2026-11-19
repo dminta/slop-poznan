@@ -439,10 +439,6 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   source ring by 133 m², cutting 12.3 m of track 376) were reviewed on 2026-11-19 and **accepted** as flat-world /
   rectangle approximations — a real fix needs elevated platform decks or polygon canopies, not a placement tweak.
   [Follow-up](observations/canopy-clearance-2026-11-17.md#follow-up-2026-11-19-18-elevated-track-and-19-rectangle-overbuild).
-- **Defect (minor): open doorways are barely readable in some lighting (Zawady Tramino).** Open leaf RGB (27, 31, 33) vs
-  closed (9, 21, 31) in `zawadyA3-10` / `-12`; the open colour `0x2b2622` (`js/actor-models.js:3697`) is shared by all
-  models, and Ogrody's Combino reads better (`ogrody-09` / `-11`), so it is lighting and angle. Model labels are inferred
-  from livery. [Record](observations/browser-checks-trams-2026-11-17.md#5-dwells-and-the-jeżyce-reservation).
 - Kaponiera left turn with a tram approaching: the close crossing ahead of the tram's nose was **not framed**. The frames
   (`kapL3`) show the car just after it cleared the path of a braking tram (≈ 0.25 s after), the crossing itself is inferred
   from the log. The per-frame tram-reservation value (`c.held`, `tramConflictGap`) was not read, so the ~1 s
