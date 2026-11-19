@@ -376,13 +376,6 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   [Tree-placement audit and pins](observations/street-tree-clearance-2026-11-06.md),
   [OSM tree record](observations/osm-street-trees-2026-11-08.md),
   [2026-11-14 headless audit](observations/street-tree-audit-2026-11-14.md).
-- Browser check: lamps stepped onto lawns in narrow-walk parks (the 122 `onLawn` lamps, 1.0–1.59 m inside the walk edge, a count that may be stale;
-  e.g. block 212 near `−953, −1928`, Skwer Sybiraków block 303, Moniuszki block 421). The 2026-11-17 browser pass
-  ([record](observations/browser-checks-props-2026-11-17.md#3-park-lamps--ok-for-the-sampled-lamps-the-lawn-lamp-placement-itself-not-exercised))
-  framed 13 lamps in Za Cytadelą, Park Cytadela, Park Nad Wartą and Park Jana Kasprowicza by day and night (all fine; none a
-  verified lawn lamp: the one at `−959.18, −1893.81` stands on a grass median). The "122 `onLawn`" figure comes from the 3,438-lamp audit
-  and may be stale (the grid now has 3,390 lamps, `tram-bed-surfaces-2026-11-14.md`); the headless audit
-  ([record](observations/park-lamps-trees-2026-11-14.md)) already confirmed the geometry. [Tree/building clearance](observations/tree-building-clearance-2026-11-03.md).
 - Watch the black locust wind motion in a strong-gust phase: the 2026-11-17 check sampled 7.2 s of a ≈ 12.6 s gust period
   (crown drift ≤ 2 px / 6 px, leaf flutter, no popping) and could not separate branch motion from foliage motion in stills
   ([record](observations/browser-checks-props-2026-11-17.md#5-black-locust-wind--plausible-amplitude-small-not-resolved-for-strong-gusts)).
