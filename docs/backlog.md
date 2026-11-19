@@ -423,21 +423,26 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   [geometric clearance audit](observations/signal-tram-clearance-2026-11-14.md).
 - **Tram braking follow-up:** The wider room/switch scan reduced cap-level episodes (≤ −8.5 m/s²) from 3.72 to
   2.30 per tram-hour over 20 fresh paired seeds (mean change −1.42, 95% CI [−1.63, −1.21]); it remains possible to
-  reach the −9 m/s² floor. Car–tram and tram–tram contacts, holds over 120 s and deadlocks were within noise; observed
-  closed-gate crossings fell, but that audit misses gates first observed behind the tram and does not prove red or
-  occupied-switch compliance. Investigate the remaining abrupt braking (car gates lead: 306 of 584 cap episodes;
-  signal caps are red arrivals after the green tail or interior complex heads, not amber: judging amber by the
-  upstream gate was measured and rejected; scanning committed cars to the comfortable stopping distance cut cap
-  episodes 584 → 452 but raised raw tram–tram pairs 33 → 41, CI [+0.05, +0.75]. Re-judged with a pre-fixed 5 cm
-  penetration tolerance the pairs go 9 → 15, CI [−0.05, +0.65], within noise, so that scan was accepted) and build
-  a more complete overrun audit. The raw pair rise is classified: 14 added and 6 lost contacts, 10 of the added ones
-  body-rectangle tangencies on three parallel-track pinches whose centres are 2.39–2.78 m apart against 2.4 m bodies
-  (penetration 0–3.1 cm), plus a few branch/switch corners (≤12.9 cm); none had a `farRoad` gate in the preceding 40 s
-  and none is a following pair. It is phase noise, not a released tram or a missed leader. The retry used a penetration
-  tolerance (never a new driving rule) and passed: cap episodes fell with CI excluding zero, tolerant pairs, car–tram
-  pairs, observed closed-gate crossings, holds and deadlocks were not worse beyond noise, and the patch is retained.
-  Correcting the mapped track spacing at those pinches remains an option, but a driving rule that holds one tram back
-  from an adjacent track would add holds for no gain. [Record and re-judgement](observations/tram-braking-2026-11-18.md).
+  reach the −9 m/s² floor. Car–tram and tram–tram contacts, holds over 120 s and deadlocks were within noise.
+  Scanning committed cars to the comfortable stopping distance cut cap episodes 584 → 452 (2.30 → 1.78 per tram-hour)
+  and observed closed-gate crossings 208 → 167, with raw tram–tram pairs 33 → 41 (CI [+0.05, +0.75], phase noise at
+  2.39–2.78 m parallel-track pinches and branch corners) and 5 cm tolerant pairs 9 → 15 (CI [−0.05, +0.65], within noise),
+  so that scan was accepted.
+  The complete continuous overrun audit (`tools/audit-tram-overruns.mjs`) is now built and measured over the 20 default
+  fresh seeds (7 districts, 5 min, 20 fps, 254.158 tram-hours; [record](observations/tram-overrun-audit-2026-11-19.md)):
+  **0 true red-signal overruns** (vs 110 committed-in-complex clearings), **1 occupied-switch overrun** (`seed 139`,
+  Centrum `tram 10` at `(-1467.7, 127.9)`, `0.07 m` foul-entry overshoot during a same-exit merge while braking at
+  `−9 m/s²` for `room`; 0 cross-branch, claimed, diamond-crossing or single-track block overruns), and **8,258**
+  closed-gate crossings (`6,630` forward / `1,628` behind), of which **507** (`223` forward / `284` behind) are
+  non-creep (`speedPre >= 0.3` m/s or `dPost < −0.1` m; the other `7,751` are `< 0.3` m/s IDM equilibrium creeps stopping
+  within `0.1` m of the `−0.5` m gate offset, still ≥ 0.4 m before the stop line).
+  **Open:** investigate the remaining abrupt braking (156 car-bound cap episodes remain after the comfortable road scan;
+  signal caps are red arrivals after the green tail or interior complex heads, not amber: judging amber by the upstream
+  gate was measured and rejected), and note the `complexStopGate` quirk (`entry <= entered + 0.2` pulls gates up to
+  `0.29 m` behind `u`) plus the `seed 139` same-exit merge foul overshoot if further braking tuning is attempted.
+  Correcting the mapped track spacing at the parallel-track pinches also remains an option, though a driving rule that
+  holds one tram back from an adjacent track would add holds for no gain.
+  [Braking investigation and re-judgement](observations/tram-braking-2026-11-18.md).
 - **Canopy follow-up (low priority):** Railway mast openings in mapped platform roofs are accepted; two #1 masts
   outside the source roof ring remain audit hits. #18 (its stored rectangle matches the source ring; track 194 runs
   elevated under a ground-based soffit 2.0–3.1 m above its ballast) and #19 (the minimum rectangle overhangs the skew

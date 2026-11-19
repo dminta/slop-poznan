@@ -354,7 +354,26 @@ under 130 s) so the known cycle cannot hide a new one. The same file runs `tools
 all stopped shared-lane touches. The pre-proxy baseline was eight, all with `tramWait = car`, six in the
 `-2167, -498` cluster.
 
-## Tram braking and tram–tram overlap audits
+## Tram braking, overrun and tram–tram overlap audits
+
+`node tools/audit-tram-overruns.mjs [--seed 4242 | --seeds 61,67,... | --default-seeds] [--minutes 5] [--fps 20] [--warmup 20] [--only wilda] [--jobs N] [--events] [--json out.json]`
+instruments a headless copy of `js/trams.js` (`instrumentTramsForOverruns`) without altering RNG draws or driving output,
+and tracks every active tram continuously per incarnation (`createOverrunTracker` using monotonic `totalU` across `path.trim()`).
+After `--warmup` (default 20 s), it separately reports:
+1. red-signal stop-line crossings on `red` / `redAmber`, distinguishing `trueRedOverruns` (not in `_signalCommits`) from
+   legitimate `committedSignalClearings` (green-entered upstream complex clearings);
+2. `occupiedSwitchOverruns` (entering `entryU` of a `nodeSwitch`, off-node `crossSwitch` or single-track `block` already
+   occupied or claimed by another tram, including a merging tram from another branch still straddling `N`, or crossing `nodeU`
+   while occupied if not already triggered at `entryU`);
+3. `closedGateCrossings` (all gates including `signal`, `nodeSwitch`, `crossSwitch`, `block`, `nodeRoom`, `crossRoom`,
+   `keepClear`, `road`, `platform`, `stop`, `end`, `complex`, and `entry <= 0.2` / `gap < 0.2` behind-probes), split into
+   `forward` crossings and `behind` transitions (gates first observed closed behind the front or transitioning open → closed
+   behind it, excluding fresh spawns), plus a `closedGateNonCreep` sub-breakdown (`speedPre >= 0.3` m/s or `dPost < -0.1` m)
+   to separate dynamic crossings from sub-0.3 m/s IDM asymptotic equilibrium creeps within 0.1 m of the `-0.5` m gate offset.
+`tests/tram-overruns.test.mjs` pins non-interference (bit-identical RNG and trajectories), synthetic true-red and
+occupied/claimed switch overruns, behind-tram closed-gate transitions, `path.trim()` continuity, spawn baselines, and
+zero false positives on committed complex clearings.
+[20-seed baseline record](observations/tram-overrun-audit-2026-11-19.md).
 
 `node tools/audit-tram-braking.mjs [--seed 4242] [--minutes 5] [--fps 20] [--only wilda]` reports episodes below
 −3 / −5 m/s² and at or below −8.5 m/s² by district, reason and position, per active tram-hour after the 20 s warmup.
