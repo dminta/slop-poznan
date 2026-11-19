@@ -334,8 +334,8 @@ instead of 71 footprint tests; only candidates within 0.45 m of a site box run t
 
 ### Limits
 
-- No browser pass was made for this change; the row's new termination at the mall walls is unverified in a rendered
-  frame. The audit and pins are static headless checks.
+- The trimmed row is verified in the [fresh browser pass below](#browser-pass-trimmed-row-2026-11-19) on both
+  backends by day and at midnight; no world code changed.
 - The lamp head is tested at its centre with the 0.45 m margin, not as the full 0.8 × 0.32 m box; a corner of the
   housing could in principle overhang a rectangle by a few centimetres while the centre stays clear. The head is
   0.4 m long from its centre, so the two differ only within that 5 cm band.
@@ -343,5 +343,78 @@ instead of 71 footprint tests; only candidates within 0.45 m of a site box run t
   are a fifth-of-area approximation, so a crown over the drawn edge is not evidence of a crown inside the real mall.
 - The audit's 0.3 m clash threshold and the new 0.45 m keep are different quantities: the audit asks whether a pole
   surface penetrates a building, the rule whether the whole pole and luminaire stand clear with a small margin.
-- The unlit data edge still leaves the trimmed row and the buffer stops as silhouettes at midnight; that limitation
-  is unchanged.
+- The unlit data edge still leaves distant edge masts and the buffer stops as silhouettes at midnight; within the
+  `115 m` `StreetClusteredLights` radius (`STREETLIGHT_DIST`), the terminal surviving masts at each mall edge are lit.
+
+### Browser pass, trimmed row (2026-11-19)
+
+Branch `poznan` at `990e3fd` (clean working tree, no code changes).
+
+#### Setup and console status
+
+- Headless Google Chrome **157.0.8103.79** on macOS (`--headless=new --enable-unsafe-webgpu --use-angle=metal
+  --disable-extensions --disable-background-timer-throttling --disable-renderer-backgrounding --window-size=1280,720`),
+  served over a temporary local HTTP server (`127.0.0.1:8280`), cache disabled (`Network.setCacheDisabled`).
+- **WebGPU high** (`/?quality=high`): `#hud-backend` = `WebGPU`, `data-quality` = `high` (`url:high`), internal canvas
+  **1280 × 720**, boot **8.0 s**.
+- **WebGL2 low** (`/?backend=webgl&quality=low`): `#hud-backend` = `WebGL2`, `data-quality` = `low` (`url:low`), internal
+  canvas **960 × 540** (1280 × 720 CSS), boot **8.0 s**.
+- Camera poses applied via the live `CameraSystem.update` hook (`{ eye, look, fov }`), HUD hidden via scratch CSS,
+  `Trams` and `TrafficAndPedestrians` hidden for deterministic prop framing, time switched via the real
+  `[data-time="midday"]` and `[data-time="midnight"]` controls (`lightingSystem.activePresetId` verified).
+- **Console status:** **0** console errors, **0** console warnings, **0** browser log errors/warnings, and **0**
+  uncaught exceptions across initial load, preset switches, and all camera moves on both backends (both the 13-view
+  overview/row pass and the 4-view close-up pass).
+
+#### Camera positions and headings (midday and midnight, both backends)
+
+Heading convention: `0°` faces `+z` (south), `90°` `+x` (east), `180°` `-z` (north), `270°` `-x` (west).
+
+| view | eye `(x, y, z)` | look `(x, y, z)` | heading | fov | target |
+|---|---|---|---:|---:|---|
+| `franowo-overview-south` | `(3940, 280, 3520)` | `(3940, 0, 2842)` | `180.0°` | `60°` | Franowo south retail-park overview |
+| `franowo-drone-south` | `(3820, 40, 2900)` | `(3960, 0, 2842)` | `112.5°` | `55°` | M1 main west edge from south drone |
+| `franowo-row-south` | `(3890, 2.6, 2892)` | `(4010, 2.0, 2842)` | `112.6°` | `55°` | M1 main west wall termination, street level |
+| `m1-west-mast-close` | `(3975, 4.5, 2862)` | `(4012, 3.0, 2842.42)` | `117.9°` | `55°` | Nearest surviving M1 west mast `(4007.97, 2842.25)` and tree |
+| `franowo-row-north` | `(3930, 2.4, 2810)` | `(3880, 1.5, 2845)` | `305.0°` | `55°` | IKEA–M1 corridor from north inside box |
+| `m1-gap-drone` | `(4260, 75, 2940)` | `(4200, 0, 2842)` | `211.5°` | `55°` | M1 main / glass V-notch and east end from drone |
+| `m1-notch-mast-close` | `(4220, 4.5, 2805)` | `(4220, 3.0, 2842.42)` | `0.0°` | `55°` | M1 main/glass V-notch surviving mast `(4220.82, 2842.42)` |
+| `franowo-glass-low` | `(4370, 2.4, 2810)` | `(4200, 1.8, 2842.42)` | `280.8°` | `55°` | M1 glass east corner, tree and mast, street level |
+| `m1-glass-east-close` | `(4365, 4.5, 2865)` | `(4332, 3.0, 2842.42)` | `235.6°` | `55°` | M1 glass east wall, tree and nearest mast `(4336.85, 2842.25)` |
+| `franowo-ikea-drone` | `(3450, 55, 2960)` | `(3600, 0, 2842)` | `128.2°` | `55°` | IKEA west wall termination from SW drone |
+| `ikea-east-nearest-mast` | `(3775, 4.5, 2865)` | `(3745, 3.0, 2842.42)` | `233.0°` | `55°` | Nearest surviving IKEA east mast `(3748.8, 2842.42)` |
+| `ikea-east-drone` | `(3770, 35, 2895)` | `(3735, 0, 2842.42)` | `213.6°` | `55°` | IKEA east corner and open corridor from drone |
+| `selgros-row` | `(680, 2.4, 2842.42)` | `(950, 1.8, 2842.42)` | `90.0°` | `55°` | Selgros west row termination along `z = 2842.42` |
+| `selgros-west-outside` | `(725, 4.0, 2862)` | `(815, 3.0, 2842.42)` | `102.3°` | `55°` | Selgros west wall outside footprint (dropped `811.5` mast gone) |
+| `selgros-east-close` | `(915, 3.5, 2862)` | `(865, 3.0, 2842.42)` | `248.6°` | `55°` | Selgros east wall row resumption |
+| `selgros-drone` | `(1000, 45, 2920)` | `(830, 0, 2842)` | `245.4°` | `55°` | Selgros roof and box-edge row from SE drone |
+
+#### Visual and live-scene findings
+
+- **Live `StreetDetails` check:** on both WebGPU high and WebGL2 low, the nearest rendered mast to any satellite
+  footprint is **`(3748.8, 2842.42)`** at IKEA Franowo (**1.402 m** pole-centre clearance, **1.177 m** from the
+  surface), followed by `(4007.97, 2842.25)` at M1 main west (**1.544 m**), `(4336.85, 2842.25)` at M1 glass east
+  (**4.225 m**), `(4003.08, 2842.42)` (**4.461 m**), and `(4220.82, 2842.42)` in the M1 main/glass V-notch
+  (**6.448 m**). Zero LED masts or luminaires penetrate or overhang any mall wall or roof.
+- **M1 Poznań (main + glass):** the row stops cleanly short of the M1 main west facade (`m1-west-mast-close`,
+  `franowo-row-south`, `franowo-drone-south`) and resumes cleanly east of the M1 glass corner (`m1-glass-east-close`,
+  `franowo-glass-low`). The lone surviving mast at `(4220.82, 2842.42)` stands clear in the open V-notch between the
+  two wings (`m1-notch-mast-close`). At both the west and east terminations, the nearest surviving procedural street
+  tree's pit and trunk sit clearly outside the mall wall on the sidewalk; a few outer crown leaves graze near the
+  wall corner under the trunk-only rule (`SATELLITE_KEEP` checks trunks), with zero trunk or pit clipping.
+- **IKEA Franowo:** the row stops cleanly at both the west facade (`franowo-ikea-drone`) and east corner
+  (`ikea-east-nearest-mast`, `ikea-east-drone`). The closest surviving LED mast at `(3748.8, 2842.42)` stands on the
+  sidewalk corner with its west-pointing luminaire arm clearly clear of the blue IKEA facade.
+- **Selgros:** both interior masts and the `x = 811.5` luminaire-overhang mast are absent (`selgros-row`,
+  `selgros-west-outside`); the surviving row ends well west of the west wall and resumes cleanly east of the east wall
+  (`selgros-east-close`, `selgros-drone`), with no masts or trees against or inside the steel box.
+- **Midnight visibility and silhouettes:** `StreetClusteredLights` activates LED spotlights within `STREETLIGHT_DIST = 115 m`
+  of the camera (`STREETLIGHT_SPOT_POOL = 36`). From the distant 40 m south drone (`franowo-drone-south`, ~196 m from M1),
+  only the closer masts cast light pools while the distant masts and trees near M1 read as dark silhouettes against the
+  moonlit apron and lit mall windows. From street level and low close-ups (`25–45 m` away: `m1-west-mast-close`,
+  `m1-glass-east-close`, `ikea-east-nearest-mast`, `selgros-west-outside`, `selgros-east-close`), the terminal surviving
+  masts lie inside the 115 m radius: their luminaire strips glow and cast warm pools across the sidewalk up to the mall
+  walls, with the mast shafts and street trees silhouetted cleanly against the pools and lit ground-floor windows and
+  zero stray light pools inside any mall footprint.
+- **WebGL2 low parity:** all checked WebGL2 low views (`960 × 540`) match WebGPU high placement, clean row terminations,
+  and midnight pool/silhouette behaviour with zero console errors or warnings.

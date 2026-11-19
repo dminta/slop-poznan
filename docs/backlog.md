@@ -459,19 +459,6 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   (`kapL3`) show the car just after it cleared the path of a braking tram (≈ 0.25 s after), the crossing itself is inferred
   from the log. The per-frame tram-reservation value (`c.held`, `tramConflictGap`) was not read, so the ~1 s
   forecast-gap case is unverified. [Record](observations/browser-checks-trams-2026-11-17.md#3-kaponiera).
-- **Data-edge tram ends and the Franowo box-edge row (2026-11-19).** Buffer stops stand at all **22** tram dead ends
-  outside the detail box (the Starołęka pair at z ≈ 3125, Franowo, Junikowo, Górczyn, Dębiec, Miłostowo; the 848/1013
-  switch is excluded) and passed the browser check (the first plain-white beam was fixed to three red and three white
-  0.4 m bands). The row decision is **executed**: `street-details.js` now rejects any LED lamp candidate (mast and luminaire,
-  on every fallback path) and any procedural street-tree candidate within `SATELLITE_KEEP` 0.45 m of a hand-placed
-  satellite footprint, so the south-edge row ends at the mall walls; the satellite rectangles themselves are unchanged.
-  This dropped **18 LED masts** (M1 Poznań 6 main + 3 glass, IKEA 6, Selgros 3 — two of those pole-inside plus one whose
-  luminaire overhung the roof line) and **12 procedural street trees** (6 M1, 6 IKEA; 0 mapped OSM trees stand inside),
-  and `tools/audit-pole-outskirts.mjs --fail-on-clash` now exits 0 with 0 clashes (10,586 poles at `--band 300`,
-  6,596 at `--band 0`; nearest LED mast 1.177 m). Remaining: the trimmed row has **not** had a fresh browser pass, and the data edge still has no local
-  lights, so at midnight the buffer stops and the row's end are silhouettes. The malls still reach 124 m (M1 main),
-  109 m (glass), 88 m (IKEA) and 11 m (Selgros) into the detail box; that is the hand-placed approximation, not the
-  row. [Record](observations/tram-buffer-stops-2026-11-19.md#follow-up-2026-11-19-the-box-edge-rows-stop-at-the-satellite-malls).
 - Listen to sirens, bells, tram motors/squeal and the noon show; verify local timing and audible range.
 
 For each fix, record measurements and regression checks in the topic docs or observation records, and state which
