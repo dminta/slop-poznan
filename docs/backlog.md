@@ -245,7 +245,13 @@ share are not thinned; [central-density record](observations/central-density-202
      route/collider/guide indexes and shader NodeData (~38 MB) dominate. Use real-device measurements to justify
      further exact packing or geometry deduplication; shader-cache release needs a renderer-supported lifecycle.
      Post-upload attribute release remains unsafe in the pinned three.js; keep GEO/BLOCKS late-reader inputs.
-  4. **Remaining boot work** after eleven passes: boot part 11 ([record](observations/perf-boot-11-2026-11-16.md)) adds exact
+  4. **Remaining boot work** after twelve passes: boot part 12 ([record](observations/perf-boot-12-2026-11-19.md)) adds
+     per-slot x spans to `createPolygonIndex`/`pointInPolyIndexed` (`city-config.js`), switches the street-details curb
+     edge grid from 4 m to 32 m cells, rejects crosswalk landings with a cached Chebyshev box and precomputes
+     tree-keepout chords (`street-details.js`) (headless Node build 10.64 → 10.25 s median / −3.68%,
+     min 10.61 → 10.14 s / −4.41%, 5/5 interleaved pairs faster, `streetDetails` −9.2%, `signalHeads` −2.4%,
+     24/24 output hashes identical, +1.89 MiB retained heap, −48 MiB rss). Earlier, boot part 11
+     ([record](observations/perf-boot-11-2026-11-16.md)) adds exact
      segment-to-segment `railSegHasSegs` pre-filtering for `laneClear` (`city-grid.js`, `pedestrian-routes.js`), caches
      per-edge curb frames and inlines edge tests in `nearestCurbFrame` (`street-details.js`), skips duplicate
      `clearOfRails` checks in `findOverhead` (`street-details.js`), precomputes Bernstein basis tables in `makeCurve`
@@ -261,13 +267,14 @@ share are not thinned; [central-density record](observations/central-density-202
      `blocks` −4.5%, `railLayout` −8.2%, 24/24 output hashes identical, +3.80 MiB retained heap). Earlier, boot part 9
      ([record](observations/perf-boot-9-2026-11-14.md)) cut 12.05 → 11.62 s median / −3.52% (browser precompile `[init]`
      for passes 8 + 9: 6.77 → 6.59 s at 1× / 44.26 → 41.65 s at 6×; passes 6–7 are not separately revertible now that later commits use `railWithin`). Remaining larger budgets in Node `--cpu-prof` are
-     `road-network` footprint index (0.44 s self), `tram-infra` `within` + `nearest` + `add` (0.36 + 0.11 + 0.15 s),
-     `railWithin` (0.29 s), `pointInPolyIndexed` (0.27 s), `nearestCurbFrame` (0.24 s), `roadClearance` (0.17 s),
-     `clearOfCrosswalks` (0.17 s), `makeCurve` + `curvePoint` (0.16 + 0.15 s), `outlineRay` (0.16 s), `laneClear`
-     (0.15 s) and `cutSlab` (0.15 s);
+     `road-network` footprint index (0.52 s self), `tram-infra` `within` + `add` + `nearest` (0.35 + 0.18 + 0.12 s),
+     `railWithin` (0.24 s), `makeCurve` + `curvePoint` (0.23 + 0.13 s), `pointInPolyIndexed` (0.22 s),
+     `roadClearance` (0.17 s), `laneClear` (0.16 s), `outlineRay` (0.16 s), `cutSlab` (0.15 s), `onRoadway` (0.14 s),
+     `clear` in `pedestrian-routes.js` (0.13 s) and `clearStreetTree` (0.11 s);
      do not retry 12 m `laneGrid` cells, a flat `Int32Array` grid for `railWithin`, a flat `Int32Array` grid for
      `landingGrid` (`clearOfCrosswalks`), extra
-     `segmentGrid` edge fields (+30.1 MiB heap), duplicated per-bucket `bounds` in `createFootprintIndex`, per-edge
+     `segmentGrid` edge fields (+30.1 MiB heap), duplicated per-bucket `bounds` or a per-bucket union bbox in
+     `createFootprintIndex` (the union rejected 1.29 M of 2.34 M single-cell queries but was 0/5 pairs faster), per-edge
      `x`-range branches in `pointInPolyIndexed`, or a separate `_mainlineCells` map in `railWithin`.
      Workers or deferral would need
      pure layout/buffer boundaries (cityGrid + traffic: 17.64 s upper-bound budget), justified by real-device reports.
