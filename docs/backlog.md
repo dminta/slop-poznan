@@ -366,10 +366,6 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   [Hall-roof evidence, 2026-11-13](observations/kit-roofs-2026-11-13.md#hall-weather-roof-review-2026-11-13).
 - Continue landmark-placement and scenic-camera checks, panel-material shimmer, balcony LOD transitions and
   platform/slab flicker where surfaces are only 1 cm apart.
-- Watch the black locust wind motion in a strong-gust phase: the 2026-11-17 check sampled 7.2 s of a ≈ 12.6 s gust period
-  (crown drift ≤ 2 px / 6 px, leaf flutter, no popping) and could not separate branch motion from foliage motion in stills
-  ([record](observations/browser-checks-props-2026-11-17.md#5-black-locust-wind--plausible-amplitude-small-not-resolved-for-strong-gusts)).
-  [Tree models](world.md).
 
 ### Signals, traffic and audio
 
