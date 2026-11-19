@@ -832,19 +832,44 @@ function railClearance(x, z, r = 8) {
   return best;
 }
 
+const RAIL_GRID_X0 = -320, RAIL_GRID_X1 = 160; // [-10240, 5152) m (covers detail box at 32 m cells)
+const RAIL_GRID_Z0 = -128, RAIL_GRID_Z1 = 128; // [-4096, 4128) m
+const RAIL_GRID_H = RAIL_GRID_Z1 - RAIL_GRID_Z0 + 1;
+let _railFastGrid = null;
+function railFastGrid() {
+  if (_railFastGrid) return _railFastGrid;
+  const cells = railCells();
+  const fast = new Array((RAIL_GRID_X1 - RAIL_GRID_X0 + 1) * RAIL_GRID_H);
+  for (let ix = RAIL_GRID_X0; ix <= RAIL_GRID_X1; ix++) {
+    const xOff = (ix - RAIL_GRID_X0) * RAIL_GRID_H - RAIL_GRID_Z0;
+    const row = ix * 100003;
+    for (let iz = RAIL_GRID_Z0; iz <= RAIL_GRID_Z1; iz++) {
+      const list = cells.get(row + iz);
+      if (list) fast[xOff + iz] = list;
+    }
+  }
+  _railFastGrid = fast;
+  return fast;
+}
+
 /** Is a prop whose footprint reaches `radius` from (x, z) at least RAIL_PROP_KEEP from every track? */
 function railWithin(x, z, d, mainlineOnly = false) {
   const cells = railCells();
+  const fast = railFastGrid();
   const d2 = d * d;
   const lo2 = d2 * (1 - 1e-12), hi2 = d2 * (1 + 1e-12);
-  const ix0 = Math.floor((x - d) / RAIL_CELL), ix1 = Math.floor((x + d) / RAIL_CELL);
-  const iz0 = Math.floor((z - d) / RAIL_CELL), iz1 = Math.floor((z + d) / RAIL_CELL);
+  const xLo = x - d, xHi = x + d, zLo = z - d, zHi = z + d;
+  const ix0 = Math.floor(xLo / RAIL_CELL), ix1 = Math.floor(xHi / RAIL_CELL);
+  const iz0 = Math.floor(zLo / RAIL_CELL), iz1 = Math.floor(zHi / RAIL_CELL);
   if (ix0 === ix1 && iz0 === iz1) {
-    const list = cells.get(ix0 * 100003 + iz0);
+    const list = (ix0 >= RAIL_GRID_X0 && ix0 <= RAIL_GRID_X1 && iz0 >= RAIL_GRID_Z0 && iz0 <= RAIL_GRID_Z1)
+      ? fast[(ix0 - RAIL_GRID_X0) * RAIL_GRID_H + (iz0 - RAIL_GRID_Z0)]
+      : cells.get(ix0 * 100003 + iz0);
     if (!list) return false;
-    for (const s of list) {
+    for (let i = 0, len = list.length; i < len; i++) {
+      const s = list[i];
       if (mainlineOnly && s.kind === 'tram') continue;
-      if (x < s.x0 - d || x > s.x1 + d || z < s.z0 - d || z > s.z1 + d) continue;
+      if (s.x1 < xLo || s.x0 > xHi || s.z1 < zLo || s.z0 > zHi) continue;
       const ex = s.ex, ez = s.ez, L2 = s.L2;
       const t = L2 > 0 ? Math.min(1, Math.max(0, ((x - s.ax) * ex + (z - s.az) * ez) / L2)) : 0;
       const dx = s.ax + ex * t - x, dz = s.az + ez * t - z;
@@ -854,14 +879,16 @@ function railWithin(x, z, d, mainlineOnly = false) {
     }
     return false;
   }
+  const inFast = ix0 >= RAIL_GRID_X0 && ix1 <= RAIL_GRID_X1 && iz0 >= RAIL_GRID_Z0 && iz1 <= RAIL_GRID_Z1;
   for (let ix = ix0; ix <= ix1; ix++) {
-    const row = ix * 100003;
+    const row = inFast ? (ix - RAIL_GRID_X0) * RAIL_GRID_H - RAIL_GRID_Z0 : ix * 100003;
     for (let iz = iz0; iz <= iz1; iz++) {
-      const list = cells.get(row + iz);
+      const list = inFast ? fast[row + iz] : cells.get(row + iz);
       if (!list) continue;
-      for (const s of list) {
+      for (let i = 0, len = list.length; i < len; i++) {
+        const s = list[i];
         if (mainlineOnly && s.kind === 'tram') continue;
-        if (x < s.x0 - d || x > s.x1 + d || z < s.z0 - d || z > s.z1 + d) continue;
+        if (s.x1 < xLo || s.x0 > xHi || s.z1 < zLo || s.z0 > zHi) continue;
         const ex = s.ex, ez = s.ez, L2 = s.L2;
         const t = L2 > 0 ? Math.min(1, Math.max(0, ((x - s.ax) * ex + (z - s.az) * ez) / L2)) : 0;
         const dx = s.ax + ex * t - x, dz = s.az + ez * t - z;
@@ -1079,15 +1106,22 @@ function triangulateRing(ring) {
 /** The part of convex polygon `poly` left of the line a -> b (right of it when `left` is false) */
 function clipHalfPlane(poly, a, b, left) {
   const out = [];
-  const f = (p) => cross2(a, b, p) * (left ? 1 : -1);
-  for (let i = 0; i < poly.length; i++) {
-    const p = poly[i], q = poly[(i + 1) % poly.length];
-    const fp = f(p), fq = f(q);
+  const n = poly.length;
+  if (!n) return out;
+  const ax = a.x, az = a.z, ex = b.x - ax, ez = b.z - az;
+  const s = left ? 1 : -1;
+  let p = poly[0];
+  let fp = (ex * (p.z - az) - ez * (p.x - ax)) * s;
+  for (let i = 0; i < n; i++) {
+    const q = poly[i + 1 < n ? i + 1 : 0];
+    const fq = (ex * (q.z - az) - ez * (q.x - ax)) * s;
     if (fp >= 0) out.push(p);
     if ((fp >= 0) !== (fq >= 0)) {
       const t = fp / (fp - fq);
       out.push({ x: p.x + (q.x - p.x) * t, z: p.z + (q.z - p.z) * t });
     }
+    p = q;
+    fp = fq;
   }
   return out;
 }
@@ -1324,16 +1358,29 @@ function unionPolygons(polys) {
  */
 function cutSlab(ring, segs, half, holes = []) {
   let pieces = triangulateRing(ring);
+  const ringBox = (pts) => {
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      if (p.x < x0) x0 = p.x;
+      if (p.x > x1) x1 = p.x;
+      if (p.z < z0) z0 = p.z;
+      if (p.z > z1) z1 = p.z;
+    }
+    return [x0, x1, z0, z1];
+  };
+  let boxes = pieces.map(ringBox);
   // Subtract building holes as triangles before cutting corridors; all pieces remain convex.
   for (const hole of holes) {
     for (const triangle of triangulateRing(hole)) {
       const next = [];
-      const minX = Math.min(...triangle.map((p) => p.x)), maxX = Math.max(...triangle.map((p) => p.x));
-      const minZ = Math.min(...triangle.map((p) => p.z)), maxZ = Math.max(...triangle.map((p) => p.z));
-      for (const piece of pieces) {
-        if (piece.every((p) => p.x <= minX) || piece.every((p) => p.x >= maxX) ||
-            piece.every((p) => p.z <= minZ) || piece.every((p) => p.z >= maxZ)) {
+      const nextBoxes = [];
+      const [minX, maxX, minZ, maxZ] = ringBox(triangle);
+      for (let pi = 0; pi < pieces.length; pi++) {
+        const piece = pieces[pi], pb = boxes[pi];
+        if (pb[1] <= minX || pb[0] >= maxX || pb[3] <= minZ || pb[2] >= maxZ) {
           next.push(piece);
+          nextBoxes.push(pb);
           continue;
         }
         let overlap = piece;
@@ -1342,46 +1389,65 @@ function cutSlab(ring, segs, half, holes = []) {
         }
         if (overlap.length < 3 || polygonCentroidArea(overlap) < 1e-8) {
           next.push(piece);
+          nextBoxes.push(pb);
           continue;
         }
         let rest = piece;
         for (let i = 0; i < 3 && rest.length >= 3; i++) {
           const outside = clipHalfPlane(rest, triangle[i], triangle[(i + 1) % 3], false);
-          if (outside.length >= 3 && polygonCentroidArea(outside) > 0.01) next.push(outside);
+          if (outside.length >= 3 && polygonCentroidArea(outside) > 0.01) {
+            next.push(outside);
+            nextBoxes.push(ringBox(outside));
+          }
           rest = clipHalfPlane(rest, triangle[i], triangle[(i + 1) % 3], true);
         }
       }
       pieces = next;
+      boxes = nextBoxes;
     }
   }
-  const area = (p) => polygonCentroidArea(p);
-  for (const [ax, az, bx, bz, segmentHalf = half] of segs) {
+  const qA = { x: 0, z: 0 }, qB = { x: 0, z: 0 }, qC = { x: 0, z: 0 }, qD = { x: 0, z: 0 };
+  const quad = [qA, qB, qC, qD];
+  for (let si = 0; si < segs.length; si++) {
+    const seg = segs[si];
+    const ax = seg[0], az = seg[1], bx = seg[2], bz = seg[3];
+    const segmentHalf = seg[4] !== undefined ? seg[4] : half;
     const len = Math.hypot(bx - ax, bz - az);
     if (len < 1e-6) continue;
     const ux = ((bx - ax) / len) * segmentHalf, uz = ((bz - az) / len) * segmentHalf;
     // left-turning: along u, then across to the left (-uz, ux) side
-    const quad = [
-      { x: ax - ux + uz, z: az - uz - ux }, { x: bx + ux + uz, z: bz + uz - ux },
-      { x: bx + ux - uz, z: bz + uz + ux }, { x: ax - ux - uz, z: az - uz + ux }
-    ];
-    if (cross2(quad[0], quad[1], quad[2]) < 0) quad.reverse();
-    let qx0 = Infinity, qx1 = -Infinity, qz0 = Infinity, qz1 = -Infinity;
-    for (const q of quad) { qx0 = Math.min(qx0, q.x); qx1 = Math.max(qx1, q.x); qz0 = Math.min(qz0, q.z); qz1 = Math.max(qz1, q.z); }
+    qA.x = ax - ux + uz; qA.z = az - uz - ux;
+    qB.x = bx + ux + uz; qB.z = bz + uz - ux;
+    qC.x = bx + ux - uz; qC.z = bz + uz + ux;
+    qD.x = ax - ux - uz; qD.z = az - uz + ux;
+    if (cross2(qA, qB, qC) < 0) {
+      quad[0] = qD; quad[1] = qC; quad[2] = qB; quad[3] = qA;
+    } else {
+      quad[0] = qA; quad[1] = qB; quad[2] = qC; quad[3] = qD;
+    }
+    const qx0 = Math.min(qA.x, qB.x, qC.x, qD.x), qx1 = Math.max(qA.x, qB.x, qC.x, qD.x);
+    const qz0 = Math.min(qA.z, qB.z, qC.z, qD.z), qz1 = Math.max(qA.z, qB.z, qC.z, qD.z);
     const next = [];
-    for (const piece of pieces) {
-      if (piece.every((p) => p.x < qx0) || piece.every((p) => p.x > qx1) || piece.every((p) => p.z < qz0) ||
-        piece.every((p) => p.z > qz1)) {
+    const nextBoxes = [];
+    for (let pi = 0; pi < pieces.length; pi++) {
+      const piece = pieces[pi], pb = boxes[pi];
+      if (pb[1] < qx0 || pb[0] > qx1 || pb[3] < qz0 || pb[2] > qz1) {
         next.push(piece);
+        nextBoxes.push(pb);
         continue;
       }
       let rest = piece;
       for (let i = 0; i < 4 && rest.length >= 3; i++) {
-        const outside = clipHalfPlane(rest, quad[i], quad[(i + 1) % 4], false);
-        if (outside.length >= 3 && area(outside) > 0.01) next.push(outside);
-        rest = clipHalfPlane(rest, quad[i], quad[(i + 1) % 4], true);
+        const outside = clipHalfPlane(rest, quad[i], quad[(i + 1) & 3], false);
+        if (outside.length >= 3 && polygonCentroidArea(outside) > 0.01) {
+          next.push(outside);
+          nextBoxes.push(ringBox(outside));
+        }
+        rest = clipHalfPlane(rest, quad[i], quad[(i + 1) & 3], true);
       }
     }
     pieces = next;
+    boxes = nextBoxes;
   }
   return pieces;
 }

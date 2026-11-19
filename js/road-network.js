@@ -128,7 +128,7 @@ function createFootprintIndex(rects, flagOf) {
           cells.set(key, bucket);
           buckets.push([[], [], []]);
         }
-        buckets[bucket][slot].push(i);
+        buckets[bucket][slot].push(o);
         total++;
       }
     }
@@ -157,8 +157,8 @@ function createFootprintIndex(rects, flagOf) {
       grid[(ix - minIx) * spanZ + (iz - minIz)] = bucket;
     }
     return (minX, maxX, minZ, maxZ, mask) => {
-      const ix0 = Math.floor(minX / FP_CELL), ix1 = Math.floor(maxX / FP_CELL);
-      const iz0 = Math.floor(minZ / FP_CELL), iz1 = Math.floor(maxZ / FP_CELL);
+      const ix0 = Math.floor(minX * 0.03125), ix1 = Math.floor(maxX * 0.03125);
+      const iz0 = Math.floor(minZ * 0.03125), iz1 = Math.floor(maxZ * 0.03125);
       if (ix1 < minIx || ix0 > maxIx || iz1 < minIz || iz0 > maxIz) return false;
       const sOff = mask === 2 ? 1 : 0;
       const eOff = mask === 1 ? 2 : 3;
@@ -167,7 +167,7 @@ function createFootprintIndex(rects, flagOf) {
         if (bucket < 0) return false;
         const bi = bucket * 3;
         for (let k = starts[bi + sOff], end = starts[bi + eOff]; k < end; k++) {
-          const o = ids[k] * 4;
+          const o = ids[k];
           if (bounds[o] < maxX && bounds[o + 1] > minX && bounds[o + 2] < maxZ && bounds[o + 3] > minZ) return true;
         }
         return false;
@@ -181,7 +181,7 @@ function createFootprintIndex(rects, flagOf) {
           if (bucket < 0) continue;
           const bi = bucket * 3;
           for (let k = starts[bi + sOff], end = starts[bi + eOff]; k < end; k++) {
-            const o = ids[k] * 4;
+            const o = ids[k];
             if (bounds[o] < maxX && bounds[o + 1] > minX && bounds[o + 2] < maxZ && bounds[o + 3] > minZ) return true;
           }
         }
@@ -191,8 +191,8 @@ function createFootprintIndex(rects, flagOf) {
   }
 
   return (minX, maxX, minZ, maxZ, mask) => {
-    const ix0 = Math.floor(minX / FP_CELL), ix1 = Math.floor(maxX / FP_CELL);
-    const iz0 = Math.floor(minZ / FP_CELL), iz1 = Math.floor(maxZ / FP_CELL);
+    const ix0 = Math.floor(minX * 0.03125), ix1 = Math.floor(maxX * 0.03125);
+    const iz0 = Math.floor(minZ * 0.03125), iz1 = Math.floor(maxZ * 0.03125);
     const sOff = mask === 2 ? 1 : 0;
     const eOff = mask === 1 ? 2 : 3;
     if (ix0 === ix1 && iz0 === iz1) {
@@ -200,7 +200,7 @@ function createFootprintIndex(rects, flagOf) {
       if (bucket === undefined) return false;
       const bi = bucket * 3;
       for (let k = starts[bi + sOff], end = starts[bi + eOff]; k < end; k++) {
-        const o = ids[k] * 4;
+        const o = ids[k];
         if (bounds[o] < maxX && bounds[o + 1] > minX && bounds[o + 2] < maxZ && bounds[o + 3] > minZ) return true;
       }
       return false;
@@ -212,7 +212,7 @@ function createFootprintIndex(rects, flagOf) {
         if (bucket === undefined) continue;
         const bi = bucket * 3;
         for (let k = starts[bi + sOff], end = starts[bi + eOff]; k < end; k++) {
-          const o = ids[k] * 4;
+          const o = ids[k];
           if (bounds[o] < maxX && bounds[o + 1] > minX && bounds[o + 2] < maxZ && bounds[o + 3] > minZ) return true;
         }
       }
@@ -1456,12 +1456,12 @@ function buildRoadNetwork(sidewalks, obstacles) {
   //    left turns, straight on, right turns, into lanes in the same order, so no two paths from one approach cross.
   const lateral = (e, i) => e.x0 * e.rx + e.z0 * e.rz + e.lanes[i];
   const ORDER = { L: 0, S: 1, R: 2 };
+  const pathClearPt = { x: 0, z: 0, dx: 0, dz: 0 };
   function pathClear(e, i, f, j) {
-    const c = makeCurve(e, i, f, j);
-    const p = { x: 0, z: 0, dx: 0, dz: 0 };
+    const c = makeCurve(e, i, f, j, false);
     for (let k = 1; k < 10; k++) {
-      curvePoint(c, c.len * k / 10, p);
-      if (blockedOnStreet(p.x, p.z, 0.8, 0.1)) return false;
+      curvePoint(c, c.len * k / 10, pathClearPt, false);
+      if (blockedOnStreet(pathClearPt.x, pathClearPt.z, 0.8, 0.1)) return false;
     }
     return true;
   }
@@ -1616,7 +1616,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
       for (const m of o.moves) {
         for (let i = 0; i < o.lanes.length; i++) {
           if (m.out[i] < 0) continue;
-          const c = makeCurve(o, i, m.to, m.out[i]);
+          const c = makeCurve(o, i, m.to, m.out[i], false);
           for (let s = 0; s <= c.len; s += 1) {
             curvePoint(c, s, pathPt);
             for (const [cx, cz] of cars) {
@@ -1898,7 +1898,7 @@ function configureCompoundCrossings(network, crosswalks) {
           const samples = Math.ceil(curve.len / step);
           for (let i = 0; i <= samples; i++) {
             const s = Math.min(curve.len, i * step);
-            network.curvePoint(curve, s, point);
+            network.curvePoint(curve, s, point, false);
             const x = point.x - crossing.ax, z = point.z - crossing.az;
             const along = x * ux + z * uz, across = -x * uz + z * ux;
             if (along >= -margin && along <= length + margin && Math.abs(across) <= crossing.h + margin) {
@@ -2050,7 +2050,7 @@ for (let k = 0; k <= 16; k++) {
 // the sharpest curvature along it (1 / tightest radius).
 // `stopLead` is the distance a stop line was moved upstream of the edge's original end (shiftStopLine): the Bezier
 // still starts there, so a straight stub of that length leads from the new stop line to it and the swept path is unchanged.
-function makeCurve(e, i, f, j) {
+function makeCurve(e, i, f, j, needCurv = true) {
   const lead = e.stopLead || 0;
   const x0 = e.sx + e.dx * (e.len + lead) + e.rx * laneOffset(e, i, e.len + lead);
   const z0 = e.sz + e.dz * (e.len + lead) + e.rz * laneOffset(e, i, e.len + lead);
@@ -2074,24 +2074,35 @@ function makeCurve(e, i, f, j) {
     len: 0,
     curv: 0
   };
-  const dx0 = x1 - x0, dx1 = x2 - x1, dx2 = x3 - x2;
-  const dz0 = z1 - z0, dz1 = z2 - z1, dz2 = z3 - z2;
-  const ddx0 = x2 - 2 * x1 + x0, ddx1 = x3 - 2 * x2 + x1;
-  const ddz0 = z2 - 2 * z1 + z0, ddz1 = z3 - 2 * z2 + z1;
   let px = x0;
   let pz = z0;
-  for (let k = 0; k <= 16; k++) {
-    const x = CURVE_B0[k] * x0 + CURVE_B1[k] * x1 + CURVE_B2[k] * x2 + CURVE_B3[k] * x3;
-    const z = CURVE_B0[k] * z0 + CURVE_B1[k] * z1 + CURVE_B2[k] * z2 + CURVE_B3[k] * z3;
-    c.len += Math.hypot(x - px, z - pz);
-    c.lut[k] = c.len;
-    px = x;
-    pz = z;
-    const dx = CURVE_D0[k] * dx0 + CURVE_D1[k] * dx1 + CURVE_D2[k] * dx2;
-    const dz = CURVE_D0[k] * dz0 + CURVE_D1[k] * dz1 + CURVE_D2[k] * dz2;
-    const ddx = CURVE_DD0[k] * ddx0 + CURVE_DD1[k] * ddx1;
-    const ddz = CURVE_DD0[k] * ddz0 + CURVE_DD1[k] * ddz1;
-    c.curv = Math.max(c.curv, Math.abs(dx * ddz - dz * ddx) / Math.max(1e-6, Math.hypot(dx, dz) ** 3));
+  if (needCurv) {
+    const dx0 = x1 - x0, dx1 = x2 - x1, dx2 = x3 - x2;
+    const dz0 = z1 - z0, dz1 = z2 - z1, dz2 = z3 - z2;
+    const ddx0 = x2 - 2 * x1 + x0, ddx1 = x3 - 2 * x2 + x1;
+    const ddz0 = z2 - 2 * z1 + z0, ddz1 = z3 - 2 * z2 + z1;
+    for (let k = 0; k <= 16; k++) {
+      const x = CURVE_B0[k] * x0 + CURVE_B1[k] * x1 + CURVE_B2[k] * x2 + CURVE_B3[k] * x3;
+      const z = CURVE_B0[k] * z0 + CURVE_B1[k] * z1 + CURVE_B2[k] * z2 + CURVE_B3[k] * z3;
+      c.len += Math.hypot(x - px, z - pz);
+      c.lut[k] = c.len;
+      px = x;
+      pz = z;
+      const dx = CURVE_D0[k] * dx0 + CURVE_D1[k] * dx1 + CURVE_D2[k] * dx2;
+      const dz = CURVE_D0[k] * dz0 + CURVE_D1[k] * dz1 + CURVE_D2[k] * dz2;
+      const ddx = CURVE_DD0[k] * ddx0 + CURVE_DD1[k] * ddx1;
+      const ddz = CURVE_DD0[k] * ddz0 + CURVE_DD1[k] * ddz1;
+      c.curv = Math.max(c.curv, Math.abs(dx * ddz - dz * ddx) / Math.max(1e-6, Math.hypot(dx, dz) ** 3));
+    }
+  } else {
+    for (let k = 1; k <= 16; k++) {
+      const x = CURVE_B0[k] * x0 + CURVE_B1[k] * x1 + CURVE_B2[k] * x2 + CURVE_B3[k] * x3;
+      const z = CURVE_B0[k] * z0 + CURVE_B1[k] * z1 + CURVE_B2[k] * z2 + CURVE_B3[k] * z3;
+      c.len += Math.hypot(x - px, z - pz);
+      c.lut[k] = c.len;
+      px = x;
+      pz = z;
+    }
   }
   if (lead > 0) leadCurve(c, lead, e.dx, e.dz);
   return c;
@@ -2106,13 +2117,15 @@ function leadCurve(c, lead, ux, uz) {
 }
 
 // Position and unit tangent at arc length s along a curve
-function curvePoint(c, s, out) {
+function curvePoint(c, s, out, needTangent = true) {
   if (c.lead) {
     if (s < c.lead) {
       out.x = c.x0 - c.ux * (c.lead - s);
       out.z = c.z0 - c.uz * (c.lead - s);
-      out.dx = c.ux;
-      out.dz = c.uz;
+      if (needTangent) {
+        out.dx = c.ux;
+        out.dz = c.uz;
+      }
       return out;
     }
     s -= c.lead;
@@ -2123,8 +2136,13 @@ function curvePoint(c, s, out) {
   const s1 = c.lut[k];
   const t = (k - 1 + Math.min(1, Math.max(0, (s - s0) / (s1 - s0 || 1)))) / 16;
   const u = 1 - t;
-  out.x = u * u * u * c.x0 + 3 * u * u * t * c.x1 + 3 * u * t * t * c.x2 + t * t * t * c.x3;
-  out.z = u * u * u * c.z0 + 3 * u * u * t * c.z1 + 3 * u * t * t * c.z2 + t * t * t * c.z3;
+  const b0 = u * u * u;
+  const b1 = 3 * u * u * t;
+  const b2 = 3 * u * t * t;
+  const b3 = t * t * t;
+  out.x = b0 * c.x0 + b1 * c.x1 + b2 * c.x2 + b3 * c.x3;
+  out.z = b0 * c.z0 + b1 * c.z1 + b2 * c.z2 + b3 * c.z3;
+  if (!needTangent) return out;
   const dx = 3 * u * u * (c.x1 - c.x0) + 6 * u * t * (c.x2 - c.x1) + 3 * t * t * (c.x3 - c.x2);
   const dz = 3 * u * u * (c.z1 - c.z0) + 6 * u * t * (c.z2 - c.z1) + 3 * t * t * (c.z3 - c.z2);
   const l = Math.hypot(dx, dz) || 1;

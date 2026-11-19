@@ -113,11 +113,15 @@ function createPedestrianRoutes(
   // The sub-runs of a way segment (as fractions of a-b) whose 0.5 m samples are off every roadway, at least 1 m long;
   // the whole segment, [[0, 1]], when none is on one.
   function wayRuns(a, b) {
+    const cands = roadwayCandidates(a, b);
+    if (cands === null) return [[0, 1]];
     const length = Math.hypot(b.x - a.x, b.z - a.z), steps = Math.max(1, Math.ceil(length / 0.5));
     const runs = [];
     let start = -1;
+    const dx = b.x - a.x, dz = b.z - a.z;
     for (let i = 0; i <= steps; i++) {
-      const on = onRoadway(a.x + (b.x - a.x) * i / steps, a.z + (b.z - a.z) * i / steps);
+      const px = a.x + dx * i / steps, pz = a.z + dz * i / steps;
+      const on = cands ? onRoadwayList(px, pz, cands) : onRoadway(px, pz);
       if (!on && start < 0) start = i;
       if ((on || i === steps) && start >= 0) {
         const end = on ? i - 1 : i;
@@ -228,6 +232,8 @@ function createPedestrianRoutes(
   }
 
   function clear(a, b, block = null, anyBlock = false) {
+    if (block && (!sameBlockAt(a.x, a.z, block) || !sameBlockAt(b.x, b.z, block))) return false;
+    if (anyBlock && (!blockAt(a.x, a.z) || !blockAt(b.x, b.z))) return false;
     const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z)));
     const allWalkable = boxWalkable && boxWalkable(
       Math.min(a.x, b.x) - 0.4, Math.max(a.x, b.x) + 0.4,
@@ -237,12 +243,12 @@ function createPedestrianRoutes(
     let x = a.x, z = a.z;
     for (let i = 0; i <= steps; i++) {
       const nx = a.x + (b.x - a.x) * i / steps, nz = a.z + (b.z - a.z) * i / steps;
+      if (block && !sameBlockAt(nx, nz, block)) return false;
+      if (anyBlock && !blockAt(nx, nz)) return false;
       if (!allWalkable &&
           !walkable(Math.min(x, nx) - 0.4, Math.max(x, nx) + 0.4, Math.min(z, nz) - 0.4, Math.max(z, nz) + 0.4)) {
         return false;
       }
-      if (block && !sameBlockAt(nx, nz, block)) return false;
-      if (anyBlock && !blockAt(nx, nz)) return false;
       x = nx; z = nz;
     }
     return true;
@@ -258,6 +264,10 @@ function createPedestrianRoutes(
     const len = Math.hypot(dx, dz);
     if (len < 2 * LANE_INSET) return 0;
     const rx = -dz / len, rz = dx / len;
+    const rxi = rx * LANE_INSET, rzi = rz * LANE_INSET;
+    const okNeg = sameBlockAt(a.x - rxi, a.z - rzi, block) && sameBlockAt(b.x - rxi, b.z - rzi, block);
+    const okPos = sameBlockAt(a.x + rxi, a.z + rzi, block) && sameBlockAt(b.x + rxi, b.z + rzi, block);
+    if (!okNeg && !okPos) return 0;
     // Block identity and rail clearance at 0.5 m, never capped: a 220 m track cannot hide a short block excursion
     // or a rail corner between samples (the review found 5 block and 37 rail cases when the old check stopped at 24
     // points). The swept body box runs every second sample (1 m) and covers the half-step point between them. Rail
@@ -278,12 +288,15 @@ function createPedestrianRoutes(
     if (checkRails && steps + 1 > laneCenterRail.length) laneCenterRail = new Uint8Array(steps + 1);
     let maxCenter = -1;
     let lanes = 0;
-    for (const side of [-1, 1]) {
+    for (let si = 0; si < 2; si++) {
+      const side = si ? 1 : -1;
+      if (side < 0 ? !okNeg : !okPos) continue;
       let clearSide = true;
-      let px = a.x + rx * side * LANE_INSET, pz = a.z + rz * side * LANE_INSET;
+      const sx = rxi * side, sz = rzi * side;
+      let px = a.x + sx, pz = a.z + sz;
       for (let i = 0; i <= steps; i++) {
         const t = i / steps, cx = a.x + dx * t, cz = a.z + dz * t;
-        const x = cx + rx * side * LANE_INSET, z = cz + rz * side * LANE_INSET;
+        const x = cx + sx, z = cz + sz;
         const swept = i % 2 === 0 || i === steps;
         if (!sameBlockAt(x, z, block) ||
             (swept && !allWalkable && !walkable(Math.min(px, x) - LANE_BODY, Math.max(px, x) + LANE_BODY,
@@ -889,11 +902,38 @@ function createPedestrianRoutes(
   function cornerClear(a, b, block) {
     if (!clear(a, b, block) || !laneFree(a, b, 1)) return false;
     const poly = block.poly;
+    const n = poly.length;
     const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z)));
+    if (n > 12) {
+      const bx0 = (a.x < b.x ? a.x : b.x) - 4.000001, bx1 = (a.x > b.x ? a.x : b.x) + 4.000001;
+      const bz0 = (a.z < b.z ? a.z : b.z) - 4.000001, bz1 = (a.z > b.z ? a.z : b.z) + 4.000001;
+      const edges = [];
+      for (let j = 0, k = n - 1; j < n; k = j++) {
+        const p = poly[j], q = poly[k];
+        if ((p.x < q.x ? p.x : q.x) > bx1 || (p.x > q.x ? p.x : q.x) < bx0 ||
+            (p.z < q.z ? p.z : q.z) > bz1 || (p.z > q.z ? p.z : q.z) < bz0) continue;
+        edges.push(p, q);
+      }
+      if (!edges.length) return false;
+      for (let i = 0; i <= steps; i++) {
+        const x = a.x + (b.x - a.x) * i / steps, z = a.z + (b.z - a.z) * i / steps;
+        let ok = false;
+        for (let m = 0; m < edges.length; m += 2) {
+          const p = edges[m], q = edges[m + 1];
+          if (x < (p.x < q.x ? p.x : q.x) - 4.000001 || x > (p.x > q.x ? p.x : q.x) + 4.000001 ||
+              z < (p.z < q.z ? p.z : q.z) - 4.000001 || z > (p.z > q.z ? p.z : q.z) + 4.000001) continue;
+          const dx = q.x - p.x, dz = q.z - p.z;
+          const t = Math.max(0, Math.min(1, ((x - p.x) * dx + (z - p.z) * dz) / (dx * dx + dz * dz || 1)));
+          if (Math.hypot(x - p.x - dx * t, z - p.z - dz * t) <= 4) { ok = true; break; }
+        }
+        if (!ok) return false;
+      }
+      return true;
+    }
     for (let i = 0; i <= steps; i++) {
       const x = a.x + (b.x - a.x) * i / steps, z = a.z + (b.z - a.z) * i / steps;
       let ok = false;
-      for (let j = 0, k = poly.length - 1; j < poly.length; k = j++) {
+      for (let j = 0, k = n - 1; j < n; k = j++) {
         const p = poly[j], q = poly[k];
         if (x < (p.x < q.x ? p.x : q.x) - 4.000001 || x > (p.x > q.x ? p.x : q.x) + 4.000001 ||
             z < (p.z < q.z ? p.z : q.z) - 4.000001 || z > (p.z > q.z ? p.z : q.z) + 4.000001) continue;
@@ -947,6 +987,7 @@ function createPedestrianRoutes(
     streetCells = new Map();
     const CELL = 64;
     for (const e of edges) {
+      roadwayBounds(e);
       const x1 = e.sx, z1 = e.sz, x2 = x1 + e.dx * e.len, z2 = z1 + e.dz * e.len;
       const pad = e.half + 1;
       const ix0 = Math.floor((Math.min(x1, x2) - pad) / CELL), ix1 = Math.floor((Math.max(x1, x2) + pad) / CELL);
@@ -1022,11 +1063,65 @@ function createPedestrianRoutes(
       const e = list[i];
       const s = (x - e.sx) * e.dx + (z - e.sz) * e.dz;
       if (s < 0 || s > e.len) continue;
-      roadwayBounds(e);
       const lat = (x - e.sx) * e.rx + (z - e.sz) * e.rz;
       if (lat > e._roadLo && lat < e._roadHi) return true;
     }
     return false;
+  }
+  function onRoadwayList(x, z, list) {
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i];
+      const s = (x - e.sx) * e.dx + (z - e.sz) * e.dz;
+      if (s < 0 || s > e.len) continue;
+      const lat = (x - e.sx) * e.rx + (z - e.sz) * e.rz;
+      if (lat > e._roadLo && lat < e._roadHi) return true;
+    }
+    return false;
+  }
+  // Returns null when no roadway in the segment's 64 m cells can overlap [a, b], an array of filtered candidates
+  // when [a, b] stays within one 64 m cell, or undefined when a multi-cell segment needs per-point cell lookup.
+  function roadwayCandidates(a, b) {
+    const cells = indexStreets();
+    const _ix0 = Math.floor(((a.x < b.x ? a.x : b.x) - 1e-9) / 64);
+    const _ix1 = Math.floor(((a.x > b.x ? a.x : b.x) + 1e-9) / 64);
+    const _iz0 = Math.floor(((a.z < b.z ? a.z : b.z) - 1e-9) / 64);
+    const _iz1 = Math.floor(((a.z > b.z ? a.z : b.z) + 1e-9) / 64);
+    if (_ix0 === _ix1 && _iz0 === _iz1) {
+      const list = cells.get(_ix0 * 100000 + _iz0);
+      if (!list) return null;
+      const cands = [];
+      for (let i = 0; i < list.length; i++) {
+        const e = list[i];
+        const sa = (a.x - e.sx) * e.dx + (a.z - e.sz) * e.dz;
+        const sb = (b.x - e.sx) * e.dx + (b.z - e.sz) * e.dz;
+        if ((sa < -1e-6 && sb < -1e-6) || (sa > e.len + 1e-6 && sb > e.len + 1e-6)) continue;
+        const la = (a.x - e.sx) * e.rx + (a.z - e.sz) * e.rz;
+        const lb = (b.x - e.sx) * e.rx + (b.z - e.sz) * e.rz;
+        if ((la <= e._roadLo - 1e-6 && lb <= e._roadLo - 1e-6) ||
+            (la >= e._roadHi + 1e-6 && lb >= e._roadHi + 1e-6)) continue;
+        cands.push(e);
+      }
+      return cands.length ? cands : null;
+    }
+    for (let ix = _ix0; ix <= _ix1; ix++) {
+      const row = ix * 100000;
+      for (let iz = _iz0; iz <= _iz1; iz++) {
+        const list = cells.get(row + iz);
+        if (!list) continue;
+        for (let i = 0; i < list.length; i++) {
+          const e = list[i];
+          const sa = (a.x - e.sx) * e.dx + (a.z - e.sz) * e.dz;
+          const sb = (b.x - e.sx) * e.dx + (b.z - e.sz) * e.dz;
+          if ((sa < -1e-6 && sb < -1e-6) || (sa > e.len + 1e-6 && sb > e.len + 1e-6)) continue;
+          const la = (a.x - e.sx) * e.rx + (a.z - e.sz) * e.rz;
+          const lb = (b.x - e.sx) * e.rx + (b.z - e.sz) * e.rz;
+          if ((la <= e._roadLo - 1e-6 && lb <= e._roadLo - 1e-6) ||
+              (la >= e._roadHi + 1e-6 && lb >= e._roadHi + 1e-6)) continue;
+          return undefined;
+        }
+      }
+    }
+    return null;
   }
   // Every 0.5 m sample of a straight walk is off every carriageway (`onRoadway`). A sidewalk line, a way line or a corner
   // link that `clear` accepts whole (same block, walkable ground) can still run over a carriageway of another edge: park
@@ -1034,11 +1129,22 @@ function createPedestrianRoutes(
   // `skip` exempts the first and last metres: a crosswalk landing (or a track end) can stand inside a short or service
   // edge's lane band, and the link that leaves it must not be rejected at sample 0.
   function laneFree(a, b, skip = 0) {
+    const cands = roadwayCandidates(a, b);
+    if (cands === null) return true;
     const length = Math.hypot(b.x - a.x, b.z - a.z), steps = Math.max(1, Math.ceil(length / 0.5));
+    const dx = b.x - a.x, dz = b.z - a.z;
+    if (cands) {
+      for (let i = 0; i <= steps; i++) {
+        const d = length * i / steps;
+        if (d < skip || length - d < skip) continue;
+        if (onRoadwayList(a.x + dx * i / steps, a.z + dz * i / steps, cands)) return false;
+      }
+      return true;
+    }
     for (let i = 0; i <= steps; i++) {
       const d = length * i / steps;
       if (d < skip || length - d < skip) continue;
-      if (onRoadway(a.x + (b.x - a.x) * i / steps, a.z + (b.z - a.z) * i / steps)) return false;
+      if (onRoadway(a.x + dx * i / steps, a.z + dz * i / steps)) return false;
     }
     return true;
   }

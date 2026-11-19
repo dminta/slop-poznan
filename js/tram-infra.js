@@ -610,13 +610,56 @@ function segmentGrid(cell = 24, walk = false) {
       const xLo = x - lim, xHi = x + lim, zLo = z - lim, zHi = z + lim;
       const ix0 = Math.floor((x - r) / cell), ix1 = Math.floor((x + r) / cell);
       const iz0 = Math.floor((z - r) / cell), iz1 = Math.floor((z + r) / cell);
+      if (accept) {
+        if (ix0 === ix1 && iz0 === iz1) {
+          const list = cells.get(ix0 * 100003 + iz0);
+          if (!list) return false;
+          for (let i = 0, len = list.length; i < len; i++) {
+            const sg = list[i];
+            if (sg.x0 > xHi || sg.x1 < xLo || sg.z0 > zHi || sg.z1 < zLo) continue;
+            if (!accept(sg)) continue;
+            const ex = sg.bx - sg.ax;
+            const ez = sg.bz - sg.az;
+            const t = Math.max(0, Math.min(1, ((x - sg.ax) * ex + (z - sg.az) * ez) / (ex * ex + ez * ez || 1)));
+            const dx = sg.ax + ex * t - x;
+            const dz = sg.az + ez * t - z;
+            const d2 = dx * dx + dz * dz;
+            if (d2 < lo2) return true;
+            if (d2 <= hi2 && Math.hypot(dx, dz) < r) return true;
+          }
+          return false;
+        }
+        const q = ++stamp;
+        for (let ix = ix0; ix <= ix1; ix++) {
+          const row = ix * 100003;
+          for (let iz = iz0; iz <= iz1; iz++) {
+            const list = cells.get(row + iz);
+            if (!list) continue;
+            for (let i = 0, len = list.length; i < len; i++) {
+              const sg = list[i];
+              if (sg.x0 > xHi || sg.x1 < xLo || sg.z0 > zHi || sg.z1 < zLo) continue;
+              if (sg._q === q) continue;
+              sg._q = q;
+              if (!accept(sg)) continue;
+              const ex = sg.bx - sg.ax;
+              const ez = sg.bz - sg.az;
+              const t = Math.max(0, Math.min(1, ((x - sg.ax) * ex + (z - sg.az) * ez) / (ex * ex + ez * ez || 1)));
+              const dx = sg.ax + ex * t - x;
+              const dz = sg.az + ez * t - z;
+              const d2 = dx * dx + dz * dz;
+              if (d2 < lo2) return true;
+              if (d2 <= hi2 && Math.hypot(dx, dz) < r) return true;
+            }
+          }
+        }
+        return false;
+      }
       if (ix0 === ix1 && iz0 === iz1) {
         const list = cells.get(ix0 * 100003 + iz0);
         if (!list) return false;
-        for (let i = 0; i < list.length; i++) {
+        for (let i = 0, len = list.length; i < len; i++) {
           const sg = list[i];
           if (sg.x0 > xHi || sg.x1 < xLo || sg.z0 > zHi || sg.z1 < zLo) continue;
-          if (accept && !accept(sg)) continue;
           const ex = sg.bx - sg.ax;
           const ez = sg.bz - sg.az;
           const t = Math.max(0, Math.min(1, ((x - sg.ax) * ex + (z - sg.az) * ez) / (ex * ex + ez * ez || 1)));
@@ -634,12 +677,11 @@ function segmentGrid(cell = 24, walk = false) {
         for (let iz = iz0; iz <= iz1; iz++) {
           const list = cells.get(row + iz);
           if (!list) continue;
-          for (let i = 0; i < list.length; i++) {
+          for (let i = 0, len = list.length; i < len; i++) {
             const sg = list[i];
+            if (sg.x0 > xHi || sg.x1 < xLo || sg.z0 > zHi || sg.z1 < zLo) continue;
             if (sg._q === q) continue;
             sg._q = q;
-            if (sg.x0 > xHi || sg.x1 < xLo || sg.z0 > zHi || sg.z1 < zLo) continue;
-            if (accept && !accept(sg)) continue;
             const ex = sg.bx - sg.ax;
             const ez = sg.bz - sg.az;
             const t = Math.max(0, Math.min(1, ((x - sg.ax) * ex + (z - sg.az) * ez) / (ex * ex + ez * ez || 1)));
@@ -679,11 +721,299 @@ function segmentGrid(cell = 24, walk = false) {
   };
 }
 
+// Compact CSR typed-array segment grid for build-once `laneDistance` (191 k lane/curve segments, no `data`/`accept`/
+// `crossing`): avoids 383 k JS segment objects and ~300 k cell arrays across the tram and rail builds.
+function flatSegmentGrid(cell = 32) {
+  let segCap = 4096, segCount = 0;
+  let pts = new Float64Array(segCap * 4);
+  let bbox = new Float64Array(segCap * 4);
+  let entryCap = 8192, entryCount = 0;
+  let cellIx = new Int32Array(entryCap);
+  let cellIz = new Int32Array(entryCap);
+  let cellSeg = new Int32Array(entryCap);
+  let minIx = Infinity, maxIx = -Infinity, minIz = Infinity, maxIz = -Infinity;
+  let compiled = false, useFlat = false;
+  let spanX = 0, spanZ = 0, grid = null, cellsMap = null;
+  let starts = null, ids = null, stamp = null, stampCounter = 0;
+
+  const pushCell = (ix, iz, id) => {
+    if (entryCount === entryCap) {
+      entryCap *= 2;
+      const nix = new Int32Array(entryCap); nix.set(cellIx); cellIx = nix;
+      const niz = new Int32Array(entryCap); niz.set(cellIz); cellIz = niz;
+      const nseg = new Int32Array(entryCap); nseg.set(cellSeg); cellSeg = nseg;
+    }
+    cellIx[entryCount] = ix;
+    cellIz[entryCount] = iz;
+    cellSeg[entryCount] = id;
+    entryCount++;
+    if (ix < minIx) minIx = ix;
+    if (ix > maxIx) maxIx = ix;
+    if (iz < minIz) minIz = iz;
+    if (iz > maxIz) maxIz = iz;
+  };
+
+  const compile = () => {
+    compiled = true;
+    if (pts.length > segCount * 4) {
+      pts = pts.slice(0, segCount * 4);
+      bbox = bbox.slice(0, segCount * 4);
+    }
+    stamp = new Int32Array(segCount);
+    if (!entryCount) {
+      cellIx = cellIz = cellSeg = null;
+      return;
+    }
+    spanX = maxIx - minIx + 1;
+    spanZ = maxIz - minIz + 1;
+    let numBuckets = 0;
+    const entryBucket = new Int32Array(entryCount);
+    if (spanX > 0 && spanZ > 0 && spanX * spanZ <= 2000000) {
+      useFlat = true;
+      grid = new Int32Array(spanX * spanZ).fill(-1);
+      for (let e = 0; e < entryCount; e++) {
+        const gi = (cellIx[e] - minIx) * spanZ + (cellIz[e] - minIz);
+        let b = grid[gi];
+        if (b < 0) grid[gi] = b = numBuckets++;
+        entryBucket[e] = b;
+      }
+    } else {
+      cellsMap = new Map();
+      for (let e = 0; e < entryCount; e++) {
+        const k = cellIx[e] * 100003 + cellIz[e];
+        let b = cellsMap.get(k);
+        if (b === undefined) { b = numBuckets++; cellsMap.set(k, b); }
+        entryBucket[e] = b;
+      }
+    }
+    starts = new Int32Array(numBuckets + 1);
+    for (let e = 0; e < entryCount; e++) starts[entryBucket[e] + 1]++;
+    for (let b = 0; b < numBuckets; b++) starts[b + 1] += starts[b];
+    ids = new Int32Array(entryCount);
+    const cursor = starts.slice(0, numBuckets);
+    for (let e = 0; e < entryCount; e++) ids[cursor[entryBucket[e]]++] = cellSeg[e] * 4;
+    cellIx = cellIz = cellSeg = null;
+  };
+
+  return {
+    add(ax, az, bx, bz) {
+      if (segCount === segCap) {
+        segCap *= 2;
+        const np = new Float64Array(segCap * 4); np.set(pts); pts = np;
+        const nb = new Float64Array(segCap * 4); nb.set(bbox); bbox = nb;
+      }
+      const id = segCount++;
+      const o = id * 4;
+      const x0 = ax < bx ? ax : bx, x1 = ax > bx ? ax : bx;
+      const z0 = az < bz ? az : bz, z1 = az > bz ? az : bz;
+      pts[o] = ax; pts[o + 1] = az; pts[o + 2] = bx; pts[o + 3] = bz;
+      bbox[o] = x0; bbox[o + 1] = x1; bbox[o + 2] = z0; bbox[o + 3] = z1;
+      const gx0 = Math.floor((x0 - 1e-6) / cell), gx1 = Math.floor((x1 + 1e-6) / cell);
+      const gz0 = Math.floor((z0 - 1e-6) / cell), gz1 = Math.floor((z1 + 1e-6) / cell);
+      if (bx === ax) {
+        for (let ix = gx0; ix <= gx1; ix++) {
+          for (let iz = gz0; iz <= gz1; iz++) pushCell(ix, iz, id);
+        }
+        return;
+      }
+      if (gx0 === gx1) {
+        for (let iz = gz0; iz <= gz1; iz++) pushCell(gx0, iz, id);
+        return;
+      }
+      const slope = (bz - az) / (bx - ax);
+      for (let ix = gx0; ix <= gx1; ix++) {
+        const sx0 = Math.max(x0, ix * cell), sx1 = Math.min(x1, (ix + 1) * cell);
+        const sz0 = az + (sx0 - ax) * slope, sz1 = az + (sx1 - ax) * slope;
+        const lo = sz0 < sz1 ? sz0 : sz1, hi = sz0 > sz1 ? sz0 : sz1;
+        for (let iz = Math.floor((lo - 1e-6) / cell); iz <= Math.floor((hi + 1e-6) / cell); iz++) pushCell(ix, iz, id);
+      }
+    },
+    within(x, z, r) {
+      if (!compiled) compile();
+      if (!segCount) return false;
+      const ix0 = Math.floor((x - r) / cell), ix1 = Math.floor((x + r) / cell);
+      const iz0 = Math.floor((z - r) / cell), iz1 = Math.floor((z + r) / cell);
+      if (ix1 < minIx || ix0 > maxIx || iz1 < minIz || iz0 > maxIz) return false;
+      const r2 = r * r;
+      const lo2 = r2 * (1 - 1e-12), hi2 = r2 * (1 + 1e-12);
+      const lim = r + 2e-9;
+      const xLo = x - lim, xHi = x + lim, zLo = z - lim, zHi = z + lim;
+      if (useFlat) {
+        if (ix0 === ix1 && iz0 === iz1) {
+          const b = grid[(ix0 - minIx) * spanZ + (iz0 - minIz)];
+          if (b < 0) return false;
+          for (let k = starts[b], end = starts[b + 1]; k < end; k++) {
+            const o = ids[k];
+            if (bbox[o] > xHi || bbox[o + 1] < xLo || bbox[o + 2] > zHi || bbox[o + 3] < zLo) continue;
+            const ax = pts[o], az = pts[o + 1], ex = pts[o + 2] - ax, ez = pts[o + 3] - az;
+            const dot = (x - ax) * ex + (z - az) * ez;
+            let dx, dz;
+            if (dot <= 0) {
+              dx = ax - x;
+              dz = az - z;
+            } else {
+              const l2 = ex * ex + ez * ez;
+              if (dot >= l2) {
+                dx = ax + ex - x;
+                dz = az + ez - z;
+              } else {
+                const t = dot / l2;
+                dx = ax + ex * t - x;
+                dz = az + ez * t - z;
+              }
+            }
+            const d2 = dx * dx + dz * dz;
+            if (d2 < lo2) return true;
+            if (d2 <= hi2 && Math.hypot(dx, dz) < r) return true;
+          }
+          return false;
+        }
+        const q = ++stampCounter;
+        const xStart = ix0 < minIx ? minIx : ix0, xEnd = ix1 > maxIx ? maxIx : ix1;
+        const zStart = iz0 < minIz ? minIz : iz0, zEnd = iz1 > maxIz ? maxIz : iz1;
+        for (let ix = xStart; ix <= xEnd; ix++) {
+          const row = (ix - minIx) * spanZ - minIz;
+          for (let iz = zStart; iz <= zEnd; iz++) {
+            const b = grid[row + iz];
+            if (b < 0) continue;
+            for (let k = starts[b], end = starts[b + 1]; k < end; k++) {
+              const o = ids[k];
+              if (bbox[o] > xHi || bbox[o + 1] < xLo || bbox[o + 2] > zHi || bbox[o + 3] < zLo) continue;
+              const id = o >> 2;
+              if (stamp[id] === q) continue;
+              stamp[id] = q;
+              const ax = pts[o], az = pts[o + 1], ex = pts[o + 2] - ax, ez = pts[o + 3] - az;
+              const dot = (x - ax) * ex + (z - az) * ez;
+              let dx, dz;
+              if (dot <= 0) {
+                dx = ax - x;
+                dz = az - z;
+              } else {
+                const l2 = ex * ex + ez * ez;
+                if (dot >= l2) {
+                  dx = ax + ex - x;
+                  dz = az + ez - z;
+                } else {
+                  const t = dot / l2;
+                  dx = ax + ex * t - x;
+                  dz = az + ez * t - z;
+                }
+              }
+              const d2 = dx * dx + dz * dz;
+              if (d2 < lo2) return true;
+              if (d2 <= hi2 && Math.hypot(dx, dz) < r) return true;
+            }
+          }
+        }
+        return false;
+      }
+      if (ix0 === ix1 && iz0 === iz1) {
+        const b = cellsMap.get(ix0 * 100003 + iz0);
+        if (b === undefined) return false;
+        for (let k = starts[b], end = starts[b + 1]; k < end; k++) {
+          const o = ids[k];
+          if (bbox[o] > xHi || bbox[o + 1] < xLo || bbox[o + 2] > zHi || bbox[o + 3] < zLo) continue;
+          const ax = pts[o], az = pts[o + 1], ex = pts[o + 2] - ax, ez = pts[o + 3] - az;
+          const t = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez || 1)));
+          const dx = ax + ex * t - x, dz = az + ez * t - z;
+          const d2 = dx * dx + dz * dz;
+          if (d2 < lo2) return true;
+          if (d2 <= hi2 && Math.hypot(dx, dz) < r) return true;
+        }
+        return false;
+      }
+      const q = ++stampCounter;
+      for (let ix = ix0; ix <= ix1; ix++) {
+        const row = ix * 100003;
+        for (let iz = iz0; iz <= iz1; iz++) {
+          const b = cellsMap.get(row + iz);
+          if (b === undefined) continue;
+          for (let k = starts[b], end = starts[b + 1]; k < end; k++) {
+            const o = ids[k];
+            if (bbox[o] > xHi || bbox[o + 1] < xLo || bbox[o + 2] > zHi || bbox[o + 3] < zLo) continue;
+            const id = o >> 2;
+            if (stamp[id] === q) continue;
+            stamp[id] = q;
+            const ax = pts[o], az = pts[o + 1], ex = pts[o + 2] - ax, ez = pts[o + 3] - az;
+            const t = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez || 1)));
+            const dx = ax + ex * t - x, dz = az + ez * t - z;
+            const d2 = dx * dx + dz * dz;
+            if (d2 < lo2) return true;
+            if (d2 <= hi2 && Math.hypot(dx, dz) < r) return true;
+          }
+        }
+      }
+      return false;
+    },
+    nearestDist(x, z, r) {
+      if (!compiled) compile();
+      let bestD = r;
+      if (!segCount) return bestD;
+      const ix0 = Math.floor((x - r) / cell), ix1 = Math.floor((x + r) / cell);
+      const iz0 = Math.floor((z - r) / cell), iz1 = Math.floor((z + r) / cell);
+      if (ix1 < minIx || ix0 > maxIx || iz1 < minIz || iz0 > maxIz) return bestD;
+      let bestD2 = r * r;
+      let lim = bestD + 1e-9;
+      let bestD2Lim = bestD2 * (1 + 1e-12);
+      if (ix0 === ix1 && iz0 === iz1) {
+        const b = useFlat ? grid[(ix0 - minIx) * spanZ + (iz0 - minIz)] : cellsMap.get(ix0 * 100003 + iz0);
+        if (b === undefined || b < 0) return bestD;
+        for (let k = starts[b], end = starts[b + 1]; k < end; k++) {
+          const o = ids[k];
+          if (x < bbox[o] - lim || x > bbox[o + 1] + lim || z < bbox[o + 2] - lim || z > bbox[o + 3] + lim) continue;
+          const ax = pts[o], az = pts[o + 1], ex = pts[o + 2] - ax, ez = pts[o + 3] - az;
+          const t = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez || 1)));
+          const dx = ax + ex * t - x, dz = az + ez * t - z;
+          const d2 = dx * dx + dz * dz;
+          if (d2 > bestD2Lim) continue;
+          const d = Math.hypot(dx, dz);
+          if (d < bestD) {
+            bestD = d;
+            bestD2 = d * d;
+            lim = d + 1e-9;
+            bestD2Lim = bestD2 * (1 + 1e-12);
+          }
+        }
+        return bestD;
+      }
+      const q = ++stampCounter;
+      const xStart = useFlat && ix0 < minIx ? minIx : ix0, xEnd = useFlat && ix1 > maxIx ? maxIx : ix1;
+      const zStart = useFlat && iz0 < minIz ? minIz : iz0, zEnd = useFlat && iz1 > maxIz ? maxIz : iz1;
+      for (let ix = xStart; ix <= xEnd; ix++) {
+        const row = useFlat ? (ix - minIx) * spanZ - minIz : ix * 100003;
+        for (let iz = zStart; iz <= zEnd; iz++) {
+          const b = useFlat ? grid[row + iz] : cellsMap.get(row + iz);
+          if (b === undefined || b < 0) continue;
+          for (let k = starts[b], end = starts[b + 1]; k < end; k++) {
+            const o = ids[k], id = o >> 2;
+            if (stamp[id] === q) continue;
+            stamp[id] = q;
+            const curLim = bestD + 1e-9;
+            if (x < bbox[o] - curLim || x > bbox[o + 1] + curLim || z < bbox[o + 2] - curLim || z > bbox[o + 3] + curLim) continue;
+            const ax = pts[o], az = pts[o + 1], ex = pts[o + 2] - ax, ez = pts[o + 3] - az;
+            const t = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez || 1)));
+            const dx = ax + ex * t - x, dz = az + ez * t - z;
+            const d2 = dx * dx + dz * dz;
+            if (d2 > bestD2Lim) continue;
+            const d = Math.hypot(dx, dz);
+            if (d < bestD) {
+              bestD = d;
+              bestD2 = d * d;
+              bestD2Lim = bestD2 * (1 + 1e-12);
+            }
+          }
+        }
+      }
+      return bestD;
+    }
+  };
+}
+
 // Distance to the nearest car lane centreline (capped at r): every lane of every street the network paints (the drivable
 // set before its connectivity filter, so streets traffic doesn't use count as roadway too), and the curves traffic
 // turns along through the junctions (8 chords each): poles kept 2 m off the straight lanes alone stood on 15 turns
 function laneDistance(network) {
-  const laneGrid = segmentGrid(32, true);
+  const laneGrid = flatSegmentGrid(32);
   const shiftAt = network && network.laneShiftAt;
   for (const e of (network && (network.paintEdges || network.edges)) || []) {
     const span = e.span ?? e.len;
@@ -695,7 +1025,7 @@ function laneDistance(network) {
         const s = (span * k) / steps;
         const off = o + (shiftAt ? shiftAt(e, s) : 0);
         const bx = e.x0 + e.dx * s + e.rx * off, bz = e.z0 + e.dz * s + e.rz * off;
-        laneGrid.add(ax, az, bx, bz, null);
+        laneGrid.add(ax, az, bx, bz);
         ax = bx;
         az = bz;
       }
@@ -708,11 +1038,11 @@ function laneDistance(network) {
         for (let i = 0; i < m.out.length; i++) {
           if (m.out[i] < 0) continue;
           const c = network.connector(e, i, m.to, m.out[i]);
-          network.curvePoint(c, 0, p);
+          network.curvePoint(c, 0, p, false);
           for (let k = 1; k <= 8; k++) {
             const ax = p.x, az = p.z;
-            network.curvePoint(c, c.len * k / 8, p);
-            laneGrid.add(ax, az, p.x, p.z, null);
+            network.curvePoint(c, c.len * k / 8, p, false);
+            laneGrid.add(ax, az, p.x, p.z);
           }
         }
       }
@@ -1498,7 +1828,7 @@ function layoutRailInfrastructure(network) {
   for (const tr of tracks) {
     for (let k = 0; k + 1 < tr.n; k++) railGrid.add(tr.p[2 * k], tr.p[2 * k + 1], tr.p[2 * k + 2], tr.p[2 * k + 3], tr);
   }
-  const tramGrid = segmentGrid();
+  const tramGrid = segmentGrid(24, true);
   for (const tr of loadTracks('tram')) {
     for (let k = 0; k + 1 < tr.n; k++) tramGrid.add(tr.p[2 * k], tr.p[2 * k + 1], tr.p[2 * k + 2], tr.p[2 * k + 3], tr);
   }

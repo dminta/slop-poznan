@@ -3828,7 +3828,20 @@ function buildCityBlocks(scene) {
     const edges = new Int32Array(starts[cols * rows]);
     const fill = starts.slice(0, cols * rows);
     for (let i = 0; i < n; i++) file(i, (c) => { edges[fill[c]++] = i; });
-    outlineIndex = { poly, x0, z0, x1, z1, cell, cols, rows, starts, edges, stamp: new Int32Array(n), query: 0 };
+    const eAx = new Float64Array(n);
+    const eAz = new Float64Array(n);
+    const eDx = new Float64Array(n);
+    const eDz = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const a = poly[i ? i - 1 : n - 1];
+      const c = poly[i];
+      eAx[i] = a.x;
+      eAz[i] = a.z;
+      eDx[i] = c.x - a.x;
+      eDz[i] = c.z - a.z;
+    }
+    outlineIndex = { poly, x0, z0, x1, z1, cell, cols, rows, starts, edges, eAx, eAz, eDx, eDz,
+      stamp: new Int32Array(n), query: 0 };
     return outlineIndex;
   }
   // Rays have a short fixed reach, but outline distances are also read for lots deep inside large blocks. A
@@ -3837,22 +3850,9 @@ function buildCityBlocks(scene) {
     if (idx.distanceTree) return idx.distanceTree;
     const poly = idx.poly;
     const n = poly.length;
-    const eAx = new Float64Array(n);
-    const eAz = new Float64Array(n);
-    const eDx = new Float64Array(n);
-    const eDz = new Float64Array(n);
+    const { eAx, eAz, eDx, eDz } = idx;
     const eL2 = new Float64Array(n);
-    for (let i = 0; i < n; i++) {
-      const a = poly[i ? i - 1 : n - 1];
-      const c = poly[i];
-      const dx = c.x - a.x;
-      const dz = c.z - a.z;
-      eAx[i] = a.x;
-      eAz[i] = a.z;
-      eDx[i] = dx;
-      eDz[i] = dz;
-      eL2[i] = dx * dx + dz * dz;
-    }
+    for (let i = 0; i < n; i++) eL2[i] = eDx[i] * eDx[i] + eDz[i] * eDz[i];
     const nodes = [];
     const build = (ids) => {
       const at = nodes.length;
@@ -3923,7 +3923,7 @@ function buildCityBlocks(scene) {
   // no farther than FRONT_RAY (the only range the frontage rule reads; beyond it returns Infinity either way)
   function outlineRay(x, z, nx, nz) {
     const idx = outlineEdgeGrid();
-    const poly = idx.poly;
+    const { eAx, eAz, eDx, eDz, starts, edges, stamp } = idx;
     let best = Infinity;
     // the segment's cells: any crossing within FRONT_RAY lies in one of them, so no other edge can be nearer
     const ex = x + nx * FRONT_RAY, ez = z + nz * FRONT_RAY;
@@ -3931,22 +3931,37 @@ function buildCityBlocks(scene) {
     const i1 = Math.max(0, Math.min(idx.cols - 1, Math.floor((Math.max(x, ex) - idx.x0) / idx.cell)));
     const j0 = Math.max(0, Math.min(idx.rows - 1, Math.floor((Math.min(z, ez) - idx.z0) / idx.cell)));
     const j1 = Math.max(0, Math.min(idx.rows - 1, Math.floor((Math.max(z, ez) - idx.z0) / idx.cell)));
+    if (i0 === i1 && j0 === j1) {
+      const c = j0 * idx.cols + i0;
+      for (let k = starts[c], end = starts[c + 1]; k < end; k++) {
+        const i = edges[k];
+        const edx = eDx[i], edz = eDz[i];
+        const den = nx * edz - nz * edx;
+        if (Math.abs(den) < 1e-9) continue;
+        const ax = eAx[i] - x, az = eAz[i] - z;
+        const t = (ax * edz - az * edx) / den;
+        if (!(t > 0 && t < best)) continue;
+        const u = (ax * nz - az * nx) / den;
+        if (u >= 0 && u <= 1) best = t;
+      }
+      return best <= FRONT_RAY ? best : Infinity;
+    }
     const q = ++idx.query;
     for (let ix = i0; ix <= i1; ix++) {
       for (let iz = j0; iz <= j1; iz++) {
         const c = iz * idx.cols + ix;
-        for (let k = idx.starts[c], end = idx.starts[c + 1]; k < end; k++) {
-          const i = idx.edges[k];
-          if (idx.stamp[i] === q) continue;
-          idx.stamp[i] = q;
-          const a = poly[i ? i - 1 : poly.length - 1];
-          const edx = poly[i].x - a.x;
-          const edz = poly[i].z - a.z;
+        for (let k = starts[c], end = starts[c + 1]; k < end; k++) {
+          const i = edges[k];
+          if (stamp[i] === q) continue;
+          stamp[i] = q;
+          const edx = eDx[i], edz = eDz[i];
           const den = nx * edz - nz * edx;
           if (Math.abs(den) < 1e-9) continue;
-          const t = ((a.x - x) * edz - (a.z - z) * edx) / den;
-          const u = ((a.x - x) * nz - (a.z - z) * nx) / den;
-          if (t > 0 && u >= 0 && u <= 1 && t < best) best = t;
+          const ax = eAx[i] - x, az = eAz[i] - z;
+          const t = (ax * edz - az * edx) / den;
+          if (!(t > 0 && t < best)) continue;
+          const u = (ax * nz - az * nx) / den;
+          if (u >= 0 && u <= 1) best = t;
         }
       }
     }

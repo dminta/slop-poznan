@@ -1977,8 +1977,12 @@ function buildStreetDetails(scene, opts = {}) {
     s._dz = kdz;
     s._len = klen;
     s._pad = (Math.abs(kdx) + Math.abs(kdz)) / klen;
-    for (let ix = Math.floor((Math.min(s.ax, s.bx) - pad) / TREE_LANE_CELL); ix <= Math.floor((Math.max(s.ax, s.bx) + pad) / TREE_LANE_CELL); ix++) {
-      for (let iz = Math.floor((Math.min(s.az, s.bz) - pad) / TREE_LANE_CELL); iz <= Math.floor((Math.max(s.az, s.bz) + pad) / TREE_LANE_CELL); iz++) {
+    s._x0 = Math.min(s.ax, s.bx);
+    s._x1 = Math.max(s.ax, s.bx);
+    s._z0 = Math.min(s.az, s.bz);
+    s._z1 = Math.max(s.az, s.bz);
+    for (let ix = Math.floor((s._x0 - pad) / TREE_LANE_CELL); ix <= Math.floor((s._x1 + pad) / TREE_LANE_CELL); ix++) {
+      for (let iz = Math.floor((s._z0 - pad) / TREE_LANE_CELL); iz <= Math.floor((s._z1 + pad) / TREE_LANE_CELL); iz++) {
         const key = ix * 100000 + iz;
         if (!treeKeepouts.has(key)) treeKeepouts.set(key, []);
         treeKeepouts.get(key).push(s);
@@ -2018,20 +2022,35 @@ function buildStreetDetails(scene, opts = {}) {
     if (!b || b.median || b.underpass) return false;
     // Every trunk corner must stay on the centre's block: a different island can take priority at a corner even
     // inside this block's bounds (overlapping blocks), so the check runs for every candidate.
-    for (const ox of [-r, r]) for (const oz of [-r, r]) {
-      if (!isBlockAt(x + ox, z + oz, b)) return false;
-    }
-    if (!clearOfCrosswalks(x, z, r * Math.SQRT2)) return false;
+    if (!isBlockAt(x - r, z - r, b) || !isBlockAt(x - r, z + r, b) ||
+        !isBlockAt(x + r, z - r, b) || !isBlockAt(x + r, z + r, b)) return false;
+    const rSqrt2 = r * Math.SQRT2;
+    if (!clearOfCrosswalks(x, z, rSqrt2)) return false;
     if (!clearOfTramPoles(x, z, scale)) return false;
     if (!clearOfShelters(x, z, r) || !treeClearOfCanopies(x, z, r)) return false;
-    for (const s of treeKeepouts.get(Math.floor(x / TREE_LANE_CELL) * 100000 + Math.floor(z / TREE_LANE_CELL)) || []) {
+    const list = treeKeepouts.get(Math.floor(x / TREE_LANE_CELL) * 100000 + Math.floor(z / TREE_LANE_CELL));
+    if (!list) return true;
+    const laneKeep = Math.max(1.2, 0.9 + rSqrt2);
+    const laneKeep2 = laneKeep * laneKeep;
+    const laneLo2 = laneKeep2 * (1 - 1e-12), laneHi2 = laneKeep2 * (1 + 1e-12);
+    const zebraKeep = CROSSWALK / 2 + 0.8 + 2 * r + 1e-9;
+    const laneBox = laneKeep + 1e-9;
+    for (let i = 0, n = list.length; i < n; i++) {
+      const s = list[i];
+      const box = s.zebra ? zebraKeep : laneBox;
+      if (x < s._x0 - box || x > s._x1 + box || z < s._z0 - box || z > s._z1 + box) continue;
       const dx = s._dx, dz = s._dz, len = s._len;
       const along = ((x - s.ax) * dx + (z - s.az) * dz) / len;
       const side = Math.abs((x - s.ax) * dz - (z - s.az) * dx) / len;
-      const pad = r * s._pad;
       if (s.zebra) {
+        const pad = r * s._pad;
         if (along > -pad && along < len + pad && side < CROSSWALK / 2 + 0.8 + pad) return false;
-      } else if (Math.hypot(Math.max(0, -along, along - len), side) < Math.max(1.2, 0.9 + r * Math.SQRT2)) return false;
+      } else {
+        const da = Math.max(0, -along, along - len);
+        const d2 = da * da + side * side;
+        if (d2 < laneLo2) return false;
+        if (d2 <= laneHi2 && Math.hypot(da, side) < laneKeep) return false;
+      }
     }
     return true;
   };
@@ -2813,7 +2832,7 @@ function buildStreetDetails(scene, opts = {}) {
         if (j < 0) continue;
         const curve = network.connector(e, i, move.to, j), point = {};
         for (let k = 1; k < 10; k++) {
-          network.curvePoint(curve, curve.len * k / 10, point);
+          network.curvePoint(curve, curve.len * k / 10, point, false);
           const p = { x: point.x, z: point.z };
           file(curves, p, p.x - 0.95, p.x + 0.95, p.z - 0.95, p.z + 0.95);
         }

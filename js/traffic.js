@@ -228,7 +228,7 @@ function createTrafficSystem(
     const bends = new Float64Array(count + 1);
     for (let k = 0; k <= count; k++) {
       const s = c.len * k / count;
-      curvePoint(c, s, boxSample);
+      curvePoint(c, s, boxSample, false);
       points[k * 2] = boxSample.x;
       points[k * 2 + 1] = boxSample.z;
       // a shifted stop line's straight stub (c.lead) precedes the Bezier, which c.lut measures from its own start

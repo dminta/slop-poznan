@@ -91,15 +91,18 @@ function createPolygonIndex(poly) {
       if (hx > sx1[s]) sx1[s] = hx;
     }
   }
+  for (let s = 0; s < slots; s++) {
+    sx0[s] -= 1e-9;
+    sx1[s] += 1e-9;
+  }
   return { x0, x1, z0, z1, slots, offsets, edges, px, pz, sx0, sx1 };
 }
 
 function pointInPolyIndexed(_poly, index, x, z) {
   if (!(index.slots > 0) || !(z >= index.z0 && z <= index.z1) || x < index.x0 || x > index.x1 + 1e-9) return false;
-  let s = Math.floor((z - index.z0) / POLY_SLOT);
-  if (s < 0) s = 0;
-  else if (s >= index.slots) s = index.slots - 1;
-  if (x < index.sx0[s] - 1e-9 || x > index.sx1[s] + 1e-9) return false;
+  let s = Math.floor((z - index.z0) * 0.25);
+  if (s >= index.slots) s = index.slots - 1;
+  if (x < index.sx0[s] || x > index.sx1[s]) return false;
   let inside = false;
   const px = index.px, pz = index.pz, edges = index.edges, n = px.length;
   for (let k = index.offsets[s], end = index.offsets[s + 1]; k < end; k++) {
@@ -316,19 +319,31 @@ const LAND_DIST = new Uint8Array(LAND_W * LAND_H);
   // each of the 2,839 rows.
   const fill = (ring, v) => {
     const index = createPolygonIndex(ring);
+    if (!(index.slots > 0)) return;
+    const { px, pz, offsets, edges } = index;
+    const len = px.length;
     const xs = [];
-    for (let j = 0; j < LAND_H; j++) {
+    const j0 = Math.max(0, Math.ceil((index.z0 - DBZ0) / LAND_RES - 0.5));
+    const j1 = Math.min(LAND_H - 1, Math.floor((index.z1 - DBZ0) / LAND_RES - 0.5));
+    for (let j = j0; j <= j1; j++) {
       const z = DBZ0 + (j + 0.5) * LAND_RES;
-      if (!(index.slots > 0) || !(z >= index.z0 && z <= index.z1)) continue;
+      if (!(z >= index.z0 && z <= index.z1)) continue;
       const s = polygonSlot(index.z0, index.slots, z);
       xs.length = 0;
-      for (let n = index.offsets[s], end = index.offsets[s + 1]; n < end; n++) {
-        const i = index.edges[n];
-        const a = ring[i], b = ring[i ? i - 1 : ring.length - 1];
-        if ((a.z > z) !== (b.z > z)) xs.push(a.x + ((z - a.z) * (b.x - a.x)) / (b.z - a.z));
+      for (let n = offsets[s], end = offsets[s + 1]; n < end; n++) {
+        const i = edges[n], k = i ? i - 1 : len - 1;
+        const az = pz[i], bz = pz[k];
+        if ((az > z) !== (bz > z)) {
+          const ax = px[i];
+          xs.push(ax + ((z - az) * (px[k] - ax)) / (bz - az));
+        }
       }
       if (!xs.length) continue;
-      xs.sort((p, q) => p - q);
+      if (xs.length === 2) {
+        if (xs[0] > xs[1]) { const t = xs[0]; xs[0] = xs[1]; xs[1] = t; }
+      } else if (xs.length > 2) {
+        xs.sort((p, q) => p - q);
+      }
       for (let n = 0; n + 1 < xs.length; n += 2) {
         const i0 = Math.max(0, Math.ceil((xs[n] - DBX0) / LAND_RES - 0.5));
         const i1 = Math.min(LAND_W - 1, Math.floor((xs[n + 1] - DBX0) / LAND_RES - 0.5));
@@ -675,14 +690,21 @@ const { SIGNAL_SITES, LANE_GUIDE, JUNCTIONS } = (() => {
 })();
 const GUIDE_CELL = 32;
 const GUIDE_GRID = new Map(); // each segment in every cell within its half width + 6 m (covers YARD_ROAD_KEEP = 4.6 m)
+let GUIDE_MIN_IX = Infinity, GUIDE_MAX_IX = -Infinity, GUIDE_MIN_IZ = Infinity, GUIDE_MAX_IZ = -Infinity;
 for (const s of LANE_GUIDE) {
   const ax = s[0], az = s[1], bx = s[2], bz = s[3], half = s[4];
   const dx = bx - ax, dz = bz - az;
   const x0 = Math.min(ax, bx), x1 = Math.max(ax, bx), z0 = Math.min(az, bz), z1 = Math.max(az, bz);
   const seg = { ax, az, dx, dz, L2: dx * dx + dz * dz || 1e-9, half, x0, x1, z0, z1 };
   const m = half + 6;
-  for (let ix = Math.floor((x0 - m) / GUIDE_CELL); ix <= Math.floor((x1 + m) / GUIDE_CELL); ix++) {
-    for (let iz = Math.floor((z0 - m) / GUIDE_CELL); iz <= Math.floor((z1 + m) / GUIDE_CELL); iz++) {
+  const ix0 = Math.floor((x0 - m) / GUIDE_CELL), ix1 = Math.floor((x1 + m) / GUIDE_CELL);
+  const iz0 = Math.floor((z0 - m) / GUIDE_CELL), iz1 = Math.floor((z1 + m) / GUIDE_CELL);
+  if (ix0 < GUIDE_MIN_IX) GUIDE_MIN_IX = ix0;
+  if (ix1 > GUIDE_MAX_IX) GUIDE_MAX_IX = ix1;
+  if (iz0 < GUIDE_MIN_IZ) GUIDE_MIN_IZ = iz0;
+  if (iz1 > GUIDE_MAX_IZ) GUIDE_MAX_IZ = iz1;
+  for (let ix = ix0; ix <= ix1; ix++) {
+    for (let iz = iz0; iz <= iz1; iz++) {
       const k = ix * 100000 + iz;
       let list = GUIDE_GRID.get(k);
       if (!list) GUIDE_GRID.set(k, list = []);
@@ -690,29 +712,39 @@ for (const s of LANE_GUIDE) {
     }
   }
 }
+const GUIDE_SPAN_Z = GUIDE_MAX_IZ - GUIDE_MIN_IZ + 1;
+const GUIDE_FLAT = new Array((GUIDE_MAX_IX - GUIDE_MIN_IX + 1) * GUIDE_SPAN_Z);
+for (let ix = GUIDE_MIN_IX; ix <= GUIDE_MAX_IX; ix++) {
+  const xOff = (ix - GUIDE_MIN_IX) * GUIDE_SPAN_Z - GUIDE_MIN_IZ;
+  const row = ix * 100000;
+  for (let iz = GUIDE_MIN_IZ; iz <= GUIDE_MAX_IZ; iz++) {
+    const list = GUIDE_GRID.get(row + iz);
+    if (list) GUIDE_FLAT[xOff + iz] = list;
+  }
+}
 // How far (x, z) stands outside the nearest roadway (LANE_GUIDE): negative inside one, exact up to 6 m (may return
 // a farther segment or Infinity beyond 6 m). Street furniture keeps its footprint outside, so it closes no lane
 // (docs/world.md obstacle rule).
 function roadClearance(x, z) {
-  const list = GUIDE_GRID.get(Math.floor(x / GUIDE_CELL) * 100000 + Math.floor(z / GUIDE_CELL));
+  const ix = Math.floor(x / GUIDE_CELL), iz = Math.floor(z / GUIDE_CELL);
+  if (ix < GUIDE_MIN_IX || ix > GUIDE_MAX_IX || iz < GUIDE_MIN_IZ || iz > GUIDE_MAX_IZ) return Infinity;
+  const list = GUIDE_FLAT[(ix - GUIDE_MIN_IX) * GUIDE_SPAN_Z + (iz - GUIDE_MIN_IZ)];
   if (!list) return Infinity;
-  let best = Infinity;
-  for (let i = 0; i < list.length; i++) {
+  const s0 = list[0];
+  const dx0 = s0.dx, dz0 = s0.dz;
+  const t0 = Math.max(0, Math.min(1, ((x - s0.ax) * dx0 + (z - s0.az) * dz0) / s0.L2));
+  let best = Math.hypot(s0.ax + t0 * dx0 - x, s0.az + t0 * dz0 - z) - s0.half;
+  for (let i = 1, len = list.length; i < len; i++) {
     const s = list[i];
     const half = s.half;
-    if (best < Infinity) {
-      const b = best + half;
-      if (b <= 0) continue;
-      const lim = b + 1e-9;
-      if (x < s.x0 - lim || x > s.x1 + lim || z < s.z0 - lim || z > s.z1 + lim) continue;
-    }
+    const b = best + half;
+    if (b <= 0) continue;
+    const lim = b + 1e-9;
+    if (x < s.x0 - lim || x > s.x1 + lim || z < s.z0 - lim || z > s.z1 + lim) continue;
     const dx = s.dx, dz = s.dz;
     const t = Math.max(0, Math.min(1, ((x - s.ax) * dx + (z - s.az) * dz) / s.L2));
     const px = s.ax + t * dx - x, pz = s.az + t * dz - z;
-    if (best < Infinity) {
-      const b = best + half;
-      if (px * px + pz * pz > b * b * (1 + 1e-12)) continue;
-    }
+    if (px * px + pz * pz > b * b * (1 + 1e-12)) continue;
     const d = Math.hypot(px, pz) - half;
     if (d < best) best = d;
   }
@@ -1579,9 +1611,9 @@ function blockAt(x, z) {
 
 /** True when `blockAt(x, z) === block`, testing `block` first so callers skip unrelated blocks */
 function isBlockAt(x, z, block) {
-  if (inTramSurfaceCut(x, z)) return !block;
   if (!block) return blockAt(x, z) === null;
   if (x < block.minX || x > block.maxX || z < block.minZ || z > block.maxZ) return false;
+  if (inTramSurfaceCut(x, z)) return false;
   if (block.underpass) return blockAt(x, z) === block;
   if ((block.roadCut || block.tramCut) && blockOwnCutAt(block, x, z)) return false;
   if (!block.rect && !pointInBlockPoly(block, x, z)) return false;
