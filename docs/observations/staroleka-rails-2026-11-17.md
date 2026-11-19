@@ -80,9 +80,13 @@ viewed), sleepers (tram track has none), night view, WebGL2.
 
 ## Open
 
-The Starołęka line ends at the OSM snapshot edge, 281 m past the box: the rails and wire simply stop; no buffer stop; the real
-loop at Starołęka PKM is outside the snapshot. Outskirts poles are not checked against outskirts buildings (buildings keep
-1.5 m off the track only).
+The Starołęka line ends at the OSM snapshot edge, 281 m past the box: the rails and wire simply stop; at the time there was
+no buffer stop; the real loop at Starołęka PKM is outside the snapshot. Outskirts poles were not checked against outskirts
+buildings (buildings keep 1.5 m off the track only).
+
+Follow-up 2026-11-19: every data-edge dead end (22, Starołęka included) now has a buffer-stop prop, and
+`tools/audit-pole-outskirts.mjs` checks the tram/signal poles against the generated outskirts buildings; 0 pole clashes at 0.3 m.
+[Record](tram-buffer-stops-2026-11-19.md).
 
 ## Review round 1: Warta crossing (Most Przemysła I)
 

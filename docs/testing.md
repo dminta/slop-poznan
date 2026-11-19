@@ -239,6 +239,20 @@ It exits non-zero if any structure has `maxGap > 0.1 m`, `maxPenetration > 0.1 m
 `tests/industry-colliders.test.cjs` pins circular collision handling in `controllers.js` and runs the full audit
 ([record](observations/industry-colliders-2026-11-15.md)).
 
+## Pole–outskirts clearance audit
+
+`node tools/audit-pole-outskirts.mjs [--margin 0.3] [--band 300] [--near 60] [--top N] [--json] [--fail-on-clash]` builds
+`runAudit({ worldOnly: true })` from `audit-tree-clearance.mjs`, the real tram/rail layouts and the production outskirts
+building list (the private generators exported through a source suffix; `city-grid.railRectClear` is the live
+predicate). It measures every tram catenary pole and railway mast, plus the street-details signal poles and lamp/column
+masts within `--band` of the detail box, against the turned building boxes at pole-surface clearance `--margin` (default
+0.3 m, the balcony audit's threshold). `--near` is the reported nearest-building search radius; a class with none inside
+it reports `null`. It prints the worst rows and a JSON summary. `--fail-on-clash` exits 1, which the default run does
+not: the 2026-11-19 finding is an open decision. Measured 33,032 poles against 46,753 boxes: 0 tram/signal pole clashes
+(nearest tram pole 1.058 m), but 17 street LED masts on the box's south edge lie inside the M1/IKEA/Selgros satellite
+rectangles ([record](observations/tram-buffer-stops-2026-11-19.md)). The audit is a static box check; it does not render
+the scene.
+
 ## Bridge parapet audit
 
 `node tools/audit-bridge-parapets.mjs [--before <rev>] [--boot] [--json] [--top N] [--name <substring>]` builds

@@ -64,6 +64,11 @@ const outskirtsLand = (x, z) => {
 // the wire runs across it (user's choice, 2026-11-17; the alternative was a bare crossing).
 const TRAM_DECK_W = 6.5;
 const trackGround = (x, z) => (outsideBox(x, z) ? outskirtsLand(x, z) : isLand(x, z));
+// A data-edge dead end gets a buffer stop just past the last rail piece. The tram graph stops a tram with its nose 1 m
+// short of the end (trams.js endPad), so the 0.5 m setback keeps the body clear of the beam.
+const BUFFER_SETBACK = 0.5;
+// Geodata cuts a chain at every switch and crossing, so two chain endpoints this close are one junction, not two ends.
+const BUFFER_JOIN = 1.5;
 // Platforms keep this far from a car lane's centreline: road-network.js closes a lane when an obstacle box comes within
 // LANE_CLEAR 1.2 m of it along both axes, which reaches ~1.7 m on a diagonal street
 const LANE_KEEP = 1.75;
@@ -746,12 +751,14 @@ function layoutTrackRails(tracks, decks = []) {
 /**
  * Placement of the tram infrastructure against a built road network (road-network.js buildRoadNetwork; only its
  * paintEdges / edges lanes are read). Returns
- * { tracks, stops, poles, spans, arms, rosettes, droppers }:
+ * { tracks, stops, poles, spans, arms, rosettes, droppers, bufferStops }:
  * - stops: [{ name, x, z, heading, railIndex, s, dir, side, kind: 'island'|'curb', platform, shelter, sign, machine }]
  *   x, z, s: the stop point on the track (s = arc length along GEO.rail[railIndex].pts), dir: +1 when trams run along
  *   the points, heading: their travel heading (0 = +z), side: +1 when the platform is right of the points' direction.
  *   platform: { s0, s1, o0, o1 } (o = lateral offsets right of the points' direction; null on a curb stop).
  * - poles: [{ x, z, h }], spans: [{ ax, az, bx, bz }] (wires at SPAN_Y), arms: cantilevers, droppers: [{ x, z, y0 }]
+ * - bufferStops: [{ x, z, dx, dz, railIndex }] at every dead end outside the detail box (the OSM data edge), with
+ *   (dx, dz) pointing outward along the track.
  */
 function layoutTramInfrastructure(network, grid = null) {
   const extraKeepouts = tramLayoutInputs(grid);
@@ -767,6 +774,31 @@ function layoutTramInfrastructure(network, grid = null) {
     trackGrid.nearestDist(x, z, r, except ? (sg) => sg.data.tr !== except : null);
   const trackWithin = (x, z, r = 4, except = null) =>
     trackGrid.within(x, z, r, except ? (sg) => sg.data.tr !== except : null);
+
+  // --- Data-edge buffer stops ---------------------------------------------------------------------------------------
+  // The OSM extract keeps whole tram chains that touch the detail box, so their far ends lie outside it (Starołęka at
+  // z 3125, Franowo, Junikowo, Górczyn, Dębiec, Miłostowo; 24 outside-box endpoints on the 2026-11-17 data). Two of
+  // them are not ends at all: rails 848 and 1013 meet at (4468.2, 2884.4), a switch the geodata cut into two chains.
+  // The remaining 22 are dead ends where trams.js stops and respawns a tram; their rails just stop at the snapshot
+  // edge. Give each the buffer stop the real line would have, 0.5 m past the last rail piece.
+  const bufferStops = [];
+  {
+    const ends = [];
+    for (const tr of tracks) {
+      const a = pointAt(tr, 0);
+      const b = pointAt(tr, tr.len);
+      ends.push({ tr, x: a.x, z: a.z, dx: -a.dx, dz: -a.dz },
+        { tr, x: b.x, z: b.z, dx: b.dx, dz: b.dz });
+    }
+    for (const e of ends) {
+      if (!outsideBox(e.x, e.z)) continue;
+      // a switch or crossing, not a dead end
+      if (ends.some((o) => o !== e && Math.hypot(o.x - e.x, o.z - e.z) < BUFFER_JOIN)) continue;
+      bufferStops.push({ x: e.x + e.dx * BUFFER_SETBACK, z: e.z + e.dz * BUFFER_SETBACK,
+        dx: e.dx, dz: e.dz, railIndex: e.tr.railIndex });
+    }
+  }
+
   // Poles keep 2 m from a lane centreline: the road network tests obstacles by box overlap, so a pole is clear of its
   // 1.2 m only beyond 1.2 + 0.16 m along both axes (up to 1.92 m diagonally)
   const clearSpot = (x, z, keep = TRACK_KEEP) => trackGround(x, z) && !laneDist.within(x, z, 2.0) && !trackWithin(x, z, keep);
@@ -1381,7 +1413,7 @@ function layoutTramInfrastructure(network, grid = null) {
 
   return {
     tracks, pieces, decks, stops, skipped, poles, spans, arms, rosettes, droppers, footprints, laneDist, trackDist,
-    sheltersMoved, sheltersDropped, shelterKeepout: createShelterKeepout(stops), canopyKeepout, treeCanopyKeepout
+    bufferStops, sheltersMoved, sheltersDropped, shelterKeepout: createShelterKeepout(stops), canopyKeepout, treeCanopyKeepout
   };
 }
 
@@ -2222,7 +2254,8 @@ function stopFurnitureColliders(stops) {
 function buildTramInfrastructure(scene, network, layouts = null) {
   const layout = layouts?.tram || layoutTramInfrastructure(network);
   const {
-    tracks, pieces: tramPieces, decks, stops, poles, spans, arms, rosettes, droppers, sheltersMoved, sheltersDropped
+    tracks, pieces: tramPieces, decks, stops, poles, spans, arms, rosettes, droppers, bufferStops, sheltersMoved,
+    sheltersDropped
   } = layout;
   const group = new THREE.Group();
   group.name = 'TramInfrastructure';
@@ -2272,6 +2305,23 @@ function buildTramInfrastructure(scene, network, layouts = null) {
   const railBallastMat = createBallastMaterial(RAIL_SLEEPER / 2 / RAIL_BED_W, 0.95, 0x605c57, 0x7a756e, 0xa3a199);
   const endWallMat = new THREE.MeshStandardNodeMaterial({ color: 0x9a958c, roughness: 0.9 }); // concrete end walls
   const steelMat = new THREE.MeshStandardNodeMaterial({ color: 0x4f5650, roughness: 0.55, metalness: 0.7 });
+  // Data-edge buffer stop: a red/white striped beam on a dark steel frame. The box-filtered pulse fades the 0.4 m bands
+  // to their mean once one is under a pixel, like the ballast sleepers, so they do not shimmer from the air.
+  const bufferBeamMat = new THREE.MeshStandardNodeMaterial({ roughness: 0.5, metalness: 0.2 });
+  bufferBeamMat.colorNode = Fn(() => {
+    const phase = positionGeometry.x.mul(2.5); // 0.4 m bands across the 2.4 m beam
+    const fw = max(fwidth(phase), 0.0001);
+    const pulse = clamp(float(0.5).sub(abs(fract(phase).sub(0.5))).div(fw).add(0.5), 0.0, 1.0);
+    return mix(color(0xc42026), color(0xf1eee6), mix(pulse, float(0.5), smoothstep(0.25, 0.6, fw)));
+  })();
+  // 2.4 m beam spans the rails; the frame's 0.9 m posts stand 1.8 m apart, clear of the 1.435 m gauge.
+  const bufferBeamGeo = new THREE.BoxGeometry(2.4, 0.4, 0.16).translate(0, 0.74, 0);
+  const bufferFrameGeo = mergeGeometries([
+    new THREE.BoxGeometry(0.14, 0.9, 0.14).translate(0.9, 0.45, 0),
+    new THREE.BoxGeometry(0.14, 0.9, 0.14).translate(-0.9, 0.45, 0),
+    new THREE.BoxGeometry(0.34, 0.08, 0.44).translate(0.9, 0.04, 0),
+    new THREE.BoxGeometry(0.34, 0.08, 0.44).translate(-0.9, 0.04, 0)
+  ].map((g) => g.toNonIndexed()));
   const wireMat = new THREE.MeshStandardNodeMaterial({ color: 0x3b3027, roughness: 0.5, metalness: 0.8 });
   const platformMat = createCurbMaterial();
   const edgeMat = new THREE.MeshStandardNodeMaterial({ color: 0xd8c55a, roughness: 0.7 }); // tactile edge strip
@@ -2313,6 +2363,20 @@ function buildTramInfrastructure(scene, network, layouts = null) {
       dummy.scale.set(len + 0.03, 0.04, GROOVE_W);
       grooveM.push(M());
     }
+  }
+
+  // --- 1b. Data-edge buffer stops -----------------------------------------------------------------------------------
+  // The rails end at the OSM snapshot edge; the beam (2.4 m) stays inside the 1.5 m building keep-off the outskirts
+  // generator applies to every tram track. No colliders: the data-edge ends all lie outside the detail box, where
+  // ground modes never go.
+  const bufferBeamM = [];
+  const bufferFrameM = [];
+  for (const b of bufferStops || []) {
+    dummy.position.set(b.x, 0, b.z);
+    dummy.rotation.set(0, Math.atan2(b.dx, b.dz), 0); // local +z faces outward along the track
+    dummy.scale.set(1, 1, 1);
+    bufferBeamM.push(M());
+    bufferFrameM.push(M());
   }
 
   // --- 2. Overhead line ---------------------------------------------------------------------------------------------
@@ -2646,7 +2710,9 @@ function buildTramInfrastructure(scene, network, layouts = null) {
   }
   for (const mesh of [
     instanced('TramRails', unitBox, railMat, railM, {}, false),
-    instanced('TramRailGrooves', unitBox, grooveMat, grooveM, {}, false)
+    instanced('TramRailGrooves', unitBox, grooveMat, grooveM, {}, false),
+    instanced('TramBufferStops', bufferBeamGeo, bufferBeamMat, bufferBeamM),
+    instanced('TramBufferStopFrames', bufferFrameGeo, steelMat, bufferFrameM)
   ]) if (mesh) group.add(mesh);
   const poleGeo = mergeGeometries([
     new THREE.CylinderGeometry(0.1, 0.15, 1, 10).toNonIndexed(),

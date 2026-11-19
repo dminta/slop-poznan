@@ -147,6 +147,10 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
   // glass plane and the inside stay blocked. Uses controllers.js's own broad and narrow phases, as the player does.
   {
     const infra = buildTramInfrastructure(inert(), network, { tram: layout });
+    const bufferBeamMesh = meshes.find((m) => m.name === 'TramBufferStops');
+    const bufferFrameMesh = meshes.find((m) => m.name === 'TramBufferStopFrames');
+    assert.equal(bufferBeamMesh?.count, layout.bufferStops.length, 'one striped beam per data-edge buffer stop');
+    assert.equal(bufferFrameMesh?.count, layout.bufferStops.length, 'one steel frame per data-edge buffer stop');
     const src = readFileSync(join(__dirname, '../js/controllers.js'), 'utf8');
     const cut = (a, b) => src.slice(src.indexOf(a), src.indexOf(b, src.indexOf(a)));
     const fnSrc = cut('function collisionBody(', '\n// The taxi');
@@ -237,6 +241,36 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
     assert.ok(routedKm > 120, `${routedKm.toFixed(1)} km of routed tram track`);
     // The Starołęka tracks (lines 7, 12 and 13) run on to z 3125 with rails
     assert.ok(layout.pieces.some((p) => Math.max(p.az, p.bz) > 3100 && p.ax > 600 && p.ax < 700), 'rails reach Starołęka z 3100');
+    // The data-edge dead ends get a physical buffer stop. 24 tram endpoints lie outside the box on the 2026-11-17
+    // data; rails 848 and 1013 meet at (4468.2, 2884.4), a switch the geodata cut in two, so 22 are dead ends (the
+    // Starołęka pair 1200/1201 included, and the route-less 1013 fragment's far end). Interior depot stubs get none.
+    assert.equal(layout.bufferStops.length, 22, `${layout.bufferStops.length} data-edge buffer stops`);
+    {
+      const endpoints = [];
+      for (const tr of tracks) {
+        const p = tr.p, n = tr.n;
+        const sa = Math.hypot(p[2] - p[0], p[3] - p[1]) || 1;
+        const sb = Math.hypot(p[2 * n - 2] - p[2 * n - 4], p[2 * n - 1] - p[2 * n - 3]) || 1;
+        endpoints.push({ railIndex: tr.railIndex, x: p[0], z: p[1],
+          dx: -(p[2] - p[0]) / sa, dz: -(p[3] - p[1]) / sa });
+        endpoints.push({ railIndex: tr.railIndex, x: p[2 * n - 2], z: p[2 * n - 1],
+          dx: (p[2 * n - 2] - p[2 * n - 4]) / sb, dz: (p[2 * n - 1] - p[2 * n - 3]) / sb });
+      }
+      for (const b of layout.bufferStops) {
+        assert.ok(outside(b.x, b.z), `buffer stop ${b.x.toFixed(1)}, ${b.z.toFixed(1)} is outside the box`);
+        // It stands 0.5 m beyond one chain end, facing outward, and that end is not a junction.
+        const end = endpoints.find((e) => Math.hypot(e.x + e.dx * 0.5 - b.x, e.z + e.dz * 0.5 - b.z) < 1e-6 &&
+          e.railIndex === b.railIndex);
+        assert.ok(end, `buffer stop at ${b.x.toFixed(1)}, ${b.z.toFixed(1)} follows a track end`);
+        assert.ok(!endpoints.some((o) => o !== end && o.railIndex !== end.railIndex &&
+          Math.hypot(o.x - end.x, o.z - end.z) < 1.5), 'no buffer stop at a switch');
+      }
+      assert.ok(layout.bufferStops.some((b) => b.x > 600 && b.x < 700 && b.z > 3100 && b.z < 3130),
+        'the Starołęka data edge gets a buffer stop');
+      assert.ok(layout.bufferStops.some((b) => b.railIndex === 1013), 'the route-less fragment end is included');
+      // The interior depot stubs keep their old look (they are not data-edge ends).
+      assert.ok(!layout.bufferStops.some((b) => Math.abs(b.x + 2690) < 20 && Math.abs(b.z - 2266) < 20));
+    }
     // A support (pole, arm or span end) within 45 m of every 10 m sample of routed track beyond the box, so the wire is
     // carried there too (a track with no side clear for a pole within 9 m would stay bare)
     const supports = [...poles.map((q) => [q.x, q.z]), ...layout.spans.flatMap((q) => [[q.ax, q.az], [q.bx, q.bz]]),
@@ -284,6 +318,9 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
       return c;
     };
     const onOutskirts = (x, z) => rings.some((r, k) => inRing(r, x, z) && !holes.some((h) => h.outer === k && inRing(h.ring, x, z)));
+    for (const b of layout.bufferStops) {
+      assert.ok(onOutskirts(b.x, b.z), `buffer stop at (${b.x.toFixed(1)}, ${b.z.toFixed(1)}) stands on outskirts land`);
+    }
     const wet = (layoutX) => {
       const bad = [];
       for (const p of layoutX.pieces) {
