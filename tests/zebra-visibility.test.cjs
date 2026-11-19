@@ -74,6 +74,7 @@ test('rendered zebra quads stay clear of the tram trackways on the furnished Poz
   const street = load('street-details', {
     ...rendering, './city-config.js': config, './road-network.js': road,
     './city-grid.js': { ...gridModule, ...gridModule.snapshot() },
+    './satellite-sites.js': { satelliteClearance: () => Infinity },
     './trees.js': { createTreeField: () => ({ group: inert() }) }
   }).buildStreetDetails(inert());
   const network = road.buildRoadNetwork(grid.sidewalks, [...grid.footprints, ...street.footprints]);

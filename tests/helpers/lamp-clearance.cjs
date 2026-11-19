@@ -21,6 +21,7 @@ function inert() {
 
 function auditCityLamps({ root = join(__dirname, '../..'), before = false } = {}) {
   const source = (name) => readFileSync(join(root, 'js', name + '.js'), 'utf8');
+  const { satelliteClearance } = loadModule(source('satellite-sites'), { filename: 'satellite-sites.js' });
 
   const config = require(join(root, 'js/city-config.js'));
   const { GEO } = require(join(root, 'js/geodata.js'));
@@ -84,6 +85,7 @@ function auditCityLamps({ root = join(__dirname, '../..'), before = false } = {}
       './city-config.js': config,
       './road-network.js': road,
       './city-grid.js': liveGrid,
+      './satellite-sites.js': { satelliteClearance },
       './trees.js': { createTreeField: () => ({ group: inert() }) }
     },
     globals: { ...globals, __cap }

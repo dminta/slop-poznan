@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const require = createRequire(import.meta.url);
 const { THREE } = require('../tests/helpers/three-stub.cjs');
 const { loadModule } = require(join(dirname(fileURLToPath(import.meta.url)), '../tests/helpers/module.cjs'));
+const satellites = await import('../js/satellite-sites.js');
 
 function parseArgs(argv) {
   const args = { root: resolve(dirname(fileURLToPath(import.meta.url)), '..'), hashes: false, gc: false, json: null, triangulateSurfaces: false };
@@ -193,6 +194,7 @@ async function main() {
   const sdMod = loadModule(js('street-details.js'), {
     imports: {
       ...three, './city-config.js': config, './road-network.js': rnMod, './tsl-materials.js': inert(),
+      './satellite-sites.js': satellites,
       './trees.js': {
         SPECIES_CROWN_R: config.SPECIES_CROWN_R,
         createTreeField: (_scene, sites) => { capturedStreetTrees = sites; return { group: inert() }; }

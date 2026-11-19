@@ -144,28 +144,68 @@ const SATELLITE_SITES = [
 // Flat spatial lookup for the outskirts generator: no generic shed may grow through a satellite footprint. Each part
 // carries its local frame so distance is a clamped point-to-rectangle test; structures are circles.
 const FOOTPRINTS = [];
+const SITE_PARTS = [];
 for (const site of SATELLITE_SITES) {
+  const parts = [];
   for (const p of site.parts) {
     const a = (p.angle * Math.PI) / 180;
-    FOOTPRINTS.push({ x: p.x, z: p.z, hw: p.w * 0.5, hd: p.d * 0.5, cs: Math.cos(a), sn: Math.sin(a) });
+    const f = { x: p.x, z: p.z, hw: p.w * 0.5, hd: p.d * 0.5, cs: Math.cos(a), sn: Math.sin(a) };
+    FOOTPRINTS.push(f);
+    parts.push(f);
   }
-  for (const s of site.structures || []) FOOTPRINTS.push({ x: s.x, z: s.z, radius: s.radius });
+  for (const s of site.structures || []) {
+    const f = { x: s.x, z: s.z, radius: s.radius };
+    FOOTPRINTS.push(f);
+    parts.push(f);
+  }
+  SITE_PARTS.push(parts);
 }
 
-/** Distance in metres from (x, z) to the nearest satellite footprint (0 inside one). */
-function satelliteClearance(x, z) {
+// Coarse world-axis boxes, one per site, for satelliteClearance's optional limit: a point outside a site box by more
+// than that limit cannot be within it of any part, so the site's parts are skipped. The default limit is Infinity,
+// which keeps the original all-parts answer exactly.
+const SITE_BOUNDS = SATELLITE_SITES.map((site) => {
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const p of site.parts) {
+    const a = (p.angle * Math.PI) / 180;
+    const cs = Math.abs(Math.cos(a)), sn = Math.abs(Math.sin(a));
+    const ex = p.w * 0.5 * cs + p.d * 0.5 * sn;
+    const ez = p.w * 0.5 * sn + p.d * 0.5 * cs;
+    x0 = Math.min(x0, p.x - ex); x1 = Math.max(x1, p.x + ex);
+    z0 = Math.min(z0, p.z - ez); z1 = Math.max(z1, p.z + ez);
+  }
+  for (const s of site.structures || []) {
+    x0 = Math.min(x0, s.x - s.radius); x1 = Math.max(x1, s.x + s.radius);
+    z0 = Math.min(z0, s.z - s.radius); z1 = Math.max(z1, s.z + s.radius);
+  }
+  return { x0, x1, z0, z1 };
+});
+
+/**
+ * Distance in metres from (x, z) to the nearest satellite footprint (0 inside one). With a finite `limit` the answer
+ * is only guaranteed below that limit: sites whose coarse box is farther away are skipped and the result may exceed
+ * the true distance (or be Infinity). Callers that only ask "closer than R" pass R and save the full 71-part scan.
+ */
+function satelliteClearance(x, z, limit = Infinity) {
   let best = Infinity;
-  for (const f of FOOTPRINTS) {
-    const dx = x - f.x;
-    const dz = z - f.z;
-    if (f.radius) {
-      best = Math.min(best, Math.hypot(dx, dz) - f.radius);
-      continue;
+  const lim2 = limit * limit;
+  for (let i = 0; i < SITE_PARTS.length; i++) {
+    const b = SITE_BOUNDS[i];
+    const gx = Math.max(b.x0 - x, 0, x - b.x1);
+    const gz = Math.max(b.z0 - z, 0, z - b.z1);
+    if (gx * gx + gz * gz > lim2) continue;
+    for (const f of SITE_PARTS[i]) {
+      const dx = x - f.x;
+      const dz = z - f.z;
+      if (f.radius) {
+        best = Math.min(best, Math.hypot(dx, dz) - f.radius);
+        continue;
+      }
+      const u = dx * f.cs + dz * f.sn;
+      const v = -dx * f.sn + dz * f.cs;
+      const d = Math.hypot(Math.max(0, Math.abs(u) - f.hw), Math.max(0, Math.abs(v) - f.hd));
+      if (d < best) best = d;
     }
-    const u = dx * f.cs + dz * f.sn;
-    const v = -dx * f.sn + dz * f.cs;
-    const d = Math.hypot(Math.max(0, Math.abs(u) - f.hw), Math.max(0, Math.abs(v) - f.hd));
-    if (d < best) best = d;
   }
   return best;
 }

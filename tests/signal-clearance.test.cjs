@@ -32,6 +32,7 @@ function furnished(config, GEO) {
   const { buildStreetDetails } = loadModule(read('street-details.js'), {
     imports: {
       ...three, './city-config.js': config, './road-network.js': rn, './tsl-materials.js': inert(),
+      './satellite-sites.js': { satelliteClearance: () => Infinity },
       './trees.js': { createTreeField: () => ({ group: inert() }) },
       './city-grid.js': { clearOfRails, pavedPlazaRects: [], parkTreeSites: [], parkLampSites: [] }
     }, globals: { document: inert(), console: { info() {} } }

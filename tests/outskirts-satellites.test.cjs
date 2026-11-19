@@ -74,3 +74,29 @@ test('satelliteClearance answers 0 on a footprint and stays clear at the Ratusz'
   assert.equal(satelliteClearance(first.x, first.z), 0);
   assert.ok(satelliteClearance(0, 0) > 2500, 'no satellite footprint reaches the centre');
 });
+
+test('the limited satelliteClearance query keeps every answer below its limit', () => {
+  const samples = [[0, 0]];
+  for (const s of SATELLITE_SITES) {
+    for (const p of s.parts) {
+      const a = (p.angle * Math.PI) / 180;
+      const cs = Math.cos(a), sn = Math.sin(a);
+      const hw = p.w / 2, hd = p.d / 2;
+      samples.push([p.x, p.z]);
+      for (const [du, dv] of [[hw, 0], [0, hd], [hw, hd], [-hw, -hd]]) {
+        samples.push([p.x + du * cs + dv * sn, p.z - du * sn + dv * cs]);
+      }
+      for (const r of [0.4, 0.45, 0.5, 2, 10, 60]) {
+        for (const [dx, dz] of [[r, 0], [0, r], [-r, 0], [0, -r]]) samples.push([p.x + dx, p.z + dz]);
+      }
+    }
+  }
+  for (const [x, z] of samples) {
+    const exact = satelliteClearance(x, z);
+    for (const limit of [0.45, 1, 60]) {
+      const quick = satelliteClearance(x, z, limit);
+      if (exact < limit) assert.equal(quick, exact, `(${x}, ${z}) within ${limit} m`);
+      else assert.ok(quick >= limit, `(${x}, ${z}) skipped sites stay outside ${limit} m`);
+    }
+  }
+});

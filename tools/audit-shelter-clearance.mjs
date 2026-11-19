@@ -13,6 +13,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const { loadModule } = require('../tests/helpers/module.cjs');
 const source = (name) => readFileSync(join(root, 'js', name + '.js'), 'utf8');
+const satellites = await import('../js/satellite-sites.js');
 
 const args = process.argv.slice(2);
 const jsonMode = args.includes('--json');
@@ -118,6 +119,7 @@ const detailsMod = loadModule(source('street-details'), {
   imports: {
     'three/webgpu': inertThree, 'three/tsl': tslStub, 'three/addons/utils/BufferGeometryUtils.js': inert(),
     './city-config.js': config, './road-network.js': road, './tsl-materials.js': tslStub,
+    './satellite-sites.js': satellites,
     './trees.js': { createTreeField: (_s, trees) => { capturedTrees = trees; return { group: inert() }; } },
     './city-grid.js': liveGrid
   },

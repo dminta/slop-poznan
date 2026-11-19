@@ -12,6 +12,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const { loadModule } = require('../tests/helpers/module.cjs');
 const source = (name) => readFileSync(join(root, 'js', name + '.js'), 'utf8');
+const satellites = await import('../js/satellite-sites.js');
 
 // Shared Three.js stub supporting mesh hierarchy, transforms, bounding box computation for landmark fitting
 const { THREE: mockTHREE } = require('../tests/helpers/three-stub.cjs');
@@ -229,6 +230,7 @@ async function runAudit({ worldOnly = false, gridSource = source('city-grid'), s
       './city-config.js': config,
       './road-network.js': roadMod,
       './city-grid.js': liveGrid,
+      './satellite-sites.js': satellites,
       './trees.js': {
         ...treesMod,
         createTreeField: (_scene, trees) => { sites = trees; return { group: stub }; }

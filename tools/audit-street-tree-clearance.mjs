@@ -10,6 +10,7 @@ import { performance } from 'node:perf_hooks';
 const require = createRequire(import.meta.url);
 const { loadModule } = require('../tests/helpers/module.cjs');
 const source = (name) => readFileSync(new URL(`../js/${name}.js`, import.meta.url), 'utf8');
+const satellites = await import('../js/satellite-sites.js');
 function inert() {
   const values = {};
   return new Proxy(function () {}, {
@@ -63,6 +64,7 @@ export async function runAudit({ streetSource = source('street-details'), full =
       './road-network.js': road, './city-grid.js': liveGrid });
     const street = load('street-details', { ...rendering, './city-config.js': config,
       './road-network.js': road, './city-grid.js': liveGrid,
+      './satellite-sites.js': satellites,
       './trees.js': { createTreeField: (_scene, trees) => { sites = trees; return { group: stub }; } } }, '',
       instrumented);
     const start = performance.now();

@@ -44,8 +44,9 @@ test('street trees carry player colliders, including Rybaki', async () => {
   const tram = loadModule(source('tram-infra'), { imports: { ...rendering, './city-config.js': config,
     './geodata.js': { GEO }, './road-network.js': road, './city-grid.js': liveGrid }, globals });
   let sites;
+  const satellites = await import('../js/satellite-sites.js');
   const details = loadModule(source('street-details'), { imports: { ...rendering, './city-config.js': config,
-    './road-network.js': road, './city-grid.js': liveGrid,
+    './road-network.js': road, './city-grid.js': liveGrid, './satellite-sites.js': satellites,
     './trees.js': { createTreeField: (_scene, trees) => { sites = trees; return { group: stub }; } } }, globals
   }).buildStreetDetails(stub, { buildingColliders: bld.colliders, grid, layoutTramInfrastructure: tram.layoutTramInfrastructure });
 
@@ -61,8 +62,9 @@ test('street trees carry player colliders, including Rybaki', async () => {
   // SCC chord-cut guards & dual-edge zebra keepout fix (2026-11-15): -2/+7 street trees around chord-cut guards &
   // -92 trees inside the 0.8 m tilted-zebra margin -> 33,462.
   // Shelter clearance (2026-11-17) preserves mapped trunks and relocates procedural street trees -> 33,463.
-  // The platform pole removal restores three street trees in this reduced fixture.
-  assert.equal(streetTrees.length, 33464, 'street trees in the headless build');
+  // The platform pole removal restores three street trees in this reduced fixture. The Franowo/Selgros satellite trim
+  // (2026-11-19) drops 12 procedural edge trees (6 M1 Poznań, 6 IKEA Franowo) -> 33,452.
+  assert.equal(streetTrees.length, 33452, 'street trees in the headless build');
   // Surveyed OSM park trees have no city-grid site of their own, so street-details.js adds their trunk boxes to the
   // same player list as the street rows; count them separately rather than letting them hide a missing street trunk.
   const osmParkTrees = sites.filter((t) => t.source === 'osm' && t.tier === 0).length;

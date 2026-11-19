@@ -59,6 +59,7 @@ const street = loadModule(streetSource, {
     './city-config.js': config,
     './road-network.js': road,
     './city-grid.js': liveGrid,
+    './satellite-sites.js': await import('../js/satellite-sites.js'),
     './trees.js': { createTreeField: () => ({ group: inert() }) }
   },
   globals: { ...globals, audit }

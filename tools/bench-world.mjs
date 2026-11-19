@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const { loadModule } = require('../tests/helpers/module.cjs');
+const satellites = await import('../js/satellite-sites.js');
 
 // A stand-in for every three.js / TSL object: any property, call or `new` gives another one
 function inert() {
@@ -230,6 +231,7 @@ function buildWorld({ noPeds = false, noTrams = false, noSignals = false, tramSe
   const { buildStreetDetails } = loadModule(streetSource, {
     imports: {
       ...three, './city-config.js': config, './road-network.js': rn, './tsl-materials.js': inert(),
+      './satellite-sites.js': satellites,
       './trees.js': { createTreeField: () => ({ group: inert() }) },
       './city-grid.js': furnished ? {
         pavedPlazaRects: gridSnap.pavedPlazaRects, parkTreeSites: gridSnap.parkTreeSites,

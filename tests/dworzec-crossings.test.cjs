@@ -53,6 +53,7 @@ test('the Dworzec refuges connect the western sidewalk to the southern sidewalk 
   const liveGrid = { ...gridModule, ...gridModule.snapshot() };
   const street = load('street-details', {
     ...rendering,
+    './satellite-sites.js': { satelliteClearance: () => Infinity },
     './city-config.js': config,
     './road-network.js': road,
     './city-grid.js': liveGrid,

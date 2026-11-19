@@ -235,3 +235,108 @@ move/drop the box-edge lamp row.
   any placement or instance count, so `tests/tram-infra.test.cjs` still pins 22 beams and 22 frames.
 - The console status and boot evidence above are from the same runs that produced the frames. No audio, frame-rate or
   whole-fleet pass was made.
+
+## Follow-up, 2026-11-19: the box-edge rows stop at the satellite malls
+
+The user chose the second option of the open decision: trim the lamp row (and the procedural tree row) instead of
+changing the satellite outlines. The malls are real buildings and stay as they are. Branch `poznan` at `460b807` plus
+the working tree; no commit.
+
+### Rule and margin
+
+`js/street-details.js` imports `satelliteClearance` from `js/satellite-sites.js` and rejects a candidate when the answer
+is under `SATELLITE_KEEP` **0.45 m**:
+
+- the LED pole centre and the luminaire centre, inside `ledCheckCandidate`, so the nominal spot, the sidewalk-offset
+  fallback, the curb-slide fallback and their combination all use it;
+- a procedural street-tree trunk at the initial candidate, at every ±0.4 m slide, and again in `addStreetTree` before
+  the site is pushed. Mapped OSM trees are left alone: they keep their surveyed points.
+
+The margin covers the 0.45 × 0.45 m mast footprint (0.32 m half-diagonal) and the 0.8 m luminaire's 0.4 m half-length
+from the centre it is measured at, with 5 cm to spare. The rectangles approximate an OSM outline to about a fifth of
+its area, so a small margin inside the drawn wall is enough. Nothing under `tools/data/` (or the rectangles) changed.
+
+`satelliteClearance` gained an optional third argument, the query limit: sites whose coarse world-axis box is farther
+than the limit are skipped. `street-details` passes 0.45 m, so the common city-centre candidate pays 13 site-box tests
+instead of all 71 footprint tests; the default `Infinity` keeps the old exact answer for `outskirts.js`.
+`tests/outskirts-satellites.test.cjs` compares the limited and exact answers at every part centre, corner and 0.4–60 m
+offset.
+
+### Counts
+
+Lamp masts in the 300 m band round the detail box: **24,501 before → 24,483 after**, i.e. 18 dropped. The audit's 17
+surface clashes were 9 M1 Poznań (6 main + 3 glass), 6 IKEA and 2 Selgros. The eighteenth is the Selgros mast at
+x **811.5** (z 2842.63): its pole centre is 1.35 m outside the rectangle, but its luminaire over the road is
+inside, which the head check catches. Per part:
+
+| satellite part | masts dropped | how |
+|---|---:|---|
+| M1 Poznań main (329 × 120 m) | 6 | pole centre inside |
+| M1 Poznań glass (149 × 80 m) | 3 | pole centre inside |
+| IKEA Franowo (208.5 × 102.6 m) | 6 | pole centre inside (one 0.084 m outside the rectangle, still within the 0.45 m keep) |
+| Selgros (121 × 150 m) | 3 | 2 pole centre inside, 1 luminaire inside |
+| **total** | **18** | |
+
+The closest surviving LED mast is at (3748.8, 2842.42), **1.177 m** from the IKEA box surface (1.402 m at the pole
+centre). Audit distribution: `inside` 17 → 0, 0.3–1 m 0 → 0, 1–3 m 3 → 2, 3–10 m 22, >10 m 509; poles checked
+33,032 → 33,014 (the 18 masts), other classes unchanged (4,948 tram, 1,648 railway, 1,935 signal).
+
+Trees: **12 procedural street trees inside → 0** (6 M1 Poznań, 6 IKEA Franowo; the Selgros stretch plants none). All
+12 are dropped by the new trunk rule. **0 mapped OSM trees** stand inside any satellite rectangle, so no real surveyed
+data was removed. The reduced headless fixture (`tests/street-tree-colliders.test.cjs`, no landmark/bridge walls) goes
+33,464 → **33,452** street trees; the full audit world has 118,162 tree sites, of which 21 lie within 30 m of a
+satellite and only those 12 were inside.
+
+### Audit gate
+
+`node tools/audit-pole-outskirts.mjs --fail-on-clash` now exits **0**:
+
+```
+{"margin":0.3,"band":300,"nearQuery":60,"detailBox":[-9119.5,4490.7,-2830.8,2844.2],
+ "poles":{"total":33014,"byClass":{"tram":4948,"rail":1648,"signal":1935,"lamp":24483},"outsideBox":{"tram":486,"rail":0,"signal":0,"lamp":0}},
+ "buildings":{"total":46753,"satelliteParts":71,"generated":46682},
+ "distribution":{"inside":0,"under03":0,"m03to1":0,"m1to3":2,"m3to10":22,"over10":509,"none":32481},
+ "clashes":0,"clashByClass":{},"deepestPenetration":0, ...}
+```
+
+(quoted from the `--json` line; the omitted keys are the nearest rows, all positive). Before the change the same tool
+reported 17 clashes, 53.956 m deep.
+
+### Boot cost
+
+`node tools/bench-boot-headless.mjs`, four runs each, interleaved on the same machine (baseline from a detached
+worktree at `460b807`):
+
+| tree | total ms (4 runs) | median | streetDetails ms (4 runs) | median |
+|---|---|---:|---|---:|
+| `460b807` | 11,007.7 / 10,806.4 / 10,983.2 / 10,930.5 | 10,956.9 | 3,990.7 / 3,938.8 / 4,008.4 / 3,923.1 | 3,964.8 |
+| working tree | 10,966.3 / 10,766.7 / 10,609.3 / 10,682.3 | 10,724.5 | 3,992.2 / 3,905.0 / 3,739.9 / 3,913.8 | 3,909.4 |
+
+The medians are 232 ms (2.1 %) lower in total and 55 ms (1.4 %) lower in `streetDetails`, inside the run-to-run spread;
+there is no measurable boot regression. The coarse site-box limit keeps the common candidate path at 13 site-box tests
+instead of 71 footprint tests; only candidates within 0.45 m of a site box run that site's parts.
+
+### Tests
+
+- `node --test tests/*.cjs`: **663 passed, 0 failed** (79 s). Includes the updated `tree-distribution` pins (species
+  totals, site hash, collider digest, two mesh counts, plus the new zero-LED/zero-tree assertion), the
+  `street-tree-colliders` count, the `streetlight-curb-clearance` pins (side LED 20,573 → 20,556 and total lamps
+  27,580 → 27,563 in its reduced fixture; its world omits the real grid inputs and drops 17 of the 18 masts), and
+  `outskirts-satellites` (the new limited-query equivalence test).
+- `node --test tests/tree-distribution.test.cjs`, `node --test tests/street-tree-colliders.test.cjs` and
+  `node --test tests/outskirts-satellites.test.cjs` run individually and pass.
+- `node --test tests/`: **697 passed, 0 failed** (132 s).
+
+### Limits
+
+- No browser pass was made for this change; the row's new termination at the mall walls is unverified in a rendered
+  frame. The audit and pins are static headless checks.
+- The lamp head is tested at its centre with the 0.45 m margin, not as the full 0.8 × 0.32 m box; a corner of the
+  housing could in principle overhang a rectangle by a few centimetres while the centre stays clear. The head is
+  0.4 m long from its centre, so the two differ only within that 5 cm band.
+- Trees are tested at the trunk, as the user asked; a crown may still overhang a satellite rectangle. The rectangles
+  are a fifth-of-area approximation, so a crown over the drawn edge is not evidence of a crown inside the real mall.
+- The audit's 0.3 m clash threshold and the new 0.45 m keep are different quantities: the audit asks whether a pole
+  surface penetrates a building, the rule whether the whole pole and luminaire stand clear with a small margin.
+- The unlit data edge still leaves the trimmed row and the buffer stops as silhouettes at midnight; that limitation
+  is unchanged.

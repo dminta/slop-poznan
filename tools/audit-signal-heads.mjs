@@ -40,7 +40,9 @@ const streetSource = source('street-details').replace(
   '  Object.assign(audit, { signalArmPoles, vehicleHeadSites });\n' +
   '  function addRuntimeSignalHeads(network, pedRoutes = null, supports = null, railLayout = null) {');
 const street = loadModule(streetSource, { imports: { ...rendering, './city-config.js': config,
-  './road-network.js': road, './city-grid.js': liveGrid, './trees.js': { createTreeField: () => ({ group: inert() }) } },
+  './road-network.js': road, './city-grid.js': liveGrid,
+  './satellite-sites.js': await import('../js/satellite-sites.js'),
+  './trees.js': { createTreeField: () => ({ group: inert() }) } },
   globals: { ...globals, audit } }).buildStreetDetails(inert());
 const network = road.buildRoadNetwork(grid.sidewalks, [...grid.footprints, ...street.footprints]);
 const { createPedestrianRoutes } = loadModule(source('pedestrian-routes'), { imports: { './road-network.js': road }, globals });

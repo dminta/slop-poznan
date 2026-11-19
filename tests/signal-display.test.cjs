@@ -50,6 +50,7 @@ test('signal display uploads local plans and follows a pedestrian request after 
         imports: { './city-config.js': config, './geodata.js': { GEO } }
       }),
       './tsl-materials.js': inert(), './trees.js': { createTreeField: () => ({ group: inert() }) },
+      './satellite-sites.js': { satelliteClearance: () => Infinity },
       './city-grid.js': { clearOfRails: () => true, pavedPlazaRects: [], parkTreeSites: [], parkLampSites: [] }
     },
     globals: { document: inert(), console: { info() {} }, headGroups },

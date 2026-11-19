@@ -49,6 +49,7 @@ test('furnished road network keeps SCC-restored streets and re-enabled signal pl
       './city-config.js': config,
       './road-network.js': road,
       './city-grid.js': liveGrid,
+      './satellite-sites.js': { satelliteClearance: () => Infinity },
       './trees.js': { createTreeField: () => ({ group: inert() }) }
     },
     globals

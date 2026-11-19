@@ -98,6 +98,7 @@ test('tram stops, platforms, poles and railway masts keep clear of the car lanes
     imports: {
       'three/webgpu': inert(), 'three/tsl': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert(),
       './city-config.js': config, './road-network.js': { buildRoadNetwork, CROSSWALK, CROSSWALK_REACH, STOP_SETBACK }, './tsl-materials.js': inert(),
+      './satellite-sites.js': { satelliteClearance: () => Infinity },
       './trees.js': { createTreeField: () => ({ group: inert() }) },
       './city-grid.js': { pavedPlazaRects: [], parkTreeSites: [], parkLampSites: [], clearOfRails }
     },

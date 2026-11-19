@@ -56,6 +56,7 @@ async function bootNetwork() {
   };
   const config = await import(pathToFileURL(join(root, 'js/city-config.js')).href);
   const { GEO } = await import(pathToFileURL(join(root, 'js/geodata.js')).href);
+  const satellites = await import(pathToFileURL(join(root, 'js/satellite-sites.js')).href);
   const three = { 'three/webgpu': inert(), 'three/tsl': inert(), 'three/addons/utils/BufferGeometryUtils.js': inert() };
   const blocksMod = loadModule(js('buildings.js'), {
     imports: {
@@ -79,6 +80,7 @@ async function bootNetwork() {
   const sdMod = loadModule(js('street-details.js'), {
     imports: {
       ...three, './city-config.js': config, './road-network.js': rnMod, './tsl-materials.js': inert(),
+      './satellite-sites.js': satellites,
       './trees.js': { SPECIES_CROWN_R: config.SPECIES_CROWN_R, createTreeField: () => ({ group: inert() }) },
       './city-grid.js': { pavedPlazaRects: gridSnap.pavedPlazaRects, parkTreeSites: gridSnap.parkTreeSites, parkLampSites: gridSnap.parkLampSites, clearOfRails: gridMod.clearOfRails }
     },

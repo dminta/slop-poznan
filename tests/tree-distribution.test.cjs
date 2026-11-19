@@ -50,10 +50,11 @@ test('seeded species assignment preserves the full built city tree sites and col
   const tram = loadModule(source('tram-infra'), { imports: { ...rendering, './city-config.js': config,
     './geodata.js': { GEO }, './road-network.js': road, './city-grid.js': liveGrid }, globals });
   let sites;
+  const satellites = await import('../js/satellite-sites.js');
   const details = loadModule(source('street-details')
     .replace('const TREE_SP = 15;', 'captureTreeAudit(clearOfCrosswalks); const TREE_SP = 15;')
     .replace('treePlacement.moved++;', 'treePlacement.moved++; captureTreeAudit(null, { x, z });'), { imports: { ...rendering, './city-config.js': config,
-    './road-network.js': road, './city-grid.js': liveGrid,
+    './road-network.js': road, './city-grid.js': liveGrid, './satellite-sites.js': satellites,
     './trees.js': { createTreeField: (_scene, trees) => { sites = trees; return { group: stub }; } } }, globals
   }).buildStreetDetails(stub, { buildingColliders: bld.colliders, grid, layoutTramInfrastructure: tram.layoutTramInfrastructure });
   const { auditStreetTrees } = await import('../tools/audit-street-tree-clearance.mjs');
@@ -127,15 +128,28 @@ test('seeded species assignment preserves the full built city tree sites and col
   // tree and one park tree follow the restored lanes.
   // Shelter clearance (2026-11-17): street trees move clear of shelters, pits and machines; mapped trees stay.
   // Platform pole and lamp changes restore three trees in this reduced fixture.
-  assert.deepEqual(before, [45639, 48753, 21936, 1979]);
-  assert.deepEqual(after, [43771, 46725, 21022, 6789]);
-  assert.equal(siteHash, '2b467b1a18507af2b4803e30a7810ac214610165b3a043b1fa6eabac2ac07902');
+  // Franowo/Selgros box-edge trim (2026-11-19): the satellite footprints remove 12 procedural edge trees (6 at M1
+  // Poznań, 6 at IKEA Franowo; Selgros has none on its stretch); no mapped tree stands inside.
+  assert.deepEqual(before, [45632, 48748, 21936, 1979]);
+  assert.deepEqual(after, [43765, 46720, 21022, 6788]);
+  assert.equal(siteHash, 'bad1faddf2acffa94eacc23d99f46163b947a3dc8229f0fab3d244a3cb5b35cd');
   // Excluding the Piaśnicka globe removes its grid prop collider; tree-site pins above remain unchanged.
   assert.equal(digest(grid.propColliders), '8a252787a188a84d17ce25a6f5ac2c95df54c514b249f1d7a3c82c17e57bb75c');
   // Street-details colliders also reflect relocated or dropped lamps and reduced-fixture tree placement.
-  assert.equal(digest(details.colliders), '8efb863dcba21e15b36c97519bf369778f025a3b229b54f968f2817c0bb38721');
-  assert.equal(meshCount((t) => t.species || 0), 25323);
-  assert.equal(meshCount(treeSpecies), 30158);
+  assert.equal(digest(details.colliders), 'af76dee2666e1bf0503d91ad48861d98cf75b1677c7706b3a1210c96c432d896');
+  // The box-edge rows stop at the satellite malls (2026-11-19): no LED mast centre and no procedural street tree
+  // stands inside a satellite footprint or within the same small keep. Mapped OSM trees are real data and are not
+  // trimmed by this rule.
+  const satelliteKeep = Number(/const SATELLITE_KEEP = ([\d.]+);/.exec(source('street-details'))[1]);
+  const buriedLeds = details.footprints.filter((f) => f && f.kind === 'led' &&
+    satellites.satelliteClearance((f.minX + f.maxX) / 2, (f.minZ + f.maxZ) / 2, satelliteKeep) < satelliteKeep);
+  assert.equal(buriedLeds.length, 0, 'no LED mast stands in a satellite footprint');
+  const buriedTrees = sites.filter((t) => t.source === undefined &&
+    (t.tier === 2 || (t.tier === 1 && t.pitRot !== undefined)) &&
+    satellites.satelliteClearance(t.x, t.z, satelliteKeep) < satelliteKeep);
+  assert.equal(buriedTrees.length, 0, 'no procedural street tree stands in a satellite footprint');
+  assert.equal(meshCount((t) => t.species || 0), 25316);
+  assert.equal(meshCount(treeSpecies), 30148);
   // Every surveyed node the clearance rules accept reaches the field exactly at its OSM position. The rest are dropped
   // where a wall, lane, track, water or building doorway leaves no room, or within 4 m of a plaza planter whose own tree
   // stands for them, rather than moved off the surveyed point.

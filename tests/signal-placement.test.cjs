@@ -45,7 +45,8 @@ test.before(async () => {
   const buildingColliders = [];
   const liveGrid = { ...gridModule, ...gridModule.snapshot() };
   const imports = { ...rendering, './city-config.js': config, './road-network.js': road,
-    './city-grid.js': liveGrid, './trees.js': { createTreeField: () => ({ group: inert() }) } };
+    './city-grid.js': liveGrid, './satellite-sites.js': { satelliteClearance: () => Infinity },
+    './trees.js': { createTreeField: () => ({ group: inert() }) } };
   // The former export kept just the park bounds. Replaying that input reproduces the missing head without
   // changing signal code or disabling the real rail, curb, landing and roadway checks.
   const baseline = loadModule(source('street-details'), {

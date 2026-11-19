@@ -51,6 +51,7 @@ test.before(async () => {
         imports: { './city-config.js': config, './geodata.js': { GEO } }
       }),
       './tsl-materials.js': inert(),
+      './satellite-sites.js': { satelliteClearance: () => Infinity },
       './trees.js': { createTreeField: (_scene, sites) => { trees = sites; return { group: inert() }; } },
       './city-grid.js': grid
     },

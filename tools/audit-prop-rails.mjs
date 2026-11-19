@@ -458,6 +458,7 @@ export async function runAudit() {
       ...threeRendering,
       './city-config.js': config,
       './road-network.js': roadNetMod,
+      './satellite-sites.js': await import('../js/satellite-sites.js'),
       './trees.js': treesCapture,
       './city-grid.js': liveGrid
     },

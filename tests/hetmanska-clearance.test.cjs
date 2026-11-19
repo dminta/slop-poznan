@@ -96,6 +96,7 @@ test.before(async () => {
     const details = loadModule(source('street-details'), {
       imports: { ...rendering, './city-config.js': cityConfig, './geodata.js': { GEO },
         './road-network.js': furnishedRoad, './city-grid.js': liveGrid,
+        './satellite-sites.js': { satelliteClearance: () => Infinity },
         './trees.js': { createTreeField: () => ({ group: inert() }) } },
       globals: { ...globals, document: inert() }
     }).buildStreetDetails(inert());

@@ -17,6 +17,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const { loadModule } = require('../tests/helpers/module.cjs');
 const source = (name) => readFileSync(join(root, 'js', name + '.js'), 'utf8');
+const satellites = await import('../js/satellite-sites.js');
 const args = process.argv.slice(2);
 const jsonMode = args.includes('--json');
 const topIndex = args.indexOf('--top');
@@ -104,6 +105,7 @@ const details = loadModule(source('street-details'), {
       CROSSWALK_REACH: road.CROSSWALK_REACH, STOP_SETBACK: road.STOP_SETBACK
     },
     './tsl-materials.js': inert(), './trees.js': { createTreeField: () => ({ group: inert() }) },
+    './satellite-sites.js': satellites,
     './city-grid.js': {
       pavedPlazaRects: [], parkTreeSites: [], parkLampSites: [], clearOfRails: grid.clearOfRails
     }

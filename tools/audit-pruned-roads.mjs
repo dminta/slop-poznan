@@ -9,6 +9,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const { loadModule } = require('../tests/helpers/module.cjs');
 const source = (name) => readFileSync(join(root, 'js', name + '.js'), 'utf8');
+const satellites = await import('../js/satellite-sites.js');
 
 function inert() {
   const values = {};
@@ -53,6 +54,7 @@ const street = loadModule(source('street-details'), {
     './city-config.js': config,
     './road-network.js': roadForStreet,
     './city-grid.js': liveGrid,
+    './satellite-sites.js': satellites,
     './trees.js': { createTreeField: () => ({ group: inert() }) }
   },
   globals

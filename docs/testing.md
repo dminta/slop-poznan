@@ -247,11 +247,14 @@ building list (the private generators exported through a source suffix; `city-gr
 predicate). It measures every tram catenary pole and railway mast, plus the street-details signal poles and lamp/column
 masts within `--band` of the detail box, against the turned building boxes at pole-surface clearance `--margin` (default
 0.3 m, the balcony audit's threshold). `--near` is the reported nearest-building search radius; a class with none inside
-it reports `null`. It prints the worst rows and a JSON summary. `--fail-on-clash` exits 1, which the default run does
-not: the 2026-11-19 finding is an open decision. Measured 33,032 poles against 46,753 boxes: 0 tram/signal pole clashes
-(nearest tram pole 1.058 m), but 17 street LED masts on the box's south edge lie inside the M1/IKEA/Selgros satellite
-rectangles ([record](observations/tram-buffer-stops-2026-11-19.md)). The audit is a static box check; it does not render
-the scene.
+it reports `null`. It prints the worst rows and a JSON summary. `--fail-on-clash` exits 1 while a clash remains; the
+default run does not. Measured 33,014 poles against 46,753 boxes on 2026-11-19 after the box-edge trim: **0 clashes** in
+every class (nearest tram pole 1.058 m, nearest LED mast 1.177 m at (3748.8, 2842.42)). Before the trim the same run
+found 17 street LED masts inside the M1/IKEA/Selgros satellite rectangles, which `street-details.js` now rejects with a
+0.45 m `SATELLITE_KEEP` ([record](observations/tram-buffer-stops-2026-11-19.md#follow-up-2026-11-19-the-box-edge-rows-stop-at-the-satellite-malls)).
+The audit is a static box check; it does not render the scene and does not test tree sites. `tests/outskirts-satellites.test.cjs`
+pins the limited `satelliteClearance` query against the exact one, and `tests/tree-distribution.test.cjs` pins 0 LED masts
+and 0 procedural street trees inside the footprints (plus the 12 dropped trees).
 
 ## Bridge parapet audit
 

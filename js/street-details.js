@@ -6,6 +6,7 @@ import { buildRoadNetwork, CROSSWALK, CROSSWALK_REACH, STOP_SETBACK } from './ro
 import { cityUniforms, createTreeGrateMaterial } from './tsl-materials.js';
 import { createTreeField, SPECIES_CROWN_R } from './trees.js';
 import { pavedPlazaRects, parkTreeSites, parkLampSites, clearOfRails } from './city-grid.js';
+import { satelliteClearance } from './satellite-sites.js';
 
 // js/street-details.js
 // Poznań street furniture, instanced (docs/world.md "New kind of street furniture"):
@@ -1341,6 +1342,11 @@ function buildStreetDetails(scene, opts = {}) {
   };
   // Design choice: minimum clearance from curb face to pole surface: >= 0.50 m (reflecting Polish urban road practice)
   const CURB_CLEARANCE = 0.50;
+  // The box-edge lamp and tree rows stop at the hand-placed satellite malls instead of running under them (2026-11-19
+  // record, Franowo/Selgros). 0.45 m covers the 0.45 m LED footprint's 0.32 m half-diagonal and the 0.8 m luminaire's
+  // 0.4 m half-length measured from its centre; the rectangles approximate an OSM outline to about a fifth of its area,
+  // so a small margin inside the drawn wall is enough for both the pole and a tree pit.
+  const SATELLITE_KEEP = 0.45;
 
   const LAMP_CLASS = { main: { scale: 1, sp: 34 }, side: { scale: 0.7, sp: 30 } };
   const GAS_SP = 22;
@@ -1375,6 +1381,8 @@ function buildStreetDetails(scene, opts = {}) {
       blockAt(headX, headZ) ||
       !isClearOfPoles(lx, lz, 6.5) ||
       !clearOfRails(lx, lz, 0.32) ||
+      satelliteClearance(lx, lz, SATELLITE_KEEP) < SATELLITE_KEEP ||
+      satelliteClearance(headX, headZ, SATELLITE_KEEP) < SATELLITE_KEEP ||
       Math.hypot(lx - 3191.5, lz - 1609.5) < 3 ||
       Math.hypot(lx - 2522.4, lz - 1006.9) < 3 ||
       Math.hypot(lx - 2115.2, lz - 1908.0) < 3 ||
@@ -1828,6 +1836,7 @@ function buildStreetDetails(scene, opts = {}) {
   }
   function addStreetTree(x, z, scale, species, acrossX, extra = {}) {
     if (!onSidewalk(x, z) || inPlaza(x, z, 1.5) || !isClearOfPoles(x, z, 2.2) ||
+        satelliteClearance(x, z, SATELLITE_KEEP) < SATELLITE_KEEP ||
         !clearOfRails(x, z, 0.4 * scale, streetTreeShape(x, z, scale, species, acrossX, extra.squeeze || 0.82))) return;
     const q = Math.floor(hashPos(x, 8.8, z) * 3.999);
     const t = { x, y: SIDEWALK_Y, z, scale, species, yaw: q * Math.PI * 0.5, tier: 1, ...extra };
@@ -2274,6 +2283,7 @@ function buildStreetDetails(scene, opts = {}) {
       const squeeze = narrow ? 0.7 : 0.82;
 
       if (!onSidewalk(x, z) || inPlaza(x, z, 1.5) || !isClearOfPoles(x, z, 2.2) ||
+          satelliteClearance(x, z, SATELLITE_KEEP) < SATELLITE_KEEP ||
           nearOsmTree(x, z) || !clearOfRails(x, z, 0.4 * scale, streetTreeShape(x, z, scale, species, acrossX, squeeze))) continue;
 
       if (!isClearOfWalls(x, z, scale, species, squeeze, SIDEWALK_Y, tier)) {
@@ -2284,6 +2294,7 @@ function buildStreetDetails(scene, opts = {}) {
           const sx = p0.x + dx * su + inx * inset;
           const sz = p0.z + dz * su + inz * inset;
           if (!onSidewalk(sx, sz) || inPlaza(sx, sz, 1.5) || !isClearOfPoles(sx, sz, 2.2) ||
+              satelliteClearance(sx, sz, SATELLITE_KEEP) < SATELLITE_KEEP ||
               nearOsmTree(sx, sz) || !clearOfRails(sx, sz, 0.4 * scale, streetTreeShape(sx, sz, scale, species, acrossX, squeeze))) continue;
           if (!isClearOfWalls(sx, sz, scale, species, squeeze, SIDEWALK_Y, tier)) continue;
           x = sx;
@@ -2321,6 +2332,7 @@ function buildStreetDetails(scene, opts = {}) {
         const sz = p0.z + dz * su + inz * inset;
         if (!clearOfTrees(sx, sz) || !clearStreetTree(sx, sz, scale) || !clearStreetTreePit(sx, sz, pitRot, narrow) ||
             !onSidewalk(sx, sz) || inPlaza(sx, sz, 1.5) ||
+            satelliteClearance(sx, sz, SATELLITE_KEEP) < SATELLITE_KEEP ||
             nearOsmTree(sx, sz) || !isClearOfPoles(sx, sz, 2.2) || !clearOfRails(sx, sz, 0.4 * scale, streetTreeShape(sx, sz, scale, species, acrossX, squeeze)) ||
             !isClearOfWalls(sx, sz, scale, species, squeeze, SIDEWALK_Y, tier)) continue;
         x = sx;
