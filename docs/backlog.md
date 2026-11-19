@@ -336,11 +336,6 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   dated refurbishment record becomes available. Its narrow gabled exterior above curved interior glazing is now
   resolved from GUGiK/GEOPOZ imagery (13 × 17 m approximation); 14 m eaves / 3.5 m rise remain model assumptions.
   [Hall-roof evidence, 2026-11-13](observations/kit-roofs-2026-11-13.md#hall-weather-roof-review-2026-11-13).
-- **Data-edge buffer stops (2026-11-19):** the 22 red/white beam props at the tram data-edge dead ends were not seen in
-  a browser. Check the Starołęka pair (z ≈ 3125) and one north (1071 at −1550.7, −3650.3) and east (541 at 4676.5,
-  −179.2) end on WebGPU high and WebGL2 low, day and night, from a low chase and a drone. The same pass should frame
-  the Franowo box-edge lamp row against the M1/IKEA/Selgros satellite rectangles (17 masts lie inside the rectangles in
-  the headless model). [Record](observations/tram-buffer-stops-2026-11-19.md).
 - Continue landmark-placement and scenic-camera checks, panel-material shimmer, balcony LOD transitions and
   platform/slab flicker where surfaces are only 1 cm apart.
 - Browser check still open for the street trees: an in-frame overlay of OSM points on the pits (the 2026-11-17 attempt drew no
@@ -433,14 +428,21 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   (`kapL3`) show the car just after it cleared the path of a braking tram (≈ 0.25 s after), the crossing itself is inferred
   from the log. The per-frame tram-reservation value (`c.held`, `tramConflictGap`) was not read, so the ~1 s
   forecast-gap case is unverified. [Record](observations/browser-checks-trams-2026-11-17.md#3-kaponiera).
-- **Data-edge tram ends (2026-11-19).** Buffer stops now stand at all **22** tram dead ends outside the detail box (the
-  Starołęka pair at z ≈ 3125, Franowo, Junikowo, Górczyn, Dębiec, Miłostowo; the 848/1013 switch is excluded).
+- **Data-edge tram ends (2026-11-19).** Buffer stops stand at all **22** tram dead ends outside the detail box (the
+  Starołęka pair at z ≈ 3125, Franowo, Junikowo, Górczyn, Dębiec, Miłostowo; the 848/1013 switch is excluded). The
+  2026-11-19 browser pass framed the Starołęka pair, north 1071, east 541 and Górczyn 553 on WebGPU high and WebGL2
+  low, day and night; placement, feet, shadows and rail clearance pass, but the first frames showed a plain white beam
+  (the pulse half-width was the whole period). The stripe was fixed to 50% duty — three red and three white 0.4 m bands
+  — and re-checked on both backends. At midnight the unlit beam is a silhouette only.
   `tools/audit-pole-outskirts.mjs` checks 33,032 poles at 0.3 m: **0 signal/tram pole clashes** (nearest tram pole
   1.058 m, signal pole 47.6 m; railway masts have none within 60 m). **17 street LED masts** on the box's south edge
-  lie inside the M1/IKEA/Selgros satellite rectangles, up to 54 m deep — the hand-placed rectangle approximation, not
-  a catenary-pole/building clash. **Decision open:** refine those satellite outlines or move/drop the edge lamps.
-  Browser checks: none of the buffer stops seen yet; the Franowo edge masts and satellite intrusion need a look on both
-  backends. [Record](observations/tram-buffer-stops-2026-11-19.md).
+  lie inside the M1/IKEA/Selgros satellite rectangles, up to 54 m deep: 15 at x 3564–4314 on the Franowo edge and 2 at
+  x 826/858 by Selgros. The frames show all 17 fully enclosed (6 m masts under 15 m M1/IKEA boxes and a 10 m Selgros
+  box), so no mast pokes through a roof; the row instead disappears for 182 m at IKEA, 193 m at M1, 100 m at the M1
+  glass part and 51 m at Selgros, and the 15 m M1 wall crosses the edge sidewalk. The M1 main roof reaches **124 m**
+  into the detail box (glass 109 m, IKEA 88 m, Selgros 11 m) and the glass part's centre is 31 m inside it. From the
+  air the malls read as ordinary retail volumes; the visible break is the lamp/tree row at their walls. **Decision
+  open:** refine those satellite outlines or move/drop the edge lamps. [Record](observations/tram-buffer-stops-2026-11-19.md).
 - Listen to sirens, bells, tram motors/squeal and the noon show; verify local timing and audible range.
 
 For each fix, record measurements and regression checks in the topic docs or observation records, and state which

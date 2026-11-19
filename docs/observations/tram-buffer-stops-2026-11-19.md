@@ -104,10 +104,134 @@ no world code changed from the audit.**
   cabinets' 0.45 m box). The satellite rectangles are the hand-placed approximations, so their penetrations are
   geometry-model differences, not necessarily visible gaps in the real city.
 
-## Browser checks still open
+## Browser checks opened by this record
 
-- No rendered check was made of the buffer stops: view the Starołęka pair at z ≈ 3125 and one north (e.g. 1071 at
-  −1550.7, −3650.3) and east (541 at 4676.5, −179.2) end on WebGPU high and WebGL2 low, by day and at night, from a
-  low chase and a drone. Watch the console.
-- Frame the Franowo box-edge lamp row and the M1/IKEA/Selgros rectangles from the south-east drone/edge view on both
-  backends to judge whether the 17 buried masts are visible and how much the rectangles intrude into the box.
+The [2026-11-19 browser pass](#browser-pass-2026-11-19) below closed both. The scope that was set was:
+
+- the buffer stops at the Starołęka pair (z ≈ 3125), north 1071 (−1550.7, −3650.3) and east 541 (4676.5, −179.2),
+  on WebGPU high and WebGL2 low, by day and at night, from a low chase and a drone;
+- the Franowo box-edge lamp row and the M1/IKEA/Selgros rectangles from the south-east drone/edge view on both
+  backends, to judge whether the 17 buried masts are visible and how much the rectangles intrude into the box.
+
+## Browser pass, 2026-11-19
+
+### Setup and boots
+
+- Headless Google Chrome **157.0.8103.79** on macOS (Apple M5 Pro), flags
+  `--headless=new --enable-unsafe-webgpu --use-angle=metal`, window 1280 × 720, `--disable-extensions` on the
+  re-checks, background timer/renderer throttling disabled. Served by `python3 -m http.server 8240` from the worktree.
+- WebGPU used `/?quality=high` (1280 × 720 internal); WebGL2 used `/?backend=webgl&quality=low` (960 × 540 internal,
+  1280 × 720 CSS). `Network.setCacheDisabled({cacheDisabled:true})` was set before every navigation.
+- CDP ports: **9440** for the first (pre-fix) WebGPU/WebGL2 pass, **9441** for the post-fix WebGPU pass, **9442** for
+  the post-fix WebGL2 pass and **9444** for the distance-fade views. Chrome was relaunched between the heavy runs (it
+  exited after each capture), each time with a fresh profile and a new boot.
+- Every boot cleared `#loading-overlay` (`hidden`), reported `#hud-backend` = **WebGPU** or **WebGL2**, and produced
+  the expected canvas size. Boots took 8.2–8.9 s. The six runs (pre-fix and post-fix, both backends, plus the
+  distance views) had **zero page exceptions and zero warning/error-level console messages**; the four full capture
+  runs also recorded no browser-log entries.
+- Framing used `Runtime.queryObjects` on the live `CameraSystem`, replacing only its `update` to read
+  `window.__debugCamera = { eye, look, fov }`; time presets were selected through the real `[data-time]` buttons
+  (`lightingSystem.activePresetId` and the active class were checked after each switch). `Trams` and
+  `TrafficAndPedestrians` were hidden and the HUD was suppressed for deterministic prop frames. No production
+  inspection hook was added.
+- Exact unrounded stop transforms, camera poses and Franowo poses are retained in `.agent-task/views.json`; the
+  distance-view poses are under `farViews` there and in `.agent-task/far-webgpu.json` / `.agent-task/far-webgl2.json`.
+  Screenshots are under `.agent-task/shots/`; the pre-fix copies cited below are in
+  `.agent-task/shots/before-fix/`.
+
+### Buffer stops
+
+The live scene held **22 `TramBufferStops` beams and 22 `TramBufferStopFrames`**, both under `TramInfrastructure`, all
+at y 0 and unit scale. The framed instances (live positions, not the rounded table) were:
+
+| End | Beams | x | z |
+|---|---|---|---|
+| Starołęka pair 1200/1201 | 2 | 624.588, 628.285 | 3124.987, 3126.787 |
+| north 1071 | 1 | −1550.679 | −3650.269 |
+| east 541 | 1 | 4676.499 | −179.229 |
+| Górczyn 553 | 1 | −3568.076 | 3037.229 |
+
+Each was captured at midday and midnight from a 20 m low chase (eye y 1.75–1.9, look y 0.78–0.8) and a 14–18 m-high
+drone, plus a 0.45 m base close-up and separate 300/600 m high views at Starołęka, on WebGPU high and WebGL2 low.
+
+**Placement passes.** The rails end 0.5 m before each beam; no rail head passes under a beam or foot and no z-fighting
+was visible. The 0.08 m feet sit on the ground: the prop base is y 0, while the outskirts carpet top is −0.02, so a
+2 cm air gap exists arithmetically, but it is not visible from a 0.45 m eye at 4 m or from the 20 m chase (the foot
+bottom reads flush and carries a contact shadow). The beam and frame cast clean, attached shadows; no acne or peter-
+panning. The 2.4 m beam spans the 1.435 m gauge and the 1.8 m-apart posts stay outside the rail heads. There are no
+trams or other actors in the prop frames (hidden for the check; the pre-fix scout that left them visible caught a tram
+on the adjacent track at the Starołęka pair, which is the expected operating context).
+
+**The first rendered pass found a real defect:** the beam rendered as a plain white bar with hairline red seams and
+read as a park bench rather than a red/white buffer stop, on both backends. The `colorNode` pulse used
+`phase = x * 2.5` (0.4 m period) with a half-width of `0.5`, which is the full period: the pulse was high everywhere
+except the `fract` boundaries. It was corrected in `js/tram-infra.js` to `phase = x * 1.25` (0.8 m period) and a
+half-width of `0.25` (50% duty), giving three 0.4 m red and three 0.4 m white bands across the 2.4 m beam. At the 20 m
+chase each band is about 15 px on WebGPU high and 12 px on WebGL2 low. The fix was re-checked on both backends.
+
+- Before: `.agent-task/shots/before-fix/webgpu-staroleka-pair-chase-midday.png`,
+  `before-fix/webgl2-staroleka-pair-chase-midday.png`, `before-fix/webgpu-staroleka-pair-chase-midnight.png`,
+  `before-fix/scout-base-pair-a.png` (white beam, seams only).
+- After: `webgpu-staroleka-pair-chase-midday.png`, `webgl2-staroleka-pair-chase-midday.png`,
+  `webgpu-staroleka-pair-base-midday.png`, `webgpu-staroleka-pair-drone-midday.png`, the same views at `midnight`,
+  and `webgpu-north-1071-chase-midday.png`, `webgpu-east-541-chase-midday.png`,
+  `webgpu-gorczyn-553-chase-midday.png` with their `-drone` and `webgl2-` counterparts.
+- Distance: `webgpu-staroleka-pair-far300-midday.png`, `webgpu-staroleka-pair-far600-midday.png` and the WebGL2 pair
+  were taken from a high eye, but the pair is at the resolution limit and the frames do not separate the `fwidth`
+  fade from the ground; the 220 m `webgpu-staroleka-pair-far-midday.png` is blocked by rooftops. They are not evidence.
+  The 18–40 m drone frames show no seam pop in a still; this was **not** a temporal fly-through, so motion shimmer was
+  not tested.
+- Night: the data-edge ends have no local lights. At midnight the beam is a dark silhouette against the lit ground
+  carpet; its red/white bands are not distinguishable at 20 m, while the beam/posts silhouette is. This is a lighting
+  limitation of the unlit edge, not a material failure.
+
+The buffer-stop check **passes after the fix** (placement and appearance), so its backlog bullet is removed; the
+stripe defect is fixed and re-checked rather than left open.
+
+### Franowo box-edge lamp row
+
+The rendered edge row runs along the south box edge at **z 2842.42**, 1.78 m inside the declared edge (BZ1 2844.2):
+**341 LED masts** from x −9100.5 to 4460.5, typically about 30.8 m apart with a few longer gaps. The audit's 17 buried
+masts are 15 here plus
+the two Selgros ones; the first record's sentence “all … x 3564–4314” left out the Selgros pair, which is at
+x **826.0** and **858.0**. The groups are:
+
+| part | masts | x at the row | hidden row length | northward intrusion into the box |
+|---|---:|---|---:|---:|
+| M1 Poznań main (329 × 120 m) | 6 | 4034.2–4189.7 | 192.5 m (4010.3–4202.7) | **124.2 m** (north edge z 2720.0) |
+| M1 Poznań glass part (149 × 80 m) | 3 | 4251.9–4314.1 | 100.2 m (4231.2–4331.4) | **108.5 m** (z 2735.7) |
+| IKEA Franowo (208.5 × 102.6 m) | 6 | 3564.0–3718.0 | 182.2 m (3564.2–3746.4) | **88.0 m** (z 2756.2) |
+| Selgros (121 × 150 m) | 2 | 826.0, 858.0 | 51.1 m (819.7–870.8) | **11.4 m** (z 2832.8) |
+
+The last column is the box's northmost corner behind BZ1; the audit's mast penetration depths are smaller (54.0 m M1,
+50.9 m IKEA, 7.6 m Selgros), because a mast sits inside the footprint but not at its deepest point.
+
+The 17 masts are **fully enclosed, not poking through roofs**: the LED mast is 6 m high, the M1/IKEA boxes 15 m and
+Selgros 10 m. No mast, arm or lamp head is visible on a roof or through a wall; the row simply disappears under each
+footprint. The malls themselves read as ordinary big-box retail volumes from the air: their roofs sit on a wide paved
+apron and there is no drawn box boundary, so the intrusion is not conspicuous from above. The M1 glass part is the
+extreme case: its **centre** is at z 2813.5, 30.7 m inside the box, not just a corner.
+
+What is visibly broken is the **lamp/tree row**, which is the only street-level cue at the edge:
+
+- `webgpu-franowo-row-south-midday.png` (from the south, eye 3890, 2.6, 2892): the long 15 m M1 facade crosses the
+  edge sidewalk diagonally; the lamp and tree row leads into it and the next lamps are gone. `webgl2-` repeats it.
+- `webgpu-franowo-drone-south-midday.png` (eye 3820, 40, 2900): the row of trees and lamp posts runs across the open
+  apron and terminates at the M1 corner; the roof covers everything beyond. At `midnight` the lit ground pools stop at
+  the same corner (`webgpu-franowo-drone-south-midnight.png`).
+- `webgpu-franowo-ikea-drone-midday.png` and `webgpu-franowo-row-north-midday.png`: the same at the blue IKEA box;
+  `webgpu-franowo-glass-low-midday.png` shows the row ending at the M1 glass wall. `webgpu-franowo-overview-south-midday.png`
+  gives the whole retail-park context.
+- `webgpu-selgros-row-midday.png` and `webgpu-selgros-drone-midday.png`: the shallower Selgros case (11.4 m; 51 m of
+  row and two masts hidden under its long roof).
+
+No z-fighting or see-through was visible in the mall walls, roofs or their intersections with the lamps/trees. The
+decision is still **open** and no world code was changed: refine the three satellite outlines (or split/trim them) or
+move/drop the box-edge lamp row.
+
+### Verification
+
+- `node --test tests/`: **696 passed, 0 failed** (123.3 s); `git diff --check` clean. The shader change does not alter
+  any placement or instance count, so `tests/tram-infra.test.cjs` still pins 22 beams and 22 frames.
+- The console status and boot evidence above are from the same runs that produced the frames. No audio, frame-rate or
+  whole-fleet pass was made.

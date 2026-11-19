@@ -2306,12 +2306,13 @@ function buildTramInfrastructure(scene, network, layouts = null) {
   const endWallMat = new THREE.MeshStandardNodeMaterial({ color: 0x9a958c, roughness: 0.9 }); // concrete end walls
   const steelMat = new THREE.MeshStandardNodeMaterial({ color: 0x4f5650, roughness: 0.55, metalness: 0.7 });
   // Data-edge buffer stop: a red/white striped beam on a dark steel frame. The box-filtered pulse fades the 0.4 m bands
-  // to their mean once one is under a pixel, like the ballast sleepers, so they do not shimmer from the air.
+  // to their mean once one is under a pixel, like the ballast sleepers, so they do not shimmer from the air. The 0.25
+  // half-width spans 0.5 of the phase period (50% duty): three red and three white bands across the 2.4 m beam.
   const bufferBeamMat = new THREE.MeshStandardNodeMaterial({ roughness: 0.5, metalness: 0.2 });
   bufferBeamMat.colorNode = Fn(() => {
-    const phase = positionGeometry.x.mul(2.5); // 0.4 m bands across the 2.4 m beam
+    const phase = positionGeometry.x.mul(1.25); // one red/white pair per 0.8 m
     const fw = max(fwidth(phase), 0.0001);
-    const pulse = clamp(float(0.5).sub(abs(fract(phase).sub(0.5))).div(fw).add(0.5), 0.0, 1.0);
+    const pulse = clamp(float(0.25).sub(abs(fract(phase).sub(0.5))).div(fw).add(0.5), 0.0, 1.0);
     return mix(color(0xc42026), color(0xf1eee6), mix(pulse, float(0.5), smoothstep(0.25, 0.6, fw)));
   })();
   // 2.4 m beam spans the rails; the frame's 0.9 m posts stand 1.8 m apart, clear of the 1.435 m gauge.
