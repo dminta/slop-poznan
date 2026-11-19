@@ -425,8 +425,11 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   Correcting the mapped track spacing at those pinches remains an option, but a driving rule that holds one tram back
   from an adjacent track would add holds for no gain. [Record and re-judgement](observations/tram-braking-2026-11-18.md).
 - **Canopy follow-up (low priority):** Railway mast openings in mapped platform roofs are accepted; two #1 masts
-  outside the source roof ring remain audit hits. Review #18's elevated track overlap and #19's rectangle overbuild.
-  [Survey and decision](observations/canopy-clearance-2026-11-17.md#railway-mast-survey-2026-11-18-headless-classification).
+  outside the source roof ring remain audit hits. #18 (its stored rectangle matches the source ring; track 194 runs
+  elevated under a ground-based soffit 2.0–3.1 m above its ballast) and #19 (the minimum rectangle overhangs the skew
+  source ring by 133 m², cutting 12.3 m of track 376) were reviewed on 2026-11-19 and **accepted** as flat-world /
+  rectangle approximations — a real fix needs elevated platform decks or polygon canopies, not a placement tweak.
+  [Follow-up](observations/canopy-clearance-2026-11-17.md#follow-up-2026-11-19-18-elevated-track-and-19-rectangle-overbuild).
 - **Defect (minor): open doorways are barely readable in some lighting (Zawady Tramino).** Open leaf RGB (27, 31, 33) vs
   closed (9, 21, 31) in `zawadyA3-10` / `-12`; the open colour `0x2b2622` (`js/actor-models.js:3697`) is shared by all
   models, and Ogrody's Combino reads better (`ogrody-09` / `-11`), so it is lighting and angle. Model labels are inferred

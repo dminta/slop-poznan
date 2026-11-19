@@ -255,3 +255,70 @@ matched, it accepts only a centre inside a track-free deck rectangle at least 2.
 the original 38 hits, 36 qualify, including both #18 and both #19 masts and the #81 roof mast. The two #1 masts
 outside their source ring remain hits. Track 194 under #18 and the #19 rectangle overbuild remain survey notes;
 accepting the mast openings does not resolve either geometry. No placement or rendering change was made.
+
+
+## Follow-up 2026-11-19: #18 elevated track and #19 rectangle overbuild
+
+`node tools/audit-canopy-clearance.mjs --json` on this tree still reports 206 canopies, **2 hits** and **36 accepted
+roof openings** (including both #18 and both #19 masts), with 0 missing signal supports. Both hits are the #1 railway
+masts at (-1550.4, 632.9) and (-1556.8, 663.4). The follow-up probe rebuilt the same furnished fixture and measured the
+two decks' matched source rings, their rendered railway pieces and the rendered catenary chords, then clipped them in
+plan against the stored rectangle (the method the 2026-11-18 survey used). No code, geodata or audit change was made.
+The probe is `/tmp/canopy-followup/probe.mjs`, the audit fixture with the ring/rail/catenary analysis appended.
+
+Mast placement for context: `support()` in `tram-infra.js` marches up to `RAIL_ARM_REACH` 7 m to the first clear side
+of a track and stands an 8.2 m mast there (9.6 m for a portal), one support about every `RAIL_STATION` 55 m; the
+renderer draws each mast as `h + elevationAt`, so a raised track lifts the whole mast. The audit tests the mast
+footprint with `top = h`, i.e. it assumes a base at ground level.
+
+| Measure | #18 | #19 |
+| --- | --- | --- |
+| OSM roof way | 263320509 (`amenity=shelter`, `note=zadaszenie peronu`, `layer=1`) | 1097786439 (`building=roof`, `layer=1`) |
+| Stored rectangle | centre (-1479.1, 392), 90.6 × 9.7 m, ang -1.3672 | centre (-1391.2, 526.7), 88.1 × 11.3 m, ang -1.42 |
+| Rectangle / source ring area | 878.82 / 882.03 m² (ratio 0.996; the shave is output rounding) | 995.53 / 856.80 m² (ratio 1.162) |
+| Source ring shape | 90.62 × 9.73 m rectangle (local u -45.27..45.35, v -4.86..4.87); no overbuild | 14-vertex ring, roughly a skew trapezoid; its +v edge falls from v 5.70 at u -22.44 to 2.96 at u 44.09 |
+| Rectangle outside the ring | 0.00 m² | 133.19 m² = 13.4% of the rectangle (0.25 m grid): 56 m² along the +v side, deepest at the +u/+v corner, and 77 m² as a ≤1.34 m sliver along the -v edge |
+| Track in rectangle / in ring | 194: 90.60 / 90.61 m | 376: 12.33 / 0.00 m |
+| Track position in the deck | full length at local v -1.75..-1.79, 3.08 m inside the -v long edge | crosses the +u/+v corner: (u 44.05, v 4.43) to (u 31.79, v 5.65) |
+| Rendered chord / rail elevation | 90.60 m; 1.61-2.73 m | 15.67 m; 2.89-3.80 m |
+| Contact / messenger wire | 7.21-8.33 / 8.61-9.73 m | 8.49-9.40 / 9.89-10.80 m |
+| Deck underside / top | 5.0 / 5.4 m | 5.0 / 5.4 m |
+| Soffit over rail head / ballast top | 2.27-3.39 / 1.97-3.09 m | 1.20-2.11 / 0.90-1.81 m |
+| Railway masts in the deck | (-1481.74, 381.35) h 9.6, base 2.28, top 11.88; (-1482.30, 384.66) h 8.2, base 2.12, top 10.32; both in the ring and through the slab | (-1392.84, 566.10) h 8.2, base 6.34, top 14.54 (base above the deck); (-1383.74, 499.53) h 8.2, base 3.83, top 12.03; both in the ring, the second through the slab |
+| Posts (nearest to the track) | 13 of 39 candidates, all in the +v row at v 4.2; nearest to 194 is 5.91 m | 14, 13 in the centre row plus one at v -5.0; nearest to 376 is 4.39 m |
+
+**#18: faithful footprint, real clearance conflict from the flat platform; accept.** The plan overlap is in the
+source data, not a rectangle artifact: the mapped roof is a 90.6 × 9.7 m rectangle whose ring contains 90.61 m of
+track 194, and the stored rectangle contains 90.60 m, so the roof really is mapped over the track along its whole
+length. The track runs 3.08 m inside one long edge; the two supports stand 2.78-2.85 m from their tracks (one supports
+194, the other the yard tracks 16/171/514/519), which puts them just inside that edge, so openings there are
+plausible. The conflict is vertical: the rail layout puts track 194 on a viaduct approach at 1.61-2.73 m, while the
+canopy height is measured from the ground (5.0-5.4 m). The soffit is therefore 2.27-3.39 m above the rail head and
+1.97-3.09 m above the ballast top, not the 5.0 m over a ground-level 4.3 m body that the canopy table assumes; such a
+body over the rail head would reach 5.91-7.03 m and would not fit. The catenary is above the deck (contact
+7.21-8.33 m, messenger 8.61-9.73 m), so the survey's wire-chord check cannot fire. No train actors exist, so no train
+body is drawn through the deck. This is the flat-world/elevated-platform approximation, not a footprint or audit
+error; raising the platform and deck with the rail approach, or clipping canopy decks where the rail is elevated, is a
+world-scale change rather than a placement tweak.
+
+**#19: minimum-rectangle overbuild, mostly not the mapped roof; accept.** The stored rectangle comes from `minRect`
+of the convex hull in `tools/poz-canopies.mjs`, so a single box cannot follow the 14-vertex skewed outline. The
+rectangle adds 133.19 m² (13.4%) outside the source ring: mostly a shallow (up to 1.34 m) sliver along the -v long
+edge, with the deep part at the +u/+v corner, where the ring's +v edge has fallen 2.7 m below the stored depth. Track
+376 cuts exactly that corner: 12.33 m of it is inside the rectangle and 0.00 m inside the ring. The deck is drawn as
+the full rectangle (`canopies.js` scales the deck box by `w × d`), so the world really does overhang the track there,
+with a 0.90-1.81 m soffit over the ballast top. The wires remain above the deck (contact 8.49-9.40 m, messenger
+9.89-10.80 m). The 1.16 overbuild is within the generator's documented `RECT_MAX` 2.4 tolerance, which keeps platform
+canopies even when irregular; the alternative is source-ring/polygon canopy geometry and a matching audit model (the
+survey's 1-3 day estimate). No small trim fixes it without uncovering part of the mapped roof.
+
+One audit-model detail found on the way: the accepted-opening list is a footprint test, so the #19 mast whose rendered
+base is 6.34 m (above the 5.4 m deck top) is listed as an opening though it does not physically intersect the slab.
+The other #19 mast (base 3.83 m) and both #18 masts do pierce. This is conservative and changes no hit total.
+
+No browser frame was taken for either deck in this follow-up. From the geometry, an #18 frame would show the rail ramp
+and ballast running the full 90.6 m under a soffit 2.0-3.1 m above the ballast, two mast tops through the track-side
+edge and the wires above the slab; an #19 frame would show the slab's corner about 2.7 m past the mapped roof edge,
+hanging 0.9-1.8 m above the ballast of track 376. Neither was checked rendered, lit or from the player's eye height.
+The quick loop `node --test tests/*.cjs` passes 663/663 (73 s), including the canopy clearance test, which still pins
+the 36 accepted openings and the two #1 hits. No files other than this record changed.
