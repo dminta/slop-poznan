@@ -349,7 +349,8 @@ It framed the Rynek Łazarski road-cleared columns, raised 6.1 m tram canopies a
 backends; the 2026-11-17 [tram pass](observations/browser-checks-trams-2026-11-17.md) then showed the pantograph on
 WebGPU too. Natural WebGPU sequences cover a whole Zawady switch passage, a Kaponiera road-crossing passage and a left
 turn without a nearby tram; the 2026-11-17 pass added an occupied-stop admission, a tram passing a stopped car, a left
-turn just after clearing a braking tram's path, the Zawady/Ogrody dwells and a Jeżyce reservation. Remaining checks and defects are listed
+turn just after clearing a braking tram's path, the Zawady/Ogrody dwells and a Jeżyce reservation, and the 2026-11-19
+[Kaponiera left-turn pass](observations/browser-checks-kaponiera-left-turn-2026-11-19.md) framed close left-turn crossings ahead of an approaching tram nose plus per-frame `c.held` / `tramConflictGap` ~1 s forecast-gap yields on both WebGPU high and WebGL2 low. Remaining checks and defects are listed
 below. The Główny hall / Garbary ramp track overlaps remain deliberately unchanged, as documented in
 [the earlier clearance audit](observations/overhead-clearance-2026-11-14.md#3-document-only-findings-no-code-change).
 
@@ -435,10 +436,6 @@ below. The Główny hall / Garbary ramp track overlaps remain deliberately uncha
   source ring by 133 m², cutting 12.3 m of track 376) were reviewed on 2026-11-19 and **accepted** as flat-world /
   rectangle approximations — a real fix needs elevated platform decks or polygon canopies, not a placement tweak.
   [Follow-up](observations/canopy-clearance-2026-11-17.md#follow-up-2026-11-19-18-elevated-track-and-19-rectangle-overbuild).
-- Kaponiera left turn with a tram approaching: the close crossing ahead of the tram's nose was **not framed**. The frames
-  (`kapL3`) show the car just after it cleared the path of a braking tram (≈ 0.25 s after), the crossing itself is inferred
-  from the log. The per-frame tram-reservation value (`c.held`, `tramConflictGap`) was not read, so the ~1 s
-  forecast-gap case is unverified. [Record](observations/browser-checks-trams-2026-11-17.md#3-kaponiera).
 - Listen to sirens, bells, tram motors/squeal and the noon show; verify local timing and audible range.
 
 For each fix, record measurements and regression checks in the topic docs or observation records, and state which

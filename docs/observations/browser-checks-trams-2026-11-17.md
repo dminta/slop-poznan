@@ -247,9 +247,9 @@ tram braking cap, the open-door contrast, the high-tier canopy reflection and th
 ## Not resolved
 
 - Why the 2026-11-16 WebGPU canopy frame lacked the pantograph.
-- The exact forecast-gap value at the Kaponiera left turn.
+- The exact forecast-gap value at the Kaponiera left turn. Resolved: [Kaponiera left-turn follow-up](browser-checks-kaponiera-left-turn-2026-11-19.md).
 - The SUV near tram 2 in `jez2-04` / `-09` (parallax is likely; the pair was not measured).
-- `jez1` frames; the WebGL2 versions of every sequence except the pantograph.
+- `jez1` frames; the WebGL2 versions of every sequence except the pantograph (Kaponiera left-turn and forecast-gap checks now also covered on WebGL2 low in [the 2026-11-19 follow-up](browser-checks-kaponiera-left-turn-2026-11-19.md)).
 - Whether the canopy ghost reflection is SSR and whether WebGL2 high shows it (not investigated in this pass).
   Resolved: [canopy SSR follow-up](canopy-ssr-2026-11-17.md).
-- The close left-turn crossing at Kaponiera was not framed (only the aftermath).
+- The close left-turn crossing at Kaponiera was not framed (only the aftermath). Resolved: [Kaponiera left-turn follow-up](browser-checks-kaponiera-left-turn-2026-11-19.md).
